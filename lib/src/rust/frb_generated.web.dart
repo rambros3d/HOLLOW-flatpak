@@ -6,6 +6,8 @@
 // Static analysis wrongly picks the IO variant, thus ignore this
 // ignore_for_file: argument_type_not_assignable
 
+import 'api/identity.dart';
+import 'api/network.dart';
 import 'api/simple.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -24,7 +26,31 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  DiscoveredPeer dco_decode_box_autoadd_discovered_peer(dynamic raw);
+
+  @protected
+  NetworkEvent dco_decode_box_autoadd_network_event(dynamic raw);
+
+  @protected
+  DiscoveredPeer dco_decode_discovered_peer(dynamic raw);
+
+  @protected
+  IdentityInfo dco_decode_identity_info(dynamic raw);
+
+  @protected
+  List<String> dco_decode_list_String(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  NetworkEvent dco_decode_network_event(dynamic raw);
+
+  @protected
+  String? dco_decode_opt_String(dynamic raw);
+
+  @protected
+  NetworkEvent? dco_decode_opt_box_autoadd_network_event(dynamic raw);
 
   @protected
   int dco_decode_u_8(dynamic raw);
@@ -36,7 +62,37 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
+  DiscoveredPeer sse_decode_box_autoadd_discovered_peer(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  NetworkEvent sse_decode_box_autoadd_network_event(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  DiscoveredPeer sse_decode_discovered_peer(SseDeserializer deserializer);
+
+  @protected
+  IdentityInfo sse_decode_identity_info(SseDeserializer deserializer);
+
+  @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  NetworkEvent sse_decode_network_event(SseDeserializer deserializer);
+
+  @protected
+  String? sse_decode_opt_String(SseDeserializer deserializer);
+
+  @protected
+  NetworkEvent? sse_decode_opt_box_autoadd_network_event(
+    SseDeserializer deserializer,
+  );
 
   @protected
   int sse_decode_u_8(SseDeserializer deserializer);
@@ -54,8 +110,44 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_discovered_peer(
+    DiscoveredPeer self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_network_event(
+    NetworkEvent self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_discovered_peer(
+    DiscoveredPeer self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_identity_info(IdentityInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_network_event(NetworkEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_network_event(
+    NetworkEvent? self,
     SseSerializer serializer,
   );
 

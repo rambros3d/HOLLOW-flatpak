@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:haven/src/rust/api/simple.dart';
+import 'package:flutter/services.dart';
+import 'package:haven/src/rust/api/identity.dart';
+import 'package:haven/src/rust/api/network.dart';
 import 'package:haven/src/rust/frb_generated.dart';
 
 Future<void> main() async {
@@ -15,34 +19,306 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Haven',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.deepPurple,
+          brightness: Brightness.dark,
+        ),
+        brightness: Brightness.dark,
       ),
       home: const HavenHome(),
     );
   }
 }
 
-class HavenHome extends StatelessWidget {
+class HavenHome extends StatefulWidget {
   const HavenHome({super.key});
 
   @override
+  State<HavenHome> createState() => _HavenHomeState();
+}
+
+class _HavenHomeState extends State<HavenHome> {
+  String? _localPeerId;
+  String? _mnemonic;
+  bool _identityLoaded = false;
+  bool _nodeRunning = false;
+  String? _listenAddress;
+  String? _error;
+  Timer? _pollTimer;
+
+  final Map<String, List<String>> _discoveredPeers = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadIdentity();
+  }
+
+  Future<void> _loadIdentity() async {
+    try {
+      final info = await loadOrCreateIdentity();
+      setState(() {
+        _localPeerId = info.peerId;
+        _mnemonic = info.mnemonic;
+        _identityLoaded = true;
+        _error = null;
+      });
+      // If this is a brand new identity, show the mnemonic backup dialog.
+      if (info.mnemonic != null && mounted) {
+        _showMnemonicDialog(info.mnemonic!);
+      }
+    } catch (e) {
+      setState(() => _error = e.toString());
+    }
+  }
+
+  void _showMnemonicDialog(String mnemonic) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Your Recovery Phrase'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'This is your 24-word recovery phrase. Write it down and keep '
+              'it safe. You will need it to restore your identity if you lose '
+              'access to this device.',
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.black26,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amber.withValues(alpha: 0.5)),
+              ),
+              child: SelectableText(
+                mnemonic,
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 14,
+                  height: 1.6,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: mnemonic));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Copied to clipboard')),
+                    );
+                  },
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: const Text('Copy'),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('I\'ve saved it'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _startNode() async {
+    try {
+      final peerId = await startNode();
+      setState(() {
+        _localPeerId = peerId;
+        _nodeRunning = true;
+        _error = null;
+      });
+      _pollTimer = Timer.periodic(
+        const Duration(milliseconds: 500),
+        (_) => _pollEvents(),
+      );
+    } catch (e) {
+      setState(() => _error = e.toString());
+    }
+  }
+
+  Future<void> _stopNode() async {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    try {
+      await stopNode();
+      setState(() {
+        _nodeRunning = false;
+        _discoveredPeers.clear();
+        _listenAddress = null;
+      });
+    } catch (e) {
+      setState(() => _error = e.toString());
+    }
+  }
+
+  Future<void> _pollEvents() async {
+    while (true) {
+      final event = await pollNetworkEvent();
+      if (event == null) break;
+
+      setState(() {
+        switch (event) {
+          case NetworkEvent_PeerDiscovered(:final peer):
+            final existing = _discoveredPeers[peer.peerId] ?? [];
+            final allAddrs = {...existing, ...peer.addresses}.toList();
+            _discoveredPeers[peer.peerId] = allAddrs;
+          case NetworkEvent_PeerExpired(:final peerId):
+            _discoveredPeers.remove(peerId);
+          case NetworkEvent_Listening(:final address):
+            _listenAddress = address;
+          case NetworkEvent_Error(:final message):
+            _error = message;
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final rustGreeting = greet(name: "Jabun");
+    final theme = Theme.of(context);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Haven'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        backgroundColor: theme.colorScheme.inversePrimary,
       ),
-      body: Center(
+      body: Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'FFI Bridge Test',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            // Identity section
+            Text('Identity', style: theme.textTheme.titleLarge),
+            const SizedBox(height: 8),
+            if (!_identityLoaded)
+              const Text('Loading identity...')
+            else if (_localPeerId != null)
+              SelectableText(
+                'Peer ID: ${_localPeerId!.substring(0, 20)}...',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontFamily: 'monospace',
+                ),
+              ),
+            if (_mnemonic != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: TextButton.icon(
+                  onPressed: () => _showMnemonicDialog(_mnemonic!),
+                  icon: const Icon(Icons.key, size: 16),
+                  label: const Text('View recovery phrase'),
+                ),
+              ),
+
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 8),
+
+            // Node controls
+            Text('P2P Network', style: theme.textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                FilledButton.icon(
+                  onPressed: _identityLoaded
+                      ? (_nodeRunning ? _stopNode : _startNode)
+                      : null,
+                  icon: Icon(_nodeRunning ? Icons.stop : Icons.play_arrow),
+                  label: Text(_nodeRunning ? 'Stop Node' : 'Start Node'),
+                ),
+                const SizedBox(width: 16),
+                if (_nodeRunning)
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: const BoxDecoration(
+                      color: Colors.green,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                if (_nodeRunning)
+                  const Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: Text('Running'),
+                  ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Text(rustGreeting, style: const TextStyle(fontSize: 16)),
+            const SizedBox(height: 12),
+
+            if (_listenAddress != null)
+              Text(
+                'Listening on: $_listenAddress',
+                style: theme.textTheme.bodySmall,
+              ),
+
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Error: $_error',
+                  style: TextStyle(color: theme.colorScheme.error),
+                ),
+              ),
+
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 8),
+
+            // Discovered peers
+            Text(
+              'Discovered Peers (${_discoveredPeers.length})',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: _discoveredPeers.isEmpty
+                  ? Center(
+                      child: Text(
+                        _nodeRunning
+                            ? 'Searching for peers on your local network...'
+                            : 'Start the node to discover peers.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.6,
+                          ),
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: _discoveredPeers.length,
+                      itemBuilder: (context, index) {
+                        final peerId = _discoveredPeers.keys.elementAt(index);
+                        final addresses = _discoveredPeers[peerId]!;
+                        return Card(
+                          child: ListTile(
+                            leading: const Icon(Icons.computer),
+                            title: Text(
+                              '${peerId.substring(0, 16)}...',
+                              style: const TextStyle(fontFamily: 'monospace'),
+                            ),
+                            subtitle: Text(addresses.join(', ')),
+                          ),
+                        );
+                      },
+                    ),
+            ),
           ],
         ),
       ),

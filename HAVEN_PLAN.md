@@ -816,8 +816,9 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 - [X] Flutter project setup with desktop + mobile targets
 - [X] Rust FFI bridge setup (`flutter_rust_bridge`)
-- [ ] libp2p integration: TCP/QUIC transport, peer discovery (mDNS for LAN)
-- [ ] Ed25519 identity generation and mnemonic backup
+- [X] libp2p integration: TCP transport, mDNS peer discovery (LAN)
+- [ ] libp2p: QUIC transport (for internet connectivity)
+- [X] Ed25519 identity generation and mnemonic backup
 - [ ] X3DH key exchange + Double Ratchet (1:1 E2EE messaging)
 - [ ] Basic SQLite local storage (SQLCipher encrypted)
 - [ ] Minimal UI: single chat view, message list, input box
