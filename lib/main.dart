@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:haven/src/rust/api/identity.dart';
 import 'package:haven/src/rust/api/network.dart';
+import 'package:haven/src/rust/api/storage.dart';
 import 'package:haven/src/rust/frb_generated.dart';
 
 Future<void> main() async {
@@ -68,6 +69,8 @@ class _HavenHomeState extends State<HavenHome> {
   Future<void> _loadIdentity() async {
     try {
       final info = await loadOrCreateIdentity();
+      // Open the encrypted message database (derives key from identity).
+      await openMessageStore();
       setState(() {
         _localPeerId = info.peerId;
         _mnemonic = info.mnemonic;
@@ -190,9 +193,17 @@ class _HavenHomeState extends State<HavenHome> {
           case NetworkEvent_Listening(:final address):
             _listenAddress = address;
           case NetworkEvent_MessageReceived(:final fromPeer, :final text):
+            final now = DateTime.now();
             _chatHistory.putIfAbsent(fromPeer, () => []);
             _chatHistory[fromPeer]!
-                .add(ChatMessage(text: text, isMe: false));
+                .add(ChatMessage(text: text, isMe: false, timestamp: now));
+            // Persist to encrypted DB (fire-and-forget).
+            saveMessage(
+              peerId: fromPeer,
+              text: text,
+              isMine: false,
+              timestamp: now.millisecondsSinceEpoch,
+            );
           case NetworkEvent_MessageSent():
             // Message delivery confirmed — could update UI status later.
             break;
@@ -216,11 +227,19 @@ class _HavenHomeState extends State<HavenHome> {
           chatHistory: _chatHistory,
           onSend: (text) async {
             await sendMessage(peerId: peerId, text: text);
+            final now = DateTime.now();
             setState(() {
               _chatHistory.putIfAbsent(peerId, () => []);
               _chatHistory[peerId]!
-                  .add(ChatMessage(text: text, isMe: true));
+                  .add(ChatMessage(text: text, isMe: true, timestamp: now));
             });
+            // Persist to encrypted DB.
+            await saveMessage(
+              peerId: peerId,
+              text: text,
+              isMine: true,
+              timestamp: now.millisecondsSinceEpoch,
+            );
           },
         ),
       ),
@@ -419,6 +438,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
   Timer? _refreshTimer;
+  bool _historyLoaded = false;
 
   List<ChatMessage> get _messages =>
       widget.chatHistory[widget.peerId] ?? [];
@@ -426,6 +446,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    _loadHistory();
     // Refresh the message list periodically so incoming messages appear.
     _refreshTimer = Timer.periodic(
       const Duration(milliseconds: 300),
@@ -433,6 +454,33 @@ class _ChatScreenState extends State<ChatScreen> {
         if (mounted) setState(() {});
       },
     );
+  }
+
+  Future<void> _loadHistory() async {
+    if (_historyLoaded) return;
+    _historyLoaded = true;
+    try {
+      widget.chatHistory.putIfAbsent(widget.peerId, () => []);
+      final existing = widget.chatHistory[widget.peerId]!;
+      // Only load from DB if we have no in-memory messages for this peer.
+      // During an active session, messages are already in memory.
+      if (existing.isNotEmpty) return;
+
+      final stored = await loadMessages(peerId: widget.peerId, limit: 200);
+      if (stored.isNotEmpty && mounted) {
+        setState(() {
+          existing.addAll(stored.map((m) => ChatMessage(
+            text: m.text,
+            isMe: m.isMine,
+            timestamp: DateTime.fromMillisecondsSinceEpoch(m.timestamp),
+          )));
+        });
+        _scrollToBottom();
+      }
+    } catch (e) {
+      // Storage error is non-fatal — chat still works in-memory.
+      debugPrint('Failed to load message history: $e');
+    }
   }
 
   @override

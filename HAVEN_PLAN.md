@@ -820,7 +820,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] libp2p: QUIC transport (for internet connectivity)
 - [X] Ed25519 identity generation and mnemonic backup
 - [X] Direct peer-to-peer connection (LAN only initially)
-- [ ] Basic SQLite local storage (SQLCipher encrypted)
+- [X] Basic SQLite local storage (SQLCipher encrypted)
 - [ ] Minimal UI: single chat view, message list, input box
 - [ ] X3DH key exchange + Double Ratchet (1:1 E2EE messaging)
 

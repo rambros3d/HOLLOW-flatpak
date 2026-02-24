@@ -106,3 +106,11 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# Copy OpenSSL DLLs required by SQLCipher at runtime.
+set(OPENSSL_BIN_DIR "C:/Program Files/OpenSSL-Win64/bin")
+install(FILES
+  "${OPENSSL_BIN_DIR}/libcrypto-3-x64.dll"
+  "${OPENSSL_BIN_DIR}/libssl-3-x64.dll"
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)

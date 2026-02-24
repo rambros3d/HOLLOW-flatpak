@@ -9,6 +9,7 @@
 import 'api/identity.dart';
 import 'api/network.dart';
 import 'api/simple.dart';
+import 'api/storage.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'frb_generated.dart';
@@ -26,6 +27,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  bool dco_decode_bool(dynamic raw);
+
+  @protected
   DiscoveredPeer dco_decode_box_autoadd_discovered_peer(dynamic raw);
 
   @protected
@@ -33,6 +37,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   DiscoveredPeer dco_decode_discovered_peer(dynamic raw);
+
+  @protected
+  int dco_decode_i_32(dynamic raw);
+
+  @protected
+  PlatformInt64 dco_decode_i_64(dynamic raw);
 
   @protected
   IdentityInfo dco_decode_identity_info(dynamic raw);
@@ -44,6 +54,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<StoredMessage> dco_decode_list_stored_message(dynamic raw);
+
+  @protected
   NetworkEvent dco_decode_network_event(dynamic raw);
 
   @protected
@@ -53,6 +66,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkEvent? dco_decode_opt_box_autoadd_network_event(dynamic raw);
 
   @protected
+  StoredMessage dco_decode_stored_message(dynamic raw);
+
+  @protected
   int dco_decode_u_8(dynamic raw);
 
   @protected
@@ -60,6 +76,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   String sse_decode_String(SseDeserializer deserializer);
+
+  @protected
+  bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
   DiscoveredPeer sse_decode_box_autoadd_discovered_peer(
@@ -75,6 +94,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   DiscoveredPeer sse_decode_discovered_peer(SseDeserializer deserializer);
 
   @protected
+  int sse_decode_i_32(SseDeserializer deserializer);
+
+  @protected
+  PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
+
+  @protected
   IdentityInfo sse_decode_identity_info(SseDeserializer deserializer);
 
   @protected
@@ -82,6 +107,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  List<StoredMessage> sse_decode_list_stored_message(
+    SseDeserializer deserializer,
+  );
 
   @protected
   NetworkEvent sse_decode_network_event(SseDeserializer deserializer);
@@ -95,19 +125,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  StoredMessage sse_decode_stored_message(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_u_8(SseDeserializer deserializer);
 
   @protected
   void sse_decode_unit(SseDeserializer deserializer);
 
   @protected
-  int sse_decode_i_32(SseDeserializer deserializer);
-
-  @protected
-  bool sse_decode_bool(SseDeserializer deserializer);
-
-  @protected
   void sse_encode_String(String self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_discovered_peer(
@@ -128,6 +158,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_i_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
+
+  @protected
   void sse_encode_identity_info(IdentityInfo self, SseSerializer serializer);
 
   @protected
@@ -136,6 +172,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_stored_message(
+    List<StoredMessage> self,
     SseSerializer serializer,
   );
 
@@ -152,16 +194,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_stored_message(StoredMessage self, SseSerializer serializer);
+
+  @protected
   void sse_encode_u_8(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_unit(void self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_i_32(int self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_bool(bool self, SseSerializer serializer);
 }
 
 // Section: wire_class
