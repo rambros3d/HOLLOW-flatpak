@@ -825,25 +825,21 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 **Deliverable:** Two devices on the same network can chat with E2E encryption.
 
-### Phase 2: Networking (Months 3-5)
+### Phase 2: Internet Connectivity (Months 3-4)
 
-**Goal:** Users can connect over the internet, behind NATs.
+**Goal:** Two users anywhere in the world can find each other and chat 1:1 with E2EE.
 
-- [ ] libp2p: QUIC transport (for internet connectivity)
-- [ ] NAT traversal: AutoNAT, DCUtR hole punching, circuit relay
-- [ ] Kademlia DHT for peer discovery
-- [ ] Prekey bundle storage in DHT (for async key exchange)
+- [X] libp2p: QUIC transport (for internet connectivity)
+- [X] Kademlia DHT for peer discovery
+- [X] NAT traversal: AutoNAT, DCUtR hole punching, circuit relay
 - [ ] Lightweight signaling service (Cloudflare Worker or equivalent)
+- [ ] Prekey bundle storage in DHT (for async key exchange)
 - [ ] Invite link generation and joining flow
 - [ ] Connection management (persistent connections, reconnection logic)
-- [ ] Basic offline message queuing (store-and-forward via online peers)
-- [ ] Device linking via QR code (multi-device identity sync)
-- [ ] Social Recovery: guardian designation + Shamir's Secret Sharing
-- [ ] Encrypted Vault Backup (password-based, stored in network)
 
-**Deliverable:** Two users anywhere in the world can find each other, chat, and recover their accounts.
+**Deliverable:** Two users on different networks can find each other via invite link and chat with E2EE.
 
-### Phase 3: Servers & Channels (Months 5-8)
+### Phase 3: Servers & Channels (Months 4-7)
 
 **Goal:** Multi-user servers with channels, roles, and MLS encryption.
 
@@ -856,10 +852,12 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] Roles and permissions system
 - [ ] Server settings UI
 - [ ] Member list with online/offline status
+- [ ] Basic offline message queuing (store-and-forward via online peers)
+- [ ] Device linking via QR code (multi-device identity sync)
 
-**Deliverable:** A functional group chat platform with servers and channels.
+**Deliverable:** A functional group chat platform with servers, channels, and multi-device support.
 
-### Phase 4: Shared Vault — Distributed Storage (Months 8-12)
+### Phase 4: Shared Vault — Distributed Storage (Months 7-11)
 
 **Goal:** The core innovation — distributed storage across members.
 
@@ -873,10 +871,12 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] File upload → encrypt → erasure-code → distribute pipeline
 - [ ] Image/file preview and download from distributed storage
 - [ ] Storage tier configuration (retention policies per data type)
+- [ ] Social Recovery: guardian designation + Shamir's Secret Sharing
+- [ ] Encrypted Vault Backup (password-based, stored in network)
 
-**Deliverable:** Server data lives distributed across members. No single point of failure.
+**Deliverable:** Server data lives distributed across members. No single point of failure. Account recovery works.
 
-### Phase 5: Voice & Video (Months 12-15)
+### Phase 5: Voice & Video (Months 11-14)
 
 **Goal:** Real-time calls with E2EE.
 
@@ -893,7 +893,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 **Deliverable:** Full voice/video/screen-share with E2EE.
 
-### Phase 6: Polish & Features (Months 15-18)
+### Phase 6: Polish & Features (Months 14-17)
 
 **Goal:** Feature parity with Discord's core experience.
 
@@ -917,7 +917,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 **Deliverable:** A polished, feature-complete communication platform.
 
-### Phase 7: Distribution & Launch (Months 18-20)
+### Phase 7: Distribution & Launch (Months 17-19)
 
 **Goal:** Ship it.
 

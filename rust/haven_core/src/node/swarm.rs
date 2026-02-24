@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use libp2p::futures::StreamExt;
 use libp2p::request_response::{self, ProtocolSupport};
-use libp2p::{identity, mdns, noise, swarm::SwarmEvent, tcp, yamux, Multiaddr, PeerId, SwarmBuilder};
+use libp2p::{autonat, dcutr, identity, kad, mdns, noise, relay, swarm::SwarmEvent, tcp, yamux, Multiaddr, PeerId, SwarmBuilder};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
@@ -154,9 +154,13 @@ impl request_response::Codec for HavenCodec {
     }
 }
 
-/// Our libp2p network behaviour — mDNS discovery + encrypted messaging.
+/// Our libp2p network behaviour — mDNS discovery + encrypted messaging + DHT + NAT traversal.
 #[derive(libp2p::swarm::NetworkBehaviour)]
 struct HavenBehaviour {
+    relay_client: relay::client::Behaviour,
+    kademlia: kad::Behaviour<kad::store::MemoryStore>,
+    autonat: autonat::Behaviour,
+    dcutr: dcutr::Behaviour,
     mdns: mdns::tokio::Behaviour,
     messaging: request_response::Behaviour<HavenCodec>,
 }
@@ -177,13 +181,21 @@ pub(crate) async fn spawn_node(
             yamux::Config::default,
         )
         .map_err(|e| format!("TCP setup failed: {e}"))?
-        .with_behaviour(|key| {
+        .with_quic_config(|mut config| {
+            config.handshake_timeout = Duration::from_secs(10);
+            config
+        })
+        .with_relay_client(noise::Config::new, yamux::Config::default)
+        .map_err(|e| format!("Relay client setup failed: {e}"))?
+        .with_behaviour(|key, relay_client| {
+            let local_peer_id = key.public().to_peer_id();
+
             let mdns_config = mdns::Config {
                 ttl: Duration::from_secs(300),
                 query_interval: Duration::from_secs(5),
                 enable_ipv6: false,
             };
-            let mdns = mdns::tokio::Behaviour::new(mdns_config, key.public().to_peer_id())
+            let mdns = mdns::tokio::Behaviour::new(mdns_config, local_peer_id)
                 .expect("Failed to create mDNS behaviour");
 
             let messaging = request_response::Behaviour::<HavenCodec>::new(
@@ -191,7 +203,30 @@ pub(crate) async fn spawn_node(
                 request_response::Config::default(),
             );
 
-            Ok(HavenBehaviour { mdns, messaging })
+            // Kademlia DHT (MemoryStore — records lost on restart, fine for Phase 2)
+            let mut kademlia = kad::Behaviour::new(
+                local_peer_id,
+                kad::store::MemoryStore::new(local_peer_id),
+            );
+            kademlia.set_mode(Some(kad::Mode::Server));
+
+            // AutoNAT — probes other peers to discover our public address
+            let autonat = autonat::Behaviour::new(
+                local_peer_id,
+                autonat::Config::default(),
+            );
+
+            // DCUtR — hole punching via relay-assisted coordination
+            let dcutr = dcutr::Behaviour::new(local_peer_id);
+
+            Ok(HavenBehaviour {
+                relay_client,
+                kademlia,
+                autonat,
+                dcutr,
+                mdns,
+                messaging,
+            })
         })
         .map_err(|e| format!("Behaviour setup failed: {e}"))?
         .with_swarm_config(|cfg| {
@@ -213,16 +248,31 @@ async fn run_swarm(
     mut olm: OlmManager,
     crypto_store: CryptoStore,
 ) {
-    // Listen on all interfaces, random port.
-    let listen_addr: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse().unwrap();
-    if let Err(e) = swarm.listen_on(listen_addr) {
+    // Listen on all interfaces — TCP and QUIC, random ports.
+    let tcp_addr: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse().unwrap();
+    if let Err(e) = swarm.listen_on(tcp_addr) {
         let _ = event_tx
             .send(NetworkEvent::Error {
-                message: format!("Failed to listen: {e}"),
+                message: format!("Failed to listen (TCP): {e}"),
             })
             .await;
         return;
     }
+
+    let quic_addr: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1".parse().unwrap();
+    if let Err(e) = swarm.listen_on(quic_addr) {
+        let _ = event_tx
+            .send(NetworkEvent::Error {
+                message: format!("Failed to listen (QUIC): {e}"),
+            })
+            .await;
+        // QUIC failure is non-fatal — TCP still works as fallback.
+    }
+
+    // Listen on relay circuit — allows NATted peers to reach us through a relay.
+    // This may fail if no relay is available yet — that's OK.
+    let relay_addr: Multiaddr = "/ip4/0.0.0.0/tcp/0/p2p-circuit".parse().unwrap();
+    let _ = swarm.listen_on(relay_addr);
 
     // Track outbound request IDs → peer for delivery confirmation.
     let mut pending_requests = HashMap::<request_response::OutboundRequestId, String>::new();
@@ -285,14 +335,26 @@ async fn run_swarm(
                     SwarmEvent::Behaviour(HavenBehaviourEvent::Mdns(mdns::Event::Discovered(peers))) => {
                         for (peer_id, addr) in peers {
                             swarm.add_peer_address(peer_id, addr.clone());
+                            // Seed Kademlia DHT from LAN peers discovered via mDNS.
+                            swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
+                            let peer_id_str = peer_id.to_string();
                             let _ = event_tx
                                 .send(NetworkEvent::PeerDiscovered {
                                     peer: DiscoveredPeer {
-                                        peer_id: peer_id.to_string(),
+                                        peer_id: peer_id_str.clone(),
                                         addresses: vec![addr.to_string()],
                                     },
                                 })
                                 .await;
+                            // If we already have an Olm session from a previous run,
+                            // notify Dart so the encrypted indicator shows up immediately.
+                            if olm.has_session(&peer_id_str) {
+                                let _ = event_tx
+                                    .send(NetworkEvent::SessionEstablished {
+                                        peer_id: peer_id_str,
+                                    })
+                                    .await;
+                            }
                         }
                     }
                     SwarmEvent::Behaviour(HavenBehaviourEvent::Mdns(mdns::Event::Expired(peers))) => {
@@ -351,6 +413,78 @@ async fn run_swarm(
                             _ => {}
                         }
                     }
+
+                    // -- Kademlia DHT events --
+                    SwarmEvent::Behaviour(HavenBehaviourEvent::Kademlia(event)) => {
+                        match event {
+                            kad::Event::RoutingUpdated { peer, addresses, .. } => {
+                                // A peer was added/updated in the routing table.
+                                for addr in addresses.iter() {
+                                    swarm.add_peer_address(peer, addr.clone());
+                                }
+                            }
+                            kad::Event::OutboundQueryProgressed { result, .. } => {
+                                match result {
+                                    kad::QueryResult::Bootstrap(Ok(_)) => {
+                                        // Bootstrap completed — DHT routing table populated.
+                                    }
+                                    kad::QueryResult::Bootstrap(Err(e)) => {
+                                        let _ = event_tx
+                                            .send(NetworkEvent::Error {
+                                                message: format!("Kademlia bootstrap failed: {e:?}"),
+                                            })
+                                            .await;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    // -- AutoNAT events --
+                    SwarmEvent::Behaviour(HavenBehaviourEvent::Autonat(
+                        autonat::Event::StatusChanged { new, .. }
+                    )) => {
+                        match new {
+                            autonat::NatStatus::Public(addr) => {
+                                // We're publicly reachable — advertise our address.
+                                swarm.add_external_address(addr);
+                            }
+                            autonat::NatStatus::Private => {
+                                // Behind NAT — rely on relay + hole punching.
+                            }
+                            autonat::NatStatus::Unknown => {}
+                        }
+                    }
+                    SwarmEvent::Behaviour(HavenBehaviourEvent::Autonat(_)) => {}
+
+                    // -- DCUtR (hole punching) events --
+                    SwarmEvent::Behaviour(HavenBehaviourEvent::Dcutr(event)) => {
+                        match event.result {
+                            Ok(_connection_id) => {
+                                let _ = event_tx
+                                    .send(NetworkEvent::Listening {
+                                        address: format!("hole-punch-ok:{}", event.remote_peer_id),
+                                    })
+                                    .await;
+                            }
+                            Err(error) => {
+                                let _ = event_tx
+                                    .send(NetworkEvent::Error {
+                                        message: format!("Hole punch failed to {}: {error}", event.remote_peer_id),
+                                    })
+                                    .await;
+                            }
+                        }
+                    }
+
+                    // -- Relay client events --
+                    SwarmEvent::Behaviour(HavenBehaviourEvent::RelayClient(event)) => {
+                        // Relay events (reservation established, etc.) — log via catch-all for now.
+                        let _ = event;
+                    }
+
                     _ => {}
                 }
             }
