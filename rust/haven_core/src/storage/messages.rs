@@ -45,6 +45,26 @@ impl MessageStore {
         )
         .map_err(|e| format!("Failed to create index: {e}"))?;
 
+        // Olm account pickle (singleton row, id=1).
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS olm_account (
+                id     INTEGER PRIMARY KEY CHECK (id = 1),
+                pickle TEXT NOT NULL
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create olm_account table: {e}"))?;
+
+        // Olm sessions, one per peer.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS olm_sessions (
+                peer_id TEXT PRIMARY KEY,
+                pickle  TEXT NOT NULL
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create olm_sessions table: {e}"))?;
+
         Ok(MessageStore { conn })
     }
 
@@ -63,6 +83,81 @@ impl MessageStore {
             )
             .map_err(|e| format!("Failed to insert message: {e}"))?;
         Ok(self.conn.last_insert_rowid())
+    }
+
+    // -- Olm persistence --
+
+    /// Save (upsert) the Olm account pickle.
+    pub fn save_olm_account(&self, pickle_json: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT INTO olm_account (id, pickle) VALUES (1, ?1)
+                 ON CONFLICT(id) DO UPDATE SET pickle = excluded.pickle",
+                params![pickle_json],
+            )
+            .map_err(|e| format!("Failed to save olm account: {e}"))?;
+        Ok(())
+    }
+
+    /// Load the Olm account pickle, if one exists.
+    pub fn load_olm_account(&self) -> Result<Option<String>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT pickle FROM olm_account WHERE id = 1")
+            .map_err(|e| format!("Failed to prepare olm_account query: {e}"))?;
+        let mut rows = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|e| format!("Failed to query olm_account: {e}"))?;
+        match rows.next() {
+            Some(Ok(pickle)) => Ok(Some(pickle)),
+            Some(Err(e)) => Err(format!("Failed to read olm_account row: {e}")),
+            None => Ok(None),
+        }
+    }
+
+    /// Save (upsert) an Olm session pickle for a peer.
+    pub fn save_olm_session(&self, peer_id: &str, pickle_json: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT INTO olm_sessions (peer_id, pickle) VALUES (?1, ?2)
+                 ON CONFLICT(peer_id) DO UPDATE SET pickle = excluded.pickle",
+                params![peer_id, pickle_json],
+            )
+            .map_err(|e| format!("Failed to save olm session: {e}"))?;
+        Ok(())
+    }
+
+    /// Load an Olm session pickle for a specific peer.
+    #[allow(dead_code)]
+    pub fn load_olm_session(&self, peer_id: &str) -> Result<Option<String>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT pickle FROM olm_sessions WHERE peer_id = ?1")
+            .map_err(|e| format!("Failed to prepare olm_sessions query: {e}"))?;
+        let mut rows = stmt
+            .query_map(params![peer_id], |row| row.get(0))
+            .map_err(|e| format!("Failed to query olm_sessions: {e}"))?;
+        match rows.next() {
+            Some(Ok(pickle)) => Ok(Some(pickle)),
+            Some(Err(e)) => Err(format!("Failed to read olm_sessions row: {e}")),
+            None => Ok(None),
+        }
+    }
+
+    /// Load all Olm session pickles (peer_id, pickle_json) pairs.
+    pub fn load_all_olm_sessions(&self) -> Result<Vec<(String, String)>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT peer_id, pickle FROM olm_sessions")
+            .map_err(|e| format!("Failed to prepare olm_sessions query: {e}"))?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| format!("Failed to query olm_sessions: {e}"))?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|e| format!("Failed to read olm_sessions row: {e}"))?);
+        }
+        Ok(result)
     }
 
     /// Load recent messages for a peer, ordered oldest-first.

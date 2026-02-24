@@ -11,7 +11,7 @@ part 'network.freezed.dart';
 // These functions are ignored because they are not marked as `pub`: `get_node`, `get_runtime`, `to_ffi_event`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `NodeState`
 
-/// Start the libp2p node with mDNS peer discovery.
+/// Start the libp2p node with mDNS peer discovery and E2EE.
 /// Uses the persistent identity from disk.
 /// Returns the local peer ID as a string.
 Future<String> startNode() => RustLib.instance.api.crateApiNetworkStartNode();
@@ -23,6 +23,11 @@ Future<NetworkEvent?> pollNetworkEvent() =>
 /// Get the local peer ID. Returns None if the node hasn't started.
 Future<String?> getLocalPeerId() =>
     RustLib.instance.api.crateApiNetworkGetLocalPeerId();
+
+/// Get the Olm identity fingerprint (Curve25519 base64).
+/// Returns None if the node hasn't started.
+Future<String?> getOlmFingerprint() =>
+    RustLib.instance.api.crateApiNetworkGetOlmFingerprint();
 
 /// Send a text message to a peer. The peer must be reachable (discovered via mDNS).
 Future<void> sendMessage({required String peerId, required String text}) =>
@@ -70,6 +75,8 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String toPeer,
     required String error,
   }) = NetworkEvent_MessageSendFailed;
+  const factory NetworkEvent.sessionEstablished({required String peerId}) =
+      NetworkEvent_SessionEstablished;
   const factory NetworkEvent.error({required String message}) =
       NetworkEvent_Error;
 }

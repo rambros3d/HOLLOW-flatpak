@@ -4,8 +4,10 @@ use flutter_rust_bridge::frb;
 use libp2p::PeerId;
 use tokio::sync::mpsc;
 
+use crate::crypto::{CryptoStore, OlmManager};
 use crate::identity;
 use crate::node;
+use crate::storage::MessageStore;
 
 /// A discovered peer on the local network.
 pub struct DiscoveredPeer {
@@ -21,6 +23,7 @@ pub enum NetworkEvent {
     MessageReceived { from_peer: String, text: String },
     MessageSent { to_peer: String },
     MessageSendFailed { to_peer: String, error: String },
+    SessionEstablished { peer_id: String },
     Error { message: String },
 }
 
@@ -30,6 +33,7 @@ struct NodeState {
     event_rx: mpsc::Receiver<node::NetworkEvent>,
     cmd_tx: mpsc::Sender<node::NodeCommand>,
     handle: tokio::task::JoinHandle<()>,
+    olm_fingerprint: String,
 }
 
 // The node state: None = not running, Some = running.
@@ -67,11 +71,14 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::MessageSendFailed { to_peer, error } => {
             NetworkEvent::MessageSendFailed { to_peer, error }
         }
+        node::NetworkEvent::SessionEstablished { peer_id } => {
+            NetworkEvent::SessionEstablished { peer_id }
+        }
         node::NetworkEvent::Error { message } => NetworkEvent::Error { message },
     }
 }
 
-/// Start the libp2p node with mDNS peer discovery.
+/// Start the libp2p node with mDNS peer discovery and E2EE.
 /// Uses the persistent identity from disk.
 /// Returns the local peer ID as a string.
 #[frb]
@@ -86,12 +93,57 @@ pub fn start_node() -> Result<String, String> {
     // Load the persistent identity (or create one if first run).
     let id = identity::load_or_create_identity()?;
 
+    // Derive the DB encryption key (same as storage module).
+    let proto = id
+        .keypair
+        .to_protobuf_encoding()
+        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
+    let key_bytes = &proto[..32.min(proto.len())];
+    let passphrase = hex::encode(key_bytes);
+
+    // Get DB path.
+    let data_dir = dirs::data_dir().ok_or("Could not find app data directory")?;
+    let haven_dir = data_dir.join("haven");
+    std::fs::create_dir_all(&haven_dir)
+        .map_err(|e| format!("Failed to create data dir: {e}"))?;
+    let db_path = haven_dir
+        .join("messages.db")
+        .to_str()
+        .ok_or("Invalid path encoding")?
+        .to_string();
+
+    // Load Olm state from DB (synchronous, on FFI thread).
+    let olm = {
+        let store = MessageStore::open(&db_path, &passphrase)?;
+        match store.load_olm_account()? {
+            Some(account_json) => {
+                let sessions = store.load_all_olm_sessions()?;
+                OlmManager::from_pickles(&account_json, sessions)?
+            }
+            None => {
+                // First time — create fresh Olm account and persist it.
+                let mgr = OlmManager::new();
+                let pickle = mgr.account_pickle_json()?;
+                store.save_olm_account(&pickle)?;
+                mgr
+            }
+        }
+    };
+
+    // Extract fingerprint before moving OlmManager into the swarm task.
+    let olm_fingerprint = olm.identity_key_base64();
+
+    // Open the CryptoStore persistence actor (runs in its own blocking thread).
+    let rt = get_runtime();
+    let crypto_store = rt.block_on(async {
+        CryptoStore::open(db_path, passphrase)
+    })?;
+
     let (event_tx, event_rx) = mpsc::channel::<node::NetworkEvent>(100);
     let (cmd_tx, cmd_rx) = mpsc::channel::<node::NodeCommand>(100);
-    let rt = get_runtime();
 
     let (peer_id_str, handle) = rt
-        .block_on(node::spawn_node(id.keypair, event_tx, cmd_rx))
+        .block_on(node::spawn_node(id.keypair, event_tx, cmd_rx, olm, crypto_store))
         .map_err(|e| format!("Failed to start node: {e}"))?;
 
     *guard = Some(NodeState {
@@ -99,6 +151,7 @@ pub fn start_node() -> Result<String, String> {
         event_rx,
         cmd_tx,
         handle,
+        olm_fingerprint,
     });
 
     Ok(peer_id_str)
@@ -119,6 +172,15 @@ pub fn get_local_peer_id() -> Option<String> {
     let node = get_node();
     let guard = node.lock().ok()?;
     guard.as_ref().map(|s| s.local_peer_id.clone())
+}
+
+/// Get the Olm identity fingerprint (Curve25519 base64).
+/// Returns None if the node hasn't started.
+#[frb]
+pub fn get_olm_fingerprint() -> Option<String> {
+    let node = get_node();
+    let guard = node.lock().ok()?;
+    guard.as_ref().map(|s| s.olm_fingerprint.clone())
 }
 
 /// Send a text message to a peer. The peer must be reachable (discovered via mDNS).

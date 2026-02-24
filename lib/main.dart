@@ -19,6 +19,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Haven',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: Colors.deepPurple,
@@ -30,6 +31,9 @@ class MyApp extends StatelessWidget {
     );
   }
 }
+
+/// Connection status for the P2P node.
+enum NodeStatus { loading, starting, connected, error }
 
 /// A single chat message.
 class ChatMessage {
@@ -51,14 +55,14 @@ class HavenHome extends StatefulWidget {
 class _HavenHomeState extends State<HavenHome> {
   String? _localPeerId;
   String? _mnemonic;
-  bool _identityLoaded = false;
-  bool _nodeRunning = false;
-  String? _listenAddress;
+  NodeStatus _status = NodeStatus.loading;
   String? _error;
   Timer? _pollTimer;
 
+  String? _selectedPeerId;
   final Map<String, List<String>> _discoveredPeers = {};
   final Map<String, List<ChatMessage>> _chatHistory = {};
+  final Set<String> _encryptedPeers = {};
 
   @override
   void initState() {
@@ -69,20 +73,42 @@ class _HavenHomeState extends State<HavenHome> {
   Future<void> _loadIdentity() async {
     try {
       final info = await loadOrCreateIdentity();
-      // Open the encrypted message database (derives key from identity).
       await openMessageStore();
       setState(() {
         _localPeerId = info.peerId;
         _mnemonic = info.mnemonic;
-        _identityLoaded = true;
-        _error = null;
       });
-      // If this is a brand new identity, show the mnemonic backup dialog.
       if (info.mnemonic != null && mounted) {
         _showMnemonicDialog(info.mnemonic!);
       }
+      // Auto-start node after identity loads.
+      _autoStartNode();
     } catch (e) {
-      setState(() => _error = e.toString());
+      setState(() {
+        _status = NodeStatus.error;
+        _error = e.toString();
+      });
+    }
+  }
+
+  Future<void> _autoStartNode() async {
+    setState(() => _status = NodeStatus.starting);
+    try {
+      final peerId = await startNode();
+      setState(() {
+        _localPeerId = peerId;
+        _status = NodeStatus.connected;
+        _error = null;
+      });
+      _pollTimer = Timer.periodic(
+        const Duration(milliseconds: 500),
+        (_) => _pollEvents(),
+      );
+    } catch (e) {
+      setState(() {
+        _status = NodeStatus.error;
+        _error = e.toString();
+      });
     }
   }
 
@@ -145,38 +171,6 @@ class _HavenHomeState extends State<HavenHome> {
     );
   }
 
-  Future<void> _startNode() async {
-    try {
-      final peerId = await startNode();
-      setState(() {
-        _localPeerId = peerId;
-        _nodeRunning = true;
-        _error = null;
-      });
-      _pollTimer = Timer.periodic(
-        const Duration(milliseconds: 500),
-        (_) => _pollEvents(),
-      );
-    } catch (e) {
-      setState(() => _error = e.toString());
-    }
-  }
-
-  Future<void> _stopNode() async {
-    _pollTimer?.cancel();
-    _pollTimer = null;
-    try {
-      await stopNode();
-      setState(() {
-        _nodeRunning = false;
-        _discoveredPeers.clear();
-        _listenAddress = null;
-      });
-    } catch (e) {
-      setState(() => _error = e.toString());
-    }
-  }
-
   Future<void> _pollEvents() async {
     while (true) {
       final event = await pollNetworkEvent();
@@ -190,22 +184,26 @@ class _HavenHomeState extends State<HavenHome> {
             _discoveredPeers[peer.peerId] = allAddrs;
           case NetworkEvent_PeerExpired(:final peerId):
             _discoveredPeers.remove(peerId);
-          case NetworkEvent_Listening(:final address):
-            _listenAddress = address;
+            if (_selectedPeerId == peerId) {
+              _selectedPeerId = null;
+            }
+          case NetworkEvent_Listening():
+            // Node is listening — status already set to connected.
+            break;
           case NetworkEvent_MessageReceived(:final fromPeer, :final text):
             final now = DateTime.now();
             _chatHistory.putIfAbsent(fromPeer, () => []);
             _chatHistory[fromPeer]!
                 .add(ChatMessage(text: text, isMe: false, timestamp: now));
-            // Persist to encrypted DB (fire-and-forget).
             saveMessage(
               peerId: fromPeer,
               text: text,
               isMine: false,
               timestamp: now.millisecondsSinceEpoch,
             );
+          case NetworkEvent_SessionEstablished(:final peerId):
+            _encryptedPeers.add(peerId);
           case NetworkEvent_MessageSent():
-            // Message delivery confirmed — could update UI status later.
             break;
           case NetworkEvent_MessageSendFailed(:final toPeer, :final error):
             _chatHistory.putIfAbsent(toPeer, () => []);
@@ -219,30 +217,19 @@ class _HavenHomeState extends State<HavenHome> {
     }
   }
 
-  void _openChat(String peerId) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => ChatScreen(
-          peerId: peerId,
-          chatHistory: _chatHistory,
-          onSend: (text) async {
-            await sendMessage(peerId: peerId, text: text);
-            final now = DateTime.now();
-            setState(() {
-              _chatHistory.putIfAbsent(peerId, () => []);
-              _chatHistory[peerId]!
-                  .add(ChatMessage(text: text, isMe: true, timestamp: now));
-            });
-            // Persist to encrypted DB.
-            await saveMessage(
-              peerId: peerId,
-              text: text,
-              isMine: true,
-              timestamp: now.millisecondsSinceEpoch,
-            );
-          },
-        ),
-      ),
+  Future<void> _sendMessage(String peerId, String text) async {
+    await sendMessage(peerId: peerId, text: text);
+    final now = DateTime.now();
+    setState(() {
+      _chatHistory.putIfAbsent(peerId, () => []);
+      _chatHistory[peerId]!
+          .add(ChatMessage(text: text, isMe: true, timestamp: now));
+    });
+    await saveMessage(
+      peerId: peerId,
+      text: text,
+      isMine: true,
+      timestamp: now.millisecondsSinceEpoch,
     );
   }
 
@@ -252,163 +239,336 @@ class _HavenHomeState extends State<HavenHome> {
     super.dispose();
   }
 
+  // -- Status indicator helpers --
+
+  Color _statusColor() {
+    return switch (_status) {
+      NodeStatus.connected => Colors.green,
+      NodeStatus.starting => Colors.orange,
+      NodeStatus.loading => Colors.grey,
+      NodeStatus.error => Colors.red,
+    };
+  }
+
+  String _statusText() {
+    return switch (_status) {
+      NodeStatus.connected => 'Connected',
+      NodeStatus.starting => 'Starting...',
+      NodeStatus.loading => 'Loading...',
+      NodeStatus.error => 'Error',
+    };
+  }
+
+  // -- Peer card helpers --
+
+  ChatMessage? _lastMessage(String peerId) {
+    final msgs = _chatHistory[peerId];
+    if (msgs == null || msgs.isEmpty) return null;
+    return msgs.last;
+  }
+
+  String _formatTime(DateTime dt) {
+    final now = DateTime.now();
+    if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
+      return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    }
+    return '${dt.month}/${dt.day}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final shortPeerId = _localPeerId != null && _localPeerId!.length > 12
+        ? '${_localPeerId!.substring(0, 12)}...'
+        : _localPeerId ?? '---';
+
+    return Scaffold(
+      body: Column(
+        children: [
+          // -- Top bar --
+          Container(
+            height: 48,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest,
+              border: Border(
+                bottom: BorderSide(color: theme.dividerColor),
+              ),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  'Haven',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                // Error tooltip
+                if (_error != null)
+                  Tooltip(
+                    message: _error!,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: Icon(
+                        Icons.warning_amber_rounded,
+                        size: 18,
+                        color: theme.colorScheme.error,
+                      ),
+                    ),
+                  ),
+                // Status dot
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: _statusColor(),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _statusText(),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                // Peer ID (tap to copy)
+                Tooltip(
+                  message: _localPeerId ?? 'Loading...',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: () {
+                      if (_localPeerId != null) {
+                        Clipboard.setData(
+                            ClipboardData(text: _localPeerId!));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Peer ID copied to clipboard'),
+                            duration: Duration(seconds: 1),
+                          ),
+                        );
+                      }
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      child: Text(
+                        shortPeerId,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontFamily: 'monospace',
+                          color: theme.colorScheme.onSurface
+                              .withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                // Settings menu (recovery phrase)
+                if (_mnemonic != null)
+                  IconButton(
+                    icon: const Icon(Icons.key, size: 18),
+                    tooltip: 'Recovery phrase',
+                    onPressed: () => _showMnemonicDialog(_mnemonic!),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // -- Main content: sidebar + chat area --
+          Expanded(
+            child: Row(
+              children: [
+                // Left sidebar
+                _Sidebar(
+                  peers: _discoveredPeers,
+                  chatHistory: _chatHistory,
+                  selectedPeerId: _selectedPeerId,
+                  nodeStatus: _status,
+                  encryptedPeers: _encryptedPeers,
+                  onPeerSelected: (peerId) {
+                    setState(() => _selectedPeerId = peerId);
+                  },
+                  lastMessage: _lastMessage,
+                  formatTime: _formatTime,
+                ),
+
+                // Right chat area
+                Expanded(
+                  child: _selectedPeerId != null
+                      ? _ChatPane(
+                          key: ValueKey(_selectedPeerId),
+                          peerId: _selectedPeerId!,
+                          chatHistory: _chatHistory,
+                          isEncrypted:
+                              _encryptedPeers.contains(_selectedPeerId),
+                          onSend: (text) =>
+                              _sendMessage(_selectedPeerId!, text),
+                        )
+                      : Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.chat_outlined,
+                                size: 64,
+                                color: theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.2),
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Select a peer to start chatting',
+                                style: theme.textTheme.bodyLarge?.copyWith(
+                                  color: theme.colorScheme.onSurface
+                                      .withValues(alpha: 0.4),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Sidebar
+// =============================================================================
+
+class _Sidebar extends StatelessWidget {
+  final Map<String, List<String>> peers;
+  final Map<String, List<ChatMessage>> chatHistory;
+  final String? selectedPeerId;
+  final NodeStatus nodeStatus;
+  final Set<String> encryptedPeers;
+  final ValueChanged<String> onPeerSelected;
+  final ChatMessage? Function(String) lastMessage;
+  final String Function(DateTime) formatTime;
+
+  const _Sidebar({
+    required this.peers,
+    required this.chatHistory,
+    required this.selectedPeerId,
+    required this.nodeStatus,
+    required this.encryptedPeers,
+    required this.onPeerSelected,
+    required this.lastMessage,
+    required this.formatTime,
+  });
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Haven'),
-        backgroundColor: theme.colorScheme.inversePrimary,
+    return Container(
+      width: 280,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        border: Border(
+          right: BorderSide(color: theme.dividerColor),
+        ),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Sidebar header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Text(
+              'Peers (${peers.length})',
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+
+          // Peer list
+          Expanded(
+            child: peers.isEmpty
+                ? _EmptyPeerList(nodeStatus: nodeStatus)
+                : ListView.builder(
+                    itemCount: peers.length,
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    itemBuilder: (context, index) {
+                      final peerId = peers.keys.elementAt(index);
+                      final isSelected = peerId == selectedPeerId;
+                      final last = lastMessage(peerId);
+
+                      return _PeerCard(
+                        peerId: peerId,
+                        isSelected: isSelected,
+                        isEncrypted: encryptedPeers.contains(peerId),
+                        lastMessage: last,
+                        formatTime: formatTime,
+                        onTap: () => onPeerSelected(peerId),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyPeerList extends StatelessWidget {
+  final NodeStatus nodeStatus;
+
+  const _EmptyPeerList({required this.nodeStatus});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final String text;
+    final IconData icon;
+
+    switch (nodeStatus) {
+      case NodeStatus.connected:
+        text = 'Searching for peers\non your local network...';
+        icon = Icons.radar;
+      case NodeStatus.starting:
+        text = 'Starting node...';
+        icon = Icons.hourglass_top;
+      case NodeStatus.loading:
+        text = 'Loading identity...';
+        icon = Icons.person_outline;
+      case NodeStatus.error:
+        text = 'Failed to start node.\nCheck the error above.';
+        icon = Icons.error_outline;
+    }
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Identity section
-            Text('Identity', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 8),
-            if (!_identityLoaded)
-              const Text('Loading identity...')
-            else if (_localPeerId != null)
-              SelectableText(
-                'Peer ID: ${_localPeerId!.substring(0, 20)}...',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontFamily: 'monospace',
-                ),
-              ),
-            if (_mnemonic != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: TextButton.icon(
-                  onPressed: () => _showMnemonicDialog(_mnemonic!),
-                  icon: const Icon(Icons.key, size: 16),
-                  label: const Text('View recovery phrase'),
-                ),
-              ),
-
-            const SizedBox(height: 12),
-            const Divider(),
-            const SizedBox(height: 8),
-
-            // Node controls
-            Text('P2P Network', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                FilledButton.icon(
-                  onPressed: _identityLoaded
-                      ? (_nodeRunning ? _stopNode : _startNode)
-                      : null,
-                  icon: Icon(_nodeRunning ? Icons.stop : Icons.play_arrow),
-                  label: Text(_nodeRunning ? 'Stop Node' : 'Start Node'),
-                ),
-                const SizedBox(width: 16),
-                if (_nodeRunning)
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: const BoxDecoration(
-                      color: Colors.green,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                if (_nodeRunning)
-                  const Padding(
-                    padding: EdgeInsets.only(left: 8),
-                    child: Text('Running'),
-                  ),
-              ],
+            Icon(
+              icon,
+              size: 36,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
             ),
             const SizedBox(height: 12),
-
-            if (_listenAddress != null)
-              Text(
-                'Listening on: $_listenAddress',
-                style: theme.textTheme.bodySmall,
-              ),
-
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  'Error: $_error',
-                  style: TextStyle(color: theme.colorScheme.error),
-                ),
-              ),
-
-            const SizedBox(height: 12),
-            const Divider(),
-            const SizedBox(height: 8),
-
-            // Discovered peers
             Text(
-              'Discovered Peers (${_discoveredPeers.length})',
-              style: theme.textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: _discoveredPeers.isEmpty
-                  ? Center(
-                      child: Text(
-                        _nodeRunning
-                            ? 'Searching for peers on your local network...'
-                            : 'Start the node to discover peers.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.6,
-                          ),
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: _discoveredPeers.length,
-                      itemBuilder: (context, index) {
-                        final peerId =
-                            _discoveredPeers.keys.elementAt(index);
-                        final addresses = _discoveredPeers[peerId]!;
-                        final unread = _chatHistory[peerId]
-                                ?.where((m) => !m.isMe)
-                                .length ??
-                            0;
-                        return Card(
-                          child: ListTile(
-                            leading: const Icon(Icons.computer),
-                            title: Text(
-                              '${peerId.substring(0, 16)}...',
-                              style:
-                                  const TextStyle(fontFamily: 'monospace'),
-                            ),
-                            subtitle: Text(addresses.join(', ')),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (unread > 0)
-                                  Padding(
-                                    padding:
-                                        const EdgeInsets.only(right: 8),
-                                    child: CircleAvatar(
-                                      radius: 12,
-                                      backgroundColor:
-                                          theme.colorScheme.primary,
-                                      child: Text(
-                                        '$unread',
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                const Icon(Icons.chat_bubble_outline),
-                              ],
-                            ),
-                            onTap: () => _openChat(peerId),
-                          ),
-                        );
-                      },
-                    ),
+              text,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+              ),
             ),
           ],
         ),
@@ -417,24 +577,140 @@ class _HavenHomeState extends State<HavenHome> {
   }
 }
 
-/// Chat screen for direct messaging with a single peer.
-class ChatScreen extends StatefulWidget {
+// =============================================================================
+// Peer Card
+// =============================================================================
+
+class _PeerCard extends StatelessWidget {
+  final String peerId;
+  final bool isSelected;
+  final bool isEncrypted;
+  final ChatMessage? lastMessage;
+  final String Function(DateTime) formatTime;
+  final VoidCallback onTap;
+
+  const _PeerCard({
+    required this.peerId,
+    required this.isSelected,
+    required this.isEncrypted,
+    required this.lastMessage,
+    required this.formatTime,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final shortId = peerId.length > 16
+        ? '${peerId.substring(0, 16)}...'
+        : peerId;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: Material(
+        color: isSelected
+            ? theme.colorScheme.primary.withValues(alpha: 0.15)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                // Online indicator
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: const BoxDecoration(
+                    color: Colors.green,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                if (isEncrypted) ...[
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.lock,
+                    size: 12,
+                    color: Colors.green.shade300,
+                  ),
+                ],
+                const SizedBox(width: 10),
+                // Peer info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        shortId,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontFamily: 'monospace',
+                          fontWeight:
+                              isSelected ? FontWeight.w600 : FontWeight.normal,
+                        ),
+                      ),
+                      if (lastMessage != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          lastMessage!.isMe
+                              ? 'You: ${lastMessage!.text}'
+                              : lastMessage!.text,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                // Timestamp
+                if (lastMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Text(
+                      formatTime(lastMessage!.timestamp),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurface
+                            .withValues(alpha: 0.4),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Chat Pane (inline, no Scaffold/AppBar)
+// =============================================================================
+
+class _ChatPane extends StatefulWidget {
   final String peerId;
   final Map<String, List<ChatMessage>> chatHistory;
+  final bool isEncrypted;
   final Future<void> Function(String text) onSend;
 
-  const ChatScreen({
+  const _ChatPane({
     super.key,
     required this.peerId,
     required this.chatHistory,
+    required this.isEncrypted,
     required this.onSend,
   });
 
   @override
-  State<ChatScreen> createState() => _ChatScreenState();
+  State<_ChatPane> createState() => _ChatPaneState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatPaneState extends State<_ChatPane> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
   Timer? _refreshTimer;
@@ -447,7 +723,6 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _loadHistory();
-    // Refresh the message list periodically so incoming messages appear.
     _refreshTimer = Timer.periodic(
       const Duration(milliseconds: 300),
       (_) {
@@ -462,23 +737,21 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       widget.chatHistory.putIfAbsent(widget.peerId, () => []);
       final existing = widget.chatHistory[widget.peerId]!;
-      // Only load from DB if we have no in-memory messages for this peer.
-      // During an active session, messages are already in memory.
       if (existing.isNotEmpty) return;
 
       final stored = await loadMessages(peerId: widget.peerId, limit: 200);
       if (stored.isNotEmpty && mounted) {
         setState(() {
           existing.addAll(stored.map((m) => ChatMessage(
-            text: m.text,
-            isMe: m.isMine,
-            timestamp: DateTime.fromMillisecondsSinceEpoch(m.timestamp),
-          )));
+                text: m.text,
+                isMe: m.isMine,
+                timestamp:
+                    DateTime.fromMillisecondsSinceEpoch(m.timestamp),
+              )));
         });
         _scrollToBottom();
       }
     } catch (e) {
-      // Storage error is non-fatal — chat still works in-memory.
       debugPrint('Failed to load message history: $e');
     }
   }
@@ -515,82 +788,141 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final shortId = widget.peerId.length > 16
-        ? '${widget.peerId.substring(0, 16)}...'
-        : widget.peerId;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(shortId, style: const TextStyle(fontFamily: 'monospace', fontSize: 14)),
-        backgroundColor: theme.colorScheme.inversePrimary,
-      ),
-      body: Column(
-        children: [
-          // Messages list
-          Expanded(
-            child: _messages.isEmpty
-                ? Center(
-                    child: Text(
-                      'No messages yet. Say hello!',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurface
-                            .withValues(alpha: 0.6),
-                      ),
-                    ),
-                  )
-                : ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.all(12),
-                    itemCount: _messages.length,
-                    itemBuilder: (context, index) {
-                      final msg = _messages[index];
-                      return _MessageBubble(
-                        message: msg,
-                        theme: theme,
-                      );
-                    },
-                  ),
+    return Column(
+      children: [
+        // Peer ID header
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: theme.dividerColor),
+            ),
           ),
-          // Input bar
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              border: Border(
-                top: BorderSide(
-                  color: theme.dividerColor,
+          child: Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: Colors.green,
+                  shape: BoxShape.circle,
                 ),
               ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    decoration: const InputDecoration(
-                      hintText: 'Type a message...',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                    ),
-                    onSubmitted: (_) => _handleSend(),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SelectableText(
+                  widget.peerId,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontFamily: 'monospace',
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  ),
+                ),
+              ),
+              if (widget.isEncrypted) ...[
+                Icon(
+                  Icons.lock,
+                  size: 14,
+                  color: Colors.green.shade300,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  'Encrypted',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: Colors.green.shade300,
                   ),
                 ),
                 const SizedBox(width: 8),
-                IconButton.filled(
-                  onPressed: _handleSend,
-                  icon: const Icon(Icons.send),
-                ),
               ],
+              IconButton(
+                icon: const Icon(Icons.copy, size: 16),
+                tooltip: 'Copy peer ID',
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: widget.peerId));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Peer ID copied'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                },
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(
+                  minWidth: 28,
+                  minHeight: 28,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Messages list
+        Expanded(
+          child: _messages.isEmpty
+              ? Center(
+                  child: Text(
+                    'No messages yet. Say hello!',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurface
+                          .withValues(alpha: 0.4),
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.all(12),
+                  itemCount: _messages.length,
+                  itemBuilder: (context, index) {
+                    final msg = _messages[index];
+                    return _MessageBubble(
+                      message: msg,
+                      theme: theme,
+                    );
+                  },
+                ),
+        ),
+
+        // Input bar
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            border: Border(
+              top: BorderSide(color: theme.dividerColor),
             ),
           ),
-        ],
-      ),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  decoration: const InputDecoration(
+                    hintText: 'Type a message...',
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                  ),
+                  onSubmitted: (_) => _handleSend(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filled(
+                onPressed: _handleSend,
+                icon: const Icon(Icons.send),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
+
+// =============================================================================
+// Message Bubble
+// =============================================================================
 
 class _MessageBubble extends StatelessWidget {
   final ChatMessage message;
@@ -610,7 +942,7 @@ class _MessageBubble extends StatelessWidget {
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.7,
+          maxWidth: MediaQuery.of(context).size.width * 0.5,
         ),
         decoration: BoxDecoration(
           color: isMe

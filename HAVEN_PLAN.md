@@ -817,12 +817,11 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [X] Flutter project setup with desktop + mobile targets
 - [X] Rust FFI bridge setup (`flutter_rust_bridge`)
 - [X] libp2p integration: TCP transport, mDNS peer discovery (LAN)
-- [ ] libp2p: QUIC transport (for internet connectivity)
 - [X] Ed25519 identity generation and mnemonic backup
 - [X] Direct peer-to-peer connection (LAN only initially)
 - [X] Basic SQLite local storage (SQLCipher encrypted)
-- [ ] Minimal UI: single chat view, message list, input box
-- [ ] X3DH key exchange + Double Ratchet (1:1 E2EE messaging)
+- [X] Minimal UI: single chat view, message list, input box
+- [X] X3DH key exchange + Double Ratchet (1:1 E2EE messaging)
 
 **Deliverable:** Two devices on the same network can chat with E2E encryption.
 
@@ -830,6 +829,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 **Goal:** Users can connect over the internet, behind NATs.
 
+- [ ] libp2p: QUIC transport (for internet connectivity)
 - [ ] NAT traversal: AutoNAT, DCUtR hole punching, circuit relay
 - [ ] Kademlia DHT for peer discovery
 - [ ] Prekey bundle storage in DHT (for async key exchange)

@@ -17,6 +17,8 @@ hex = "0.4"
 bip39 = "2.2"
 dirs = "6"
 getrandom = "0.3"
+vodozemac = "0.9"
+base64 = "0.22"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
