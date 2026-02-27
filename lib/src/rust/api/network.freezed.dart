@@ -55,12 +55,14 @@ extension NetworkEventPatterns on NetworkEvent {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult Function( NetworkEvent_Listening value)?  listening,TResult Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult Function( NetworkEvent_MessageSent value)?  messageSent,TResult Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult Function( NetworkEvent_Error value)?  error,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult Function( NetworkEvent_Listening value)?  listening,TResult Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult Function( NetworkEvent_MessageSent value)?  messageSent,TResult Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult Function( NetworkEvent_Error value)?  error,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
 return peerDiscovered(_that);case NetworkEvent_PeerExpired() when peerExpired != null:
-return peerExpired(_that);case NetworkEvent_Listening() when listening != null:
+return peerExpired(_that);case NetworkEvent_PeerDisconnected() when peerDisconnected != null:
+return peerDisconnected(_that);case NetworkEvent_RoomCleared() when roomCleared != null:
+return roomCleared(_that);case NetworkEvent_Listening() when listening != null:
 return listening(_that);case NetworkEvent_MessageReceived() when messageReceived != null:
 return messageReceived(_that);case NetworkEvent_MessageSent() when messageSent != null:
 return messageSent(_that);case NetworkEvent_MessageSendFailed() when messageSendFailed != null:
@@ -84,12 +86,14 @@ return error(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( NetworkEvent_PeerDiscovered value)  peerDiscovered,required TResult Function( NetworkEvent_PeerExpired value)  peerExpired,required TResult Function( NetworkEvent_Listening value)  listening,required TResult Function( NetworkEvent_MessageReceived value)  messageReceived,required TResult Function( NetworkEvent_MessageSent value)  messageSent,required TResult Function( NetworkEvent_MessageSendFailed value)  messageSendFailed,required TResult Function( NetworkEvent_SessionEstablished value)  sessionEstablished,required TResult Function( NetworkEvent_Error value)  error,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( NetworkEvent_PeerDiscovered value)  peerDiscovered,required TResult Function( NetworkEvent_PeerExpired value)  peerExpired,required TResult Function( NetworkEvent_PeerDisconnected value)  peerDisconnected,required TResult Function( NetworkEvent_RoomCleared value)  roomCleared,required TResult Function( NetworkEvent_Listening value)  listening,required TResult Function( NetworkEvent_MessageReceived value)  messageReceived,required TResult Function( NetworkEvent_MessageSent value)  messageSent,required TResult Function( NetworkEvent_MessageSendFailed value)  messageSendFailed,required TResult Function( NetworkEvent_SessionEstablished value)  sessionEstablished,required TResult Function( NetworkEvent_Error value)  error,}){
 final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered():
 return peerDiscovered(_that);case NetworkEvent_PeerExpired():
-return peerExpired(_that);case NetworkEvent_Listening():
+return peerExpired(_that);case NetworkEvent_PeerDisconnected():
+return peerDisconnected(_that);case NetworkEvent_RoomCleared():
+return roomCleared(_that);case NetworkEvent_Listening():
 return listening(_that);case NetworkEvent_MessageReceived():
 return messageReceived(_that);case NetworkEvent_MessageSent():
 return messageSent(_that);case NetworkEvent_MessageSendFailed():
@@ -109,12 +113,14 @@ return error(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult? Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult? Function( NetworkEvent_Listening value)?  listening,TResult? Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult? Function( NetworkEvent_MessageSent value)?  messageSent,TResult? Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult? Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult? Function( NetworkEvent_Error value)?  error,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult? Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult? Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult? Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult? Function( NetworkEvent_Listening value)?  listening,TResult? Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult? Function( NetworkEvent_MessageSent value)?  messageSent,TResult? Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult? Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult? Function( NetworkEvent_Error value)?  error,}){
 final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
 return peerDiscovered(_that);case NetworkEvent_PeerExpired() when peerExpired != null:
-return peerExpired(_that);case NetworkEvent_Listening() when listening != null:
+return peerExpired(_that);case NetworkEvent_PeerDisconnected() when peerDisconnected != null:
+return peerDisconnected(_that);case NetworkEvent_RoomCleared() when roomCleared != null:
+return roomCleared(_that);case NetworkEvent_Listening() when listening != null:
 return listening(_that);case NetworkEvent_MessageReceived() when messageReceived != null:
 return messageReceived(_that);case NetworkEvent_MessageSent() when messageSent != null:
 return messageSent(_that);case NetworkEvent_MessageSendFailed() when messageSendFailed != null:
@@ -137,11 +143,13 @@ return error(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( DiscoveredPeer peer)?  peerDiscovered,TResult Function( String peerId)?  peerExpired,TResult Function( String address)?  listening,TResult Function( String fromPeer,  String text)?  messageReceived,TResult Function( String toPeer)?  messageSent,TResult Function( String toPeer,  String error)?  messageSendFailed,TResult Function( String peerId)?  sessionEstablished,TResult Function( String message)?  error,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( DiscoveredPeer peer)?  peerDiscovered,TResult Function( String peerId)?  peerExpired,TResult Function( String peerId)?  peerDisconnected,TResult Function()?  roomCleared,TResult Function( String address)?  listening,TResult Function( String fromPeer,  String text)?  messageReceived,TResult Function( String toPeer)?  messageSent,TResult Function( String toPeer,  String error)?  messageSendFailed,TResult Function( String peerId)?  sessionEstablished,TResult Function( String message)?  error,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
 return peerDiscovered(_that.peer);case NetworkEvent_PeerExpired() when peerExpired != null:
-return peerExpired(_that.peerId);case NetworkEvent_Listening() when listening != null:
+return peerExpired(_that.peerId);case NetworkEvent_PeerDisconnected() when peerDisconnected != null:
+return peerDisconnected(_that.peerId);case NetworkEvent_RoomCleared() when roomCleared != null:
+return roomCleared();case NetworkEvent_Listening() when listening != null:
 return listening(_that.address);case NetworkEvent_MessageReceived() when messageReceived != null:
 return messageReceived(_that.fromPeer,_that.text);case NetworkEvent_MessageSent() when messageSent != null:
 return messageSent(_that.toPeer);case NetworkEvent_MessageSendFailed() when messageSendFailed != null:
@@ -165,11 +173,13 @@ return error(_that.message);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( DiscoveredPeer peer)  peerDiscovered,required TResult Function( String peerId)  peerExpired,required TResult Function( String address)  listening,required TResult Function( String fromPeer,  String text)  messageReceived,required TResult Function( String toPeer)  messageSent,required TResult Function( String toPeer,  String error)  messageSendFailed,required TResult Function( String peerId)  sessionEstablished,required TResult Function( String message)  error,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( DiscoveredPeer peer)  peerDiscovered,required TResult Function( String peerId)  peerExpired,required TResult Function( String peerId)  peerDisconnected,required TResult Function()  roomCleared,required TResult Function( String address)  listening,required TResult Function( String fromPeer,  String text)  messageReceived,required TResult Function( String toPeer)  messageSent,required TResult Function( String toPeer,  String error)  messageSendFailed,required TResult Function( String peerId)  sessionEstablished,required TResult Function( String message)  error,}) {final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered():
 return peerDiscovered(_that.peer);case NetworkEvent_PeerExpired():
-return peerExpired(_that.peerId);case NetworkEvent_Listening():
+return peerExpired(_that.peerId);case NetworkEvent_PeerDisconnected():
+return peerDisconnected(_that.peerId);case NetworkEvent_RoomCleared():
+return roomCleared();case NetworkEvent_Listening():
 return listening(_that.address);case NetworkEvent_MessageReceived():
 return messageReceived(_that.fromPeer,_that.text);case NetworkEvent_MessageSent():
 return messageSent(_that.toPeer);case NetworkEvent_MessageSendFailed():
@@ -189,11 +199,13 @@ return error(_that.message);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( DiscoveredPeer peer)?  peerDiscovered,TResult? Function( String peerId)?  peerExpired,TResult? Function( String address)?  listening,TResult? Function( String fromPeer,  String text)?  messageReceived,TResult? Function( String toPeer)?  messageSent,TResult? Function( String toPeer,  String error)?  messageSendFailed,TResult? Function( String peerId)?  sessionEstablished,TResult? Function( String message)?  error,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( DiscoveredPeer peer)?  peerDiscovered,TResult? Function( String peerId)?  peerExpired,TResult? Function( String peerId)?  peerDisconnected,TResult? Function()?  roomCleared,TResult? Function( String address)?  listening,TResult? Function( String fromPeer,  String text)?  messageReceived,TResult? Function( String toPeer)?  messageSent,TResult? Function( String toPeer,  String error)?  messageSendFailed,TResult? Function( String peerId)?  sessionEstablished,TResult? Function( String message)?  error,}) {final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
 return peerDiscovered(_that.peer);case NetworkEvent_PeerExpired() when peerExpired != null:
-return peerExpired(_that.peerId);case NetworkEvent_Listening() when listening != null:
+return peerExpired(_that.peerId);case NetworkEvent_PeerDisconnected() when peerDisconnected != null:
+return peerDisconnected(_that.peerId);case NetworkEvent_RoomCleared() when roomCleared != null:
+return roomCleared();case NetworkEvent_Listening() when listening != null:
 return listening(_that.address);case NetworkEvent_MessageReceived() when messageReceived != null:
 return messageReceived(_that.fromPeer,_that.text);case NetworkEvent_MessageSent() when messageSent != null:
 return messageSent(_that.toPeer);case NetworkEvent_MessageSendFailed() when messageSendFailed != null:
@@ -338,6 +350,104 @@ as String,
 
 
 }
+
+/// @nodoc
+
+
+class NetworkEvent_PeerDisconnected extends NetworkEvent {
+  const NetworkEvent_PeerDisconnected({required this.peerId}): super._();
+  
+
+ final  String peerId;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_PeerDisconnectedCopyWith<NetworkEvent_PeerDisconnected> get copyWith => _$NetworkEvent_PeerDisconnectedCopyWithImpl<NetworkEvent_PeerDisconnected>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_PeerDisconnected&&(identical(other.peerId, peerId) || other.peerId == peerId));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,peerId);
+
+@override
+String toString() {
+  return 'NetworkEvent.peerDisconnected(peerId: $peerId)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_PeerDisconnectedCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_PeerDisconnectedCopyWith(NetworkEvent_PeerDisconnected value, $Res Function(NetworkEvent_PeerDisconnected) _then) = _$NetworkEvent_PeerDisconnectedCopyWithImpl;
+@useResult
+$Res call({
+ String peerId
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_PeerDisconnectedCopyWithImpl<$Res>
+    implements $NetworkEvent_PeerDisconnectedCopyWith<$Res> {
+  _$NetworkEvent_PeerDisconnectedCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_PeerDisconnected _self;
+  final $Res Function(NetworkEvent_PeerDisconnected) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? peerId = null,}) {
+  return _then(NetworkEvent_PeerDisconnected(
+peerId: null == peerId ? _self.peerId : peerId // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_RoomCleared extends NetworkEvent {
+  const NetworkEvent_RoomCleared(): super._();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_RoomCleared);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+  return 'NetworkEvent.roomCleared()';
+}
+
+
+}
+
+
+
 
 /// @nodoc
 

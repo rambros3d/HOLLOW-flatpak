@@ -64,6 +64,16 @@ impl OlmManager {
         otk_b64
     }
 
+    /// Generate a batch of one-time keys and return them as unpadded base64.
+    /// Marks all as published so they won't be returned again.
+    pub fn generate_one_time_keys_batch(&mut self, count: usize) -> Vec<String> {
+        self.account.generate_one_time_keys(count);
+        let keys = self.account.one_time_keys();
+        let otks: Vec<String> = keys.values().map(|k| k.to_base64()).collect();
+        self.account.mark_keys_as_published();
+        otks
+    }
+
     /// Create an outbound session using the peer's identity key + one-time key.
     pub fn create_outbound_session(
         &mut self,

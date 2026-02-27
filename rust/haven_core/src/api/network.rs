@@ -19,6 +19,8 @@ pub struct DiscoveredPeer {
 pub enum NetworkEvent {
     PeerDiscovered { peer: DiscoveredPeer },
     PeerExpired { peer_id: String },
+    PeerDisconnected { peer_id: String },
+    RoomCleared,
     Listening { address: String },
     MessageReceived { from_peer: String, text: String },
     MessageSent { to_peer: String },
@@ -63,6 +65,10 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
             },
         },
         node::NetworkEvent::PeerExpired { peer_id } => NetworkEvent::PeerExpired { peer_id },
+        node::NetworkEvent::PeerDisconnected { peer_id } => {
+            NetworkEvent::PeerDisconnected { peer_id }
+        }
+        node::NetworkEvent::RoomCleared => NetworkEvent::RoomCleared,
         node::NetworkEvent::Listening { address } => NetworkEvent::Listening { address },
         node::NetworkEvent::MessageReceived { from_peer, text } => {
             NetworkEvent::MessageReceived { from_peer, text }

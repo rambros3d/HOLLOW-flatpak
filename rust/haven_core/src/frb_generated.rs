@@ -652,12 +652,21 @@ impl SseDecode for crate::api::network::NetworkEvent {
                 };
             }
             2 => {
+                let mut var_peerId = <String>::sse_decode(deserializer);
+                return crate::api::network::NetworkEvent::PeerDisconnected {
+                    peer_id: var_peerId,
+                };
+            }
+            3 => {
+                return crate::api::network::NetworkEvent::RoomCleared;
+            }
+            4 => {
                 let mut var_address = <String>::sse_decode(deserializer);
                 return crate::api::network::NetworkEvent::Listening {
                     address: var_address,
                 };
             }
-            3 => {
+            5 => {
                 let mut var_fromPeer = <String>::sse_decode(deserializer);
                 let mut var_text = <String>::sse_decode(deserializer);
                 return crate::api::network::NetworkEvent::MessageReceived {
@@ -665,13 +674,13 @@ impl SseDecode for crate::api::network::NetworkEvent {
                     text: var_text,
                 };
             }
-            4 => {
+            6 => {
                 let mut var_toPeer = <String>::sse_decode(deserializer);
                 return crate::api::network::NetworkEvent::MessageSent {
                     to_peer: var_toPeer,
                 };
             }
-            5 => {
+            7 => {
                 let mut var_toPeer = <String>::sse_decode(deserializer);
                 let mut var_error = <String>::sse_decode(deserializer);
                 return crate::api::network::NetworkEvent::MessageSendFailed {
@@ -679,13 +688,13 @@ impl SseDecode for crate::api::network::NetworkEvent {
                     error: var_error,
                 };
             }
-            6 => {
+            8 => {
                 let mut var_peerId = <String>::sse_decode(deserializer);
                 return crate::api::network::NetworkEvent::SessionEstablished {
                     peer_id: var_peerId,
                 };
             }
-            7 => {
+            9 => {
                 let mut var_message = <String>::sse_decode(deserializer);
                 return crate::api::network::NetworkEvent::Error {
                     message: var_message,
@@ -861,29 +870,33 @@ impl flutter_rust_bridge::IntoDart for crate::api::network::NetworkEvent {
             crate::api::network::NetworkEvent::PeerExpired { peer_id } => {
                 [1.into_dart(), peer_id.into_into_dart().into_dart()].into_dart()
             }
+            crate::api::network::NetworkEvent::PeerDisconnected { peer_id } => {
+                [2.into_dart(), peer_id.into_into_dart().into_dart()].into_dart()
+            }
+            crate::api::network::NetworkEvent::RoomCleared => [3.into_dart()].into_dart(),
             crate::api::network::NetworkEvent::Listening { address } => {
-                [2.into_dart(), address.into_into_dart().into_dart()].into_dart()
+                [4.into_dart(), address.into_into_dart().into_dart()].into_dart()
             }
             crate::api::network::NetworkEvent::MessageReceived { from_peer, text } => [
-                3.into_dart(),
+                5.into_dart(),
                 from_peer.into_into_dart().into_dart(),
                 text.into_into_dart().into_dart(),
             ]
             .into_dart(),
             crate::api::network::NetworkEvent::MessageSent { to_peer } => {
-                [4.into_dart(), to_peer.into_into_dart().into_dart()].into_dart()
+                [6.into_dart(), to_peer.into_into_dart().into_dart()].into_dart()
             }
             crate::api::network::NetworkEvent::MessageSendFailed { to_peer, error } => [
-                5.into_dart(),
+                7.into_dart(),
                 to_peer.into_into_dart().into_dart(),
                 error.into_into_dart().into_dart(),
             ]
             .into_dart(),
             crate::api::network::NetworkEvent::SessionEstablished { peer_id } => {
-                [6.into_dart(), peer_id.into_into_dart().into_dart()].into_dart()
+                [8.into_dart(), peer_id.into_into_dart().into_dart()].into_dart()
             }
             crate::api::network::NetworkEvent::Error { message } => {
-                [7.into_dart(), message.into_into_dart().into_dart()].into_dart()
+                [9.into_dart(), message.into_into_dart().into_dart()].into_dart()
             }
             _ => {
                 unimplemented!("");
@@ -1013,30 +1026,37 @@ impl SseEncode for crate::api::network::NetworkEvent {
                 <i32>::sse_encode(1, serializer);
                 <String>::sse_encode(peer_id, serializer);
             }
-            crate::api::network::NetworkEvent::Listening { address } => {
+            crate::api::network::NetworkEvent::PeerDisconnected { peer_id } => {
                 <i32>::sse_encode(2, serializer);
+                <String>::sse_encode(peer_id, serializer);
+            }
+            crate::api::network::NetworkEvent::RoomCleared => {
+                <i32>::sse_encode(3, serializer);
+            }
+            crate::api::network::NetworkEvent::Listening { address } => {
+                <i32>::sse_encode(4, serializer);
                 <String>::sse_encode(address, serializer);
             }
             crate::api::network::NetworkEvent::MessageReceived { from_peer, text } => {
-                <i32>::sse_encode(3, serializer);
+                <i32>::sse_encode(5, serializer);
                 <String>::sse_encode(from_peer, serializer);
                 <String>::sse_encode(text, serializer);
             }
             crate::api::network::NetworkEvent::MessageSent { to_peer } => {
-                <i32>::sse_encode(4, serializer);
+                <i32>::sse_encode(6, serializer);
                 <String>::sse_encode(to_peer, serializer);
             }
             crate::api::network::NetworkEvent::MessageSendFailed { to_peer, error } => {
-                <i32>::sse_encode(5, serializer);
+                <i32>::sse_encode(7, serializer);
                 <String>::sse_encode(to_peer, serializer);
                 <String>::sse_encode(error, serializer);
             }
             crate::api::network::NetworkEvent::SessionEstablished { peer_id } => {
-                <i32>::sse_encode(6, serializer);
+                <i32>::sse_encode(8, serializer);
                 <String>::sse_encode(peer_id, serializer);
             }
             crate::api::network::NetworkEvent::Error { message } => {
-                <i32>::sse_encode(7, serializer);
+                <i32>::sse_encode(9, serializer);
                 <String>::sse_encode(message, serializer);
             }
             _ => {

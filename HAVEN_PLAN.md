@@ -835,10 +835,10 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [X] Lightweight signaling service (Cloudflare Worker or equivalent)
 - [X] Combined relay + signaling server on VPS (replaced Cloudflare Worker)
 - [X] Cross-network peer discovery and relay circuit connectivity
-- [ ] Prekey bundle storage in DHT (for async key exchange)
-- [ ] Invite link generation and joining flow
-- [ ] Connection management (persistent connections, reconnection logic)
-- [ ] Room state cleanup (clear peers on room switch, deduplicate peer list)
+- [X] Prekey bundle storage in DHT (for async key exchange)
+- [X] Invite link generation and joining flow
+- [X] Connection management (persistent connections, reconnection logic)
+- [X] Room state cleanup (clear peers on room switch, deduplicate peer list)
 
 **Deliverable:** Two users on different networks can find each other via invite link and chat with E2EE.
 
@@ -849,6 +849,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] Custom theme system (HavenTheme: color palette, typography scale, spacing, elevation, border radii — no Material defaults)
 - [ ] Dark mode primary, light mode secondary (both fully custom, not Material's ColorScheme)
 - [ ] State management architecture (Provider, Riverpod, or Bloc — pick one, commit, use everywhere)
+- [ ] Event streaming refactor (replace polling with Rust→Dart stream — real-time updates)
 - [ ] Navigation shell (server list sidebar, channel/chat view, member panel — responsive: sidebar on desktop, bottom nav on mobile)
 - [ ] Reusable component library (HavenButton, HavenTextField, HavenCard, HavenAvatar, HavenDialog, HavenToast — all custom-painted, no Material widgets)
 - [ ] Animation system (spring curves, page transitions, micro-interactions — buttery smooth 60fps, GPU-accelerated via Flutter's rendering pipeline)

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -190,6 +191,16 @@ class _HavenHomeState extends State<HavenHome> {
             if (_selectedPeerId == peerId) {
               _selectedPeerId = null;
             }
+          case NetworkEvent_PeerDisconnected(:final peerId):
+            debugPrint('[HAVEN] Peer disconnected: $peerId');
+            _discoveredPeers.remove(peerId);
+            if (_selectedPeerId == peerId) {
+              _selectedPeerId = null;
+            }
+          case NetworkEvent_RoomCleared():
+            debugPrint('[HAVEN] Room cleared');
+            _discoveredPeers.clear();
+            _selectedPeerId = null;
           case NetworkEvent_Listening(:final address):
             debugPrint('[HAVEN] Listening: $address');
             break;
@@ -237,14 +248,119 @@ class _HavenHomeState extends State<HavenHome> {
     );
   }
 
-  Future<void> _joinRoom(String roomCode) async {
+  /// Generate a random 8-character alphanumeric room code.
+  static String _generateRoomCode() {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    final random = Random();
+    return List.generate(8, (_) => chars[random.nextInt(chars.length)]).join();
+  }
+
+  /// Extract room code from a haven:// link or plain room code.
+  static String _extractRoomCode(String input) {
+    final trimmed = input.trim();
+    final uri = Uri.tryParse(trimmed);
+    if (uri != null && uri.scheme == 'haven' && uri.host == 'join') {
+      final room = uri.queryParameters['room'];
+      if (room != null && room.isNotEmpty) return room;
+    }
+    return trimmed;
+  }
+
+  Future<void> _joinRoom(String input) async {
+    final roomCode = _extractRoomCode(input);
     if (roomCode.isEmpty || _status != NodeStatus.connected) return;
     try {
+      // Clear peers immediately for snappy UI when switching rooms.
+      if (_activeRoom != null && _activeRoom != roomCode) {
+        setState(() {
+          _discoveredPeers.clear();
+          _selectedPeerId = null;
+        });
+      }
       await joinRoom(roomCode: roomCode);
       setState(() => _activeRoom = roomCode);
     } catch (e) {
       setState(() => _error = e.toString());
     }
+  }
+
+  Future<void> _createInvite() async {
+    if (_status != NodeStatus.connected) return;
+    final roomCode = _generateRoomCode();
+    await _joinRoom(roomCode);
+    if (mounted) _showInviteDialog('haven://join?room=$roomCode', roomCode);
+  }
+
+  void _showInviteDialog(String link, String roomCode) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Invite Link Created'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Share this link to invite someone to your room:'),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.black26,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: 0.5),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SelectableText(
+                      link,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.copy, size: 18),
+                    tooltip: 'Copy link',
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: link));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Invite link copied to clipboard'),
+                          duration: Duration(seconds: 1),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Room code: $roomCode',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.6),
+                  ),
+            ),
+          ],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Done'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -415,6 +531,7 @@ class _HavenHomeState extends State<HavenHome> {
                   activeRoom: _activeRoom,
                   roomController: _roomController,
                   onJoinRoom: _joinRoom,
+                  onCreateInvite: _createInvite,
                 ),
 
                 // Right chat area
@@ -476,6 +593,7 @@ class _Sidebar extends StatelessWidget {
   final String? activeRoom;
   final TextEditingController roomController;
   final Future<void> Function(String) onJoinRoom;
+  final VoidCallback onCreateInvite;
 
   const _Sidebar({
     required this.peers,
@@ -489,6 +607,7 @@ class _Sidebar extends StatelessWidget {
     required this.activeRoom,
     required this.roomController,
     required this.onJoinRoom,
+    required this.onCreateInvite,
   });
 
   @override
@@ -540,46 +659,88 @@ class _Sidebar extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
+                        InkWell(
+                          borderRadius: BorderRadius.circular(4),
+                          onTap: () {
+                            final link = 'haven://join?room=$activeRoom';
+                            Clipboard.setData(ClipboardData(text: link));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Invite link copied'),
+                                duration: Duration(seconds: 1),
+                              ),
+                            );
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Icon(
+                              Icons.copy,
+                              size: 14,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   )
-                : Row(
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Expanded(
-                        child: SizedBox(
-                          height: 36,
-                          child: TextField(
-                            controller: roomController,
-                            style: theme.textTheme.bodySmall,
-                            decoration: InputDecoration(
-                              hintText: 'Room code...',
-                              hintStyle: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurface
-                                    .withValues(alpha: 0.4),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 36,
+                              child: TextField(
+                                controller: roomController,
+                                style: theme.textTheme.bodySmall,
+                                decoration: InputDecoration(
+                                  hintText: 'Room code or invite link...',
+                                  hintStyle:
+                                      theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurface
+                                        .withValues(alpha: 0.4),
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 0,
+                                  ),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  isDense: true,
+                                ),
+                                onSubmitted: (v) => onJoinRoom(v.trim()),
                               ),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 0,
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              isDense: true,
                             ),
-                            onSubmitted: (v) => onJoinRoom(v.trim()),
                           ),
-                        ),
+                          const SizedBox(width: 6),
+                          SizedBox(
+                            height: 36,
+                            child: FilledButton(
+                              onPressed: () =>
+                                  onJoinRoom(roomController.text.trim()),
+                              style: FilledButton.styleFrom(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 12),
+                              ),
+                              child: const Text('Join'),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(height: 8),
                       SizedBox(
+                        width: double.infinity,
                         height: 36,
-                        child: FilledButton(
-                          onPressed: () =>
-                              onJoinRoom(roomController.text.trim()),
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: OutlinedButton.icon(
+                          onPressed: onCreateInvite,
+                          icon: const Icon(Icons.add_link, size: 16),
+                          label: const Text('Create Invite'),
+                          style: OutlinedButton.styleFrom(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 12),
                           ),
-                          child: const Text('Join'),
                         ),
                       ),
                     ],

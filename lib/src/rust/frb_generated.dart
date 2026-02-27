@@ -655,24 +655,28 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 1:
         return NetworkEvent_PeerExpired(peerId: dco_decode_String(raw[1]));
       case 2:
-        return NetworkEvent_Listening(address: dco_decode_String(raw[1]));
+        return NetworkEvent_PeerDisconnected(peerId: dco_decode_String(raw[1]));
       case 3:
+        return NetworkEvent_RoomCleared();
+      case 4:
+        return NetworkEvent_Listening(address: dco_decode_String(raw[1]));
+      case 5:
         return NetworkEvent_MessageReceived(
           fromPeer: dco_decode_String(raw[1]),
           text: dco_decode_String(raw[2]),
         );
-      case 4:
+      case 6:
         return NetworkEvent_MessageSent(toPeer: dco_decode_String(raw[1]));
-      case 5:
+      case 7:
         return NetworkEvent_MessageSendFailed(
           toPeer: dco_decode_String(raw[1]),
           error: dco_decode_String(raw[2]),
         );
-      case 6:
+      case 8:
         return NetworkEvent_SessionEstablished(
           peerId: dco_decode_String(raw[1]),
         );
-      case 7:
+      case 9:
         return NetworkEvent_Error(message: dco_decode_String(raw[1]));
       default:
         throw Exception("unreachable");
@@ -821,29 +825,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         var var_peerId = sse_decode_String(deserializer);
         return NetworkEvent_PeerExpired(peerId: var_peerId);
       case 2:
+        var var_peerId = sse_decode_String(deserializer);
+        return NetworkEvent_PeerDisconnected(peerId: var_peerId);
+      case 3:
+        return NetworkEvent_RoomCleared();
+      case 4:
         var var_address = sse_decode_String(deserializer);
         return NetworkEvent_Listening(address: var_address);
-      case 3:
+      case 5:
         var var_fromPeer = sse_decode_String(deserializer);
         var var_text = sse_decode_String(deserializer);
         return NetworkEvent_MessageReceived(
           fromPeer: var_fromPeer,
           text: var_text,
         );
-      case 4:
+      case 6:
         var var_toPeer = sse_decode_String(deserializer);
         return NetworkEvent_MessageSent(toPeer: var_toPeer);
-      case 5:
+      case 7:
         var var_toPeer = sse_decode_String(deserializer);
         var var_error = sse_decode_String(deserializer);
         return NetworkEvent_MessageSendFailed(
           toPeer: var_toPeer,
           error: var_error,
         );
-      case 6:
+      case 8:
         var var_peerId = sse_decode_String(deserializer);
         return NetworkEvent_SessionEstablished(peerId: var_peerId);
-      case 7:
+      case 9:
         var var_message = sse_decode_String(deserializer);
         return NetworkEvent_Error(message: var_message);
       default:
@@ -1003,31 +1012,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case NetworkEvent_PeerExpired(peerId: final peerId):
         sse_encode_i_32(1, serializer);
         sse_encode_String(peerId, serializer);
-      case NetworkEvent_Listening(address: final address):
+      case NetworkEvent_PeerDisconnected(peerId: final peerId):
         sse_encode_i_32(2, serializer);
+        sse_encode_String(peerId, serializer);
+      case NetworkEvent_RoomCleared():
+        sse_encode_i_32(3, serializer);
+      case NetworkEvent_Listening(address: final address):
+        sse_encode_i_32(4, serializer);
         sse_encode_String(address, serializer);
       case NetworkEvent_MessageReceived(
         fromPeer: final fromPeer,
         text: final text,
       ):
-        sse_encode_i_32(3, serializer);
+        sse_encode_i_32(5, serializer);
         sse_encode_String(fromPeer, serializer);
         sse_encode_String(text, serializer);
       case NetworkEvent_MessageSent(toPeer: final toPeer):
-        sse_encode_i_32(4, serializer);
+        sse_encode_i_32(6, serializer);
         sse_encode_String(toPeer, serializer);
       case NetworkEvent_MessageSendFailed(
         toPeer: final toPeer,
         error: final error,
       ):
-        sse_encode_i_32(5, serializer);
+        sse_encode_i_32(7, serializer);
         sse_encode_String(toPeer, serializer);
         sse_encode_String(error, serializer);
       case NetworkEvent_SessionEstablished(peerId: final peerId):
-        sse_encode_i_32(6, serializer);
+        sse_encode_i_32(8, serializer);
         sse_encode_String(peerId, serializer);
       case NetworkEvent_Error(message: final message):
-        sse_encode_i_32(7, serializer);
+        sse_encode_i_32(9, serializer);
         sse_encode_String(message, serializer);
     }
   }

@@ -68,6 +68,9 @@ sealed class NetworkEvent with _$NetworkEvent {
       NetworkEvent_PeerDiscovered;
   const factory NetworkEvent.peerExpired({required String peerId}) =
       NetworkEvent_PeerExpired;
+  const factory NetworkEvent.peerDisconnected({required String peerId}) =
+      NetworkEvent_PeerDisconnected;
+  const factory NetworkEvent.roomCleared() = NetworkEvent_RoomCleared;
   const factory NetworkEvent.listening({required String address}) =
       NetworkEvent_Listening;
   const factory NetworkEvent.messageReceived({
