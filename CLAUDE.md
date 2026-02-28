@@ -17,7 +17,11 @@ Haven is a fully distributed, encrypted Discord alternative. No central servers.
 ```
 HAVEN/
 ├── lib/                  # Dart/Flutter code (UI, app logic, state management)
-│   └── main.dart         # Single-file app (home screen + chat)
+│   ├── main.dart         # 10-line entry point (ProviderScope + RustLib.init)
+│   └── src/
+│       ├── core/         # Models, Riverpod providers, service wrappers
+│       ├── theme/        # Haven design system (colors, spacing, typography, ThemeExtension)
+│       └── ui/           # Decomposed widgets (shell, sidebar, chat, components, dialogs, animations)
 ├── rust/haven_core/      # Rust library crate (networking, crypto, storage)
 │   └── src/
 │       ├── api/          # FFI layer (flutter_rust_bridge scans these)
@@ -27,7 +31,7 @@ HAVEN/
 │       └── storage/      # SQLCipher message store
 ├── relay/                # Combined relay + signaling server (standalone binary, deployed on OVH VPS)
 ├── rust_builder/         # flutter_rust_bridge build system (cargokit)
-├── HAVEN_PLAN.md         # Full architecture & design document (~1600 lines)
+├── HAVEN_PLAN.md         # Full architecture & design document (~1500 lines)
 └── CLAUDE.md             # This file
 ```
 
@@ -52,11 +56,11 @@ ssh ubuntu@141.227.186.209 "cd relay && cargo build --release && sudo systemctl 
 ```
 
 ## Current Phase
-**Phase 2: Internet Connectivity** — Nearly done.
+**Phase 2.5: UI Foundation** — COMPLETE.
 
-Phase 1 (LAN E2EE chat) is done. Cross-network E2EE via relay + prekey bundles + connection management all working. Last Phase 2 item: invite link generation and joining flow.
+Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection management, invite links), and 2.5 (theme system, Riverpod state management, decomposed UI, component library, animations, adaptive layout) are complete.
 
-Next after Phase 2: **Phase 2.5 (UI Foundation)** — custom theme system, navigation shell, component library, animations. See HAVEN_PLAN.md Section 13.
+**Next:** Phase 3 — Servers, Channels & Sync (CRDTs/HLC, server structure, roles, MLS group encryption).
 
 ## Coding Conventions
 - Dart: follow standard `flutter_lints` / `analysis_options.yaml`

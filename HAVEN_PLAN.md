@@ -1,6 +1,6 @@
 # Haven — A Fully Distributed, Encrypted Discord Alternative
 
-> **Status:** Concept & Architecture Plan — Ready to build when the time comes.
+> **Status:** Active Development — Phase 2 (Internet Connectivity) Complete. Phase 2.5 (UI Foundation) In Progress.
 > **Author:** Designed through technical discussion, February 2026.
 > **Philosophy:** No central servers. No Electron. No Node.js hosting. The members ARE the server.
 
@@ -26,8 +26,9 @@
 16. [Comparison With Existing Alternatives](#16-comparison-with-existing-alternatives)
 17. [Server Lifecycle & Data Sovereignty](#17-server-lifecycle--data-sovereignty)
 18. [Sustainability & Monetization](#18-sustainability--monetization)
-19. [Team Structure (Agent-Based Development)](#19-team-structure-agent-based-development)
-20. [Appendix C: FAQ](#appendix-c-faq--questions--answers-from-the-design-process)
+- [Appendix A: Key Technical References](#appendix-a-key-technical-references)
+- [Appendix B: Glossary](#appendix-b-glossary)
+- [Appendix C: FAQ](#appendix-c-faq--questions--answers-from-the-design-process)
 
 ---
 
@@ -106,7 +107,7 @@ A communication platform where **every member collectively hosts the server they
 | **P2P Networking** | rust-libp2p via `flutter_rust_bridge` FFI | Most mature P2P networking stack. No Dart implementation exists, but the Rust lib is excellent and FFI bridging is well-supported in Flutter. |
 | **Data Sync** | Automerge (Rust) via FFI | Best CRDT library. Handles merging concurrent edits, message ordering, channel state. Rust implementation is fast. |
 | **Distributed Storage** | Custom erasure coding (Reed-Solomon) | Split data into n shards, any k reconstruct the original. 1.5x overhead instead of 3x for triple replication. |
-| **E2EE (Messages)** | Signal Protocol (Double Ratchet + X3DH) for 1:1, MLS for groups | Gold standard. Signal for DMs, MLS (RFC 9420) for group channels — scales O(log n) on member changes. |
+| **E2EE (Messages)** | vodozemac (Olm/Double Ratchet) via Rust FFI for 1:1, MLS for groups | vodozemac is Matrix's audited Olm implementation (X3DH-like + Double Ratchet). MLS (RFC 9420) for group channels — scales O(log n) on member changes. |
 | **E2EE (Calls)** | DTLS-SRTP + SFrame | WebRTC native encryption + inner E2EE layer via SFrame for group calls through relay. |
 | **Voice/Video** | flutter_webrtc + LiveKit protocol | Mature WebRTC for Flutter. Mesh for small calls (2-4), SFU-like "super peer" for larger groups. |
 | **Cryptography** | `cryptography` (Dart) + libsodium (FFI) | `cryptography` for platform-accelerated primitives, libsodium for security-critical operations (constant-time, audited). |
@@ -450,15 +451,17 @@ Peers storing the file shards hold only encrypted data. They can't decrypt witho
   - The SFU forwards encrypted frames — it cannot see or hear the content
   - Recipients decrypt using the sender's key (distributed via the MLS group)
 
-### 7.6 Dart/Flutter Crypto Libraries
+### 7.6 Crypto Libraries (Actual Implementation)
 
-**Primary:** `cryptography` package (Dart) — platform-accelerated X25519, Ed25519, AES-GCM, HKDF
+**1:1 E2EE:** `vodozemac` v0.9 (Rust, via FFI) — Matrix's audited Olm implementation. Handles X3DH-like key exchange + Double Ratchet for DMs. Two identity systems coexist: libp2p Ed25519 (transport) and vodozemac Curve25519 (E2EE).
 
-**Security-critical operations:** `sodium_libs` (libsodium via FFI) — constant-time, audited, hardware-accelerated
+**Group E2EE:** OpenMLS (Rust, via FFI) — for MLS group encryption in channels. To be integrated in Phase 3.
 
-**Protocol implementation:** Port or bind `libsignal-protocol` and an MLS library (likely Rust via FFI, since no production Dart MLS implementation exists)
+**Local storage encryption:** SQLCipher (AES-256-CBC) — via `rusqlite` with `bundled-sqlcipher` feature, using system OpenSSL on Windows.
 
-**Flutter Web:** Web Crypto API via `webcrypto` package + WASM-compiled libsodium for X25519/Ed25519
+**Identity:** `ed25519-dalek` v2.2 (via libp2p) — Ed25519 keypair generation and signing. BIP-39 mnemonic for backup/restore.
+
+**Flutter Web (future):** Web Crypto API via `webcrypto` package + WASM-compiled crypto primitives.
 
 ---
 
@@ -810,7 +813,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 ## 13. Development Phases & Milestones
 
-### Phase 1: Foundation (Finished in 2 days)
+### Phase 1: Foundation — COMPLETE
 
 **Goal:** Two users can send encrypted text messages to each other.
 
@@ -825,7 +828,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 **Deliverable:** Two devices on the same network can chat with E2E encryption.
 
-### Phase 2: Internet Connectivity (Almost finished in 3-4 days)
+### Phase 2: Internet Connectivity — COMPLETE
 
 **Goal:** Two users anywhere in the world can find each other and chat 1:1 with E2EE.
 
@@ -842,43 +845,61 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 **Deliverable:** Two users on different networks can find each other via invite link and chat with E2EE.
 
-### Phase 2.5: UI Foundation (Day 7-10)
+### Phase 2.5: UI Foundation
 
 **Goal:** Establish Haven's visual identity and UI architecture before building complex features on top. Replace Material Design defaults with a custom design system that feels native, premium, and distinctly Haven.
 
-- [ ] Custom theme system (HavenTheme: color palette, typography scale, spacing, elevation, border radii — no Material defaults)
+**Design Direction:** Deep Dark + Teal Accent. Secure yet cozy — midnight backgrounds convey seriousness/trust, teal accent (#00BFA6) evokes calm/shelter (aligns with "Haven" name). Distinct from Discord (purple), Signal (blue), WhatsApp (green). Multi-theme architecture from day one: default dark theme ships first, Frutiger Aero-inspired theme as a built-in alternate (glossy surfaces, vibrant gradients, bubble animations — leveraging Flutter's BackdropFilter, ShaderMask, CustomPainter).
+
+**Color Palette (Default Dark Theme):**
+- Background: #0D0F14 (deep midnight)
+- Surface: #14161C (panels, slightly lighter)
+- Elevated: #1A1D25 (cards, dialogs, popovers)
+- Accent: #00BFA6 (teal — buttons, links, active states)
+- Accent Hover: #00D9BB (lighter teal)
+- Accent Muted: #00BFA633 (teal with alpha — subtle highlights)
+- Text Primary: #F1F3F5 (near-white)
+- Text Secondary: #8B919A (muted grey)
+- Border: rgba(255,255,255,0.08) (subtle, 1px)
+- Error/Danger: #EF4444
+- Success: #10B981
+- Warning: #F59E0B
+- Border radius: 8-12px (medium rounded)
+
+- [ ] Custom theme system (HavenTheme: color palette, typography scale, spacing, elevation, border radii — no Material defaults. Multi-theme architecture supporting Default Dark + future Aero theme)
 - [ ] Dark mode primary, light mode secondary (both fully custom, not Material's ColorScheme)
-- [ ] State management architecture (Provider, Riverpod, or Bloc — pick one, commit, use everywhere)
+- [ ] Custom window chrome (remove native title bar, custom-drawn title bar with Haven branding, window controls — via flutter_acrylic or bitsdojo_window)
+- [X] State management architecture (Riverpod — chosen for auto-dispose, .family per-peer state, StreamProvider for Rust FFI streams, granular rebuilds)
 - [ ] Event streaming refactor (replace polling with Rust→Dart stream — real-time updates)
 - [ ] Navigation shell (server list sidebar, channel/chat view, member panel — responsive: sidebar on desktop, bottom nav on mobile)
 - [ ] Reusable component library (HavenButton, HavenTextField, HavenCard, HavenAvatar, HavenDialog, HavenToast — all custom-painted, no Material widgets)
 - [ ] Animation system (spring curves, page transitions, micro-interactions — buttery smooth 60fps, GPU-accelerated via Flutter's rendering pipeline)
 - [ ] Chat UI rebuild (message bubbles, timestamps, read indicators, typing indicator — custom widgets, not Material ListTiles)
 - [ ] Peer/contact list rebuild (online/offline status, avatars, encryption badge — integrated with new component library)
-- [ ] Adaptive layout system (responsive breakpoints for desktop/tablet/mobile — single codebase, three layouts)
+- [X] Adaptive layout system (responsive breakpoints for desktop/tablet/mobile — single codebase, three layouts)
 - [ ] Custom iconography (Haven icon set or curated icon package — consistent visual language)
 
 **Deliverable:** The app looks and feels like a real product — custom visual identity, smooth animations, responsive layout. All future UI work builds on this foundation.
 
-### Phase 3: Servers & Channels (Day 10-14)
+### Phase 3: Servers & Channels
 
 **Goal:** Multi-user servers with channels, roles, and MLS encryption.
 
-- [ ] Server creation and management
-- [ ] Channel system (text channels, categories)
-- [ ] MLS group encryption for channels
-- [ ] CRDT integration (Automerge) for server state
+- [ ] CRDT integration (Automerge) for server state — foundation for all distributed data
 - [ ] Hybrid Logical Clocks for message ordering
 - [ ] Sync protocol (state vectors, delta sync)
-- [ ] Roles and permissions system
+- [ ] Server creation and management — uses CRDTs for distributed state
+- [ ] Channel system (text channels, categories) — uses CRDTs for channel list
+- [ ] Roles and permissions system — uses CRDTs (LWW-Register with admin priority)
+- [ ] MLS group encryption for channels — standalone crypto task, can parallel with UI work
 - [ ] Server settings UI
 - [ ] Member list with online/offline status
-- [ ] Basic offline message queuing (store-and-forward via online peers)
-- [ ] Device linking via QR code (multi-device identity sync)
+- [ ] Basic offline message queuing (store-and-forward via online peers) — requires sync protocol
+- [ ] Device linking via QR code (multi-device identity sync) — requires MLS + CRDTs
 
 **Deliverable:** A functional group chat platform with servers, channels, and multi-device support.
 
-### Phase 4: Shared Vault — Distributed Storage (Day 14-21)
+### Phase 4: Shared Vault — Distributed Storage
 
 **Goal:** The core innovation — distributed storage across members.
 
@@ -892,12 +913,20 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] File upload → encrypt → erasure-code → distribute pipeline
 - [ ] Image/file preview and download from distributed storage
 - [ ] Storage tier configuration (retention policies per data type)
-- [ ] Social Recovery: guardian designation + Shamir's Secret Sharing
-- [ ] Encrypted Vault Backup (password-based, stored in network)
 
-**Deliverable:** Server data lives distributed across members. No single point of failure. Account recovery works.
+**Deliverable:** Server data lives distributed across members. No single point of failure.
 
-### Phase 5: Voice & Video (Day 21-25)
+### Phase 4.5: Account Recovery & Backup
+
+**Goal:** Identity recovery mechanisms that leverage the Shared Vault infrastructure.
+
+- [ ] Social Recovery: guardian designation + Shamir's Secret Sharing (split identity key into k-of-n shares, distribute to trusted contacts via E2EE)
+- [ ] Encrypted Vault Backup: password-based recovery (Argon2id KDF, encrypted blob stored as high-redundancy shard in the Shared Vault)
+- [ ] Recovery UI flows (guardian approval, password entry, shard reconstruction)
+
+**Deliverable:** Users can recover their identity after total device loss via guardians or a recovery password.
+
+### Phase 5: Voice & Video
 
 **Goal:** Real-time calls with E2EE.
 
@@ -914,7 +943,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 **Deliverable:** Full voice/video/screen-share with E2EE.
 
-### Phase 6: Polish & Features (Day 25-28)
+### Phase 6: Polish & Features
 
 **Goal:** Feature parity with Discord's core experience.
 
@@ -931,14 +960,14 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] Discord import system (full implementation)
 - [ ] Data export system (messages, files, identity — verifiable with signatures)
 - [ ] Server template export/import (share server structures)
-- [ ] Evidence Recovery UI tool (cooperative shard gathering for ex-members)
-- [ ] Mobile-optimized UI
+- [ ] Evidence Recovery UI tool (cooperative shard gathering for ex-members) — depends on Phase 4 shard system
+- [ ] Mobile platform testing & platform-specific fixes (adaptive layout built in Phase 2.5)
 - [ ] Keyboard shortcuts
 - [ ] Accessibility (screen reader support, high contrast)
 
 **Deliverable:** A polished, feature-complete communication platform.
 
-### Phase 7: Distribution & Launch (Day 28-30)
+### Phase 7: Distribution & Launch
 
 **Goal:** Ship it.
 
@@ -1274,166 +1303,21 @@ Everything that makes Haven work — E2EE, Shared Vault, voice/video, screen sha
 
 ---
 
-## 19. Team Structure (Agent-Based Development)
-
-Haven's development uses two complementary Claude Code features: **Subagents** for day-to-day specialist work, and **Agent Teams** for big feature sprints requiring cross-domain coordination.
-
-### 19.1 Subagents — Persistent Specialist Workers
-
-Subagents are configured as markdown files in `.claude/agents/`. They persist across sessions, build up project memory over time, and are always available. Each one is a focused specialist that reports results back to the main conversation.
-
-**Use subagents for:** everyday tasks, focused domain work, code review, testing, debugging.
-
-#### Subagent Definitions
-
-| Subagent | File | Model | Memory | Tools | Purpose |
-|---|---|---|---|---|---|
-| `flutter-ui` | `.claude/agents/flutter-ui.md` | sonnet | project | Read, Edit, Write, Bash, Glob, Grep | Widget development, adaptive layouts, state management, theming |
-| `rust-builder` | `.claude/agents/rust-builder.md` | opus | project | Read, Edit, Write, Bash, Glob, Grep | Rust compilation, cargo dependencies, libp2p integration, performance |
-| `ffi-bridge` | `.claude/agents/ffi-bridge.md` | opus | project | Read, Edit, Write, Bash, Glob, Grep | flutter_rust_bridge type mappings, codegen, async bridging, memory safety |
-| `crypto-reviewer` | `.claude/agents/crypto-reviewer.md` | opus | project | Read, Grep, Glob, Bash | Review crypto code for correctness, audit key management, verify protocol implementation (read-only — no Edit/Write) |
-| `test-runner` | `.claude/agents/test-runner.md` | haiku | project | Read, Bash, Grep, Glob | Run test suites, report failures, suggest fixes. Low cost for high-frequency use |
-| `debugger` | `.claude/agents/debugger.md` | opus | project | Read, Edit, Bash, Grep, Glob | Root cause analysis across the Dart/Rust FFI boundary, tracing, fix implementation |
-
-Each subagent has `memory: project` — meaning it builds up a persistent knowledge base in `.claude/agent-memory/<name>/` that survives across sessions. The `crypto-reviewer` intentionally has no Edit/Write access to enforce read-only review.
-
-#### Example Subagent File
-
-```markdown
-# .claude/agents/rust-builder.md
----
-name: rust-builder
-description: Rust systems engineer for libp2p, erasure coding, Automerge, and crypto FFI libraries. Use proactively when working on any Rust code or cargo builds.
-tools: Read, Edit, Write, Bash, Glob, Grep
-model: opus
-memory: project
----
-
-You are a senior Rust systems engineer specializing in P2P networking and cryptography.
-
-Your domain:
-- All code in the `rust/` directory
-- libp2p transport, NAT traversal, DHT, connection management
-- Reed-Solomon erasure coding implementation
-- Automerge CRDT integration
-- Cryptographic primitives (libsodium bindings, Signal Protocol, MLS)
-- Cargo workspace management, dependency auditing, build optimization
-
-When invoked:
-1. Check your agent memory for relevant context from previous sessions
-2. Understand the task and identify affected crates
-3. Implement with safe Rust practices (no unsafe unless absolutely necessary)
-4. Run `cargo clippy` and `cargo test` before reporting results
-5. Update your memory with any new patterns, pitfalls, or architectural decisions
-
-Key constraints:
-- All public APIs must be FFI-friendly (will be called from Dart via flutter_rust_bridge)
-- Async code uses tokio runtime
-- Crypto operations must use constant-time implementations (libsodium preferred)
-- Error types must be serializable across FFI boundary
-```
-
-### 19.2 Agent Teams — Coordinated Feature Sprints
-
-Agent Teams are temporary, session-scoped teams of Claude Code instances that can **message each other directly**, share a task list, and self-coordinate. They cost more tokens but enable true parallel collaboration.
-
-**Use agent teams for:** big features that span multiple domains simultaneously (e.g., Phase 4 where storage, crypto, networking, and UI all need to coordinate).
-
-#### When to Spin Up a Team
-
-| Phase | Approach | Why |
-|---|---|---|
-| Phase 1 (Foundation) | Subagents only | Mostly Flutter + basic Rust FFI, sequential work |
-| Phase 2 (Networking) | Subagents only | Focused on Rust networking, one domain at a time |
-| Phase 3 (Servers & Channels) | Subagents + occasional team | MLS crypto + CRDT sync + UI all intersect — team when integrating |
-| Phase 4 (Shared Vault) | **Agent team** | Storage + crypto + networking + UI all interdependent — needs coordination |
-| Phase 5 (Voice & Video) | Subagents + occasional team | WebRTC + SFrame crypto + UI — team for the SFU integration |
-| Phase 6 (Polish) | Subagents only | Independent features, minimal cross-cutting |
-| Phase 7 (Distribution) | Subagents only | Platform-specific packaging, independent per platform |
-
-#### Example: Phase 4 Agent Team
-
-```
-Create an agent team for implementing the Shared Vault distributed storage layer:
-
-- "Rust Storage Engineer" — implements Reed-Solomon erasure coding, shard
-  management, content-addressed storage, rebalancing algorithms in Rust
-- "Dart Integration Engineer" — builds the Storage Dashboard UI, storage
-  pledge settings, shard health visualization, file upload/download pipeline
-- "Crypto Architect" — designs the encrypt-then-erasure-code pipeline,
-  per-epoch key management for storage, shard integrity verification
-- "Test & Integration Engineer" — writes integration tests simulating
-  multi-peer scenarios, member departure, shard reconstruction, storage abuse
-
-Require plan approval from the Crypto Architect before implementing any
-encryption changes. Have teammates coordinate on the FFI interface between
-Rust storage engine and Dart UI layer.
-```
-
-The team lead coordinates, teammates message each other about interfaces ("here's the shard format I'm producing, design your retrieval around it"), and the shared task list ensures nothing falls through the cracks.
-
-#### Agent Team vs Subagent Decision Guide
-
-```
-Is the work in a single domain?
-  YES → Use a subagent
-  NO  → Do the domains need to talk to each other during implementation?
-          NO  → Use parallel subagents (faster, cheaper)
-          YES → Use an agent team (direct inter-agent communication)
-```
-
-### 19.3 Coordination Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    YOU + MAIN SESSION                        │
-│              (orchestrate, review, steer)                    │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ALWAYS AVAILABLE (subagents — persistent, with memory):    │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐              │
-│  │ flutter-ui │ │rust-builder│ │ ffi-bridge │              │
-│  │  (sonnet)  │ │  (opus)    │ │  (opus)    │              │
-│  │  memory:   │ │  memory:   │ │  memory:   │              │
-│  │  project   │ │  project   │ │  project   │              │
-│  └────────────┘ └────────────┘ └────────────┘              │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐              │
-│  │  crypto-   │ │test-runner │ │  debugger  │              │
-│  │  reviewer  │ │  (haiku)   │ │  (opus)    │              │
-│  │  (opus)    │ │  memory:   │ │  memory:   │              │
-│  │  read-only │ │  project   │ │  project   │              │
-│  └────────────┘ └────────────┘ └────────────┘              │
-│                                                             │
-│  ON-DEMAND (agent teams — temporary, session-scoped):       │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │  Team Lead ←→ Rust Engineer ←→ Dart Engineer        │    │
-│  │       ↕              ↕              ↕               │    │
-│  │  Crypto Architect ←→ Test Engineer                  │    │
-│  │  (shared task list, direct messaging between all)   │    │
-│  └─────────────────────────────────────────────────────┘    │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Subagents** handle the daily grind — they learn the codebase over time through persistent memory, stay cheap, and are always one command away. **Agent teams** are brought in for the big pushes — Phase 4's storage layer, Phase 5's voice/video integration — where multiple domains must coordinate in real-time, then disband when the feature is done.
-
----
-
 ## Appendix A: Key Technical References
 
 - **libp2p:** https://libp2p.io / https://github.com/libp2p/rust-libp2p
 - **Automerge:** https://automerge.org / https://github.com/automerge/automerge
 - **MLS RFC 9420:** https://www.rfc-editor.org/rfc/rfc9420
+- **vodozemac (Olm):** https://github.com/matrix-org/vodozemac
 - **Signal Protocol:** https://signal.org/docs/
 - **X3DH:** https://signal.org/docs/specifications/x3dh/
 - **Double Ratchet:** https://signal.org/docs/specifications/doubleratchet/
+- **OpenMLS:** https://github.com/openmls/openmls
 - **flutter_rust_bridge:** https://github.com/aspect-build/flutter_rust_bridge
 - **flutter_webrtc:** https://github.com/flutter-webrtc/flutter-webrtc
 - **Reed-Solomon coding:** https://en.wikipedia.org/wiki/Reed-Solomon_error_correction
 - **Kademlia DHT:** https://en.wikipedia.org/wiki/Kademlia
 - **SFrame:** https://datatracker.ietf.org/doc/draft-ietf-sframe-enc/
-- **cryptography (Dart):** https://pub.dev/packages/cryptography
-- **sodium_libs (Dart FFI):** https://pub.dev/packages/sodium_libs
 - **LiveKit:** https://livekit.io
 - **Shamir's Secret Sharing:** https://en.wikipedia.org/wiki/Shamir%27s_secret_sharing
 - **Argent Social Recovery:** https://www.argent.xyz/learn/what-is-social-recovery/
