@@ -66,6 +66,27 @@ class HavenTheme extends ThemeExtension<HavenTheme> {
         radiusXl: HavenRadius.xl,
       );
 
+  /// Light theme.
+  factory HavenTheme.light() => const HavenTheme(
+        background: HavenColors.backgroundLight,
+        surface: HavenColors.surfaceLight,
+        elevated: HavenColors.elevatedLight,
+        accent: HavenColors.accent,
+        accentHover: HavenColors.accentHover,
+        accentMuted: HavenColors.accentMutedLight,
+        textPrimary: HavenColors.textPrimaryLight,
+        textSecondary: HavenColors.textSecondaryLight,
+        textOnAccent: HavenColors.textOnAccentLight,
+        border: HavenColors.borderLight,
+        error: HavenColors.error,
+        success: HavenColors.success,
+        warning: HavenColors.warning,
+        radiusSm: HavenRadius.sm,
+        radiusMd: HavenRadius.md,
+        radiusLg: HavenRadius.lg,
+        radiusXl: HavenRadius.xl,
+      );
+
   /// Convenience accessor.
   static HavenTheme of(BuildContext context) =>
       Theme.of(context).extension<HavenTheme>()!;

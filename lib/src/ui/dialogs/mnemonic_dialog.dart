@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 
 /// Shows the 24-word recovery phrase dialog.
 void showMnemonicDialog(BuildContext context, String mnemonic) {
@@ -63,7 +64,7 @@ void showMnemonicDialog(BuildContext context, String mnemonic) {
                     ),
                   );
                 },
-                icon: Icon(Icons.copy, size: 16, color: haven.accent),
+                icon: Icon(LucideIcons.copy, size: 16, color: haven.accent),
                 label: Text(
                   'Copy',
                   style:

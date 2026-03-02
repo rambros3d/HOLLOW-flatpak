@@ -22,6 +22,9 @@ pub(crate) enum SignalingCmd {
     SetRoom {
         room_code: String,
     },
+    Unregister {
+        room_code: String,
+    },
 }
 
 #[derive(Debug)]
@@ -43,6 +46,15 @@ struct RegisterPayload {
     room_code: String,
     peer_id: String,
     addresses: Vec<String>,
+    timestamp: u64,
+    public_key: String,
+    signature: String,
+}
+
+#[derive(Serialize)]
+struct UnregisterPayload {
+    room_code: String,
+    peer_id: String,
     timestamp: u64,
     public_key: String,
     signature: String,
@@ -144,6 +156,17 @@ async fn signaling_loop(
                     SignalingCmd::SetRoom { room_code } => {
                         active_room = Some(room_code);
                     }
+                    SignalingCmd::Unregister { room_code } => {
+                        if let Err(e) = do_unregister(
+                            &client, &keypair, &peer_id_str, &pub_key_b64,
+                            &room_code,
+                        ).await {
+                            let _ = event_tx.send(SignalingEvent::Error {
+                                message: format!("Unregister failed: {e}"),
+                            }).await;
+                        }
+                        active_room = None;
+                    }
                 }
             }
             _ = heartbeat.tick() => {
@@ -201,6 +224,53 @@ async fn do_register(
 
     let resp = client
         .post(format!("{SIGNALING_URL}/register"))
+        .json(&payload)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| format!("HTTP request failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Server returned {status}: {body}"));
+    }
+
+    Ok(())
+}
+
+async fn do_unregister(
+    client: &reqwest::Client,
+    keypair: &identity::Keypair,
+    peer_id_str: &str,
+    pub_key_b64: &str,
+    room_code: &str,
+) -> Result<(), String> {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| format!("Clock error: {e}"))?
+        .as_secs();
+
+    // Sign: "haven-unregister:{room_code}:{peer_id}:{timestamp}"
+    let message = format!("haven-unregister:{room_code}:{peer_id_str}:{timestamp}");
+    let signature = keypair
+        .sign(message.as_bytes())
+        .map_err(|e| format!("Signing failed: {e}"))?;
+    let sig_b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        &signature,
+    );
+
+    let payload = UnregisterPayload {
+        room_code: room_code.to_string(),
+        peer_id: peer_id_str.to_string(),
+        timestamp,
+        public_key: pub_key_b64.to_string(),
+        signature: sig_b64,
+    };
+
+    let resp = client
+        .post(format!("{SIGNALING_URL}/unregister"))
         .json(&payload)
         .timeout(Duration::from_secs(10))
         .send()

@@ -97,7 +97,8 @@ const wchar_t* WindowClassRegistrar::GetWindowClass() {
     window_class.hInstance = GetModuleHandle(nullptr);
     window_class.hIcon =
         LoadIcon(window_class.hInstance, MAKEINTRESOURCE(IDI_APP_ICON));
-    window_class.hbrBackground = 0;
+    // Dark background to prevent white flash on startup.
+    window_class.hbrBackground = CreateSolidBrush(RGB(13, 15, 20));
     window_class.lpszMenuName = nullptr;
     window_class.lpfnWndProc = Win32Window::WndProc;
     RegisterClass(&window_class);
@@ -145,6 +146,12 @@ bool Win32Window::Create(const std::wstring& title,
   }
 
   UpdateTheme(window);
+
+  // Extend DWM frame into the entire client area. This tells Windows to
+  // composite the whole window through the Desktop Window Manager, which
+  // eliminates flicker/tearing during resize and maximize-drag.
+  MARGINS margins = {-1};
+  DwmExtendFrameIntoClientArea(window, &margins);
 
   return OnCreate();
 }
@@ -216,6 +223,11 @@ Win32Window::MessageHandler(HWND hwnd,
     case WM_DWMCOLORIZATIONCOLORCHANGED:
       UpdateTheme(hwnd);
       return 0;
+
+    case WM_ERASEBKGND:
+      // Return non-zero to tell Windows we handled it — prevents the
+      // solid color flash when dragging a maximized window or resizing.
+      return 1;
   }
 
   return DefWindowProc(window_handle_, message, wparam, lparam);

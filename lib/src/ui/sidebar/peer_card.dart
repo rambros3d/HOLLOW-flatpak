@@ -5,6 +5,7 @@ import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
 import 'package:haven/src/ui/components/haven_avatar.dart';
 import 'package:haven/src/ui/components/status_dot.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 
 class PeerCard extends StatelessWidget {
   final String peerId;
@@ -74,7 +75,7 @@ class PeerCard extends StatelessWidget {
                 if (isEncrypted) ...[
                   const SizedBox(width: HavenSpacing.xs),
                   Icon(
-                    Icons.lock,
+                    LucideIcons.lock,
                     size: 12,
                     color: haven.success,
                   ),

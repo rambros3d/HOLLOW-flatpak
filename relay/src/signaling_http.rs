@@ -42,6 +42,15 @@ struct RegisterRequest {
     signature: String,
 }
 
+#[derive(Deserialize)]
+struct UnregisterRequest {
+    room_code: String,
+    peer_id: String,
+    timestamp: u64,
+    public_key: String,
+    signature: String,
+}
+
 // -- HTTP handlers --
 
 async fn handle_register(
@@ -130,6 +139,66 @@ async fn handle_register(
     (
         StatusCode::OK,
         Json(serde_json::json!({"ok": true, "peers_in_room": count})),
+    )
+}
+
+async fn handle_unregister(
+    State(rooms): State<RoomMap>,
+    Json(body): Json<UnregisterRequest>,
+) -> impl IntoResponse {
+    if body.room_code.is_empty() || body.room_code.len() > 64 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Invalid room_code"})),
+        );
+    }
+
+    if body.peer_id.is_empty() || body.public_key.is_empty() || body.signature.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Missing required fields"})),
+        );
+    }
+
+    // Anti-replay: timestamp must be within 5 minutes.
+    let now_secs = now_unix_secs();
+    let diff = if now_secs > body.timestamp {
+        now_secs - body.timestamp
+    } else {
+        body.timestamp - now_secs
+    };
+    if diff > TIMESTAMP_SKEW_SECS {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Timestamp too far from server time"})),
+        );
+    }
+
+    // Verify Ed25519 signature.
+    let signed_message = format!(
+        "haven-unregister:{}:{}:{}",
+        body.room_code, body.peer_id, body.timestamp
+    );
+
+    if !verify_signature(&body.public_key, &body.signature, &signed_message) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Invalid signature"})),
+        );
+    }
+
+    // Remove peer from room.
+    let mut map = rooms.write().await;
+    if let Some(peers) = map.get_mut(&body.room_code) {
+        peers.retain(|p| p.peer_id != body.peer_id);
+        if peers.is_empty() {
+            map.remove(&body.room_code);
+        }
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"ok": true})),
     )
 }
 
@@ -262,6 +331,7 @@ pub fn build_router(rooms: RoomMap) -> Router {
 
     Router::new()
         .route("/register", post(handle_register))
+        .route("/unregister", post(handle_unregister))
         .route("/bootstrap/{room_code}", get(handle_bootstrap))
         .route("/health", get(handle_health))
         .layer(cors)

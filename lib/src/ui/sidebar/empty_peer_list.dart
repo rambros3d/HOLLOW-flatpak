@@ -3,6 +3,7 @@ import 'package:haven/src/core/models/node_status.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 
 class EmptyPeerList extends StatelessWidget {
   final NodeStatus nodeStatus;
@@ -18,16 +19,16 @@ class EmptyPeerList extends StatelessWidget {
     switch (nodeStatus) {
       case NodeStatus.connected:
         text = 'Searching for peers\non your local network...';
-        icon = Icons.radar;
+        icon = LucideIcons.radar;
       case NodeStatus.starting:
         text = 'Starting node...';
-        icon = Icons.hourglass_top;
+        icon = LucideIcons.hourglass;
       case NodeStatus.loading:
         text = 'Loading identity...';
-        icon = Icons.person_outline;
+        icon = LucideIcons.user;
       case NodeStatus.error:
         text = 'Failed to start node.\nCheck the error above.';
-        icon = Icons.error_outline;
+        icon = LucideIcons.alertCircle;
     }
 
     return Center(

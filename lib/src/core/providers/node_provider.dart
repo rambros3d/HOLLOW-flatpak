@@ -38,7 +38,7 @@ class NodeNotifier extends Notifier<NodeState> {
       state = state.copyWith(status: NodeStatus.connected);
 
       // Start polling for network events.
-      ref.read(eventPollerProvider.notifier).start();
+      ref.read(eventStreamProvider.notifier).start();
     } catch (e) {
       debugPrint('[HAVEN] Node start error: $e');
       state = state.copyWith(status: NodeStatus.error, error: e.toString());
@@ -47,7 +47,7 @@ class NodeNotifier extends Notifier<NodeState> {
 
   /// Stop the node and event polling.
   Future<void> stop() async {
-    ref.read(eventPollerProvider.notifier).stop();
+    ref.read(eventStreamProvider.notifier).stop();
     try {
       await ref.read(networkServiceProvider).stopNode();
     } catch (e) {

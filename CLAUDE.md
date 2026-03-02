@@ -6,7 +6,7 @@ Haven is a fully distributed, encrypted Discord alternative. No central servers.
 ## Tech Stack
 - **UI:** Flutter (Dart) — all platforms (Windows, macOS, Linux, Android, iOS, Web)
 - **Backend:** Rust via `flutter_rust_bridge` v2.11.1 FFI
-- **Networking:** libp2p 0.56 (QUIC, TCP, mDNS, Kademlia, relay, DCUtR, AutoNAT)
+- **Networking:** libp2p 0.56 (QUIC, TCP, WSS, mDNS, Kademlia, relay, DCUtR, AutoNAT)
 - **E2EE:** vodozemac (Olm/Double Ratchet) for 1:1, MLS planned for groups
 - **Local DB:** SQLCipher (encrypted SQLite)
 - **Identity:** Ed25519 keypairs via BIP-39 mnemonic
@@ -17,11 +17,17 @@ Haven is a fully distributed, encrypted Discord alternative. No central servers.
 ```
 HAVEN/
 ├── lib/                  # Dart/Flutter code (UI, app logic, state management)
-│   ├── main.dart         # 10-line entry point (ProviderScope + RustLib.init)
+│   ├── main.dart         # Entry point (ProviderScope + RustLib.init + window_manager init)
 │   └── src/
 │       ├── core/         # Models, Riverpod providers, service wrappers
 │       ├── theme/        # Haven design system (colors, spacing, typography, ThemeExtension)
-│       └── ui/           # Decomposed widgets (shell, sidebar, chat, components, dialogs, animations)
+│       └── ui/
+│           ├── shell/    # Layout: haven_shell, server_strip, channel_sidebar, member_panel, user_bar, mobile_nav, window_title_bar
+│           ├── chat/     # ChatPane, MessageBubble
+│           ├── sidebar/  # PeerCard, EmptyPeerList (reusable components)
+│           ├── components/ # HavenAvatar, HavenButton, HavenCard, HavenDialog, HavenTextField, HavenToast, StatusDot
+│           ├── dialogs/  # InviteDialog, MnemonicDialog
+│           └── animations/ # HavenCurves, HavenDurations, FadeSlideTransition, ScaleFadeTransition
 ├── rust/haven_core/      # Rust library crate (networking, crypto, storage)
 │   └── src/
 │       ├── api/          # FFI layer (flutter_rust_bridge scans these)
@@ -58,9 +64,26 @@ ssh ubuntu@141.227.186.209 "cd relay && cargo build --release && sudo systemctl 
 ## Current Phase
 **Phase 2.5: UI Foundation** — COMPLETE.
 
-Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection management, invite links), and 2.5 (theme system, Riverpod state management, decomposed UI, component library, animations, adaptive layout) are complete.
+Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection management, invite links), 2.5 (UI Foundation) are complete. WSS transport (Nginx + Let's Encrypt on port 443) deployed for censorship resistance.
 
-**Next:** Phase 3 — Servers, Channels & Sync (CRDTs/HLC, server structure, roles, MLS group encryption).
+**Phase 2.5 includes:** Theme system (dark primary + light secondary), Riverpod, component library, animations, adaptive layout, event streaming (Rust→Dart StreamSink), navigation shell (Discord-like 4-panel layout), custom window chrome (frameless window via window_manager), Lucide Icons.
+
+**Pre-Phase 3 networking fixes** (Mar 2 2026): Ghost peer fix (disconnected_peers filter + /unregister endpoint), reconnection fix (removed has_bootstrapped, proactive key exchange, 60s rebootstrap), ping tuning (5s/5s). All deployed and tested. Known behavior: peers auto-discover via relay even without room membership — room gating needed in Phase 3.
+
+**Next:** Phase 3 — Servers, Channels & Sync.
+
+## Key Architecture Notes
+- **Peer state tracking in swarm.rs:** `connected_peers`, `expected_peers`, `disconnected_peers` HashSets. Bootstrap handler skips disconnected + connected peers. `InboundCircuitEstablished` clears disconnected. `ConnectionEstablished` triggers proactive DHT prekey fetch for auto-encryption. Ping: 5s/5s. Rebootstrap: 60s unconditional.
+- **Event streaming:** Rust→Dart via `StreamSink` (flutter_rust_bridge), not polling. `watch_network_events()` in `api/network.rs`, `EventStreamNotifier` in `event_provider.dart`
+- **Navigation shell:** Discord-like 4-panel layout — ServerStrip (72px) | ChannelSidebar (240px) | ChatPane | MemberPanel (240px). Responsive: mobile uses bottom nav with single-panel views.
+- **Window chrome:** `window_manager` ^0.5.1, `setAsFrameless()`, custom 32px title bar (`window_title_bar.dart`). Native Win32 changes in `windows/runner/` for dark bg brush, DWM compositing, no-flicker resize. Known issue: drag-from-maximized doesn't live-redraw until drop (Flutter engine limitation).
+- **Theme:** Dark primary (default) + light secondary. `HavenTheme.dark()`/`.light()` ThemeExtension, `HavenThemeData.dark()`/`.light()` factories. Toggle via `themeModeProvider` (Riverpod StateProvider). No persistence yet (Phase 3). Frutiger Aero theme deferred as future third option.
+- **Icons:** `lucide_icons: ^0.257.0`. All `LucideIcons.*` (camelCase). Note: v0.257.0 uses `alertTriangle`/`alertCircle` (not `triangleAlert`/`circleAlert`). No `cloudCheck` — uses `cloud`.
+- `haven_log!` macro (`#[macro_export]` in lib.rs) logs to stderr + `haven_debug.log` (works in release builds)
+- Relay: OVH VPS 141.227.186.209, Nginx TLS termination on 443 → plain WS on 127.0.0.1:9001
+- Domain: relay.anonlisten.com (Hostinger DNS, Let's Encrypt cert)
+- Connection priority: LAN (mDNS) → Hole punch (DCUtR) → QUIC relay → TCP relay → WSS relay
+- libp2p SwarmBuilder chain: with_tcp → with_quic → with_dns → with_websocket → with_relay_client → with_behaviour
 
 ## Coding Conventions
 - Dart: follow standard `flutter_lints` / `analysis_options.yaml`

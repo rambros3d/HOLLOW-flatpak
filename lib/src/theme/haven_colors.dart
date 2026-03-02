@@ -27,4 +27,24 @@ abstract final class HavenColors {
   static const error = Color(0xFFEF4444);
   static const success = Color(0xFF10B981);
   static const warning = Color(0xFFF59E0B);
+
+  // ══════════════════════════════════════════
+  // ── Light Mode ──
+  // ══════════════════════════════════════════
+
+  // ── Backgrounds ──
+  static const backgroundLight = Color(0xFFFFFFFF);
+  static const surfaceLight = Color(0xFFF5F6F8);
+  static const elevatedLight = Color(0xFFE9EBED);
+
+  // ── Accent (muted variant only — accent/accentHover shared) ──
+  static const accentMutedLight = Color(0x1A00BFA6); // ~10% teal on white
+
+  // ── Text ──
+  static const textPrimaryLight = Color(0xFF1A1C1E);
+  static const textSecondaryLight = Color(0xFF5C6370);
+  static const textOnAccentLight = Color(0xFF0D0F14); // dark text on teal
+
+  // ── Borders ──
+  static const borderLight = Color(0x14000000); // ~8% black
 }

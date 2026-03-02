@@ -9,36 +9,35 @@ import 'package:haven/src/core/providers/selected_peer_provider.dart';
 import 'package:haven/src/core/providers/service_providers.dart';
 import 'package:haven/src/rust/api/network.dart';
 
-/// Wraps the 500ms FFI polling behind a stream and dispatches events
+/// Listens to the Rust event stream and dispatches events
 /// to the appropriate providers.
-class EventPollerNotifier extends Notifier<bool> {
-  Timer? _timer;
+class EventStreamNotifier extends Notifier<bool> {
+  StreamSubscription<NetworkEvent>? _subscription;
 
   @override
-  bool build() => false; // running?
+  bool build() => false; // streaming?
 
   void start() {
-    if (_timer != null) return;
-    _timer = Timer.periodic(
-      const Duration(milliseconds: 500),
-      (_) => _poll(),
+    if (_subscription != null) return;
+    final networkService = ref.read(networkServiceProvider);
+    _subscription = networkService.watchNetworkEvents().listen(
+      _dispatch,
+      onError: (error) {
+        debugPrint('[HAVEN] Event stream error: $error');
+      },
+      onDone: () {
+        debugPrint('[HAVEN] Event stream closed');
+        _subscription = null;
+        state = false;
+      },
     );
     state = true;
   }
 
   void stop() {
-    _timer?.cancel();
-    _timer = null;
+    _subscription?.cancel();
+    _subscription = null;
     state = false;
-  }
-
-  Future<void> _poll() async {
-    final networkService = ref.read(networkServiceProvider);
-    while (true) {
-      final event = await networkService.pollNetworkEvent();
-      if (event == null) break;
-      _dispatch(event);
-    }
   }
 
   void _dispatch(NetworkEvent event) {
@@ -89,5 +88,5 @@ class EventPollerNotifier extends Notifier<bool> {
   }
 }
 
-final eventPollerProvider =
-    NotifierProvider<EventPollerNotifier, bool>(EventPollerNotifier.new);
+final eventStreamProvider =
+    NotifierProvider<EventStreamNotifier, bool>(EventStreamNotifier.new);

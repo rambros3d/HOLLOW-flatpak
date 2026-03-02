@@ -867,17 +867,17 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - Border radius: 8-12px (medium rounded)
 
 - [X] Custom theme system (HavenTheme: color palette, typography scale, spacing, elevation, border radii — no Material defaults. Multi-theme architecture supporting Default Dark + future Aero theme)
-- [ ] Dark mode primary, light mode secondary (both fully custom, not Material's ColorScheme)
-- [ ] Custom window chrome (remove native title bar, custom-drawn title bar with Haven branding, window controls — via flutter_acrylic or bitsdojo_window)
+- [X] Dark mode primary, light mode secondary (both fully custom, not Material's ColorScheme)
+- [X] Custom window chrome (remove native title bar, custom-drawn title bar with Haven branding, window controls — via flutter_acrylic or bitsdojo_window)
 - [X] State management architecture (Riverpod — chosen for auto-dispose, .family per-peer state, StreamProvider for Rust FFI streams, granular rebuilds)
-- [ ] Event streaming refactor (replace polling with Rust→Dart stream — real-time updates)
-- [ ] Navigation shell (server list sidebar, channel/chat view, member panel — responsive: sidebar on desktop, bottom nav on mobile)
+- [X] Event streaming refactor (replace polling with Rust→Dart stream — real-time updates)
+- [X] Navigation shell (server list sidebar, channel/chat view, member panel — responsive: sidebar on desktop, bottom nav on mobile)
 - [X] Reusable component library (HavenButton, HavenTextField, HavenCard, HavenAvatar, HavenDialog, HavenToast — all custom-painted, no Material widgets)
 - [X] Animation system (spring curves, page transitions, micro-interactions — buttery smooth 60fps, GPU-accelerated via Flutter's rendering pipeline)
 - [X] Chat UI rebuild (message bubbles, timestamps, read indicators, typing indicator — custom widgets, not Material ListTiles)
 - [X] Peer/contact list rebuild (online/offline status, avatars, encryption badge — integrated with new component library)
 - [X] Adaptive layout system (responsive breakpoints for desktop/tablet/mobile — single codebase, three layouts)
-- [ ] Custom iconography (Haven icon set or curated icon package — consistent visual language)
+- [X] Custom iconography (Haven icon set or curated icon package — consistent visual language)
 
 **Deliverable:** The app looks and feels like a real product — custom visual identity, smooth animations, responsive layout. All future UI work builds on this foundation.
 
@@ -885,17 +885,19 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 **Goal:** Multi-user servers with channels, roles, and MLS encryption.
 
+- [X] Ghost peer fix
+- [X] 10s disconnection delay fix
 - [ ] CRDT integration (Automerge) for server state — foundation for all distributed data
 - [ ] Hybrid Logical Clocks for message ordering
 - [ ] Sync protocol (state vectors, delta sync)
-- [ ] Server creation and management — uses CRDTs for distributed state
-- [ ] Channel system (text channels, categories) — uses CRDTs for channel list
+- [ ] Server creation and management — uses CRDTs for distributed state. 🎞️ Animate: server icon appears in ServerStrip with scale-bounce, creation dialog entrance/exit
+- [ ] Channel system (text channels, categories) — uses CRDTs for channel list. 🎞️ Animate: channel switch crossfade in ChatPane, channel list reorder/add/remove with slide transitions
 - [ ] Roles and permissions system — uses CRDTs (LWW-Register with admin priority)
 - [ ] MLS group encryption for channels — standalone crypto task, can parallel with UI work
-- [ ] Server settings UI
-- [ ] Member list with online/offline status
-- [ ] Basic offline message queuing (store-and-forward via online peers) — requires sync protocol
-- [ ] Device linking via QR code (multi-device identity sync) — requires MLS + CRDTs
+- [ ] Server settings UI. 🎞️ Animate: settings panel slide-in, toggle/switch micro-interactions
+- [ ] Member list with online/offline status. 🎞️ Animate: member join/leave fade+slide, online→offline status transitions, presence dot pulse
+- [ ] Basic offline message queuing (store-and-forward via online peers) — requires sync protocol. 🎞️ Animate: queued message shimmer/pending state, delivery confirmation tick
+- [ ] Device linking via QR code (multi-device identity sync) — requires MLS + CRDTs. 🎞️ Animate: QR scan success celebration, device linked confirmation
 
 **Deliverable:** A functional group chat platform with servers, channels, and multi-device support.
 
@@ -908,10 +910,10 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] Content-addressed storage (SHA-256 based)
 - [ ] DHT-based shard placement
 - [ ] Shard retrieval and content reconstruction
-- [ ] Rebalancing on member join/leave
-- [ ] Storage dashboard UI (visualize pool, health, contributions)
-- [ ] File upload → encrypt → erasure-code → distribute pipeline
-- [ ] Image/file preview and download from distributed storage
+- [ ] Rebalancing on member join/leave. 🎞️ Animate: rebalancing progress indicator, shard migration visualization
+- [ ] Storage dashboard UI (visualize pool, health, contributions). 🎞️ Animate: animated donut/bar charts, pool fill-up animation, health pulse indicators
+- [ ] File upload → encrypt → erasure-code → distribute pipeline. 🎞️ Animate: upload progress with encrypt→split→distribute step visualization
+- [ ] Image/file preview and download from distributed storage. 🎞️ Animate: image load shimmer placeholder → fade-in, download progress reconstruction
 - [ ] Storage tier configuration (retention policies per data type)
 
 **Deliverable:** Server data lives distributed across members. No single point of failure.
@@ -922,7 +924,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 - [ ] Social Recovery: guardian designation + Shamir's Secret Sharing (split identity key into k-of-n shares, distribute to trusted contacts via E2EE)
 - [ ] Encrypted Vault Backup: password-based recovery (Argon2id KDF, encrypted blob stored as high-redundancy shard in the Shared Vault)
-- [ ] Recovery UI flows (guardian approval, password entry, shard reconstruction)
+- [ ] Recovery UI flows (guardian approval, password entry, shard reconstruction). 🎞️ Animate: step-by-step wizard transitions, shard gathering progress, recovery success celebration
 
 **Deliverable:** Users can recover their identity after total device loss via guardians or a recovery password.
 
@@ -937,9 +939,9 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] Super peer SFU for larger groups
 - [ ] SFrame E2EE for group calls
 - [ ] Screen sharing
-- [ ] Voice channels (persistent, join/leave)
+- [ ] Voice channels (persistent, join/leave). 🎞️ Animate: join/leave transitions, voice activity ring pulse around avatar
 - [ ] Audio processing (echo cancellation, noise suppression)
-- [ ] Call UI (grid view, controls, indicators)
+- [ ] Call UI (grid view, controls, indicators). 🎞️ Animate: participant grid rearrange, mute/unmute feedback, speaking indicator glow, call connect/disconnect transitions
 
 **Deliverable:** Full voice/video/screen-share with E2EE.
 
@@ -948,14 +950,14 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 **Goal:** Feature parity with Discord's core experience.
 
 - [ ] Rich text messages (markdown, embeds, link previews)
-- [ ] Emoji reactions
-- [ ] Threads / reply chains
+- [ ] Emoji reactions. 🎞️ Animate: reaction pop-in with spring bounce, count increment/decrement
+- [ ] Threads / reply chains. 🎞️ Animate: thread expand/collapse, reply chain indent slide
 - [ ] File sharing with previews (images, videos, documents)
-- [ ] User profiles with avatars and status
+- [ ] User profiles with avatars and status. 🎞️ Animate: profile card pop-up with scale+fade, status change transitions
 - [ ] Notifications (system-level, configurable per channel)
-- [ ] Search (local full-text search of decrypted messages)
-- [ ] Typing indicators
-- [ ] Message editing and deletion
+- [ ] Search (local full-text search of decrypted messages). 🎞️ Animate: search bar expand, results list staggered fade-in
+- [ ] Typing indicators. 🎞️ Animate: classic bouncing dots, smooth fade in/out
+- [ ] Message editing and deletion. 🎞️ Animate: edit highlight flash, delete shrink+fade-out
 - [ ] Pinned messages
 - [ ] Discord import system (full implementation)
 - [ ] Data export system (messages, files, identity — verifiable with signatures)
@@ -964,6 +966,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] Mobile platform testing & platform-specific fixes (adaptive layout built in Phase 2.5)
 - [ ] Keyboard shortcuts
 - [ ] Accessibility (screen reader support, high contrast)
+- [ ] 🎞️ Animation final pass — sweep all existing UI: hover micro-interactions on every button/card, panel slide transitions (sidebar open/close, member panel toggle), message appearance animations (staggered fade+slide on load, instant append on new), smooth theme switching crossfade, page/route transitions, loading skeletons replacing spinners
 
 **Deliverable:** A polished, feature-complete communication platform.
 

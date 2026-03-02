@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/providers/chat_provider.dart';
+import 'package:haven/src/core/providers/member_panel_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
 import 'package:haven/src/ui/chat/message_bubble.dart';
 import 'package:haven/src/ui/components/haven_avatar.dart';
 import 'package:haven/src/ui/components/status_dot.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 
 class ChatPane extends ConsumerStatefulWidget {
   final String peerId;
@@ -105,7 +107,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
               ),
               if (widget.isEncrypted) ...[
                 Icon(
-                  Icons.lock,
+                  LucideIcons.lock,
                   size: 14,
                   color: haven.success,
                 ),
@@ -119,7 +121,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                 const SizedBox(width: HavenSpacing.sm),
               ],
               IconButton(
-                icon: Icon(Icons.copy, size: 16, color: haven.textSecondary),
+                icon: Icon(LucideIcons.copy, size: 16, color: haven.textSecondary),
                 tooltip: 'Copy peer ID',
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: widget.peerId));
@@ -142,6 +144,26 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                   minHeight: 28,
                 ),
               ),
+              const SizedBox(width: HavenSpacing.xs),
+              IconButton(
+                icon: Icon(
+                  LucideIcons.users,
+                  size: 18,
+                  color: ref.watch(memberPanelProvider)
+                      ? haven.accent
+                      : haven.textSecondary,
+                ),
+                tooltip: 'Toggle member panel',
+                onPressed: () {
+                  ref.read(memberPanelProvider.notifier).state =
+                      !ref.read(memberPanelProvider);
+                },
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(
+                  minWidth: 28,
+                  minHeight: 28,
+                ),
+              ),
             ],
           ),
         ),
@@ -156,7 +178,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          Icons.chat_bubble_outline,
+                          LucideIcons.messageCircle,
                           size: 48,
                           color: haven.textSecondary.withValues(alpha: 0.3),
                         ),
@@ -237,7 +259,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                 child: IconButton(
                   onPressed: _handleSend,
                   icon: Icon(
-                    Icons.send,
+                    LucideIcons.send,
                     color: haven.textOnAccent,
                     size: 20,
                   ),

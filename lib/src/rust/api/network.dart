@@ -8,7 +8,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'network.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `get_node`, `get_runtime`, `to_ffi_event`
+// These functions are ignored because they are not marked as `pub`: `event_forwarding_task`, `get_event_rx`, `get_node`, `get_runtime`, `to_ffi_event`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `NodeState`
 
 /// Start the libp2p node with mDNS peer discovery and E2EE.
@@ -16,7 +16,13 @@ part 'network.freezed.dart';
 /// Returns the local peer ID as a string.
 Future<String> startNode() => RustLib.instance.api.crateApiNetworkStartNode();
 
+/// Stream network events to Dart in real time.
+/// Must be called after `start_node()`. Can only be called once per node lifetime.
+Stream<NetworkEvent> watchNetworkEvents() =>
+    RustLib.instance.api.crateApiNetworkWatchNetworkEvents();
+
 /// Poll for the next network event. Returns None if no event is available.
+/// Fallback for when streaming is not active.
 Future<NetworkEvent?> pollNetworkEvent() =>
     RustLib.instance.api.crateApiNetworkPollNetworkEvent();
 

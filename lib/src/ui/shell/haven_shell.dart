@@ -1,10 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/models/chat_message.dart';
 import 'package:haven/src/core/models/node_status.dart';
 import 'package:haven/src/core/providers/chat_provider.dart';
 import 'package:haven/src/core/providers/identity_provider.dart';
+import 'package:haven/src/core/providers/member_panel_provider.dart';
 import 'package:haven/src/core/providers/node_provider.dart';
 import 'package:haven/src/core/providers/peers_provider.dart';
 import 'package:haven/src/core/providers/room_provider.dart';
@@ -13,15 +15,25 @@ import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
 import 'package:haven/src/ui/chat/chat_pane.dart';
-import 'package:haven/src/ui/components/status_dot.dart';
 import 'package:haven/src/ui/dialogs/invite_dialog.dart';
 import 'package:haven/src/ui/dialogs/mnemonic_dialog.dart';
-import 'package:haven/src/ui/sidebar/sidebar.dart';
+import 'package:haven/src/ui/shell/channel_sidebar.dart';
+import 'package:haven/src/ui/shell/member_panel.dart';
+import 'package:haven/src/ui/shell/mobile_nav.dart';
+import 'package:haven/src/ui/shell/server_strip.dart';
+import 'package:haven/src/ui/shell/window_title_bar.dart';
+import 'package:lucide_icons/lucide_icons.dart';
+import 'package:window_manager/window_manager.dart';
 
 /// Breakpoints for adaptive layout.
 const _kDesktopBreakpoint = 1024.0;
 const _kTabletBreakpoint = 600.0;
 
+/// Main application shell — Discord-like multi-panel layout.
+///
+/// Desktop: ServerStrip | ChannelSidebar | ChatPane | MemberPanel
+/// Tablet:  ServerStrip | ChannelSidebar | ChatPane (member panel toggleable)
+/// Mobile:  Active tab view + bottom navigation bar
 class HavenShell extends ConsumerStatefulWidget {
   const HavenShell({super.key});
 
@@ -31,7 +43,6 @@ class HavenShell extends ConsumerStatefulWidget {
 
 class _HavenShellState extends ConsumerState<HavenShell> {
   final _roomController = TextEditingController();
-  final _scaffoldKey = GlobalKey<ScaffoldState>();
   bool _initialized = false;
 
   @override
@@ -70,24 +81,6 @@ class _HavenShellState extends ConsumerState<HavenShell> {
     super.dispose();
   }
 
-  Color _statusColor(HavenTheme haven, NodeStatus status) {
-    return switch (status) {
-      NodeStatus.connected => haven.success,
-      NodeStatus.starting => haven.warning,
-      NodeStatus.loading => haven.textSecondary,
-      NodeStatus.error => haven.error,
-    };
-  }
-
-  String _statusText(NodeStatus status) {
-    return switch (status) {
-      NodeStatus.connected => 'Connected',
-      NodeStatus.starting => 'Starting...',
-      NodeStatus.loading => 'Loading...',
-      NodeStatus.error => 'Error',
-    };
-  }
-
   ChatMessage? _lastMessage(
       String peerId, Map<String, List<ChatMessage>> chatHistory) {
     final msgs = chatHistory[peerId];
@@ -103,24 +96,24 @@ class _HavenShellState extends ConsumerState<HavenShell> {
     return '${dt.month}/${dt.day}';
   }
 
-  Widget _buildSidebar({
+  Widget _buildChannelSidebar({
     required Map<String, dynamic> peers,
     required Map<String, List<ChatMessage>> chatHistory,
     required String? selectedPeerId,
     required NodeStatus nodeStatus,
     required String? activeRoom,
-    bool closesDrawer = false,
+    double? width = 240,
   }) {
-    return Sidebar(
+    return ChannelSidebar(
       peers: Map.from(peers),
       chatHistory: chatHistory,
       selectedPeerId: selectedPeerId,
       nodeStatus: nodeStatus,
+      width: width,
       onPeerSelected: (peerId) {
         ref.read(selectedPeerProvider.notifier).state = peerId;
-        if (closesDrawer) {
-          Navigator.of(context).pop();
-        }
+        // On mobile, switch to chat tab when peer is selected.
+        ref.read(mobileTabProvider.notifier).state = 1;
       },
       lastMessage: (peerId) => _lastMessage(peerId, chatHistory),
       formatTime: _formatTime,
@@ -137,7 +130,7 @@ class _HavenShellState extends ConsumerState<HavenShell> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            Icons.chat_outlined,
+            LucideIcons.messageSquare,
             size: 64,
             color: haven.textSecondary.withValues(alpha: 0.3),
           ),
@@ -167,231 +160,162 @@ class _HavenShellState extends ConsumerState<HavenShell> {
     );
   }
 
+  Widget _buildSettingsPlaceholder(HavenTheme haven) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            LucideIcons.settings,
+            size: 64,
+            color: haven.textSecondary.withValues(alpha: 0.3),
+          ),
+          const SizedBox(height: HavenSpacing.lg),
+          Text(
+            'Settings coming soon',
+            style: HavenTypography.body.copyWith(
+              color: haven.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final haven = HavenTheme.of(context);
 
-    final identity = ref.watch(identityProvider);
     final nodeState = ref.watch(nodeProvider);
     final peers = ref.watch(peersProvider);
     final selectedPeerId = ref.watch(selectedPeerProvider);
     final chatHistory = ref.watch(chatProvider);
     final activeRoom = ref.watch(roomProvider);
-
-    final localPeerId = identity.peerId;
-    final shortPeerId = localPeerId != null && localPeerId.length > 12
-        ? '${localPeerId.substring(0, 12)}...'
-        : localPeerId ?? '---';
+    final memberPanelOpen = ref.watch(memberPanelProvider);
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final isDesktop = width >= _kDesktopBreakpoint;
-        final isTablet =
-            width >= _kTabletBreakpoint && width < _kDesktopBreakpoint;
+        final isMobile = width < _kTabletBreakpoint;
 
-        return Scaffold(
-          key: _scaffoldKey,
-          backgroundColor: haven.surface,
-          drawer: isTablet
-              ? Drawer(
-                  width: 280,
-                  backgroundColor: haven.background,
-                  child: _buildSidebar(
+        if (isMobile) {
+          return _buildMobileLayout(
+            haven: haven,
+            peers: peers,
+            chatHistory: chatHistory,
+            selectedPeerId: selectedPeerId,
+            nodeStatus: nodeState.status,
+            activeRoom: activeRoom,
+          );
+        }
+
+        final isDesktopPlatform =
+            Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+
+        // Desktop and tablet — same layout, tablet just hides member panel.
+        Widget body = Column(
+          children: [
+            // Custom window title bar (desktop platforms only)
+            if (isDesktopPlatform) const WindowTitleBar(),
+
+            // Main content area
+            Expanded(
+              child: Row(
+                children: [
+                  // Server strip (far left)
+                  const ServerStrip(),
+
+                  // Channel sidebar
+                  _buildChannelSidebar(
                     peers: peers,
                     chatHistory: chatHistory,
                     selectedPeerId: selectedPeerId,
                     nodeStatus: nodeState.status,
                     activeRoom: activeRoom,
-                    closesDrawer: true,
                   ),
-                )
-              : null,
-          body: Column(
-            children: [
-              // -- Top bar --
-              Container(
-                height: 48,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: HavenSpacing.lg),
-                decoration: BoxDecoration(
-                  color: haven.surface,
-                  border: Border(
-                    bottom: BorderSide(color: haven.border),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    // Drawer button for tablet/mobile
-                    if (!isDesktop)
-                      Padding(
-                        padding: const EdgeInsets.only(
-                            right: HavenSpacing.sm),
-                        child: IconButton(
-                          icon: Icon(Icons.menu,
-                              size: 20, color: haven.textSecondary),
-                          onPressed: () {
-                            if (isTablet) {
-                              Scaffold.of(context).openDrawer();
-                            } else {
-                              ref
-                                  .read(selectedPeerProvider.notifier)
-                                  .state = null;
-                            }
-                          },
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 32,
-                            minHeight: 32,
-                          ),
-                        ),
-                      ),
-                    Text(
-                      'Haven',
-                      style: HavenTypography.subheading.copyWith(
-                        color: haven.textPrimary,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const Spacer(),
-                    // Error tooltip
-                    if (nodeState.error != null)
-                      Tooltip(
-                        message: nodeState.error!,
-                        child: Padding(
-                          padding: const EdgeInsets.only(
-                              right: HavenSpacing.md),
-                          child: Icon(
-                            Icons.warning_amber_rounded,
-                            size: 18,
-                            color: haven.error,
-                          ),
-                        ),
-                      ),
-                    // Status dot
-                    StatusDot(
-                      color: _statusColor(haven, nodeState.status),
-                      size: 8,
-                    ),
-                    const SizedBox(width: HavenSpacing.sm - 2),
-                    Text(
-                      _statusText(nodeState.status),
-                      style: HavenTypography.bodySmall.copyWith(
-                        color: haven.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(width: HavenSpacing.lg),
-                    // Peer ID (tap to copy)
-                    Tooltip(
-                      message: localPeerId ?? 'Loading...',
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(
-                            haven.radiusSm),
-                        onTap: () {
-                          if (localPeerId != null) {
-                            Clipboard.setData(
-                                ClipboardData(text: localPeerId));
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Peer ID copied to clipboard',
-                                  style: HavenTypography.body.copyWith(
-                                    color: haven.textPrimary,
-                                  ),
-                                ),
-                                backgroundColor: haven.elevated,
-                                duration: const Duration(seconds: 1),
-                              ),
-                            );
-                          }
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: HavenSpacing.sm,
-                            vertical: HavenSpacing.xs,
-                          ),
-                          child: Text(
-                            shortPeerId,
-                            style: HavenTypography.mono.copyWith(
-                              color: haven.textSecondary,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // Recovery phrase button
-                    if (identity.mnemonic != null)
-                      IconButton(
-                        icon: Icon(Icons.key,
-                            size: 18, color: haven.textSecondary),
-                        tooltip: 'Recovery phrase',
-                        onPressed: () => showMnemonicDialog(
-                            context, identity.mnemonic!),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 32,
-                          minHeight: 32,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
 
-              // -- Main content (adaptive) --
-              Expanded(
-                child: isDesktop
-                    ? Row(
-                        children: [
-                          _buildSidebar(
-                            peers: peers,
-                            chatHistory: chatHistory,
-                            selectedPeerId: selectedPeerId,
-                            nodeStatus: nodeState.status,
-                            activeRoom: activeRoom,
-                          ),
-                          Expanded(
-                            child: Container(
-                              color: haven.background,
-                              child: _buildChatOrEmpty(
-                                haven: haven,
-                                selectedPeerId: selectedPeerId,
-                                peers: peers,
-                              ),
-                            ),
-                          ),
-                        ],
-                      )
-                    : isTablet
-                        ? Container(
-                            color: haven.background,
-                            child: _buildChatOrEmpty(
-                              haven: haven,
-                              selectedPeerId: selectedPeerId,
-                              peers: peers,
-                            ),
-                          )
-                        : selectedPeerId != null
-                            ? Container(
-                                color: haven.background,
-                                child: _buildChatOrEmpty(
-                                  haven: haven,
-                                  selectedPeerId: selectedPeerId,
-                                  peers: peers,
-                                ),
-                              )
-                            : _buildSidebar(
-                                peers: peers,
-                                chatHistory: chatHistory,
-                                selectedPeerId: selectedPeerId,
-                                nodeStatus: nodeState.status,
-                                activeRoom: activeRoom,
-                              ),
+                  // Chat pane (expanded)
+                  Expanded(
+                    child: Container(
+                      color: haven.background,
+                      child: _buildChatOrEmpty(
+                        haven: haven,
+                        selectedPeerId: selectedPeerId,
+                        peers: peers,
+                      ),
+                    ),
+                  ),
+
+                  // Member panel (desktop: shown by default, tablet: toggleable)
+                  if (memberPanelOpen && (isDesktop || !isMobile))
+                    const MemberPanel(),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
+        );
+
+        // Wrap in DragToResizeArea to restore edge/corner resize handles
+        // after setAsFrameless() removed them.
+        if (isDesktopPlatform) {
+          body = DragToResizeArea(child: body);
+        }
+
+        return Scaffold(
+          backgroundColor: haven.background,
+          body: body,
         );
       },
+    );
+  }
+
+  Widget _buildMobileLayout({
+    required HavenTheme haven,
+    required Map<String, dynamic> peers,
+    required Map<String, List<ChatMessage>> chatHistory,
+    required String? selectedPeerId,
+    required NodeStatus nodeStatus,
+    required String? activeRoom,
+  }) {
+    final currentTab = ref.watch(mobileTabProvider);
+
+    Widget body;
+    switch (currentTab) {
+      case 0: // Home — channel sidebar content (full width on mobile)
+        body = _buildChannelSidebar(
+          peers: peers,
+          chatHistory: chatHistory,
+          selectedPeerId: selectedPeerId,
+          nodeStatus: nodeStatus,
+          activeRoom: activeRoom,
+          width: null,
+        );
+      case 1: // Chat
+        body = Container(
+          color: haven.background,
+          child: _buildChatOrEmpty(
+            haven: haven,
+            selectedPeerId: selectedPeerId,
+            peers: peers,
+          ),
+        );
+      case 2: // Members (full width on mobile)
+        body = const MemberPanel(width: null);
+      case 3: // Settings
+        body = _buildSettingsPlaceholder(haven);
+      default:
+        body = const SizedBox.shrink();
+    }
+
+    return Scaffold(
+      backgroundColor: haven.background,
+      body: Column(
+        children: [
+          Expanded(child: body),
+          const MobileNav(),
+        ],
+      ),
     );
   }
 }

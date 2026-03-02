@@ -6,6 +6,8 @@ class NetworkService {
 
   Future<ffi.NetworkEvent?> pollNetworkEvent() => ffi.pollNetworkEvent();
 
+  Stream<ffi.NetworkEvent> watchNetworkEvents() => ffi.watchNetworkEvents();
+
   Future<String?> getLocalPeerId() => ffi.getLocalPeerId();
 
   Future<String?> getOlmFingerprint() => ffi.getOlmFingerprint();

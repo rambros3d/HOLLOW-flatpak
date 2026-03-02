@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 
 /// Shows the invite link dialog after creating a room.
 void showInviteDialog(
@@ -49,7 +50,7 @@ void showInviteDialog(
                   ),
                 ),
                 IconButton(
-                  icon: Icon(Icons.copy, size: 18, color: haven.accent),
+                  icon: Icon(LucideIcons.copy, size: 18, color: haven.accent),
                   tooltip: 'Copy link',
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: link));

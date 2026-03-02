@@ -5,6 +5,7 @@ use libp2p::PeerId;
 use tokio::sync::mpsc;
 
 use crate::crypto::{CryptoStore, OlmManager};
+use crate::frb_generated::StreamSink;
 use crate::identity;
 use crate::node;
 use crate::storage::MessageStore;
@@ -32,7 +33,6 @@ pub enum NetworkEvent {
 /// Holds all mutable state for the running node.
 struct NodeState {
     local_peer_id: String,
-    event_rx: mpsc::Receiver<node::NetworkEvent>,
     cmd_tx: mpsc::Sender<node::NodeCommand>,
     handle: tokio::task::JoinHandle<()>,
     olm_fingerprint: String,
@@ -41,6 +41,13 @@ struct NodeState {
 // The node state: None = not running, Some = running.
 static NODE: OnceLock<Mutex<Option<NodeState>>> = OnceLock::new();
 static TOKIO_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+
+// Event receiver — stored separately so watch_network_events() can take ownership.
+static EVENT_RX: OnceLock<Mutex<Option<mpsc::Receiver<node::NetworkEvent>>>> = OnceLock::new();
+
+fn get_event_rx() -> &'static Mutex<Option<mpsc::Receiver<node::NetworkEvent>>> {
+    EVENT_RX.get_or_init(|| Mutex::new(None))
+}
 
 fn get_node() -> &'static Mutex<Option<NodeState>> {
     NODE.get_or_init(|| Mutex::new(None))
@@ -182,9 +189,11 @@ pub fn start_node() -> Result<String, String> {
         .block_on(node::spawn_node(id.keypair, event_tx, cmd_rx, olm, crypto_store))
         .map_err(|e| format!("Failed to start node: {e}"))?;
 
+    // Store event receiver separately so watch_network_events() can take it.
+    *get_event_rx().lock().map_err(|e| format!("Lock poisoned: {e}"))? = Some(event_rx);
+
     *guard = Some(NodeState {
         local_peer_id: peer_id_str.clone(),
-        event_rx,
         cmd_tx,
         handle,
         olm_fingerprint,
@@ -193,13 +202,46 @@ pub fn start_node() -> Result<String, String> {
     Ok(peer_id_str)
 }
 
+/// Stream network events to Dart in real time.
+/// Must be called after `start_node()`. Can only be called once per node lifetime.
+#[frb]
+pub fn watch_network_events(sink: StreamSink<NetworkEvent>) -> Result<(), String> {
+    let rx = get_event_rx()
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {e}"))?
+        .take()
+        .ok_or("No event receiver available (node not started or stream already active)")?;
+
+    let rt = get_runtime();
+    rt.spawn(async move {
+        event_forwarding_task(rx, sink).await;
+    });
+
+    Ok(())
+}
+
+async fn event_forwarding_task(
+    mut rx: mpsc::Receiver<node::NetworkEvent>,
+    sink: StreamSink<NetworkEvent>,
+) {
+    while let Some(event) = rx.recv().await {
+        let ffi_event = to_ffi_event(event);
+        if sink.add(ffi_event).is_err() {
+            haven_log!("[HAVEN] Event stream sink closed, stopping forwarding");
+            break;
+        }
+    }
+    haven_log!("[HAVEN] Event channel closed, stream ending");
+}
+
 /// Poll for the next network event. Returns None if no event is available.
+/// Fallback for when streaming is not active.
 #[frb]
 pub fn poll_network_event() -> Option<NetworkEvent> {
-    let node = get_node();
-    let mut guard = node.lock().ok()?;
-    let state = guard.as_mut()?;
-    state.event_rx.try_recv().ok().map(to_ffi_event)
+    let rx_lock = get_event_rx();
+    let mut guard = rx_lock.lock().ok()?;
+    let rx = guard.as_mut()?;
+    rx.try_recv().ok().map(to_ffi_event)
 }
 
 /// Get the local peer ID. Returns None if the node hasn't started.
@@ -267,6 +309,11 @@ pub fn join_room(room_code: String) -> Result<(), String> {
 pub fn stop_node() -> Result<(), String> {
     let node = get_node();
     let mut guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+
+    // Clear any unconsumed event receiver.
+    if let Ok(mut rx_guard) = get_event_rx().lock() {
+        *rx_guard = None;
+    }
 
     match guard.take() {
         Some(state) => {

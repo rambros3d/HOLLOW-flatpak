@@ -437,7 +437,11 @@ pub(crate) async fn spawn_node(
                 key.public(),
             ));
 
-            let ping = ping::Behaviour::default();
+            let ping = ping::Behaviour::new(
+                ping::Config::new()
+                    .with_interval(Duration::from_secs(5))
+                    .with_timeout(Duration::from_secs(5)),
+            );
 
             Ok(HavenBehaviour {
                 relay_client,
@@ -577,8 +581,15 @@ async fn run_swarm(
     // preventing Kademlia routing connections from polluting the peer list.
     let mut expected_peers: std::collections::HashSet<PeerId> = std::collections::HashSet::new();
 
-    // Re-bootstrap timer (30 seconds) for mutual peer discovery.
-    let mut rebootstrap_timer = tokio::time::interval(Duration::from_secs(30));
+    // Track peers that disconnected. Prevents ghost peers: if signaling
+    // returns a stale peer we already tried and failed, skip it.
+    // Cleared on room switch, removed on successful ConnectionEstablished.
+    let mut disconnected_peers: std::collections::HashSet<PeerId> = std::collections::HashSet::new();
+
+    // Re-bootstrap timer (60 seconds) for mutual peer discovery.
+    // Fires unconditionally — BootstrapPeers handler skips connected
+    // and disconnected peers, so only genuinely new peers get processed.
+    let mut rebootstrap_timer = tokio::time::interval(Duration::from_secs(60));
     rebootstrap_timer.tick().await; // consume immediate first tick
 
     // Relay health check timer (60 seconds). Detects dropped relay connections
@@ -592,11 +603,15 @@ async fn run_swarm(
             Some(cmd) = cmd_rx.recv() => {
                 match cmd {
                     NodeCommand::JoinRoom { room_code } => {
-                        // If switching rooms, notify Dart to clear the peer list.
-                        if active_room.is_some() && active_room.as_ref() != Some(&room_code) {
+                        // If switching rooms, unregister from the old room and clear state.
+                        if let Some(old_room) = active_room.as_ref().filter(|r| *r != &room_code) {
+                            let _ = sig_cmd_tx.send(SignalingCmd::Unregister {
+                                room_code: old_room.clone(),
+                            }).await;
                             let _ = event_tx.send(NetworkEvent::RoomCleared).await;
                             connected_peers.clear();
                             expected_peers.clear();
+                            disconnected_peers.clear();
                         }
                         active_room = Some(room_code.clone());
                         // Register ourselves and bootstrap from the signaling service.
@@ -688,13 +703,13 @@ async fn run_swarm(
                                 addresses: registerable,
                             }).await;
 
-                            // When a relay circuit address appears, re-bootstrap
-                            // to discover peers that registered before us.
+                            // When a relay circuit address appears, bootstrap to
+                            // discover peers that registered before us.
                             if is_circuit {
                                 if let Some(room) = &active_room {
                                     let _ = event_tx
                                         .send(NetworkEvent::Error {
-                                            message: "[DEBUG] Relay circuit up — re-bootstrapping...".to_string(),
+                                            message: "[DEBUG] Relay circuit up — bootstrapping...".to_string(),
                                         })
                                         .await;
                                     let _ = sig_cmd_tx.send(SignalingCmd::Bootstrap {
@@ -1070,6 +1085,9 @@ async fn run_swarm(
                                         address: format!("relay-circuit-in:{src_peer_id}"),
                                     })
                                     .await;
+                                // Peer is genuinely connecting to us — clear from
+                                // disconnected set so they can be re-discovered.
+                                disconnected_peers.remove(&src_peer_id);
                                 expected_peers.insert(src_peer_id);
                                 // Emit PeerDiscovered so the Dart UI shows this peer.
                                 let _ = event_tx
@@ -1112,6 +1130,8 @@ async fn run_swarm(
                         // Track connected peers (skip relay node).
                         if relay_peer_id() != Some(peer_id) {
                             connected_peers.insert(peer_id);
+                            // Peer genuinely reconnected — allow future bootstraps to re-add them.
+                            disconnected_peers.remove(&peer_id);
 
                             // Only emit PeerDiscovered for peers we expect (from
                             // signaling bootstrap, mDNS, or relay inbound circuit).
@@ -1127,14 +1147,26 @@ async fn run_swarm(
                                         },
                                     })
                                     .await;
-                                // Re-emit SessionEstablished if we have an Olm session
-                                // so the lock icon appears on reconnect.
                                 if olm.has_session(&peer_id_str) {
+                                    // Re-emit SessionEstablished so the lock icon appears.
                                     let _ = event_tx
                                         .send(NetworkEvent::SessionEstablished {
                                             peer_id: peer_id_str,
                                         })
                                         .await;
+                                } else if !key_request_in_flight.contains(&peer_id_str)
+                                    && !dht_fetch_in_flight.contains(&peer_id_str)
+                                {
+                                    // No Olm session — proactively start key exchange
+                                    // so encryption is ready before the first message.
+                                    haven_log!("[HAVEN-SWARM] Proactive key exchange for {peer_id_str}");
+                                    let record_key = kad::RecordKey::new(
+                                        &format!("/haven/prekeys/{}", peer_id_str),
+                                    );
+                                    let query_id = swarm.behaviour_mut().kademlia
+                                        .get_record(record_key);
+                                    pending_prekey_fetches.insert(query_id, peer_id_str.clone());
+                                    dht_fetch_in_flight.insert(peer_id_str);
                                 }
                             }
                         }
@@ -1235,6 +1267,7 @@ async fn run_swarm(
                         // Only emit PeerDisconnected when ALL connections to this peer are gone.
                         if num_established == 0 && relay_peer_id() != Some(peer_id) {
                             connected_peers.remove(&peer_id);
+                            disconnected_peers.insert(peer_id);
                             let _ = event_tx
                                 .send(NetworkEvent::PeerDisconnected {
                                     peer_id: peer_id.to_string(),
@@ -1282,6 +1315,15 @@ async fn run_swarm(
                                 continue;
                             };
                             if peer_id == *swarm.local_peer_id() {
+                                continue;
+                            }
+                            // Skip peers we already tried and disconnected from.
+                            // Prevents ghost peers from stale signaling entries.
+                            if disconnected_peers.contains(&peer_id) {
+                                continue;
+                            }
+                            // Skip peers we're already connected to.
+                            if connected_peers.contains(&peer_id) {
                                 continue;
                             }
 
@@ -1363,6 +1405,8 @@ async fn run_swarm(
             }
 
             // Periodic re-bootstrap for mutual peer discovery.
+            // BootstrapPeers handler skips connected_peers and disconnected_peers,
+            // so this only processes genuinely new peers joining after us.
             _ = rebootstrap_timer.tick() => {
                 if let Some(room) = &active_room {
                     let _ = sig_cmd_tx.send(SignalingCmd::Bootstrap {
