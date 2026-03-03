@@ -15,7 +15,6 @@ class HavenToast {
   HavenToast._();
 
   static OverlayEntry? _currentEntry;
-  static AnimationController? _currentController;
 
   /// Show a toast at the bottom of the screen.
   static void show(
@@ -37,8 +36,6 @@ class HavenToast {
         type: type,
         onControllerReady: (c) {
           controller = c;
-          _currentController = c;
-
           // Auto-dismiss after duration.
           Future.delayed(duration, () {
             if (entry.mounted) {
@@ -46,7 +43,6 @@ class HavenToast {
                 if (entry.mounted) entry.remove();
                 if (_currentEntry == entry) {
                   _currentEntry = null;
-                  _currentController = null;
                 }
               });
             }
@@ -63,9 +59,7 @@ class HavenToast {
     if (_currentEntry != null && _currentEntry!.mounted) {
       _currentEntry!.remove();
     }
-    _currentController?.dispose();
     _currentEntry = null;
-    _currentController = null;
   }
 }
 

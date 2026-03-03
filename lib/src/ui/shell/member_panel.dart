@@ -9,6 +9,9 @@ import 'package:haven/src/core/providers/server_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
+import 'package:haven/src/ui/animations/haven_curves.dart';
+import 'package:haven/src/ui/animations/reveal_widgets.dart';
+import 'package:haven/src/ui/animations/startup_reveal.dart';
 import 'package:haven/src/ui/components/haven_avatar.dart';
 import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/haven_toast.dart';
@@ -27,27 +30,34 @@ class MemberPanel extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final haven = HavenTheme.of(context);
     final selectedServerId = ref.watch(selectedServerProvider);
+    final nodeState = ref.watch(nodeProvider);
+    final identity = ref.watch(identityProvider);
 
-    if (selectedServerId != null) {
-      return _buildServerMemberPanel(context, ref, haven, selectedServerId);
+    final panelReveal =
+        StartupRevealScope.interval(context, 0.45, 0.60);
+    final connInfoReveal =
+        StartupRevealScope.interval(context, 0.75, 0.85);
+
+    Widget connInfo =
+        _buildConnectionInfo(context, haven, nodeState, identity);
+
+    if (connInfoReveal != null) {
+      connInfo = AnimatedBuilder(
+        animation: connInfoReveal,
+        builder: (context, child) {
+          return Opacity(
+            opacity: connInfoReveal.value,
+            child: FractionalTranslation(
+              translation: Offset(0, 0.5 * (1.0 - connInfoReveal.value)),
+              child: child,
+            ),
+          );
+        },
+        child: connInfo,
+      );
     }
 
-    return _buildPeerMemberPanel(context, ref, haven);
-  }
-
-  // ---------- Server member mode ----------
-
-  Widget _buildServerMemberPanel(
-    BuildContext context,
-    WidgetRef ref,
-    HavenTheme haven,
-    String serverId,
-  ) {
-    final membersAsync = ref.watch(serverMembersProvider(serverId));
-    final nodeState = ref.watch(nodeProvider);
-    final identity = ref.watch(identityProvider);
-
-    return Container(
+    Widget panel = Container(
       width: width,
       decoration: BoxDecoration(
         color: haven.surface,
@@ -58,180 +68,42 @@ class MemberPanel extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
-          Container(
-            height: 48,
-            padding:
-                const EdgeInsets.symmetric(horizontal: HavenSpacing.lg),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: haven.border),
-              ),
-            ),
-            alignment: Alignment.centerLeft,
-            child: membersAsync.when(
-              data: (members) => Text(
-                'Members — ${members.length}',
-                style: HavenTypography.caption.copyWith(
-                  color: haven.textSecondary,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              loading: () => Text(
-                'Members — ...',
-                style: HavenTypography.caption.copyWith(
-                  color: haven.textSecondary,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              error: (_, _) => Text(
-                'Members — ?',
-                style: HavenTypography.caption.copyWith(
-                  color: haven.textSecondary,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.8,
-                ),
-              ),
-            ),
-          ),
-
-          // Member list
+          // Content — crossfade between server members and peer members
           Expanded(
-            child: membersAsync.when(
-              data: (members) => members.isEmpty
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(HavenSpacing.xl),
-                        child: Text(
-                          'No members',
-                          style: HavenTypography.bodySmall
-                              .copyWith(color: haven.textSecondary),
-                        ),
-                      ),
+            child: AnimatedSwitcher(
+              duration: HavenDurations.normal,
+              switchInCurve: HavenCurves.enter,
+              switchOutCurve: HavenCurves.exit,
+              child: selectedServerId != null
+                  ? _ServerMemberContent(
+                      key: ValueKey('server-members-$selectedServerId'),
+                      ref: ref,
+                      haven: haven,
+                      serverId: selectedServerId,
                     )
-                  : ListView.builder(
-                      itemCount: members.length,
-                      padding: const EdgeInsets.symmetric(
-                          vertical: HavenSpacing.sm),
-                      itemBuilder: (context, index) {
-                        final member = members[index];
-                        return _ServerMemberTile(
-                          peerId: member.peerId,
-                          displayName: member.displayName,
-                          role: member.role,
-                        );
-                      },
+                  : _PeerMemberContent(
+                      key: const ValueKey('peer-members'),
+                      ref: ref,
+                      haven: haven,
                     ),
-              loading: () => const Center(
-                child: SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
-              error: (e, _) => Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(HavenSpacing.xl),
-                  child: Text(
-                    'Failed to load members',
-                    style: HavenTypography.bodySmall
-                        .copyWith(color: haven.textSecondary),
-                  ),
-                ),
-              ),
             ),
           ),
 
-          // Connection info section
-          _buildConnectionInfo(context, haven, nodeState, identity),
+          // Connection info section (shared, always at bottom)
+          connInfo,
         ],
       ),
     );
-  }
 
-  // ---------- Peer member mode (original) ----------
-
-  Widget _buildPeerMemberPanel(
-    BuildContext context,
-    WidgetRef ref,
-    HavenTheme haven,
-  ) {
-    final peers = ref.watch(peersProvider);
-    final nodeState = ref.watch(nodeProvider);
-    final identity = ref.watch(identityProvider);
-
-    return Container(
-      width: width,
-      decoration: BoxDecoration(
-        color: haven.surface,
-        border: Border(
-          left: BorderSide(color: haven.border),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Container(
-            height: 48,
-            padding:
-                const EdgeInsets.symmetric(horizontal: HavenSpacing.lg),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: haven.border),
-              ),
-            ),
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Members — ${peers.length}',
-              style: HavenTypography.caption.copyWith(
-                color: haven.textSecondary,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.8,
-              ),
-            ),
-          ),
-
-          // Member list
-          Expanded(
-            child: peers.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(HavenSpacing.xl),
-                      child: Text(
-                        'No peers online',
-                        style: HavenTypography.bodySmall.copyWith(
-                          color: haven.textSecondary,
-                        ),
-                      ),
-                    ),
-                  )
-                : ListView.builder(
-                    itemCount: peers.length,
-                    padding: const EdgeInsets.symmetric(
-                        vertical: HavenSpacing.sm),
-                    itemBuilder: (context, index) {
-                      final peerId = peers.keys.elementAt(index);
-                      final peer = peers[peerId];
-
-                      return _MemberTile(
-                        peerId: peerId,
-                        isEncrypted: peer?.isEncrypted ?? false,
-                      );
-                    },
-                  ),
-          ),
-
-          // Connection info section
-          _buildConnectionInfo(context, haven, nodeState, identity),
-        ],
-      ),
+    return RevealClip(
+      animation: panelReveal,
+      axis: Axis.horizontal,
+      alignment: Alignment.centerRight,
+      child: panel,
     );
   }
 
-  // ---------- Shared connection info ----------
+  // ---------- Shared ----------
 
   Widget _buildConnectionInfo(
     BuildContext context,
@@ -255,6 +127,7 @@ class MemberPanel extends ConsumerWidget {
               StatusDot(
                 color: _statusColor(haven, nodeState.status),
                 size: 7,
+                pulse: nodeState.status == NodeStatus.connected,
               ),
               const SizedBox(width: HavenSpacing.xs),
               Text(
@@ -317,6 +190,200 @@ class MemberPanel extends ConsumerWidget {
   }
 }
 
+/// Server member list content (header + member list).
+class _ServerMemberContent extends StatelessWidget {
+  final WidgetRef ref;
+  final HavenTheme haven;
+  final String serverId;
+
+  const _ServerMemberContent({
+    super.key,
+    required this.ref,
+    required this.haven,
+    required this.serverId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final membersAsync = ref.watch(serverMembersProvider(serverId));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header
+        Container(
+          height: 48,
+          padding:
+              const EdgeInsets.symmetric(horizontal: HavenSpacing.lg),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: haven.border),
+            ),
+          ),
+          alignment: Alignment.centerLeft,
+          child: membersAsync.when(
+            data: (members) => Text(
+              'Members \u2014 ${members.length}',
+              style: HavenTypography.caption.copyWith(
+                color: haven.textSecondary,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.8,
+              ),
+            ),
+            loading: () => Text(
+              'Members \u2014 ...',
+              style: HavenTypography.caption.copyWith(
+                color: haven.textSecondary,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.8,
+              ),
+            ),
+            error: (_, _) => Text(
+              'Members \u2014 ?',
+              style: HavenTypography.caption.copyWith(
+                color: haven.textSecondary,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.8,
+              ),
+            ),
+          ),
+        ),
+
+        // Member list
+        Expanded(
+          child: membersAsync.when(
+            data: (members) => members.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(HavenSpacing.xl),
+                      child: Text(
+                        'No members',
+                        style: HavenTypography.bodySmall
+                            .copyWith(color: haven.textSecondary),
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: members.length,
+                    padding: const EdgeInsets.symmetric(
+                        vertical: HavenSpacing.sm),
+                    itemBuilder: (context, index) {
+                      final member = members[index];
+                      return _ServerMemberTile(
+                        peerId: member.peerId,
+                        displayName: member.displayName,
+                        role: member.role,
+                      );
+                    },
+                  ),
+            loading: () => const Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+            error: (e, _) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(HavenSpacing.xl),
+                child: Text(
+                  'Failed to load members',
+                  style: HavenTypography.bodySmall
+                      .copyWith(color: haven.textSecondary),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Peer member list content (header + peer list).
+class _PeerMemberContent extends StatelessWidget {
+  final WidgetRef ref;
+  final HavenTheme haven;
+
+  const _PeerMemberContent({
+    super.key,
+    required this.ref,
+    required this.haven,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final peers = ref.watch(peersProvider);
+    final headerReveal =
+        StartupRevealScope.interval(context, 0.55, 0.65);
+    final memberListReveal =
+        StartupRevealScope.interval(context, 0.60, 0.80);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header
+        Container(
+          height: 48,
+          padding:
+              const EdgeInsets.symmetric(horizontal: HavenSpacing.lg),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: haven.border),
+            ),
+          ),
+          alignment: Alignment.centerLeft,
+          child: TypewriterText(
+            text: 'Members \u2014 ${peers.length}',
+            animation: headerReveal,
+            style: HavenTypography.caption.copyWith(
+              color: haven.textSecondary,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.8,
+            ),
+          ),
+        ),
+
+        // Peer list
+        Expanded(
+          child: peers.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(HavenSpacing.xl),
+                    child: Text(
+                      'No peers online',
+                      style: HavenTypography.bodySmall.copyWith(
+                        color: haven.textSecondary,
+                      ),
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: peers.length,
+                  padding: const EdgeInsets.symmetric(
+                      vertical: HavenSpacing.sm),
+                  itemBuilder: (context, index) {
+                    final peerId = peers.keys.elementAt(index);
+                    final peer = peers[peerId];
+
+                    return StaggeredListItem(
+                      parentAnimation: memberListReveal,
+                      index: index,
+                      totalItems: peers.length,
+                      slideFrom: const Offset(0.3, 0),
+                      child: _MemberTile(
+                        peerId: peerId,
+                        isEncrypted: peer?.isEncrypted ?? false,
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
+
 /// A compact member row showing a server member with role badge.
 class _ServerMemberTile extends StatelessWidget {
   final String peerId;
@@ -353,7 +420,7 @@ class _ServerMemberTile extends StatelessWidget {
                     shape: BoxShape.circle,
                   ),
                   padding: const EdgeInsets.all(1.5),
-                  child: StatusDot(color: haven.success, size: 7),
+                  child: StatusDot(color: haven.success, size: 7, pulse: true),
                 ),
               ),
             ],
@@ -430,7 +497,7 @@ class _MemberTile extends StatelessWidget {
                     shape: BoxShape.circle,
                   ),
                   padding: const EdgeInsets.all(1.5),
-                  child: StatusDot(color: haven.success, size: 7),
+                  child: StatusDot(color: haven.success, size: 7, pulse: true),
                 ),
               ),
             ],

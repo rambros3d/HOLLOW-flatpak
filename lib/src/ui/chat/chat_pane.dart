@@ -33,6 +33,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
   bool _historyLoaded = false;
+  int _previousMessageCount = 0;
 
   @override
   void initState() {
@@ -52,6 +53,13 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Whether the user is scrolled near the bottom (within 150px).
+  bool get _isNearBottom {
+    if (!_scrollController.hasClients) return true;
+    final pos = _scrollController.position;
+    return pos.maxScrollExtent - pos.pixels < 150;
   }
 
   void _scrollToBottom() {
@@ -80,6 +88,12 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     final chatHistory = ref.watch(chatProvider);
     final messages = chatHistory[widget.peerId] ?? [];
 
+    // Auto-scroll when new messages arrive and user is near the bottom.
+    if (messages.length > _previousMessageCount && _isNearBottom) {
+      _scrollToBottom();
+    }
+    _previousMessageCount = messages.length;
+
     return Column(
       children: [
         // Peer ID header
@@ -98,7 +112,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
             children: [
               HavenAvatar(peerId: widget.peerId, size: 28),
               const SizedBox(width: HavenSpacing.sm),
-              StatusDot(color: haven.success, size: 8),
+              StatusDot(color: haven.success, size: 8, pulse: true),
               const SizedBox(width: HavenSpacing.sm),
               Expanded(
                 child: SelectableText(

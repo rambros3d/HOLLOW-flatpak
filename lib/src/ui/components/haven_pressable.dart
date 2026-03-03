@@ -7,6 +7,9 @@ import 'package:haven/src/ui/animations/haven_curves.dart';
 /// On press: dims opacity to 0.85 + scales to 0.98 with spring physics.
 /// On hover: smoothly transitions to [hoverColor].
 /// No Material ripple, ever.
+///
+/// Set [subtle] to true for list items — hover color change only, no
+/// press dim/scale animation.
 class HavenPressable extends StatefulWidget {
   final Widget child;
   final VoidCallback? onTap;
@@ -16,6 +19,7 @@ class HavenPressable extends StatefulWidget {
   final Color? backgroundColor;
   final EdgeInsetsGeometry? padding;
   final bool disabled;
+  final bool subtle;
 
   const HavenPressable({
     super.key,
@@ -27,6 +31,7 @@ class HavenPressable extends StatefulWidget {
     this.backgroundColor,
     this.padding,
     this.disabled = false,
+    this.subtle = false,
   });
 
   @override
@@ -75,7 +80,7 @@ class _HavenPressableState extends State<HavenPressable>
   }
 
   void _onPointerDown(PointerDownEvent _) {
-    if (widget.disabled || widget.onTap == null) return;
+    if (widget.disabled || widget.onTap == null || widget.subtle) return;
     setState(() => _pressing = true);
     _controller.forward();
   }
@@ -138,6 +143,18 @@ class _HavenPressableState extends State<HavenPressable>
                     ? effectiveHoverColor
                     : (widget.backgroundColor ?? Colors.transparent),
                 borderRadius: widget.borderRadius,
+                boxShadow: _hovering &&
+                        isInteractive &&
+                        widget.backgroundColor != null
+                    ? [
+                        BoxShadow(
+                          color: widget.backgroundColor!
+                              .withValues(alpha: 0.25),
+                          blurRadius: 8,
+                          spreadRadius: 0,
+                        ),
+                      ]
+                    : null,
               ),
               padding: widget.padding,
               child: widget.child,

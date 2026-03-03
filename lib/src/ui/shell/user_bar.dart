@@ -104,6 +104,7 @@ class UserBar extends ConsumerWidget {
                         StatusDot(
                           color: _statusColor(haven, nodeState.status),
                           size: 7,
+                          pulse: nodeState.status == NodeStatus.connected,
                         ),
                         const SizedBox(width: HavenSpacing.xs),
                         Text(

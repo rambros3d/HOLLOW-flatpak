@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
+import 'package:haven/src/ui/animations/haven_curves.dart';
 /// Custom Haven text field — flat design, no Material floating label.
 ///
 /// Focus: border transitions to accent color over 150ms.
@@ -46,6 +47,7 @@ class HavenTextField extends StatefulWidget {
 class _HavenTextFieldState extends State<HavenTextField>
     with SingleTickerProviderStateMixin {
   late final FocusNode _focusNode;
+  bool _isFocused = false;
 
   // Shake animation for error state.
   AnimationController? _shakeController;
@@ -55,6 +57,11 @@ class _HavenTextFieldState extends State<HavenTextField>
   void initState() {
     super.initState();
     _focusNode = widget.focusNode ?? FocusNode();
+    _focusNode.addListener(_onFocusChange);
+  }
+
+  void _onFocusChange() {
+    setState(() => _isFocused = _focusNode.hasFocus);
   }
 
   @override
@@ -85,6 +92,7 @@ class _HavenTextFieldState extends State<HavenTextField>
 
   @override
   void dispose() {
+    _focusNode.removeListener(_onFocusChange);
     if (widget.focusNode == null) _focusNode.dispose();
     _shakeController?.dispose();
     super.dispose();
@@ -167,6 +175,26 @@ class _HavenTextFieldState extends State<HavenTextField>
         child: field,
       );
     }
+
+    // Wrap with focus glow.
+    final glowColor = hasError ? haven.error : haven.accent;
+    field = AnimatedContainer(
+      duration: HavenDurations.fast,
+      curve: HavenCurves.subtle,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        boxShadow: _isFocused
+            ? [
+                BoxShadow(
+                  color: glowColor.withValues(alpha: 0.15),
+                  blurRadius: 6,
+                  spreadRadius: 1,
+                ),
+              ]
+            : [],
+      ),
+      child: field,
+    );
 
     // Add error text below.
     if (hasError) {

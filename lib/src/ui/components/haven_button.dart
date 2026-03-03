@@ -122,6 +122,7 @@ class _HavenButtonState extends State<HavenButton>
     Color bg;
     Color fg;
     Color hoverBg;
+    Color glowColor;
     BoxBorder? border;
 
     switch (widget.variant) {
@@ -129,25 +130,43 @@ class _HavenButtonState extends State<HavenButton>
         bg = haven.accent;
         fg = haven.textOnAccent;
         hoverBg = haven.accentHover;
+        glowColor = haven.accent;
       case HavenButtonVariant.ghost:
         bg = Colors.transparent;
         fg = haven.accent;
         hoverBg = haven.accentMuted;
+        glowColor = haven.accent;
       case HavenButtonVariant.outline:
         bg = Colors.transparent;
         fg = haven.accent;
         hoverBg = haven.accentMuted;
+        glowColor = haven.accent;
         border = Border.all(
-          color: haven.accent.withValues(alpha: 0.4),
+          color: _hovering && isInteractive
+              ? haven.accent.withValues(alpha: 0.6)
+              : haven.accent.withValues(alpha: 0.4),
         );
       case HavenButtonVariant.danger:
         bg = haven.error;
         fg = Colors.white;
         hoverBg = haven.error.withValues(alpha: 0.85);
+        glowColor = haven.error;
     }
 
     final effectiveBg =
         _hovering && isInteractive ? hoverBg : bg;
+
+    // Subtle glow on hover for filled, outline, and danger variants.
+    final hoverShadow = _hovering && isInteractive &&
+            widget.variant != HavenButtonVariant.ghost
+        ? [
+            BoxShadow(
+              color: glowColor.withValues(alpha: 0.2),
+              blurRadius: 8,
+              spreadRadius: 0,
+            ),
+          ]
+        : <BoxShadow>[];
 
     Widget content = Row(
       mainAxisSize: widget.expand ? MainAxisSize.max : MainAxisSize.min,
@@ -225,6 +244,7 @@ class _HavenButtonState extends State<HavenButton>
                 color: effectiveBg,
                 border: border,
                 borderRadius: BorderRadius.circular(haven.radiusMd),
+                boxShadow: hoverShadow,
               ),
               child: content,
             ),

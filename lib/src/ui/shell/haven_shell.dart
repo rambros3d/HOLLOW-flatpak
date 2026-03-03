@@ -19,6 +19,8 @@ import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
 import 'package:haven/src/ui/animations/haven_curves.dart';
+import 'package:haven/src/ui/animations/ambient_background.dart';
+import 'package:haven/src/ui/animations/startup_reveal.dart';
 import 'package:haven/src/ui/chat/chat_pane.dart';
 import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/haven_tooltip.dart';
@@ -49,13 +51,42 @@ class HavenShell extends ConsumerStatefulWidget {
   ConsumerState<HavenShell> createState() => _HavenShellState();
 }
 
-class _HavenShellState extends ConsumerState<HavenShell> {
+class _HavenShellState extends ConsumerState<HavenShell>
+    with TickerProviderStateMixin {
   final _roomController = TextEditingController();
   bool _initialized = false;
+
+  // Startup reveal animation — master controller shared via InheritedWidget.
+  late final AnimationController _revealController;
+  bool _revealComplete = false;
+
+  // Chat pane reveal sub-animation.
+  late final Animation<double> _chatReveal;
 
   @override
   void initState() {
     super.initState();
+
+    _revealController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    );
+
+    _chatReveal = CurvedAnimation(
+      parent: _revealController,
+      curve: const Interval(0.30, 0.70, curve: Curves.easeOutCubic),
+    );
+
+    _revealController.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        setState(() => _revealComplete = true);
+      }
+    });
+
+    // Delay reveal until after the first frame so the window is visible.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _revealController.forward();
+    });
     _bootstrap();
   }
 
@@ -89,6 +120,7 @@ class _HavenShellState extends ConsumerState<HavenShell> {
   @override
   void dispose() {
     _roomController.dispose();
+    _revealController.dispose();
     super.dispose();
   }
 
@@ -285,6 +317,15 @@ class _HavenShellState extends ConsumerState<HavenShell> {
     );
   }
 
+  /// Wraps the chat pane with a fade for the startup reveal.
+  Widget _chatRevealWrap(Widget child) {
+    if (_revealComplete) return child;
+    return FadeTransition(
+      opacity: _chatReveal,
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final haven = HavenTheme.of(context);
@@ -328,58 +369,68 @@ class _HavenShellState extends ConsumerState<HavenShell> {
             Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
         // Desktop and tablet — same layout, tablet just hides member panel.
-        Widget body = Column(
-          children: [
-            // Custom window title bar (desktop platforms only)
-            if (isDesktopPlatform) const WindowTitleBar(),
+        Widget body = StartupRevealScope(
+          controller: _revealController,
+          isComplete: _revealComplete,
+          child: Column(
+            children: [
+              // Custom window title bar (desktop platforms only)
+              if (isDesktopPlatform) const WindowTitleBar(),
 
-            // Main content area
-            Expanded(
-              child: Row(
-                children: [
-                  // Server strip (far left)
-                  const ServerStrip(),
+              // Main content area
+              Expanded(
+                child: Row(
+                  children: [
+                    // Server strip (far left)
+                    const ServerStrip(),
 
-                  // Channel sidebar
-                  _buildChannelSidebar(
-                    peers: peers,
-                    chatHistory: chatHistory,
-                    selectedPeerId: selectedPeerId,
-                    nodeStatus: nodeState.status,
-                    activeRoom: activeRoom,
-                    selectedServer: selectedServer,
-                    channels: channels,
-                    selectedChannelId: selectedChannelId,
-                  ),
+                    // Channel sidebar
+                    _buildChannelSidebar(
+                      peers: peers,
+                      chatHistory: chatHistory,
+                      selectedPeerId: selectedPeerId,
+                      nodeStatus: nodeState.status,
+                      activeRoom: activeRoom,
+                      selectedServer: selectedServer,
+                      channels: channels,
+                      selectedChannelId: selectedChannelId,
+                    ),
 
-                  // Chat pane (expanded) with crossfade on switch
-                  Expanded(
-                    child: AnimatedSwitcher(
-                      duration: HavenDurations.normal,
-                      switchInCurve: HavenCurves.enter,
-                      switchOutCurve: HavenCurves.exit,
-                      child: Container(
-                        key: ValueKey(
-                            selectedChannelId ?? selectedPeerId ?? 'empty'),
-                        color: haven.background,
-                        child: _buildChatOrEmpty(
-                          haven: haven,
-                          selectedPeerId: selectedPeerId,
-                          peers: peers,
-                          selectedChannelId: selectedChannelId,
-                          channels: channels,
+                    // Chat pane (expanded) with crossfade on switch
+                    Expanded(
+                      child: _chatRevealWrap(
+                        AmbientBackground(
+                          color1: haven.accent,
+                          color2: const Color(0xFF6366F1), // indigo/purple
+                          child: AnimatedSwitcher(
+                            duration: HavenDurations.normal,
+                            switchInCurve: HavenCurves.enter,
+                            switchOutCurve: HavenCurves.exit,
+                            child: Container(
+                              key: ValueKey(
+                                  selectedChannelId ?? selectedPeerId ?? 'empty'),
+                              color: haven.background,
+                              child: _buildChatOrEmpty(
+                                haven: haven,
+                                selectedPeerId: selectedPeerId,
+                                peers: peers,
+                                selectedChannelId: selectedChannelId,
+                                channels: channels,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
 
-                  // Member panel (desktop: shown by default, tablet: toggleable)
-                  if (memberPanelOpen && (isDesktop || !isMobile))
-                    const MemberPanel(),
-                ],
+                    // Member panel (desktop: shown by default, tablet: toggleable)
+                    if (memberPanelOpen && (isDesktop || !isMobile))
+                      const MemberPanel(),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         );
 
         // Wrap in DragToResizeArea to restore edge/corner resize handles
@@ -424,20 +475,24 @@ class _HavenShellState extends ConsumerState<HavenShell> {
           width: null,
         );
       case 1: // Chat
-        body = AnimatedSwitcher(
-          duration: HavenDurations.normal,
-          switchInCurve: HavenCurves.enter,
-          switchOutCurve: HavenCurves.exit,
-          child: Container(
-            key: ValueKey(
-                selectedChannelId ?? selectedPeerId ?? 'empty'),
-            color: haven.background,
-            child: _buildChatOrEmpty(
-              haven: haven,
-              selectedPeerId: selectedPeerId,
-              peers: peers,
-              selectedChannelId: selectedChannelId,
-              channels: channels,
+        body = AmbientBackground(
+          color1: haven.accent,
+          color2: const Color(0xFF6366F1),
+          child: AnimatedSwitcher(
+            duration: HavenDurations.normal,
+            switchInCurve: HavenCurves.enter,
+            switchOutCurve: HavenCurves.exit,
+            child: Container(
+              key: ValueKey(
+                  selectedChannelId ?? selectedPeerId ?? 'empty'),
+              color: haven.background,
+              child: _buildChatOrEmpty(
+                haven: haven,
+                selectedPeerId: selectedPeerId,
+                peers: peers,
+                selectedChannelId: selectedChannelId,
+                channels: channels,
+              ),
             ),
           ),
         );

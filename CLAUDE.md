@@ -27,7 +27,7 @@ HAVEN/
 │           ├── sidebar/  # PeerCard, EmptyPeerList (reusable components)
 │           ├── components/ # HavenPressable, HavenButton, HavenTextField, HavenDialog, HavenTooltip, HavenToast, HavenToggle, HavenAvatar, HavenCard, StatusDot
 │           ├── dialogs/  # InviteDialog, MnemonicDialog, CreateServerDialog, CreateChannelDialog
-│           └── animations/ # HavenCurves, HavenDurations, FadeSlideTransition, ScaleFadeTransition
+│           └── animations/ # HavenCurves, HavenDurations, FadeSlideTransition, ScaleFadeTransition, SelectionShimmer, AmbientBackground, StartupRevealScope, RevealWidgets
 ├── rust/haven_core/      # Rust library crate (networking, crypto, storage)
 │   └── src/
 │       ├── api/          # FFI layer (flutter_rust_bridge scans these)
@@ -62,7 +62,7 @@ ssh ubuntu@141.227.186.209 "cd relay && cargo build --release && sudo systemctl 
 ```
 
 ## Current Phase
-**Phase 2.75: Haven Design System v2** — COMPLETE.
+**UI Polish Pass** — COMPLETE (Mar 2 2026).
 
 Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection management, invite links), 2.5 (UI Foundation), 2.75 (Haven Design System v2) are complete. WSS transport (Nginx + Let's Encrypt on port 443) deployed for censorship resistance.
 
@@ -70,18 +70,21 @@ Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection mana
 
 **Phase 3 foundation (Rust CRDT backend):** COMPLETE. `crdts` crate + custom `AdminLwwReg` for admin-only fields. 18 Rust tests passing. Dart FFI bindings generated, models (`ServerInfo`, `ChannelInfo`), providers (`serverListProvider`, `channelListProvider`, `selectedServerProvider`, `selectedChannelProvider`), and event dispatch for all 7 CRDT events wired. Server creation + channel system UI done (ServerStrip with server icons, dual-mode ChannelSidebar, channel placeholder in ChatPane, server members in MemberPanel).
 
+**UI Polish:** COMPLETE. Tier 1 (focus glow, hover shadows, auto-scroll, crossfade transitions), Tier 2 (server strip gradient, breathing pulse StatusDot, message entrance), Tier 3 (full-screen glassmorphism blur, selection shimmer, comprehensive 1800ms startup reveal with building-block animations), ambient background (drifting gradient blobs on chat area).
+
 **Next:** Phase 3 — continue with channel messaging, sync protocol, room gating.
 
 ## Haven Design System (Phase 2.75)
 All UI interactions go through custom Haven widgets — no Material defaults anywhere. Change behavior in one place, applies everywhere.
 
-- **HavenPressable** (`haven_pressable.dart`): Universal interaction widget. Press: opacity 0.85 + scale 0.98, spring physics reverse. Hover: smooth color transition 150ms. No ripple.
-- **HavenButton** (`haven_button.dart`): 4 variants — `.filled()` (accent bg), `.ghost()` (transparent), `.outline()` (1px border), `.danger()` (error red). Uses HavenPressable internally. Props: `onPressed`, `child`, `icon`, `expand`.
-- **HavenTextField** (`haven_text_field.dart`): Flat design, `haven.elevated` fill, animated border (border→accent on focus, →error on error). Error shake animation. Optional `prefixIcon`, `borderRadius`, `isDense`. No Material InputDecoration floating label.
-- **HavenDialog** (`haven_dialog.dart`): `showHavenDialog()` uses `showGeneralDialog` with scale 0.95→1.0 + fade entrance (200ms). Dark integrated feel with `haven.elevated` bg.
+- **HavenPressable** (`haven_pressable.dart`): Universal interaction widget. Press: opacity 0.85 + scale 0.98, spring physics reverse. Hover: smooth color transition 150ms + shadow lift. No ripple. `subtle` mode disables press animation (for list items like channel tiles, peer cards).
+- **HavenButton** (`haven_button.dart`): 4 variants — `.filled()` (accent bg), `.ghost()` (transparent), `.outline()` (1px border), `.danger()` (error red). Self-contained StatefulWidget with own press/hover animation. Hover glow shadow (20% opacity, 8px blur). Props: `onPressed`, `child`, `icon`, `expand`, `compact`.
+- **HavenTextField** (`haven_text_field.dart`): Single `TextField` with `OutlineInputBorder` (no wrapper container). `haven.elevated` fill, border color animates (border→accent on focus, →error on error). Focus glow (teal BoxShadow 15% opacity, 6px blur). Error shake animation. Optional `prefixIcon`, `borderRadius`, `isDense`.
+- **HavenDialog** (`haven_dialog.dart`): `showHavenDialog()` uses `showGeneralDialog` with scale 0.95→1.0 + fade entrance (200ms). Full-screen glassmorphism: `BackdropFilter` in `transitionBuilder` blurs entire screen (animated 0→12 sigma). Barrier: 8% black. Dialog bg: 92% opacity, accent border, 24px shadow.
 - **HavenTooltip** (`haven_tooltip.dart`): Overlay-based, 400ms hover delay, 100ms fade+slide entrance. Dark style.
-- **HavenToast** (`haven_toast.dart`): Slide-up + fade, auto-dismiss. Three types: success/error/info. Only one visible at a time. Replaces SnackBar.
+- **HavenToast** (`haven_toast.dart`): Slide-up + fade, auto-dismiss. Three types: success/error/info. Only one visible at a time. Replaces SnackBar. Controller disposed only by widget's `dispose()` (prevents double-dispose).
 - **HavenToggle** (`haven_toggle.dart`): Spring physics thumb, color crossfade track.
+- **StatusDot** (`status_dot.dart`): StatefulWidget with optional `pulse` for breathing glow animation (3s cycle, BoxShadow). Used in peer cards, member tiles, user bar.
 
 ## Key Architecture Notes
 - **Peer state tracking in swarm.rs:** `connected_peers`, `expected_peers`, `disconnected_peers` HashSets. Bootstrap handler skips disconnected + connected peers. `InboundCircuitEstablished` clears disconnected. `ConnectionEstablished` triggers proactive DHT prekey fetch for auto-encryption. Ping: 5s/5s. Rebootstrap: 60s unconditional.

@@ -9,6 +9,9 @@ import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
 import 'package:haven/src/ui/animations/haven_curves.dart';
+import 'package:haven/src/ui/animations/reveal_widgets.dart';
+import 'package:haven/src/ui/animations/selection_shimmer.dart';
+import 'package:haven/src/ui/animations/startup_reveal.dart';
 import 'package:haven/src/ui/components/haven_button.dart';
 import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/haven_text_field.dart';
@@ -73,8 +76,29 @@ class ChannelSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final haven = HavenTheme.of(context);
+    final sidebarReveal =
+        StartupRevealScope.interval(context, 0.12, 0.30);
+    final userBarReveal =
+        StartupRevealScope.interval(context, 0.50, 0.60);
 
-    return Container(
+    Widget userBar = const UserBar();
+    if (userBarReveal != null) {
+      userBar = AnimatedBuilder(
+        animation: userBarReveal,
+        builder: (context, child) {
+          return Opacity(
+            opacity: userBarReveal.value,
+            child: FractionalTranslation(
+              translation: Offset(0, 0.5 * (1.0 - userBarReveal.value)),
+              child: child,
+            ),
+          );
+        },
+        child: userBar,
+      );
+    }
+
+    Widget sidebar = Container(
       width: width,
       decoration: BoxDecoration(
         color: haven.surface,
@@ -85,24 +109,67 @@ class ChannelSidebar extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header — changes based on mode
-          _buildHeader(haven),
+          // Header — crossfade between server name and "Direct Messages"
+          AnimatedSwitcher(
+            duration: HavenDurations.fast,
+            child: _buildHeader(context, haven),
+          ),
 
-          // Content — server channels or home/DM view
-          if (selectedServer != null)
-            ..._buildServerView(context, haven)
-          else
-            ..._buildHomeView(context, haven),
+          // Content — crossfade between server channels and home/DM view
+          Expanded(
+            child: AnimatedSwitcher(
+              duration: HavenDurations.normal,
+              switchInCurve: HavenCurves.enter,
+              switchOutCurve: HavenCurves.exit,
+              child: selectedServer != null
+                  ? _ServerContent(
+                      key: ValueKey('server-${selectedServer!.serverId}'),
+                      haven: haven,
+                      channelList: channels.values.toList()
+                        ..sort((a, b) => a.name.compareTo(b.name)),
+                      selectedChannelId: selectedChannelId,
+                      onChannelSelected: onChannelSelected,
+                      onCreateChannel: onCreateChannel,
+                    )
+                  : _HomeContent(
+                      key: const ValueKey('home'),
+                      haven: haven,
+                      context: context,
+                      peers: peers,
+                      selectedPeerId: selectedPeerId,
+                      nodeStatus: nodeStatus,
+                      onPeerSelected: onPeerSelected,
+                      lastMessage: lastMessage,
+                      formatTime: formatTime,
+                      activeRoom: activeRoom,
+                      roomController: roomController,
+                      onJoinRoom: onJoinRoom,
+                      onCreateInvite: onCreateInvite,
+                    ),
+            ),
+          ),
 
           // User bar at bottom
-          const UserBar(),
+          userBar,
         ],
       ),
     );
+
+    return RevealClip(
+      animation: sidebarReveal,
+      axis: Axis.horizontal,
+      alignment: Alignment.centerLeft,
+      child: sidebar,
+    );
   }
 
-  Widget _buildHeader(HavenTheme haven) {
+  Widget _buildHeader(BuildContext context, HavenTheme haven) {
+    final label = selectedServer?.name ?? 'Direct Messages';
+    final headerTextReveal =
+        StartupRevealScope.interval(context, 0.25, 0.40);
+
     return Container(
+      key: ValueKey('header-$label'),
       height: 48,
       padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.lg),
       decoration: BoxDecoration(
@@ -111,8 +178,9 @@ class ChannelSidebar extends StatelessWidget {
         ),
       ),
       alignment: Alignment.centerLeft,
-      child: Text(
-        selectedServer?.name ?? 'Direct Messages',
+      child: TypewriterText(
+        text: label,
+        animation: headerTextReveal,
         style: HavenTypography.subheading.copyWith(
           color: haven.textPrimary,
           fontWeight: FontWeight.w600,
@@ -121,137 +189,219 @@ class ChannelSidebar extends StatelessWidget {
       ),
     );
   }
+}
 
-  // ---------- Server mode ----------
+/// Server mode content — channel list with create button.
+class _ServerContent extends StatelessWidget {
+  final HavenTheme haven;
+  final List<ChannelInfo> channelList;
+  final String? selectedChannelId;
+  final ValueChanged<String> onChannelSelected;
+  final VoidCallback onCreateChannel;
 
-  List<Widget> _buildServerView(BuildContext context, HavenTheme haven) {
-    final channelList = channels.values.toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+  const _ServerContent({
+    super.key,
+    required this.haven,
+    required this.channelList,
+    required this.selectedChannelId,
+    required this.onChannelSelected,
+    required this.onCreateChannel,
+  });
 
-    return [
-      // "TEXT CHANNELS" section header with "+" button
-      Padding(
-        padding: const EdgeInsets.fromLTRB(
-          HavenSpacing.lg,
-          HavenSpacing.sm,
-          HavenSpacing.sm,
-          HavenSpacing.sm,
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                'TEXT CHANNELS',
-                style: HavenTypography.caption.copyWith(
-                  color: haven.textSecondary,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.8,
-                ),
-              ),
-            ),
-            HavenPressable(
-              onTap: onCreateChannel,
-              borderRadius: BorderRadius.circular(haven.radiusSm),
-              padding: const EdgeInsets.all(HavenSpacing.xs),
-              child: Icon(LucideIcons.plus,
-                  size: 14, color: haven.textSecondary),
-            ),
-          ],
-        ),
-      ),
-
-      Divider(height: 1, color: haven.border),
-
-      // Channel list
-      Expanded(
-        child: channelList.isEmpty
-            ? Center(
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // "TEXT CHANNELS" section header with "+" button
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            HavenSpacing.lg,
+            HavenSpacing.sm,
+            HavenSpacing.sm,
+            HavenSpacing.sm,
+          ),
+          child: Row(
+            children: [
+              Expanded(
                 child: Text(
-                  'No channels',
-                  style: HavenTypography.bodySmall
-                      .copyWith(color: haven.textSecondary),
+                  'TEXT CHANNELS',
+                  style: HavenTypography.caption.copyWith(
+                    color: haven.textSecondary,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.8,
+                  ),
                 ),
-              )
-            : ListView.builder(
-                itemCount: channelList.length,
-                padding: const EdgeInsets.symmetric(
-                    vertical: HavenSpacing.xs),
-                itemBuilder: (context, index) {
-                  final channel = channelList[index];
-                  final isSelected =
-                      channel.channelId == selectedChannelId;
-                  return _ChannelTile(
-                    channel: channel,
-                    isSelected: isSelected,
-                    onTap: () =>
-                        onChannelSelected(channel.channelId),
-                  );
-                },
               ),
-      ),
-    ];
-  }
-
-  // ---------- Home / DM mode ----------
-
-  List<Widget> _buildHomeView(BuildContext context, HavenTheme haven) {
-    return [
-      // Room controls
-      _buildRoomSection(context, haven),
-
-      Divider(height: 1, color: haven.border),
-
-      // Peer count label
-      Padding(
-        padding: const EdgeInsets.fromLTRB(
-          HavenSpacing.lg,
-          HavenSpacing.sm,
-          HavenSpacing.lg,
-          HavenSpacing.sm,
-        ),
-        child: Text(
-          'ONLINE — ${peers.length}',
-          style: HavenTypography.caption.copyWith(
-            color: haven.textSecondary,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.8,
+              HavenPressable(
+                onTap: onCreateChannel,
+                borderRadius: BorderRadius.circular(haven.radiusSm),
+                padding: const EdgeInsets.all(HavenSpacing.xs),
+                child: Icon(LucideIcons.plus,
+                    size: 14, color: haven.textSecondary),
+              ),
+            ],
           ),
         ),
-      ),
 
-      Divider(height: 1, color: haven.border),
+        Divider(height: 1, color: haven.border),
 
-      // Peer list
-      Expanded(
-        child: peers.isEmpty
-            ? EmptyPeerList(nodeStatus: nodeStatus)
-            : ListView.builder(
-                itemCount: peers.length,
-                padding: const EdgeInsets.symmetric(
-                    vertical: HavenSpacing.xs),
-                itemBuilder: (context, index) {
-                  final peerId = peers.keys.elementAt(index);
-                  final peer = peers[peerId];
-                  final isSelected = peerId == selectedPeerId;
-                  final last = lastMessage(peerId);
+        // Channel list
+        Expanded(
+          child: channelList.isEmpty
+              ? Center(
+                  child: Text(
+                    'No channels',
+                    style: HavenTypography.bodySmall
+                        .copyWith(color: haven.textSecondary),
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: channelList.length,
+                  padding: const EdgeInsets.symmetric(
+                      vertical: HavenSpacing.xs),
+                  itemBuilder: (context, index) {
+                    final channel = channelList[index];
+                    final isSelected =
+                        channel.channelId == selectedChannelId;
+                    return _ChannelTile(
+                      channel: channel,
+                      isSelected: isSelected,
+                      onTap: () =>
+                          onChannelSelected(channel.channelId),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
 
-                  return PeerCard(
-                    peerId: peerId,
-                    isSelected: isSelected,
-                    isEncrypted: peer?.isEncrypted ?? false,
-                    lastMessage: last,
-                    formatTime: formatTime,
-                    onTap: () => onPeerSelected(peerId),
-                  );
-                },
-              ),
-      ),
-    ];
+/// Home / DM mode content — room controls + peer list.
+class _HomeContent extends StatelessWidget {
+  final HavenTheme haven;
+  final BuildContext context;
+  final Map<String, PeerInfo> peers;
+  final String? selectedPeerId;
+  final NodeStatus nodeStatus;
+  final ValueChanged<String> onPeerSelected;
+  final ChatMessage? Function(String) lastMessage;
+  final String Function(DateTime) formatTime;
+  final String? activeRoom;
+  final TextEditingController roomController;
+  final Future<void> Function(String) onJoinRoom;
+  final VoidCallback onCreateInvite;
+
+  const _HomeContent({
+    super.key,
+    required this.haven,
+    required this.context,
+    required this.peers,
+    required this.selectedPeerId,
+    required this.nodeStatus,
+    required this.onPeerSelected,
+    required this.lastMessage,
+    required this.formatTime,
+    required this.activeRoom,
+    required this.roomController,
+    required this.onJoinRoom,
+    required this.onCreateInvite,
+  });
+
+  @override
+  Widget build(BuildContext innerContext) {
+    final divider1Reveal =
+        StartupRevealScope.interval(innerContext, 0.35, 0.45);
+    final peerLabelReveal =
+        StartupRevealScope.interval(innerContext, 0.42, 0.52);
+    final divider2Reveal =
+        StartupRevealScope.interval(innerContext, 0.41, 0.51);
+    final peerListReveal =
+        StartupRevealScope.interval(innerContext, 0.45, 0.60);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Room controls
+        _buildRoomSection(innerContext),
+
+        LineDrawDivider(
+          animation: divider1Reveal,
+          height: 1,
+          color: haven.border,
+        ),
+
+        // Peer count label
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            HavenSpacing.lg,
+            HavenSpacing.sm,
+            HavenSpacing.lg,
+            HavenSpacing.sm,
+          ),
+          child: TypewriterText(
+            text: 'ONLINE \u2014 ${peers.length}',
+            animation: peerLabelReveal,
+            style: HavenTypography.caption.copyWith(
+              color: haven.textSecondary,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.8,
+            ),
+          ),
+        ),
+
+        LineDrawDivider(
+          animation: divider2Reveal,
+          height: 1,
+          color: haven.border,
+        ),
+
+        // Peer list
+        Expanded(
+          child: peers.isEmpty
+              ? EmptyPeerList(nodeStatus: nodeStatus)
+              : ListView.builder(
+                  itemCount: peers.length,
+                  padding: const EdgeInsets.symmetric(
+                      vertical: HavenSpacing.xs),
+                  itemBuilder: (context, index) {
+                    final peerId = peers.keys.elementAt(index);
+                    final peer = peers[peerId];
+                    final isSelected = peerId == selectedPeerId;
+                    final last = lastMessage(peerId);
+
+                    Widget card = PeerCard(
+                      peerId: peerId,
+                      isSelected: isSelected,
+                      isEncrypted: peer?.isEncrypted ?? false,
+                      lastMessage: last,
+                      formatTime: formatTime,
+                      onTap: () => onPeerSelected(peerId),
+                    );
+
+                    return StaggeredListItem(
+                      parentAnimation: peerListReveal,
+                      index: index,
+                      totalItems: peers.length,
+                      slideFrom: const Offset(-0.3, 0),
+                      child: card,
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
   }
 
-  Widget _buildRoomSection(BuildContext context, HavenTheme haven) {
+  Widget _buildRoomSection(BuildContext ctx) {
+    final roomReveal =
+        StartupRevealScope.interval(ctx, 0.30, 0.42);
+    final inviteBtnReveal =
+        StartupRevealScope.interval(ctx, 0.40, 0.50);
+
     if (activeRoom != null) {
-      return Padding(
+      Widget badge = Padding(
         padding: const EdgeInsets.all(HavenSpacing.sm + 2),
         child: Container(
           padding: const EdgeInsets.symmetric(
@@ -284,7 +434,7 @@ class ChannelSidebar extends StatelessWidget {
                   final link = 'haven://join?room=$activeRoom';
                   Clipboard.setData(ClipboardData(text: link));
                   HavenToast.show(
-                    context,
+                    ctx,
                     'Invite link copied',
                     type: HavenToastType.success,
                   );
@@ -298,6 +448,89 @@ class ChannelSidebar extends StatelessWidget {
           ),
         ),
       );
+
+      if (roomReveal != null) {
+        badge = AnimatedBuilder(
+          animation: roomReveal,
+          builder: (context, child) {
+            return Opacity(
+              opacity: roomReveal.value,
+              child: FractionalTranslation(
+                translation: Offset(-0.3 * (1.0 - roomReveal.value), 0),
+                child: child,
+              ),
+            );
+          },
+          child: badge,
+        );
+      }
+
+      return badge;
+    }
+
+    // Room input + Join button
+    Widget textFieldRow = Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(
+          child: HavenTextField(
+            controller: roomController,
+            hintText: 'Room code or invite...',
+            isDense: true,
+            style: HavenTypography.bodySmall.copyWith(
+              color: haven.textPrimary,
+            ),
+            onSubmitted: (v) => onJoinRoom(v.trim()),
+          ),
+        ),
+        const SizedBox(width: HavenSpacing.xs + 2),
+        HavenButton.filled(
+          onPressed: () =>
+              onJoinRoom(roomController.text.trim()),
+          compact: true,
+          child: const Text('Join'),
+        ),
+      ],
+    );
+
+    if (roomReveal != null) {
+      textFieldRow = AnimatedBuilder(
+        animation: roomReveal,
+        builder: (context, child) {
+          return Opacity(
+            opacity: roomReveal.value,
+            child: FractionalTranslation(
+              translation: Offset(-0.3 * (1.0 - roomReveal.value), 0),
+              child: child,
+            ),
+          );
+        },
+        child: textFieldRow,
+      );
+    }
+
+    // Create Invite button
+    Widget inviteBtn = HavenButton.outline(
+      onPressed: onCreateInvite,
+      expand: true,
+      icon: Icon(LucideIcons.link, size: 14),
+      child: const Text('Create Invite'),
+    );
+
+    if (inviteBtnReveal != null) {
+      inviteBtn = AnimatedBuilder(
+        animation: inviteBtnReveal,
+        builder: (context, child) {
+          return Opacity(
+            opacity: inviteBtnReveal.value,
+            child: FractionalTranslation(
+              translation: Offset(0, 0.3 * (1.0 - inviteBtnReveal.value)),
+              child: child,
+            ),
+          );
+        },
+        child: inviteBtn,
+      );
     }
 
     return Padding(
@@ -305,36 +538,9 @@ class ChannelSidebar extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: HavenTextField(
-                  controller: roomController,
-                  hintText: 'Room code or invite...',
-                  isDense: true,
-                  style: HavenTypography.bodySmall.copyWith(
-                    color: haven.textPrimary,
-                  ),
-                  onSubmitted: (v) => onJoinRoom(v.trim()),
-                ),
-              ),
-              const SizedBox(width: HavenSpacing.xs + 2),
-              HavenButton.filled(
-                onPressed: () =>
-                    onJoinRoom(roomController.text.trim()),
-                compact: true,
-                child: const Text('Join'),
-              ),
-            ],
-          ),
+          textFieldRow,
           const SizedBox(height: HavenSpacing.sm - 2),
-          HavenButton.outline(
-            onPressed: onCreateInvite,
-            expand: true,
-            icon: Icon(LucideIcons.link, size: 14),
-            child: const Text('Create Invite'),
-          ),
+          inviteBtn,
         ],
       ),
     );
@@ -356,52 +562,64 @@ class _ChannelTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final haven = HavenTheme.of(context);
+    final radius = BorderRadius.circular(haven.radiusMd);
+
+    Widget tile = HavenPressable(
+      onTap: onTap,
+      subtle: true,
+      borderRadius: radius,
+      backgroundColor:
+          isSelected ? haven.accentMuted : Colors.transparent,
+      hoverColor: haven.elevated,
+      padding: const EdgeInsets.symmetric(
+        horizontal: HavenSpacing.sm + 2,
+        vertical: HavenSpacing.sm,
+      ),
+      child: AnimatedDefaultTextStyle(
+        duration: HavenDurations.fast,
+        curve: HavenCurves.subtle,
+        style: HavenTypography.body.copyWith(
+          color: isSelected
+              ? haven.textPrimary
+              : haven.textSecondary,
+          fontWeight:
+              isSelected ? FontWeight.w600 : FontWeight.w400,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              LucideIcons.hash,
+              size: 18,
+              color: isSelected
+                  ? haven.textPrimary
+                  : haven.textSecondary,
+            ),
+            const SizedBox(width: HavenSpacing.sm),
+            Expanded(
+              child: Text(
+                channel.name,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (isSelected) {
+      tile = SelectionShimmer(
+        highlightColor: haven.accent.withValues(alpha: 0.12),
+        borderRadius: radius,
+        child: tile,
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: HavenSpacing.sm,
         vertical: HavenSpacing.xxs,
       ),
-      child: HavenPressable(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(haven.radiusMd),
-        backgroundColor:
-            isSelected ? haven.accentMuted : Colors.transparent,
-        hoverColor: haven.elevated,
-        padding: const EdgeInsets.symmetric(
-          horizontal: HavenSpacing.sm + 2,
-          vertical: HavenSpacing.sm,
-        ),
-        child: AnimatedDefaultTextStyle(
-          duration: HavenDurations.fast,
-          curve: HavenCurves.subtle,
-          style: HavenTypography.body.copyWith(
-            color: isSelected
-                ? haven.textPrimary
-                : haven.textSecondary,
-            fontWeight:
-                isSelected ? FontWeight.w600 : FontWeight.w400,
-          ),
-          child: Row(
-            children: [
-              Icon(
-                LucideIcons.hash,
-                size: 18,
-                color: isSelected
-                    ? haven.textPrimary
-                    : haven.textSecondary,
-              ),
-              const SizedBox(width: HavenSpacing.sm),
-              Expanded(
-                child: Text(
-                  channel.name,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+      child: tile,
     );
   }
 }

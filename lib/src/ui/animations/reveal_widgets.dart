@@ -1,0 +1,195 @@
+import 'package:flutter/material.dart';
+
+// ---------------------------------------------------------------------------
+// RevealClip — vertical/horizontal clip reveal ("carpet roll")
+// ---------------------------------------------------------------------------
+
+/// Reveals a child by animating a clip from one edge.
+///
+/// When [animation] is `null` the child is rendered directly (zero overhead).
+/// [axis] controls the reveal direction: vertical = top→bottom,
+/// horizontal = left→right (or reverse with [alignment]).
+class RevealClip extends StatelessWidget {
+  final Animation<double>? animation;
+  final Axis axis;
+  final Alignment alignment;
+  final Widget child;
+
+  const RevealClip({
+    super.key,
+    required this.animation,
+    this.axis = Axis.vertical,
+    this.alignment = Alignment.topLeft,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (animation == null) return child;
+
+    return AnimatedBuilder(
+      animation: animation!,
+      builder: (context, child) {
+        return ClipRect(
+          child: Align(
+            alignment: alignment,
+            heightFactor: axis == Axis.vertical ? animation!.value : null,
+            widthFactor: axis == Axis.horizontal ? animation!.value : null,
+            child: child,
+          ),
+        );
+      },
+      child: child,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// TypewriterText — character-by-character text reveal
+// ---------------------------------------------------------------------------
+
+/// Reveals text character by character over the [animation] interval.
+///
+/// When [animation] is `null`, displays the full text immediately.
+class TypewriterText extends StatelessWidget {
+  final String text;
+  final Animation<double>? animation;
+  final TextStyle? style;
+  final TextOverflow? overflow;
+  final int? maxLines;
+
+  const TypewriterText({
+    super.key,
+    required this.text,
+    required this.animation,
+    this.style,
+    this.overflow,
+    this.maxLines,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (animation == null) {
+      return Text(text, style: style, overflow: overflow, maxLines: maxLines);
+    }
+
+    return AnimatedBuilder(
+      animation: animation!,
+      builder: (context, _) {
+        final charCount = (animation!.value * text.length).round();
+        // Use a non-breaking space suffix to maintain layout width
+        // as characters appear.
+        final visible = text.substring(0, charCount);
+        return Text(
+          visible,
+          style: style,
+          overflow: overflow,
+          maxLines: maxLines,
+        );
+      },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// LineDrawDivider — width-expanding divider line
+// ---------------------------------------------------------------------------
+
+/// A divider that "draws" itself from one side to the other.
+///
+/// When [animation] is `null`, renders at full width immediately.
+class LineDrawDivider extends StatelessWidget {
+  final Animation<double>? animation;
+  final double height;
+  final Color? color;
+  final Alignment alignment;
+
+  const LineDrawDivider({
+    super.key,
+    required this.animation,
+    this.height = 1,
+    this.color,
+    this.alignment = Alignment.centerLeft,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dividerColor = color ?? Theme.of(context).dividerColor;
+    final divider = Container(height: height, color: dividerColor);
+
+    if (animation == null) return divider;
+
+    return AnimatedBuilder(
+      animation: animation!,
+      builder: (context, child) {
+        return FractionallySizedBox(
+          alignment: alignment,
+          widthFactor: animation!.value,
+          child: child,
+        );
+      },
+      child: divider,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// StaggeredListItem — per-item fade+slide with stagger delay
+// ---------------------------------------------------------------------------
+
+/// Wraps a list item with a fade + slide entrance, staggered by [index].
+///
+/// When [parentAnimation] is `null`, renders the child directly.
+/// The item's sub-interval is computed from [index] and [totalItems].
+class StaggeredListItem extends StatelessWidget {
+  final Animation<double>? parentAnimation;
+  final int index;
+  final int totalItems;
+  final Offset slideFrom;
+  final Widget child;
+
+  const StaggeredListItem({
+    super.key,
+    required this.parentAnimation,
+    required this.index,
+    required this.totalItems,
+    this.slideFrom = const Offset(-0.3, 0),
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (parentAnimation == null) return child;
+
+    // Each item gets a stagger fraction of the total animation range.
+    // Items overlap — each starts slightly after the previous.
+    final itemDuration = 0.4; // fraction of parent each item takes
+    final totalStagger = 1.0 - itemDuration;
+    final step =
+        totalItems > 1 ? totalStagger / (totalItems - 1) : 0.0;
+    final begin = (index * step).clamp(0.0, 1.0 - itemDuration);
+    final end = (begin + itemDuration).clamp(0.0, 1.0);
+
+    final itemAnimation = CurvedAnimation(
+      parent: parentAnimation!,
+      curve: Interval(begin, end, curve: Curves.easeOutCubic),
+    );
+
+    return AnimatedBuilder(
+      animation: itemAnimation,
+      builder: (context, child) {
+        return Opacity(
+          opacity: itemAnimation.value,
+          child: FractionalTranslation(
+            translation: Offset(
+              slideFrom.dx * (1.0 - itemAnimation.value),
+              slideFrom.dy * (1.0 - itemAnimation.value),
+            ),
+            child: child,
+          ),
+        );
+      },
+      child: child,
+    );
+  }
+}

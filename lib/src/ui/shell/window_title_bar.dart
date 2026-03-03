@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
+import 'package:haven/src/ui/animations/startup_reveal.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -14,32 +15,58 @@ class WindowTitleBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final haven = HavenTheme.of(context);
+    final brandReveal = StartupRevealScope.interval(context, 0.0, 0.15);
+    final buttonsReveal = StartupRevealScope.interval(context, 0.08, 0.20);
+
+    Widget branding = Padding(
+      padding: const EdgeInsets.only(left: HavenSpacing.lg),
+      child: Text(
+        'Haven',
+        style: HavenTypography.label.copyWith(
+          color: haven.accent,
+          fontWeight: FontWeight.w700,
+          fontSize: 13,
+        ),
+      ),
+    );
+
+    if (brandReveal != null) {
+      branding = AnimatedBuilder(
+        animation: brandReveal,
+        builder: (context, child) {
+          return Opacity(opacity: brandReveal.value, child: child);
+        },
+        child: branding,
+      );
+    }
+
+    Widget buttons = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: const [
+        _MinimizeButton(),
+        _MaximizeButton(),
+        _CloseButton(),
+      ],
+    );
+
+    if (buttonsReveal != null) {
+      buttons = AnimatedBuilder(
+        animation: buttonsReveal,
+        builder: (context, child) {
+          return Opacity(opacity: buttonsReveal.value, child: child);
+        },
+        child: buttons,
+      );
+    }
 
     return Container(
       height: 32,
       color: haven.background,
       child: Row(
         children: [
-          // Branding
-          Padding(
-            padding: const EdgeInsets.only(left: HavenSpacing.lg),
-            child: Text(
-              'Haven',
-              style: HavenTypography.label.copyWith(
-                color: haven.accent,
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
-              ),
-            ),
-          ),
-
-          // Draggable area (fills remaining space)
+          branding,
           const Expanded(child: DragToMoveArea(child: SizedBox.expand())),
-
-          // Window control buttons
-          const _MinimizeButton(),
-          const _MaximizeButton(),
-          const _CloseButton(),
+          buttons,
         ],
       ),
     );

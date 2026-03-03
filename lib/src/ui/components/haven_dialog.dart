@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
@@ -7,8 +9,8 @@ import 'package:haven/src/ui/animations/haven_curves.dart';
 /// Show a Haven-styled dialog with custom entrance/exit animation.
 ///
 /// Entrance: scale 0.95→1.0 + fade in, 200ms easeOutCubic.
-/// Exit: scale 1.0→0.95 + fade out, 150ms (snappier).
-/// Backdrop: black at 60% opacity.
+/// Full-screen BackdropFilter blurs everything behind the dialog.
+/// Blur animates 0→12 alongside the dialog entrance.
 Future<T?> showHavenDialog<T>({
   required BuildContext context,
   required WidgetBuilder builder,
@@ -18,7 +20,7 @@ Future<T?> showHavenDialog<T>({
     context: context,
     barrierDismissible: barrierDismissible,
     barrierLabel: 'Dismiss',
-    barrierColor: Colors.black.withValues(alpha: 0.6),
+    barrierColor: Colors.black.withValues(alpha: 0.08),
     transitionDuration: const Duration(milliseconds: 200),
     transitionBuilder: (context, animation, secondaryAnimation, child) {
       final curvedAnimation = CurvedAnimation(
@@ -27,13 +29,27 @@ Future<T?> showHavenDialog<T>({
         reverseCurve: Curves.easeIn,
       );
 
-      return FadeTransition(
-        opacity: curvedAnimation,
-        child: ScaleTransition(
-          scale: Tween<double>(begin: 0.95, end: 1.0)
-              .animate(curvedAnimation),
-          child: child,
-        ),
+      final blurValue =
+          Tween<double>(begin: 0, end: 12).animate(curvedAnimation);
+
+      return AnimatedBuilder(
+        animation: blurValue,
+        builder: (context, _) {
+          return BackdropFilter(
+            filter: ImageFilter.blur(
+              sigmaX: blurValue.value,
+              sigmaY: blurValue.value,
+            ),
+            child: FadeTransition(
+              opacity: curvedAnimation,
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 0.95, end: 1.0)
+                    .animate(curvedAnimation),
+                child: child,
+              ),
+            ),
+          );
+        },
       );
     },
     pageBuilder: (context, _, _) => builder(context),
@@ -58,53 +74,59 @@ class HavenDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final haven = HavenTheme.of(context);
+    final radius = BorderRadius.circular(haven.radiusLg);
 
     return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          maxWidth: 420,
-          minWidth: 300,
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: Container(
-            margin: const EdgeInsets.all(HavenSpacing.xl),
-            padding: const EdgeInsets.all(HavenSpacing.xl),
-            decoration: BoxDecoration(
-              color: haven.elevated,
-              borderRadius: BorderRadius.circular(haven.radiusLg),
-              border: Border.all(color: haven.border),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Title
-                Text(
-                  title,
-                  style: HavenTypography.heading
-                      .copyWith(color: haven.textPrimary),
+      child: Padding(
+        padding: const EdgeInsets.all(HavenSpacing.xl),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: 420,
+            minWidth: 300,
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.all(HavenSpacing.xl),
+              decoration: BoxDecoration(
+                color: haven.elevated.withValues(alpha: 0.92),
+                borderRadius: radius,
+                border: Border.all(
+                  color: haven.accent.withValues(alpha: 0.15),
                 ),
-                const SizedBox(height: HavenSpacing.lg),
-
-                // Content
-                content,
-
-                // Actions
-                if (actions.isNotEmpty) ...[
-                  const SizedBox(height: HavenSpacing.xl),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      for (int i = 0; i < actions.length; i++) ...[
-                        if (i > 0)
-                          const SizedBox(width: HavenSpacing.sm),
-                        actions[i],
-                      ],
-                    ],
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.2),
+                    blurRadius: 24,
                   ),
                 ],
-              ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: HavenTypography.heading
+                        .copyWith(color: haven.textPrimary),
+                  ),
+                  const SizedBox(height: HavenSpacing.lg),
+                  content,
+                  if (actions.isNotEmpty) ...[
+                    const SizedBox(height: HavenSpacing.xl),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        for (int i = 0; i < actions.length; i++) ...[
+                          if (i > 0)
+                            const SizedBox(width: HavenSpacing.sm),
+                          actions[i],
+                        ],
+                      ],
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         ),

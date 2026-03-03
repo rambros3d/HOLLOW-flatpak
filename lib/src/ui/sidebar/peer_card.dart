@@ -4,6 +4,7 @@ import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
 import 'package:haven/src/ui/animations/haven_curves.dart';
+import 'package:haven/src/ui/animations/selection_shimmer.dart';
 import 'package:haven/src/ui/components/haven_avatar.dart';
 import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/status_dot.dart';
@@ -30,18 +31,15 @@ class PeerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final haven = HavenTheme.of(context);
+    final radius = BorderRadius.circular(haven.radiusMd);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: HavenSpacing.sm,
-        vertical: HavenSpacing.xxs,
-      ),
-      child: HavenPressable(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(haven.radiusMd),
-        backgroundColor:
-            isSelected ? haven.accentMuted : Colors.transparent,
-        hoverColor: haven.elevated,
+    Widget card = HavenPressable(
+      onTap: onTap,
+      subtle: true,
+      borderRadius: radius,
+      backgroundColor:
+          isSelected ? haven.accentMuted : Colors.transparent,
+      hoverColor: haven.elevated,
         padding: const EdgeInsets.symmetric(
           horizontal: HavenSpacing.md,
           vertical: HavenSpacing.sm + 2,
@@ -67,6 +65,7 @@ class PeerCard extends StatelessWidget {
                       child: StatusDot(
                         color: haven.success,
                         size: 8,
+                        pulse: true,
                       ),
                     ),
                   ),
@@ -130,7 +129,22 @@ class PeerCard extends StatelessWidget {
             ],
           ),
         ),
+      );
+
+    if (isSelected) {
+      card = SelectionShimmer(
+        highlightColor: haven.accent.withValues(alpha: 0.12),
+        borderRadius: radius,
+        child: card,
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: HavenSpacing.sm,
+        vertical: HavenSpacing.xxs,
       ),
+      child: card,
     );
   }
 }
