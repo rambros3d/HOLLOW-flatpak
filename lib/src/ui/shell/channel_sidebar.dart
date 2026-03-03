@@ -83,18 +83,15 @@ class ChannelSidebar extends StatelessWidget {
 
     Widget userBar = const UserBar();
     if (userBarReveal != null) {
-      userBar = AnimatedBuilder(
-        animation: userBarReveal,
-        builder: (context, child) {
-          return Opacity(
-            opacity: userBarReveal.value,
-            child: FractionalTranslation(
-              translation: Offset(0, 0.5 * (1.0 - userBarReveal.value)),
-              child: child,
-            ),
-          );
-        },
-        child: userBar,
+      userBar = FadeTransition(
+        opacity: userBarReveal,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.5),
+            end: Offset.zero,
+          ).animate(userBarReveal),
+          child: userBar,
+        ),
       );
     }
 
@@ -450,18 +447,15 @@ class _HomeContent extends StatelessWidget {
       );
 
       if (roomReveal != null) {
-        badge = AnimatedBuilder(
-          animation: roomReveal,
-          builder: (context, child) {
-            return Opacity(
-              opacity: roomReveal.value,
-              child: FractionalTranslation(
-                translation: Offset(-0.3 * (1.0 - roomReveal.value), 0),
-                child: child,
-              ),
-            );
-          },
-          child: badge,
+        badge = FadeTransition(
+          opacity: roomReveal,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(-0.3, 0),
+              end: Offset.zero,
+            ).animate(roomReveal),
+            child: badge,
+          ),
         );
       }
 
@@ -494,18 +488,15 @@ class _HomeContent extends StatelessWidget {
     );
 
     if (roomReveal != null) {
-      textFieldRow = AnimatedBuilder(
-        animation: roomReveal,
-        builder: (context, child) {
-          return Opacity(
-            opacity: roomReveal.value,
-            child: FractionalTranslation(
-              translation: Offset(-0.3 * (1.0 - roomReveal.value), 0),
-              child: child,
-            ),
-          );
-        },
-        child: textFieldRow,
+      textFieldRow = FadeTransition(
+        opacity: roomReveal,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(-0.3, 0),
+            end: Offset.zero,
+          ).animate(roomReveal),
+          child: textFieldRow,
+        ),
       );
     }
 
@@ -518,18 +509,15 @@ class _HomeContent extends StatelessWidget {
     );
 
     if (inviteBtnReveal != null) {
-      inviteBtn = AnimatedBuilder(
-        animation: inviteBtnReveal,
-        builder: (context, child) {
-          return Opacity(
-            opacity: inviteBtnReveal.value,
-            child: FractionalTranslation(
-              translation: Offset(0, 0.3 * (1.0 - inviteBtnReveal.value)),
-              child: child,
-            ),
-          );
-        },
-        child: inviteBtn,
+      inviteBtn = FadeTransition(
+        opacity: inviteBtnReveal,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.3),
+            end: Offset.zero,
+          ).animate(inviteBtnReveal),
+          child: inviteBtn,
+        ),
       );
     }
 

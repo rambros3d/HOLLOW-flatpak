@@ -31,11 +31,8 @@ class WindowTitleBar extends StatelessWidget {
     );
 
     if (brandReveal != null) {
-      branding = AnimatedBuilder(
-        animation: brandReveal,
-        builder: (context, child) {
-          return Opacity(opacity: brandReveal.value, child: child);
-        },
+      branding = FadeTransition(
+        opacity: brandReveal,
         child: branding,
       );
     }
@@ -50,11 +47,8 @@ class WindowTitleBar extends StatelessWidget {
     );
 
     if (buttonsReveal != null) {
-      buttons = AnimatedBuilder(
-        animation: buttonsReveal,
-        builder: (context, child) {
-          return Opacity(opacity: buttonsReveal.value, child: child);
-        },
+      buttons = FadeTransition(
+        opacity: buttonsReveal,
         child: buttons,
       );
     }

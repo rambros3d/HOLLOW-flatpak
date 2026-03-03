@@ -69,7 +69,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
 
     _revealController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1800),
+      duration: const Duration(milliseconds: 2500),
     );
 
     _chatReveal = CurvedAnimation(
@@ -382,7 +382,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
                 child: Row(
                   children: [
                     // Server strip (far left)
-                    const ServerStrip(),
+                    const RepaintBoundary(child: ServerStrip()),
 
                     // Channel sidebar
                     _buildChannelSidebar(
@@ -425,7 +425,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
 
                     // Member panel (desktop: shown by default, tablet: toggleable)
                     if (memberPanelOpen && (isDesktop || !isMobile))
-                      const MemberPanel(),
+                      const RepaintBoundary(child: MemberPanel()),
                   ],
                 ),
               ),

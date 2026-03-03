@@ -5,8 +5,6 @@ import 'package:haven/src/core/providers/server_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/ui/animations/haven_curves.dart';
-import 'package:haven/src/ui/animations/reveal_widgets.dart';
-import 'package:haven/src/ui/animations/startup_reveal.dart';
 import 'package:haven/src/ui/components/haven_tooltip.dart';
 import 'package:haven/src/ui/dialogs/create_server_dialog.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -38,14 +36,6 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
 
     final serverEntries = servers.values.toList();
 
-    // Startup reveal animations.
-    final reveal = StartupRevealScope.of(context);
-    final carpetRoll = StartupRevealScope.interval(context, 0.0, 0.25);
-    final homeReveal = StartupRevealScope.interval(context, 0.15, 0.30);
-    final dividerReveal = StartupRevealScope.interval(context, 0.20, 0.30);
-    final iconListReveal = StartupRevealScope.interval(context, 0.25, 0.40);
-    final addBtnReveal = StartupRevealScope.interval(context, 0.30, 0.38);
-
     // Home button
     Widget homeIcon = _ServerIconWithIndicator(
       isSelected: selectedServerId == null,
@@ -68,22 +58,6 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
       ),
     );
 
-    if (homeReveal != null) {
-      homeIcon = AnimatedBuilder(
-        animation: homeReveal,
-        builder: (context, child) {
-          return Opacity(
-            opacity: homeReveal.value,
-            child: FractionalTranslation(
-              translation: Offset(-0.5 * (1.0 - homeReveal.value), 0),
-              child: child,
-            ),
-          );
-        },
-        child: homeIcon,
-      );
-    }
-
     // Short divider
     Widget divider = Container(
       width: 32,
@@ -93,22 +67,6 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
         borderRadius: BorderRadius.circular(1),
       ),
     );
-
-    if (dividerReveal != null) {
-      divider = AnimatedBuilder(
-        animation: dividerReveal,
-        builder: (context, child) {
-          return ClipRect(
-            child: Align(
-              alignment: Alignment.center,
-              widthFactor: dividerReveal.value,
-              child: child,
-            ),
-          );
-        },
-        child: divider,
-      );
-    }
 
     // Add server button
     Widget addButton = Padding(
@@ -125,23 +83,7 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
       ),
     );
 
-    if (addBtnReveal != null) {
-      addButton = AnimatedBuilder(
-        animation: addBtnReveal,
-        builder: (context, child) {
-          return Opacity(
-            opacity: addBtnReveal.value,
-            child: Transform.scale(
-              scale: 0.5 + 0.5 * addBtnReveal.value,
-              child: child,
-            ),
-          );
-        },
-        child: addButton,
-      );
-    }
-
-    Widget strip = Container(
+    return Container(
       width: 72,
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -201,21 +143,10 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
                   ),
                 );
 
-                // Animate new servers with scale-bounce.
+                // Animate newly created servers (after app startup).
                 if (isNew) {
                   icon = _ScaleBounceEntry(
                     key: ValueKey('bounce-${server.serverId}'),
-                    child: icon,
-                  );
-                }
-
-                // Startup stagger for existing servers.
-                if (reveal != null && !isNew) {
-                  icon = StaggeredListItem(
-                    parentAnimation: iconListReveal,
-                    index: index,
-                    totalItems: serverEntries.length,
-                    slideFrom: const Offset(-0.5, 0),
                     child: icon,
                   );
                 }
@@ -231,14 +162,6 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
           addButton,
         ],
       ),
-    );
-
-    // Carpet roll: the entire strip reveals from top to bottom.
-    return RevealClip(
-      animation: carpetRoll,
-      axis: Axis.vertical,
-      alignment: Alignment.topCenter,
-      child: strip,
     );
   }
 }

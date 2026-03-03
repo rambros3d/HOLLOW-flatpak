@@ -42,18 +42,15 @@ class MemberPanel extends ConsumerWidget {
         _buildConnectionInfo(context, haven, nodeState, identity);
 
     if (connInfoReveal != null) {
-      connInfo = AnimatedBuilder(
-        animation: connInfoReveal,
-        builder: (context, child) {
-          return Opacity(
-            opacity: connInfoReveal.value,
-            child: FractionalTranslation(
-              translation: Offset(0, 0.5 * (1.0 - connInfoReveal.value)),
-              child: child,
-            ),
-          );
-        },
-        child: connInfo,
+      connInfo = FadeTransition(
+        opacity: connInfoReveal,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.5),
+            end: Offset.zero,
+          ).animate(connInfoReveal),
+          child: connInfo,
+        ),
       );
     }
 

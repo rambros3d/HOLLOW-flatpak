@@ -77,8 +77,6 @@ class TypewriterText extends StatelessWidget {
       animation: animation!,
       builder: (context, _) {
         final charCount = (animation!.value * text.length).round();
-        // Use a non-breaking space suffix to maintain layout width
-        // as characters appear.
         final visible = text.substring(0, charCount);
         return Text(
           visible,
@@ -140,7 +138,7 @@ class LineDrawDivider extends StatelessWidget {
 /// Wraps a list item with a fade + slide entrance, staggered by [index].
 ///
 /// When [parentAnimation] is `null`, renders the child directly.
-/// The item's sub-interval is computed from [index] and [totalItems].
+/// Uses [FadeTransition] and [SlideTransition] for GPU-composited rendering.
 class StaggeredListItem extends StatelessWidget {
   final Animation<double>? parentAnimation;
   final int index;
@@ -162,8 +160,7 @@ class StaggeredListItem extends StatelessWidget {
     if (parentAnimation == null) return child;
 
     // Each item gets a stagger fraction of the total animation range.
-    // Items overlap — each starts slightly after the previous.
-    final itemDuration = 0.4; // fraction of parent each item takes
+    final itemDuration = 0.4;
     final totalStagger = 1.0 - itemDuration;
     final step =
         totalItems > 1 ? totalStagger / (totalItems - 1) : 0.0;
@@ -175,21 +172,13 @@ class StaggeredListItem extends StatelessWidget {
       curve: Interval(begin, end, curve: Curves.easeOutCubic),
     );
 
-    return AnimatedBuilder(
-      animation: itemAnimation,
-      builder: (context, child) {
-        return Opacity(
-          opacity: itemAnimation.value,
-          child: FractionalTranslation(
-            translation: Offset(
-              slideFrom.dx * (1.0 - itemAnimation.value),
-              slideFrom.dy * (1.0 - itemAnimation.value),
-            ),
-            child: child,
-          ),
-        );
-      },
-      child: child,
+    return FadeTransition(
+      opacity: itemAnimation,
+      child: SlideTransition(
+        position: Tween<Offset>(begin: slideFrom, end: Offset.zero)
+            .animate(itemAnimation),
+        child: child,
+      ),
     );
   }
 }
