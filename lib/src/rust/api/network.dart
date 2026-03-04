@@ -39,6 +39,18 @@ Future<String?> getOlmFingerprint() =>
 Future<void> sendMessage({required String peerId, required String text}) =>
     RustLib.instance.api.crateApiNetworkSendMessage(peerId: peerId, text: text);
 
+/// Send a text message to a server channel.
+/// The message will be encrypted and sent to all connected server members.
+Future<void> sendChannelMessage({
+  required String serverId,
+  required String channelId,
+  required String text,
+}) => RustLib.instance.api.crateApiNetworkSendChannelMessage(
+  serverId: serverId,
+  channelId: channelId,
+  text: text,
+);
+
 /// Join a room via the signaling service.
 /// Registers our addresses and bootstraps from other peers in the room.
 Future<void> joinRoom({required String roomCode}) =>
@@ -83,6 +95,13 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String fromPeer,
     required String text,
   }) = NetworkEvent_MessageReceived;
+  const factory NetworkEvent.channelMessageReceived({
+    required String serverId,
+    required String channelId,
+    required String fromPeer,
+    required String text,
+    required PlatformInt64 timestamp,
+  }) = NetworkEvent_ChannelMessageReceived;
   const factory NetworkEvent.messageSent({required String toPeer}) =
       NetworkEvent_MessageSent;
   const factory NetworkEvent.messageSendFailed({
@@ -108,6 +127,13 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String serverId,
     required String channelId,
   }) = NetworkEvent_ChannelRemoved;
+  const factory NetworkEvent.channelRenamed({
+    required String serverId,
+    required String channelId,
+    required String newName,
+  }) = NetworkEvent_ChannelRenamed;
+  const factory NetworkEvent.serverDeleted({required String serverId}) =
+      NetworkEvent_ServerDeleted;
   const factory NetworkEvent.memberJoined({
     required String serverId,
     required String peerId,
@@ -120,4 +146,8 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String serverId,
     required int opsApplied,
   }) = NetworkEvent_SyncCompleted;
+  const factory NetworkEvent.serverJoined({
+    required String serverId,
+    required String name,
+  }) = NetworkEvent_ServerJoined;
 }

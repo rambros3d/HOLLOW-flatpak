@@ -36,6 +36,79 @@ Future<List<StoredMessage>> loadMessages({
   limit: limit,
 );
 
+/// Save a channel message to the local database.
+Future<PlatformInt64> saveChannelMessage({
+  required String serverId,
+  required String channelId,
+  required String senderId,
+  required String text,
+  required bool isMine,
+  required PlatformInt64 timestamp,
+}) => RustLib.instance.api.crateApiStorageSaveChannelMessage(
+  serverId: serverId,
+  channelId: channelId,
+  senderId: senderId,
+  text: text,
+  isMine: isMine,
+  timestamp: timestamp,
+);
+
+/// Load recent channel messages from the local database.
+/// Returns messages ordered oldest-first, up to `limit`.
+Future<List<StoredChannelMessage>> loadChannelMessages({
+  required String serverId,
+  required String channelId,
+  required int limit,
+}) => RustLib.instance.api.crateApiStorageLoadChannelMessages(
+  serverId: serverId,
+  channelId: channelId,
+  limit: limit,
+);
+
+/// A channel message returned to Dart from the local database.
+class StoredChannelMessage {
+  final PlatformInt64 id;
+  final String serverId;
+  final String channelId;
+  final String senderId;
+  final String text;
+  final bool isMine;
+  final PlatformInt64 timestamp;
+
+  const StoredChannelMessage({
+    required this.id,
+    required this.serverId,
+    required this.channelId,
+    required this.senderId,
+    required this.text,
+    required this.isMine,
+    required this.timestamp,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      serverId.hashCode ^
+      channelId.hashCode ^
+      senderId.hashCode ^
+      text.hashCode ^
+      isMine.hashCode ^
+      timestamp.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is StoredChannelMessage &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          serverId == other.serverId &&
+          channelId == other.channelId &&
+          senderId == other.senderId &&
+          text == other.text &&
+          isMine == other.isMine &&
+          timestamp == other.timestamp;
+}
+
 /// A message returned to Dart from the local database.
 class StoredMessage {
   final PlatformInt64 id;

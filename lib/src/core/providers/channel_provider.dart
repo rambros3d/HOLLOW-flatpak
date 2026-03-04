@@ -32,10 +32,9 @@ class ChannelListNotifier extends Notifier<Map<String, ChannelInfo>> {
     final selectedServer = ref.read(selectedServerProvider);
     if (selectedServer != serverId) return;
 
-    state = {
-      ...state,
-      channelId: ChannelInfo(channelId: channelId, name: name),
-    };
+    final updated = Map.of(state);
+    updated[channelId] = ChannelInfo(channelId: channelId, name: name);
+    state = updated;
   }
 
   /// Called when a ChannelRemoved event arrives.
@@ -44,6 +43,23 @@ class ChannelListNotifier extends Notifier<Map<String, ChannelInfo>> {
     if (selectedServer != serverId) return;
 
     state = Map.of(state)..remove(channelId);
+  }
+
+  /// Called when a ChannelRenamed event arrives.
+  void onChannelRenamed(String serverId, String channelId, String newName) {
+    final selectedServer = ref.read(selectedServerProvider);
+    if (selectedServer != serverId) return;
+
+    final existing = state[channelId];
+    if (existing == null) return;
+
+    final updated = Map.of(state);
+    updated[channelId] = ChannelInfo(
+      channelId: channelId,
+      name: newName,
+      category: existing.category,
+    );
+    state = updated;
   }
 
   /// Clear channel list (e.g., when switching servers).

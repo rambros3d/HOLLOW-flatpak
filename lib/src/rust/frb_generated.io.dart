@@ -73,6 +73,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ServerFfi> dco_decode_list_server_ffi(dynamic raw);
 
   @protected
+  List<StoredChannelMessage> dco_decode_list_stored_channel_message(
+    dynamic raw,
+  );
+
+  @protected
   List<StoredMessage> dco_decode_list_stored_message(dynamic raw);
 
   @protected
@@ -89,6 +94,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ServerFfi dco_decode_server_ffi(dynamic raw);
+
+  @protected
+  StoredChannelMessage dco_decode_stored_channel_message(dynamic raw);
 
   @protected
   StoredMessage dco_decode_stored_message(dynamic raw);
@@ -157,6 +165,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ServerFfi> sse_decode_list_server_ffi(SseDeserializer deserializer);
 
   @protected
+  List<StoredChannelMessage> sse_decode_list_stored_channel_message(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<StoredMessage> sse_decode_list_stored_message(
     SseDeserializer deserializer,
   );
@@ -177,6 +190,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ServerFfi sse_decode_server_ffi(SseDeserializer deserializer);
+
+  @protected
+  StoredChannelMessage sse_decode_stored_channel_message(
+    SseDeserializer deserializer,
+  );
 
   @protected
   StoredMessage sse_decode_stored_message(SseDeserializer deserializer);
@@ -266,6 +284,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_stored_channel_message(
+    List<StoredChannelMessage> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_stored_message(
     List<StoredMessage> self,
     SseSerializer serializer,
@@ -288,6 +312,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_server_ffi(ServerFfi self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_stored_channel_message(
+    StoredChannelMessage self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_stored_message(StoredMessage self, SseSerializer serializer);

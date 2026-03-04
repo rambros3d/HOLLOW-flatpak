@@ -42,6 +42,55 @@ Future<List<ChannelFfi>> getServerChannels({required String serverId}) =>
 Future<List<MemberFfi>> getServerMembers({required String serverId}) =>
     RustLib.instance.api.crateApiCrdtGetServerMembers(serverId: serverId);
 
+/// Get a server setting value by key. Returns empty string if not set.
+Future<String> getServerSetting({
+  required String serverId,
+  required String key,
+}) => RustLib.instance.api.crateApiCrdtGetServerSetting(
+  serverId: serverId,
+  key: key,
+);
+
+/// Rename a server.
+Future<void> renameServer({
+  required String serverId,
+  required String newName,
+}) => RustLib.instance.api.crateApiCrdtRenameServer(
+  serverId: serverId,
+  newName: newName,
+);
+
+/// Rename a channel in a server.
+Future<void> renameChannel({
+  required String serverId,
+  required String channelId,
+  required String newName,
+}) => RustLib.instance.api.crateApiCrdtRenameChannel(
+  serverId: serverId,
+  channelId: channelId,
+  newName: newName,
+);
+
+/// Update a server setting (key-value pair).
+Future<void> updateServerSetting({
+  required String serverId,
+  required String key,
+  required String value,
+}) => RustLib.instance.api.crateApiCrdtUpdateServerSetting(
+  serverId: serverId,
+  key: key,
+  value: value,
+);
+
+/// Join a server via invite link. Connects to the server's signaling room and
+/// requests membership from existing members.
+Future<void> joinServer({required String serverId}) =>
+    RustLib.instance.api.crateApiCrdtJoinServer(serverId: serverId);
+
+/// Delete a server entirely (removes from local DB and memory).
+Future<void> deleteServer({required String serverId}) =>
+    RustLib.instance.api.crateApiCrdtDeleteServer(serverId: serverId);
+
 /// Channel info for FFI (Dart-visible).
 class ChannelFfi {
   final String channelId;

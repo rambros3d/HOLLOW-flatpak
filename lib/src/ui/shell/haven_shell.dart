@@ -13,6 +13,7 @@ import 'package:haven/src/core/providers/member_panel_provider.dart';
 import 'package:haven/src/core/providers/node_provider.dart';
 import 'package:haven/src/core/providers/peers_provider.dart';
 import 'package:haven/src/core/providers/room_provider.dart';
+import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
 import 'package:haven/src/core/providers/selected_peer_provider.dart';
 import 'package:haven/src/core/providers/server_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
@@ -21,12 +22,14 @@ import 'package:haven/src/theme/haven_typography.dart';
 import 'package:haven/src/ui/animations/haven_curves.dart';
 import 'package:haven/src/ui/animations/ambient_background.dart';
 import 'package:haven/src/ui/animations/startup_reveal.dart';
+import 'package:haven/src/ui/chat/channel_chat_pane.dart';
 import 'package:haven/src/ui/chat/chat_pane.dart';
 import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/haven_tooltip.dart';
 import 'package:haven/src/ui/dialogs/create_channel_dialog.dart';
 import 'package:haven/src/ui/dialogs/invite_dialog.dart';
 import 'package:haven/src/ui/dialogs/mnemonic_dialog.dart';
+import 'package:haven/src/ui/settings/server_settings_panel.dart';
 import 'package:haven/src/ui/shell/channel_sidebar.dart';
 import 'package:haven/src/ui/shell/member_panel.dart';
 import 'package:haven/src/ui/shell/mobile_nav.dart';
@@ -165,7 +168,18 @@ class _HavenShellState extends ConsumerState<HavenShell>
       formatTime: _formatTime,
       activeRoom: activeRoom,
       roomController: _roomController,
-      onJoinRoom: (input) => ref.read(roomProvider.notifier).join(input),
+      onJoinRoom: (input) async {
+        final uri = Uri.tryParse(input.trim());
+        if (uri != null &&
+            uri.scheme == 'haven' &&
+            uri.queryParameters.containsKey('server')) {
+          final serverId = uri.queryParameters['server']!;
+          crdt_api.joinServer(serverId: serverId);
+          _roomController.clear();
+        } else {
+          ref.read(roomProvider.notifier).join(input);
+        }
+      },
       onCreateInvite: _createInvite,
       // Server mode props
       selectedServer: selectedServer,
@@ -180,6 +194,10 @@ class _HavenShellState extends ConsumerState<HavenShell>
         if (selectedServer != null) {
           showCreateChannelDialog(context, selectedServer.serverId);
         }
+      },
+      onOpenSettings: () {
+        ref.read(serverSettingsOpenProvider.notifier).state =
+            !ref.read(serverSettingsOpenProvider);
       },
     );
   }
@@ -283,6 +301,15 @@ class _HavenShellState extends ConsumerState<HavenShell>
     // Server channel view
     if (selectedChannelId != null) {
       final channel = channels[selectedChannelId];
+      final serverId = ref.read(selectedServerProvider);
+      if (serverId != null && channel != null) {
+        return ChannelChatPane(
+          key: ValueKey('ch:$selectedChannelId'),
+          serverId: serverId,
+          channelId: selectedChannelId,
+          channelName: channel.name,
+        );
+      }
       return _buildChannelPlaceholder(haven, channel);
     }
     // DM chat view
@@ -346,6 +373,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
     final selectedChannelId = ref.watch(selectedChannelProvider);
     final selectedServer =
         selectedServerId != null ? servers[selectedServerId] : null;
+    final settingsOpen = ref.watch(serverSettingsOpenProvider);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -411,15 +439,19 @@ class _HavenShellState extends ConsumerState<HavenShell>
                               switchOutCurve: HavenCurves.exit,
                               child: Container(
                                 key: ValueKey(
-                                    selectedChannelId ?? selectedPeerId ?? 'empty'),
+                                    settingsOpen && selectedServer != null
+                                        ? 'settings-${selectedServer.serverId}'
+                                        : selectedChannelId ?? selectedPeerId ?? 'empty'),
                                 color: haven.background,
-                                child: _buildChatOrEmpty(
-                                  haven: haven,
-                                  selectedPeerId: selectedPeerId,
-                                  peers: peers,
-                                  selectedChannelId: selectedChannelId,
-                                  channels: channels,
-                                ),
+                                child: settingsOpen && selectedServer != null
+                                    ? ServerSettingsPanel(server: selectedServer)
+                                    : _buildChatOrEmpty(
+                                        haven: haven,
+                                        selectedPeerId: selectedPeerId,
+                                        peers: peers,
+                                        selectedChannelId: selectedChannelId,
+                                        channels: channels,
+                                      ),
                               ),
                             ),
                           ),

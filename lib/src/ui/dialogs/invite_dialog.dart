@@ -9,22 +9,28 @@ import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/haven_toast.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
-/// Shows the invite link dialog after creating a room.
+/// Shows the invite link dialog after creating a room or server invite.
 void showInviteDialog(
-    BuildContext context, String link, String roomCode) {
+    BuildContext context, String link, String code) {
+  final isServer = link.contains('server=');
+  final subtitle = isServer
+      ? 'Share this link to invite someone to your server:'
+      : 'Share this link to invite someone to your room:';
+  final codeLabel = isServer ? 'Server ID' : 'Room code';
+
   showHavenDialog(
     context: context,
     builder: (dialogContext) {
       final haven = HavenTheme.of(dialogContext);
 
       return HavenDialog(
-        title: 'Invite Link Created',
+        title: 'Invite Link',
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Share this link to invite someone to your room:',
+              subtitle,
               style: HavenTypography.body
                   .copyWith(color: haven.textSecondary),
             ),
@@ -68,7 +74,7 @@ void showInviteDialog(
             ),
             const SizedBox(height: HavenSpacing.md),
             Text(
-              'Room code: $roomCode',
+              '$codeLabel: $code',
               style: HavenTypography.caption.copyWith(
                 color: haven.textSecondary,
               ),

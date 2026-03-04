@@ -23,6 +23,9 @@ pub enum CrdtPayload {
         name: String,
         owner_peer_id: String,
     },
+    ServerRenamed {
+        new_name: String,
+    },
     ServerSettingChanged {
         key: String,
         value: String,

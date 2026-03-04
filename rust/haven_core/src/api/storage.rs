@@ -95,3 +95,58 @@ pub fn load_messages(peer_id: String, limit: i32) -> Result<Vec<StoredMessage>, 
         })
         .collect())
 }
+
+/// A channel message returned to Dart from the local database.
+pub struct StoredChannelMessage {
+    pub id: i64,
+    pub server_id: String,
+    pub channel_id: String,
+    pub sender_id: String,
+    pub text: String,
+    pub is_mine: bool,
+    pub timestamp: i64,
+}
+
+/// Save a channel message to the local database.
+#[frb]
+pub fn save_channel_message(
+    server_id: String,
+    channel_id: String,
+    sender_id: String,
+    text: String,
+    is_mine: bool,
+    timestamp: i64,
+) -> Result<i64, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+    ms.insert_channel_message(&server_id, &channel_id, &sender_id, &text, is_mine, timestamp)
+        .map(|n| n as i64)
+}
+
+/// Load recent channel messages from the local database.
+/// Returns messages ordered oldest-first, up to `limit`.
+#[frb]
+pub fn load_channel_messages(
+    server_id: String,
+    channel_id: String,
+    limit: i32,
+) -> Result<Vec<StoredChannelMessage>, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+
+    let rows = ms.load_channel_messages(&server_id, &channel_id, limit)?;
+    Ok(rows
+        .into_iter()
+        .map(|r| StoredChannelMessage {
+            id: r.id,
+            server_id: r.server_id,
+            channel_id: r.channel_id,
+            sender_id: r.sender_id,
+            text: r.text,
+            is_mine: r.is_mine,
+            timestamp: r.timestamp,
+        })
+        .collect())
+}

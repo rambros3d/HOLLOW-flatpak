@@ -16,6 +16,8 @@ import 'package:haven/src/ui/components/haven_button.dart';
 import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/haven_text_field.dart';
 import 'package:haven/src/ui/components/haven_toast.dart';
+import 'package:haven/src/ui/components/haven_tooltip.dart';
+import 'package:haven/src/ui/dialogs/invite_dialog.dart';
 import 'package:haven/src/ui/shell/user_bar.dart';
 import 'package:haven/src/ui/sidebar/empty_peer_list.dart';
 import 'package:haven/src/ui/sidebar/peer_card.dart';
@@ -45,6 +47,7 @@ class ChannelSidebar extends StatelessWidget {
   final String? selectedChannelId;
   final ValueChanged<String> onChannelSelected;
   final VoidCallback onCreateChannel;
+  final VoidCallback onOpenSettings;
 
   /// Fixed width for desktop/tablet. Pass null on mobile to fill available space.
   final double? width;
@@ -67,6 +70,7 @@ class ChannelSidebar extends StatelessWidget {
     this.selectedChannelId,
     this.onChannelSelected = _noop,
     this.onCreateChannel = _noopVoid,
+    this.onOpenSettings = _noopVoid,
     this.width = 240,
   });
 
@@ -174,15 +178,50 @@ class ChannelSidebar extends StatelessWidget {
           bottom: BorderSide(color: haven.border),
         ),
       ),
-      alignment: Alignment.centerLeft,
-      child: TypewriterText(
-        text: label,
-        animation: headerTextReveal,
-        style: HavenTypography.subheading.copyWith(
-          color: haven.textPrimary,
-          fontWeight: FontWeight.w600,
-        ),
-        overflow: TextOverflow.ellipsis,
+      child: Row(
+        children: [
+          Expanded(
+            child: TypewriterText(
+              text: label,
+              animation: headerTextReveal,
+              style: HavenTypography.subheading.copyWith(
+                color: haven.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (selectedServer != null) ...[
+            HavenTooltip(
+              message: 'Invite people',
+              child: HavenPressable(
+                onTap: () {
+                  final link =
+                      'haven://join?server=${selectedServer!.serverId}';
+                  showInviteDialog(
+                      context, link, selectedServer!.serverId);
+                },
+                borderRadius: BorderRadius.circular(haven.radiusSm),
+                padding: const EdgeInsets.all(HavenSpacing.xs),
+                child: Icon(
+                  LucideIcons.userPlus,
+                  size: 16,
+                  color: haven.textSecondary,
+                ),
+              ),
+            ),
+            HavenPressable(
+              onTap: onOpenSettings,
+              borderRadius: BorderRadius.circular(haven.radiusSm),
+              padding: const EdgeInsets.all(HavenSpacing.xs),
+              child: Icon(
+                LucideIcons.settings,
+                size: 16,
+                color: haven.textSecondary,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

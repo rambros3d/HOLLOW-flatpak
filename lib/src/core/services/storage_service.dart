@@ -21,4 +21,30 @@ class StorageService {
     required String peerId,
     required int limit,
   }) => ffi.loadMessages(peerId: peerId, limit: limit);
+
+  Future<PlatformInt64> saveChannelMessage({
+    required String serverId,
+    required String channelId,
+    required String senderId,
+    required String text,
+    required bool isMine,
+    required PlatformInt64 timestamp,
+  }) => ffi.saveChannelMessage(
+    serverId: serverId,
+    channelId: channelId,
+    senderId: senderId,
+    text: text,
+    isMine: isMine,
+    timestamp: timestamp,
+  );
+
+  Future<List<ffi.StoredChannelMessage>> loadChannelMessages({
+    required String serverId,
+    required String channelId,
+    required int limit,
+  }) => ffi.loadChannelMessages(
+    serverId: serverId,
+    channelId: channelId,
+    limit: limit,
+  );
 }

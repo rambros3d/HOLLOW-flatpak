@@ -92,6 +92,7 @@ pub(crate) enum NetworkEvent {
     RoomCleared,
     Listening { address: String },
     MessageReceived { from_peer: String, text: String },
+    ChannelMessageReceived { server_id: String, channel_id: String, from_peer: String, text: String, timestamp: i64 },
     MessageSent { to_peer: String },
     MessageSendFailed { to_peer: String, error: String },
     SessionEstablished { peer_id: String },
@@ -101,19 +102,28 @@ pub(crate) enum NetworkEvent {
     ServerUpdated { server_id: String },
     ChannelAdded { server_id: String, channel_id: String, name: String },
     ChannelRemoved { server_id: String, channel_id: String },
+    ChannelRenamed { server_id: String, channel_id: String, new_name: String },
+    ServerDeleted { server_id: String },
     MemberJoined { server_id: String, peer_id: String },
     MemberLeft { server_id: String, peer_id: String },
     SyncCompleted { server_id: String, ops_applied: u32 },
+    ServerJoined { server_id: String, name: String },
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
 pub(crate) enum NodeCommand {
     SendMessage { peer_id: PeerId, text: String },
+    SendChannelMessage { server_id: String, channel_id: String, text: String },
     JoinRoom { room_code: String },
     // -- CRDT commands (Phase 3) --
     CreateServer { name: String },
     CreateChannel { server_id: String, name: String, category: Option<String> },
     RemoveChannel { server_id: String, channel_id: String },
+    RenameServer { server_id: String, new_name: String },
+    RenameChannel { server_id: String, channel_id: String, new_name: String },
+    UpdateServerSetting { server_id: String, key: String, value: String },
+    DeleteServer { server_id: String },
+    JoinServer { server_id: String },
 }
 
 // -- Wire protocol types (v2: encrypted) --
@@ -160,6 +170,33 @@ enum HavenMessage {
     CrdtOpBroadcast {
         server_id: String,
         op_json: String,
+    },
+
+    #[serde(rename = "join_request")]
+    ServerJoinRequest {
+        server_id: String,
+    },
+
+    #[serde(rename = "server_delete")]
+    ServerDeleteBroadcast {
+        server_id: String,
+    },
+}
+
+/// Envelope for the plaintext body inside an Encrypted message.
+/// Legacy DMs are raw text (no JSON). New messages use this envelope.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "t")]
+enum MessageEnvelope {
+    #[serde(rename = "dm")]
+    DirectMessage { text: String },
+    #[serde(rename = "ch")]
+    ChannelMessage {
+        sid: String,
+        cid: String,
+        text: String,
+        /// Sender-generated timestamp (millis since epoch).
+        ts: i64,
     },
 }
 
@@ -623,8 +660,40 @@ async fn run_swarm(
     let mut disconnected_peers: std::collections::HashSet<PeerId> = std::collections::HashSet::new();
 
     // -- CRDT state (Phase 3) --
-    // Server states keyed by server_id. Loaded from DB at startup (empty for now).
+    // Server states keyed by server_id. Reload from DB so servers survive restarts.
     let mut server_states: HashMap<String, ServerState> = HashMap::new();
+    {
+        let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+            match store.load_all_servers() {
+                Ok(rows) => {
+                    for (server_id, json) in rows {
+                        match serde_json::from_str::<ServerState>(&json) {
+                            Ok(mut state) => {
+                                state.set_hlc(Hlc::new(swarm.local_peer_id().to_string()));
+                                server_states.insert(server_id, state);
+                            }
+                            Err(e) => {
+                                haven_log!("Failed to deserialize server {}: {}", server_id, e);
+                            }
+                        }
+                    }
+                    if !server_states.is_empty() {
+                        haven_log!("Loaded {} server(s) from DB", server_states.len());
+                    }
+                }
+                Err(e) => {
+                    haven_log!("Failed to load servers from DB: {}", e);
+                }
+            }
+        }
+    }
+
+    // Track server_ids we're trying to join (waiting for SyncResponse from existing members).
+    let mut pending_server_joins: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     // Re-bootstrap timer (60 seconds) for mutual peer discovery.
     // Fires unconditionally — BootstrapPeers handler skips connected
@@ -722,6 +791,62 @@ async fn run_swarm(
                         }
                     }
 
+                    NodeCommand::SendChannelMessage { server_id, channel_id, text } => {
+                        haven_log!("[HAVEN-SWARM] SendChannelMessage for channel {channel_id} in server {server_id}");
+
+                        let server = match server_states.get(&server_id) {
+                            Some(s) => s,
+                            None => {
+                                let _ = event_tx.send(NetworkEvent::Error {
+                                    message: format!("Unknown server {server_id}"),
+                                }).await;
+                                continue;
+                            }
+                        };
+
+                        let local_peer = swarm.local_peer_id().to_string();
+                        let timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64;
+                        let envelope = MessageEnvelope::ChannelMessage {
+                            sid: server_id.clone(),
+                            cid: channel_id.clone(),
+                            text: text.clone(),
+                            ts: timestamp,
+                        };
+                        let envelope_json = serde_json::to_string(&envelope)
+                            .unwrap_or_else(|_| text.clone());
+
+                        // Send to each connected server member (except self).
+                        for member_peer_str in server.members.keys() {
+                            if member_peer_str == &local_peer {
+                                continue;
+                            }
+                            if let Ok(member_pid) = member_peer_str.parse::<PeerId>() {
+                                if connected_peers.contains(&member_pid) {
+                                    send_encrypted_message(
+                                        &mut swarm, &mut olm, &crypto_store,
+                                        &mut pending_requests, &mut outbound_message_text,
+                                        &member_pid, member_peer_str, &envelope_json,
+                                        &event_tx,
+                                    ).await;
+                                }
+                            }
+                        }
+
+                        // Persist locally with same timestamp as sent.
+                        let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                            let _ = store.insert_channel_message(
+                                &server_id, &channel_id, &local_peer, &text, true, timestamp,
+                            );
+                        }
+                    }
+
                     // -- CRDT commands (Phase 3) --
 
                     NodeCommand::CreateServer { name } => {
@@ -770,18 +895,21 @@ async fn run_swarm(
                             name,
                         }).await;
 
-                        // Broadcast the op to all connected peers
-                        if let Ok(op_json) = serde_json::to_string(&op) {
-                            for &peer_id in &connected_peers {
-                                swarm.behaviour_mut().messaging.send_request(
-                                    &peer_id,
-                                    HavenMessage::CrdtOpBroadcast {
-                                        server_id: server_id.clone(),
-                                        op_json: op_json.clone(),
-                                    },
-                                );
-                            }
+                        // Register in signaling room for this server so joiners can discover us.
+                        let reg_addrs: Vec<String> = known_addresses.iter()
+                            .filter(|a| is_registerable_address(a))
+                            .cloned()
+                            .collect();
+                        if !reg_addrs.is_empty() {
+                            let _ = sig_cmd_tx.send(SignalingCmd::Register {
+                                room_code: server_id.clone(),
+                                addresses: reg_addrs,
+                            }).await;
                         }
+
+                        // No broadcast needed for CreateServer — the server only has
+                        // one member (the creator) at this point. New members will
+                        // receive full state via SyncResponse when they join.
                     }
 
                     NodeCommand::CreateChannel { server_id, name, category } => {
@@ -818,16 +946,22 @@ async fn run_swarm(
                                 name,
                             }).await;
 
-                            // Broadcast
+                            // Broadcast to connected server members only.
                             if let Ok(op_json) = serde_json::to_string(&op) {
-                                for &peer_id in &connected_peers {
-                                    swarm.behaviour_mut().messaging.send_request(
-                                        &peer_id,
-                                        HavenMessage::CrdtOpBroadcast {
-                                            server_id: server_id.clone(),
-                                            op_json: op_json.clone(),
-                                        },
-                                    );
+                                let local_peer = swarm.local_peer_id().to_string();
+                                for member_peer_str in state.members.keys() {
+                                    if member_peer_str == &local_peer { continue; }
+                                    if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                        if connected_peers.contains(&pid) {
+                                            swarm.behaviour_mut().messaging.send_request(
+                                                &pid,
+                                                HavenMessage::CrdtOpBroadcast {
+                                                    server_id: server_id.clone(),
+                                                    op_json: op_json.clone(),
+                                                },
+                                            );
+                                        }
+                                    }
                                 }
                             }
                         } else {
@@ -863,18 +997,241 @@ async fn run_swarm(
                                 channel_id,
                             }).await;
 
-                            // Broadcast
+                            // Broadcast to connected server members only.
                             if let Ok(op_json) = serde_json::to_string(&op) {
-                                for &peer_id in &connected_peers {
-                                    swarm.behaviour_mut().messaging.send_request(
-                                        &peer_id,
-                                        HavenMessage::CrdtOpBroadcast {
-                                            server_id: server_id.clone(),
-                                            op_json: op_json.clone(),
-                                        },
-                                    );
+                                let local_peer = swarm.local_peer_id().to_string();
+                                for member_peer_str in state.members.keys() {
+                                    if member_peer_str == &local_peer { continue; }
+                                    if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                        if connected_peers.contains(&pid) {
+                                            swarm.behaviour_mut().messaging.send_request(
+                                                &pid,
+                                                HavenMessage::CrdtOpBroadcast {
+                                                    server_id: server_id.clone(),
+                                                    op_json: op_json.clone(),
+                                                },
+                                            );
+                                        }
+                                    }
                                 }
                             }
+                        }
+                    }
+
+                    NodeCommand::RenameServer { server_id, new_name } => {
+                        if let Some(state) = server_states.get_mut(&server_id) {
+                            haven_log!("[HAVEN-CRDT] Renaming server {server_id} to '{new_name}'");
+
+                            let op = state.create_op(CrdtPayload::ServerRenamed {
+                                new_name: new_name.clone(),
+                            });
+                            let _ = state.apply_op(&op);
+
+                            // Persist
+                            if let Ok(json) = serde_json::to_string(&state) {
+                                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                    let _ = store.save_server_state(&server_id, &json);
+                                    let _ = store.insert_crdt_op(&op);
+                                }
+                            }
+
+                            let _ = event_tx.send(NetworkEvent::ServerUpdated {
+                                server_id: server_id.clone(),
+                            }).await;
+
+                            // Broadcast to connected server members only.
+                            if let Ok(op_json) = serde_json::to_string(&op) {
+                                let local_peer = swarm.local_peer_id().to_string();
+                                for member_peer_str in state.members.keys() {
+                                    if member_peer_str == &local_peer { continue; }
+                                    if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                        if connected_peers.contains(&pid) {
+                                            swarm.behaviour_mut().messaging.send_request(
+                                                &pid,
+                                                HavenMessage::CrdtOpBroadcast {
+                                                    server_id: server_id.clone(),
+                                                    op_json: op_json.clone(),
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    NodeCommand::RenameChannel { server_id, channel_id, new_name } => {
+                        if let Some(state) = server_states.get_mut(&server_id) {
+                            haven_log!("[HAVEN-CRDT] Renaming channel {channel_id} to '{new_name}' in server {server_id}");
+
+                            let op = state.create_op(CrdtPayload::ChannelRenamed {
+                                channel_id: channel_id.clone(),
+                                new_name: new_name.clone(),
+                            });
+                            let _ = state.apply_op(&op);
+
+                            // Persist
+                            if let Ok(json) = serde_json::to_string(&state) {
+                                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                    let _ = store.save_server_state(&server_id, &json);
+                                    let _ = store.insert_crdt_op(&op);
+                                }
+                            }
+
+                            let _ = event_tx.send(NetworkEvent::ChannelRenamed {
+                                server_id: server_id.clone(),
+                                channel_id,
+                                new_name,
+                            }).await;
+
+                            // Broadcast to connected server members only.
+                            if let Ok(op_json) = serde_json::to_string(&op) {
+                                let local_peer = swarm.local_peer_id().to_string();
+                                for member_peer_str in state.members.keys() {
+                                    if member_peer_str == &local_peer { continue; }
+                                    if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                        if connected_peers.contains(&pid) {
+                                            swarm.behaviour_mut().messaging.send_request(
+                                                &pid,
+                                                HavenMessage::CrdtOpBroadcast {
+                                                    server_id: server_id.clone(),
+                                                    op_json: op_json.clone(),
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    NodeCommand::UpdateServerSetting { server_id, key, value } => {
+                        if let Some(state) = server_states.get_mut(&server_id) {
+                            haven_log!("[HAVEN-CRDT] Updating setting '{key}'='{value}' in server {server_id}");
+
+                            let op = state.create_op(CrdtPayload::ServerSettingChanged {
+                                key: key.clone(),
+                                value: value.clone(),
+                            });
+                            let _ = state.apply_op(&op);
+
+                            // Persist
+                            if let Ok(json) = serde_json::to_string(&state) {
+                                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                    let _ = store.save_server_state(&server_id, &json);
+                                    let _ = store.insert_crdt_op(&op);
+                                }
+                            }
+
+                            let _ = event_tx.send(NetworkEvent::ServerUpdated {
+                                server_id: server_id.clone(),
+                            }).await;
+
+                            // Broadcast to connected server members only.
+                            if let Ok(op_json) = serde_json::to_string(&op) {
+                                let local_peer = swarm.local_peer_id().to_string();
+                                for member_peer_str in state.members.keys() {
+                                    if member_peer_str == &local_peer { continue; }
+                                    if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                        if connected_peers.contains(&pid) {
+                                            swarm.behaviour_mut().messaging.send_request(
+                                                &pid,
+                                                HavenMessage::CrdtOpBroadcast {
+                                                    server_id: server_id.clone(),
+                                                    op_json: op_json.clone(),
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    NodeCommand::DeleteServer { server_id } => {
+                        haven_log!("[HAVEN-CRDT] Deleting server {server_id}");
+
+                        // Broadcast deletion to all connected server members.
+                        if let Some(state) = server_states.get(&server_id) {
+                            let local_peer = swarm.local_peer_id().to_string();
+                            for member_peer_str in state.members.keys() {
+                                if member_peer_str == &local_peer { continue; }
+                                if let Ok(member_pid) = member_peer_str.parse::<PeerId>() {
+                                    if connected_peers.contains(&member_pid) {
+                                        swarm.behaviour_mut().messaging.send_request(
+                                            &member_pid,
+                                            HavenMessage::ServerDeleteBroadcast {
+                                                server_id: server_id.clone(),
+                                            },
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
+                        server_states.remove(&server_id);
+
+                        // Unregister from signaling room for this server.
+                        let _ = sig_cmd_tx.send(SignalingCmd::Unregister {
+                            room_code: server_id.clone(),
+                        }).await;
+
+                        // Remove from DB
+                        let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                            let _ = store.delete_server_state(&server_id);
+                        }
+
+                        let _ = event_tx.send(NetworkEvent::ServerDeleted {
+                            server_id,
+                        }).await;
+                    }
+
+                    NodeCommand::JoinServer { server_id } => {
+                        haven_log!("[HAVEN-CRDT] Joining server {server_id}");
+                        pending_server_joins.insert(server_id.clone());
+
+                        // Join the signaling room with room_code = server_id.
+                        let addrs: Vec<String> = known_addresses.iter()
+                            .filter(|a| is_registerable_address(a))
+                            .cloned()
+                            .collect();
+                        if !addrs.is_empty() {
+                            let _ = sig_cmd_tx.send(SignalingCmd::Register {
+                                room_code: server_id.clone(),
+                                addresses: addrs,
+                            }).await;
+                        }
+                        let _ = sig_cmd_tx.send(SignalingCmd::SetRoom {
+                            room_code: server_id.clone(),
+                        }).await;
+                        let _ = sig_cmd_tx.send(SignalingCmd::Bootstrap {
+                            room_code: server_id.clone(),
+                        }).await;
+
+                        // Send join requests to any peers we're already connected to.
+                        for &peer_id in &connected_peers {
+                            swarm.behaviour_mut().messaging.send_request(
+                                &peer_id,
+                                HavenMessage::ServerJoinRequest {
+                                    server_id: server_id.clone(),
+                                },
+                            );
                         }
                     }
                 }
@@ -910,6 +1267,21 @@ async fn run_swarm(
                                         .await;
                                     let _ = sig_cmd_tx.send(SignalingCmd::Bootstrap {
                                         room_code: room.clone(),
+                                    }).await;
+                                }
+
+                                // Register + bootstrap in all server signaling rooms.
+                                let reg_addrs: Vec<String> = known_addresses.iter()
+                                    .filter(|a| is_registerable_address(a))
+                                    .cloned()
+                                    .collect();
+                                for sid in server_states.keys() {
+                                    let _ = sig_cmd_tx.send(SignalingCmd::Register {
+                                        room_code: sid.clone(),
+                                        addresses: reg_addrs.clone(),
+                                    }).await;
+                                    let _ = sig_cmd_tx.send(SignalingCmd::Bootstrap {
+                                        room_code: sid.clone(),
                                     }).await;
                                 }
 
@@ -991,6 +1363,7 @@ async fn run_swarm(
                                             &mut server_states,
                                             &bundle_keypair,
                                             &connected_peers,
+                                            &mut pending_server_joins,
                                             peer,
                                             request,
                                             channel,
@@ -1332,6 +1705,16 @@ async fn run_swarm(
                             // Peer genuinely reconnected — allow future bootstraps to re-add them.
                             disconnected_peers.remove(&peer_id);
 
+                            // Send join requests for any pending server joins.
+                            for sid in pending_server_joins.iter() {
+                                swarm.behaviour_mut().messaging.send_request(
+                                    &peer_id,
+                                    HavenMessage::ServerJoinRequest {
+                                        server_id: sid.clone(),
+                                    },
+                                );
+                            }
+
                             // Only emit PeerDiscovered for peers we expect (from
                             // signaling bootstrap, mDNS, or relay inbound circuit).
                             // This prevents Kademlia routing connections from
@@ -1612,6 +1995,12 @@ async fn run_swarm(
                         room_code: room.clone(),
                     }).await;
                 }
+                // Also re-bootstrap all server signaling rooms.
+                for sid in server_states.keys() {
+                    let _ = sig_cmd_tx.send(SignalingCmd::Bootstrap {
+                        room_code: sid.clone(),
+                    }).await;
+                }
             }
 
             // Relay health check — re-dial relay if connection dropped.
@@ -1709,6 +2098,7 @@ async fn handle_incoming_request(
     server_states: &mut HashMap<String, ServerState>,
     bundle_keypair: &identity::Keypair,
     connected_peers: &std::collections::HashSet<PeerId>,
+    pending_server_joins: &mut std::collections::HashSet<String>,
     peer: PeerId,
     request: HavenMessage,
     channel: request_response::ResponseChannel<HavenMessage>,
@@ -1836,14 +2226,59 @@ async fn handle_incoming_request(
             // Persist crypto state after decrypt.
             persist_crypto_state(olm, crypto_store, &peer_str);
 
-            // Emit the decrypted message to Dart.
+            // Detect message envelope and route accordingly.
             let text = String::from_utf8_lossy(&plaintext).to_string();
-            let _ = event_tx
-                .send(NetworkEvent::MessageReceived {
-                    from_peer: peer_str,
-                    text,
-                })
-                .await;
+            match serde_json::from_str::<MessageEnvelope>(&text) {
+                Ok(MessageEnvelope::ChannelMessage { sid, cid, text: msg_text, ts }) => {
+                    // Persist channel message using sender's timestamp.
+                    // INSERT OR IGNORE deduplicates via UNIQUE(server_id, channel_id, sender_id, timestamp, text).
+                    let mut is_new = true;
+                    let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                    if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                            match store.insert_channel_message(
+                                &sid, &cid, &peer_str, &msg_text, false, ts,
+                            ) {
+                                Ok(0) => { is_new = false; } // INSERT OR IGNORE skipped — duplicate
+                                Ok(_) => {}
+                                Err(_) => { is_new = false; }
+                            }
+                        }
+                    }
+
+                    // Only emit event if this is a genuinely new message.
+                    if is_new {
+                        let _ = event_tx
+                            .send(NetworkEvent::ChannelMessageReceived {
+                                server_id: sid,
+                                channel_id: cid,
+                                from_peer: peer_str,
+                                text: msg_text,
+                                timestamp: ts,
+                            })
+                            .await;
+                    }
+                }
+                Ok(MessageEnvelope::DirectMessage { text: msg_text }) => {
+                    let _ = event_tx
+                        .send(NetworkEvent::MessageReceived {
+                            from_peer: peer_str,
+                            text: msg_text,
+                        })
+                        .await;
+                }
+                Err(_) => {
+                    // Legacy raw-text DM (backward compatible).
+                    let _ = event_tx
+                        .send(NetworkEvent::MessageReceived {
+                            from_peer: peer_str,
+                            text,
+                        })
+                        .await;
+                }
+            }
 
             // Ack.
             let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
@@ -1891,6 +2326,15 @@ async fn handle_incoming_request(
             haven_log!("[HAVEN-CRDT] SyncResponse from {peer_str} for server {server_id}");
             let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
 
+            // Room gating: only accept sync for servers we already know about
+            // or are actively trying to join.
+            let is_known = server_states.contains_key(&server_id);
+            let is_pending_join = pending_server_joins.contains(&server_id);
+            if !is_known && !is_pending_join {
+                haven_log!("[HAVEN-CRDT] Ignoring SyncResponse for unknown server {server_id} (not joined)");
+                return;
+            }
+
             if let Ok(incoming_ops) = serde_json::from_str::<Vec<crate::crdt::operations::CrdtOp>>(&ops_json) {
                 let state = server_states.entry(server_id.clone()).or_insert_with(|| {
                     let mut s = ServerState::new(server_id.clone(), "".into(), peer_str.clone());
@@ -1913,6 +2357,16 @@ async fn handle_incoming_request(
                             }
                         }
 
+                        // Check if this completes a pending server join
+                        if pending_server_joins.remove(&server_id) {
+                            let server_name = state.name().to_string();
+                            haven_log!("[HAVEN-CRDT] Server join completed: {server_id} ({server_name})");
+                            let _ = event_tx.send(NetworkEvent::ServerJoined {
+                                server_id: server_id.clone(),
+                                name: server_name,
+                            }).await;
+                        }
+
                         let _ = event_tx.send(NetworkEvent::SyncCompleted {
                             server_id,
                             ops_applied: applied as u32,
@@ -1927,13 +2381,14 @@ async fn handle_incoming_request(
             haven_log!("[HAVEN-CRDT] CrdtOpBroadcast from {peer_str} for server {server_id}");
             let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
 
+            // Room gating: only accept ops for servers we're a member of.
+            if !server_states.contains_key(&server_id) {
+                haven_log!("[HAVEN-CRDT] Ignoring CrdtOpBroadcast for unknown server {server_id}");
+                return;
+            }
+
             if let Ok(op) = serde_json::from_str::<crate::crdt::operations::CrdtOp>(&op_json) {
-                let local_peer = swarm.local_peer_id().to_string();
-                let state = server_states.entry(server_id.clone()).or_insert_with(|| {
-                    let mut s = ServerState::new(server_id.clone(), "".into(), peer_str.clone());
-                    s.set_hlc(Hlc::new(local_peer));
-                    s
-                });
+                let state = server_states.get_mut(&server_id).unwrap();
 
                 let was_len = state.op_log.len();
                 let _ = state.apply_op(&op);
@@ -1951,9 +2406,100 @@ async fn handle_incoming_request(
                         }
                     }
 
-                    // Forward to other connected peers (simple gossip)
-                    for &other_peer in connected_peers {
-                        if other_peer != peer {
+                    // Forward to other connected server members (simple gossip).
+                    let local_peer = swarm.local_peer_id().to_string();
+                    for member_peer_str in state.members.keys() {
+                        if member_peer_str == &local_peer { continue; }
+                        if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                            if pid != peer && connected_peers.contains(&pid) {
+                                swarm.behaviour_mut().messaging.send_request(
+                                    &pid,
+                                    HavenMessage::CrdtOpBroadcast {
+                                        server_id: server_id.clone(),
+                                        op_json: op_json.clone(),
+                                    },
+                                );
+                            }
+                        }
+                    }
+
+                    // Emit specific events based on op payload so Dart UI updates correctly.
+                    match &op.payload {
+                        CrdtPayload::ChannelAdded { channel_id, name, .. } => {
+                            let _ = event_tx.send(NetworkEvent::ChannelAdded {
+                                server_id: server_id.clone(),
+                                channel_id: channel_id.clone(),
+                                name: name.clone(),
+                            }).await;
+                        }
+                        CrdtPayload::ChannelRemoved { channel_id } => {
+                            let _ = event_tx.send(NetworkEvent::ChannelRemoved {
+                                server_id: server_id.clone(),
+                                channel_id: channel_id.clone(),
+                            }).await;
+                        }
+                        CrdtPayload::ChannelRenamed { channel_id, new_name } => {
+                            let _ = event_tx.send(NetworkEvent::ChannelRenamed {
+                                server_id: server_id.clone(),
+                                channel_id: channel_id.clone(),
+                                new_name: new_name.clone(),
+                            }).await;
+                        }
+                        CrdtPayload::MemberAdded { peer_id, .. } => {
+                            let _ = event_tx.send(NetworkEvent::MemberJoined {
+                                server_id: server_id.clone(),
+                                peer_id: peer_id.clone(),
+                            }).await;
+                        }
+                        CrdtPayload::MemberRemoved { peer_id } => {
+                            let _ = event_tx.send(NetworkEvent::MemberLeft {
+                                server_id: server_id.clone(),
+                                peer_id: peer_id.clone(),
+                            }).await;
+                        }
+                        _ => {
+                            // ServerRenamed, ServerSettingChanged, etc.
+                            let _ = event_tx.send(NetworkEvent::ServerUpdated {
+                                server_id: server_id.clone(),
+                            }).await;
+                        }
+                    }
+                }
+            }
+        }
+
+        HavenMessage::ServerJoinRequest { server_id } => {
+            haven_log!("[HAVEN-CRDT] ServerJoinRequest from {peer_str} for server {server_id}");
+            let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
+
+            if let Some(state) = server_states.get_mut(&server_id) {
+                // Check if peer is already a member
+                let already_member = state.members_list().iter().any(|m| m.peer_id == peer_str);
+
+                if !already_member {
+                    // Add the new member via CRDT op
+                    let display_name = format!("{}...{}", &peer_str[..4.min(peer_str.len())], &peer_str[peer_str.len().saturating_sub(4)..]);
+                    let op = state.create_op(CrdtPayload::MemberAdded {
+                        peer_id: peer_str.clone(),
+                        display_name,
+                    });
+                    let _ = state.apply_op(&op);
+
+                    // Persist
+                    if let Ok(json) = serde_json::to_string(&state) {
+                        let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                            let _ = store.save_server_state(&server_id, &json);
+                            let _ = store.insert_crdt_op(&op);
+                        }
+                    }
+
+                    // Broadcast MemberAdded to other peers
+                    if let Ok(op_json) = serde_json::to_string(&op) {
+                        for &other_peer in connected_peers.iter() {
                             swarm.behaviour_mut().messaging.send_request(
                                 &other_peer,
                                 HavenMessage::CrdtOpBroadcast {
@@ -1964,10 +2510,46 @@ async fn handle_incoming_request(
                         }
                     }
 
-                    let _ = event_tx.send(NetworkEvent::ServerUpdated {
-                        server_id,
+                    let _ = event_tx.send(NetworkEvent::MemberJoined {
+                        server_id: server_id.clone(),
+                        peer_id: peer_str.clone(),
                     }).await;
                 }
+
+                // Send full server state to the joiner (all ops so they can reconstruct)
+                let all_ops: Vec<&crate::crdt::operations::CrdtOp> = state.op_log.iter().collect();
+                if let Ok(ops_json) = serde_json::to_string(&all_ops) {
+                    haven_log!("[HAVEN-CRDT] Sending {} ops to joiner {peer_str}", all_ops.len());
+                    swarm.behaviour_mut().messaging.send_request(
+                        &peer,
+                        HavenMessage::SyncResponse {
+                            server_id,
+                            ops_json,
+                        },
+                    );
+                }
+            } else {
+                haven_log!("[HAVEN-CRDT] ServerJoinRequest for unknown server {server_id}");
+            }
+        }
+
+        HavenMessage::ServerDeleteBroadcast { server_id } => {
+            haven_log!("[HAVEN-CRDT] ServerDeleteBroadcast from {peer_str} for server {server_id}");
+            let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
+
+            if server_states.remove(&server_id).is_some() {
+                // Remove from DB.
+                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                    let _ = store.delete_server_state(&server_id);
+                }
+
+                let _ = event_tx.send(NetworkEvent::ServerDeleted {
+                    server_id,
+                }).await;
             }
         }
 

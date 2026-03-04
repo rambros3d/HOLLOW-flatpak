@@ -17,6 +17,16 @@ class NetworkService {
     required String text,
   }) => ffi.sendMessage(peerId: peerId, text: text);
 
+  Future<void> sendChannelMessage({
+    required String serverId,
+    required String channelId,
+    required String text,
+  }) => ffi.sendChannelMessage(
+    serverId: serverId,
+    channelId: channelId,
+    text: text,
+  );
+
   Future<void> joinRoom({required String roomCode}) =>
       ffi.joinRoom(roomCode: roomCode);
 

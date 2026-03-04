@@ -24,6 +24,7 @@ pub enum NetworkEvent {
     RoomCleared,
     Listening { address: String },
     MessageReceived { from_peer: String, text: String },
+    ChannelMessageReceived { server_id: String, channel_id: String, from_peer: String, text: String, timestamp: i64 },
     MessageSent { to_peer: String },
     MessageSendFailed { to_peer: String, error: String },
     SessionEstablished { peer_id: String },
@@ -33,9 +34,12 @@ pub enum NetworkEvent {
     ServerUpdated { server_id: String },
     ChannelAdded { server_id: String, channel_id: String, name: String },
     ChannelRemoved { server_id: String, channel_id: String },
+    ChannelRenamed { server_id: String, channel_id: String, new_name: String },
+    ServerDeleted { server_id: String },
     MemberJoined { server_id: String, peer_id: String },
     MemberLeft { server_id: String, peer_id: String },
     SyncCompleted { server_id: String, ops_applied: u32 },
+    ServerJoined { server_id: String, name: String },
 }
 
 /// Holds all mutable state for the running node.
@@ -90,6 +94,9 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::MessageReceived { from_peer, .. } => {
             haven_log!("[HAVEN] Message received from: {from_peer}");
         }
+        node::NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, .. } => {
+            haven_log!("[HAVEN] Channel message from {from_peer} in {channel_id} ({server_id})");
+        }
         node::NetworkEvent::MessageSent { to_peer } => {
             haven_log!("[HAVEN] Message sent to: {to_peer}");
         }
@@ -108,6 +115,12 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::ChannelRemoved { server_id, channel_id } => {
             haven_log!("[HAVEN] Channel removed: {channel_id} in {server_id}");
         }
+        node::NetworkEvent::ChannelRenamed { server_id, channel_id, new_name } => {
+            haven_log!("[HAVEN] Channel renamed: {channel_id} to '{new_name}' in {server_id}");
+        }
+        node::NetworkEvent::ServerDeleted { server_id } => {
+            haven_log!("[HAVEN] Server deleted: {server_id}");
+        }
         node::NetworkEvent::MemberJoined { server_id, peer_id } => {
             haven_log!("[HAVEN] Member joined: {peer_id} in {server_id}");
         }
@@ -116,6 +129,9 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::SyncCompleted { server_id, ops_applied } => {
             haven_log!("[HAVEN] Sync completed for {server_id}: {ops_applied} ops applied");
+        }
+        node::NetworkEvent::ServerJoined { server_id, name } => {
+            haven_log!("[HAVEN] Server joined: {name} ({server_id})");
         }
         _ => {}
     }
@@ -134,6 +150,9 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::Listening { address } => NetworkEvent::Listening { address },
         node::NetworkEvent::MessageReceived { from_peer, text } => {
             NetworkEvent::MessageReceived { from_peer, text }
+        }
+        node::NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, text, timestamp } => {
+            NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, text, timestamp }
         }
         node::NetworkEvent::MessageSent { to_peer } => NetworkEvent::MessageSent { to_peer },
         node::NetworkEvent::MessageSendFailed { to_peer, error } => {
@@ -155,6 +174,12 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::ChannelRemoved { server_id, channel_id } => {
             NetworkEvent::ChannelRemoved { server_id, channel_id }
         }
+        node::NetworkEvent::ChannelRenamed { server_id, channel_id, new_name } => {
+            NetworkEvent::ChannelRenamed { server_id, channel_id, new_name }
+        }
+        node::NetworkEvent::ServerDeleted { server_id } => {
+            NetworkEvent::ServerDeleted { server_id }
+        }
         node::NetworkEvent::MemberJoined { server_id, peer_id } => {
             NetworkEvent::MemberJoined { server_id, peer_id }
         }
@@ -163,6 +188,9 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::SyncCompleted { server_id, ops_applied } => {
             NetworkEvent::SyncCompleted { server_id, ops_applied }
+        }
+        node::NetworkEvent::ServerJoined { server_id, name } => {
+            NetworkEvent::ServerJoined { server_id, name }
         }
     }
 }
@@ -328,6 +356,31 @@ pub fn send_message(peer_id: String, text: String) -> Result<(), String> {
         state
             .cmd_tx
             .send(node::NodeCommand::SendMessage { peer_id: peer, text }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Send a text message to a server channel.
+/// The message will be encrypted and sent to all connected server members.
+#[frb]
+pub fn send_channel_message(
+    server_id: String,
+    channel_id: String,
+    text: String,
+) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::SendChannelMessage {
+            server_id,
+            channel_id,
+            text,
+        }),
     )
     .map_err(|e| format!("Failed to send command: {e}"))?;
 

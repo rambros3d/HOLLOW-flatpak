@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:haven/src/core/providers/channel_chat_provider.dart';
 import 'package:haven/src/core/providers/channel_provider.dart';
 import 'package:haven/src/core/providers/chat_provider.dart';
 import 'package:haven/src/core/providers/node_provider.dart';
@@ -73,6 +74,12 @@ class EventStreamNotifier extends Notifier<bool> {
       case NetworkEvent_MessageReceived(:final fromPeer, :final text):
         ref.read(chatProvider.notifier).receiveMessage(fromPeer, text);
 
+      case NetworkEvent_ChannelMessageReceived(
+            :final serverId, :final channelId, :final fromPeer, :final text, :final timestamp):
+        ref
+            .read(channelChatProvider.notifier)
+            .receiveMessage(serverId, channelId, fromPeer, text, timestamp);
+
       case NetworkEvent_SessionEstablished(:final peerId):
         ref.read(peersProvider.notifier).markEncrypted(peerId);
 
@@ -109,6 +116,24 @@ class EventStreamNotifier extends Notifier<bool> {
             .read(channelListProvider.notifier)
             .onChannelRemoved(serverId, channelId);
 
+      case NetworkEvent_ChannelRenamed(
+            :final serverId, :final channelId, :final newName):
+        debugPrint(
+            '[HAVEN] Channel renamed: $channelId to $newName in $serverId');
+        ref
+            .read(channelListProvider.notifier)
+            .onChannelRenamed(serverId, channelId, newName);
+
+      case NetworkEvent_ServerDeleted(:final serverId):
+        debugPrint('[HAVEN] Server deleted: $serverId');
+        ref.read(serverListProvider.notifier).onServerDeleted(serverId);
+        // Deselect if this was the active server.
+        if (ref.read(selectedServerProvider) == serverId) {
+          ref.read(selectedServerProvider.notifier).state = null;
+          ref.read(selectedChannelProvider.notifier).state = null;
+          ref.read(serverSettingsOpenProvider.notifier).state = false;
+        }
+
       case NetworkEvent_MemberJoined(:final serverId, :final peerId):
         debugPrint('[HAVEN] Member joined: $peerId in $serverId');
         ref.read(serverListProvider.notifier).onServerUpdated(serverId);
@@ -123,6 +148,17 @@ class EventStreamNotifier extends Notifier<bool> {
         debugPrint('[HAVEN] Sync completed: $serverId ($opsApplied ops)');
         ref.read(serverListProvider.notifier).onServerUpdated(serverId);
         ref.invalidate(serverMembersProvider(serverId));
+
+      case NetworkEvent_ServerJoined(:final serverId, :final name):
+        debugPrint('[HAVEN] Server joined: $name ($serverId)');
+        ref.read(serverListProvider.notifier).onServerCreated(serverId, name);
+        // Auto-select the newly joined server and load its channels
+        ref.read(selectedServerProvider.notifier).state = serverId;
+        ref
+            .read(channelListProvider.notifier)
+            .loadForServer(serverId);
+        ref.read(selectedChannelProvider.notifier).state = null;
+        ref.read(serverSettingsOpenProvider.notifier).state = false;
     }
   }
 }

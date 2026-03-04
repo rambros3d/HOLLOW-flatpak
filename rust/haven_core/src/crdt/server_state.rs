@@ -150,6 +150,12 @@ impl ServerState {
                 );
             }
 
+            CrdtPayload::ServerRenamed { new_name } => {
+                let priority = self.author_priority(&op.author);
+                let remote = AdminLwwReg::new(new_name.clone(), op.hlc.clone(), priority);
+                self.name.merge(&remote);
+            }
+
             CrdtPayload::ServerSettingChanged { key, value } => {
                 let priority = self.author_priority(&op.author);
                 let entry = self

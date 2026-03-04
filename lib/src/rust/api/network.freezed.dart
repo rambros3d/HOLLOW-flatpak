@@ -55,7 +55,7 @@ extension NetworkEventPatterns on NetworkEvent {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult Function( NetworkEvent_Listening value)?  listening,TResult Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult Function( NetworkEvent_MessageSent value)?  messageSent,TResult Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult Function( NetworkEvent_Error value)?  error,TResult Function( NetworkEvent_ServerCreated value)?  serverCreated,TResult Function( NetworkEvent_ServerUpdated value)?  serverUpdated,TResult Function( NetworkEvent_ChannelAdded value)?  channelAdded,TResult Function( NetworkEvent_ChannelRemoved value)?  channelRemoved,TResult Function( NetworkEvent_MemberJoined value)?  memberJoined,TResult Function( NetworkEvent_MemberLeft value)?  memberLeft,TResult Function( NetworkEvent_SyncCompleted value)?  syncCompleted,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult Function( NetworkEvent_Listening value)?  listening,TResult Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult Function( NetworkEvent_ChannelMessageReceived value)?  channelMessageReceived,TResult Function( NetworkEvent_MessageSent value)?  messageSent,TResult Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult Function( NetworkEvent_Error value)?  error,TResult Function( NetworkEvent_ServerCreated value)?  serverCreated,TResult Function( NetworkEvent_ServerUpdated value)?  serverUpdated,TResult Function( NetworkEvent_ChannelAdded value)?  channelAdded,TResult Function( NetworkEvent_ChannelRemoved value)?  channelRemoved,TResult Function( NetworkEvent_ChannelRenamed value)?  channelRenamed,TResult Function( NetworkEvent_ServerDeleted value)?  serverDeleted,TResult Function( NetworkEvent_MemberJoined value)?  memberJoined,TResult Function( NetworkEvent_MemberLeft value)?  memberLeft,TResult Function( NetworkEvent_SyncCompleted value)?  syncCompleted,TResult Function( NetworkEvent_ServerJoined value)?  serverJoined,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
@@ -64,7 +64,8 @@ return peerExpired(_that);case NetworkEvent_PeerDisconnected() when peerDisconne
 return peerDisconnected(_that);case NetworkEvent_RoomCleared() when roomCleared != null:
 return roomCleared(_that);case NetworkEvent_Listening() when listening != null:
 return listening(_that);case NetworkEvent_MessageReceived() when messageReceived != null:
-return messageReceived(_that);case NetworkEvent_MessageSent() when messageSent != null:
+return messageReceived(_that);case NetworkEvent_ChannelMessageReceived() when channelMessageReceived != null:
+return channelMessageReceived(_that);case NetworkEvent_MessageSent() when messageSent != null:
 return messageSent(_that);case NetworkEvent_MessageSendFailed() when messageSendFailed != null:
 return messageSendFailed(_that);case NetworkEvent_SessionEstablished() when sessionEstablished != null:
 return sessionEstablished(_that);case NetworkEvent_Error() when error != null:
@@ -72,10 +73,13 @@ return error(_that);case NetworkEvent_ServerCreated() when serverCreated != null
 return serverCreated(_that);case NetworkEvent_ServerUpdated() when serverUpdated != null:
 return serverUpdated(_that);case NetworkEvent_ChannelAdded() when channelAdded != null:
 return channelAdded(_that);case NetworkEvent_ChannelRemoved() when channelRemoved != null:
-return channelRemoved(_that);case NetworkEvent_MemberJoined() when memberJoined != null:
+return channelRemoved(_that);case NetworkEvent_ChannelRenamed() when channelRenamed != null:
+return channelRenamed(_that);case NetworkEvent_ServerDeleted() when serverDeleted != null:
+return serverDeleted(_that);case NetworkEvent_MemberJoined() when memberJoined != null:
 return memberJoined(_that);case NetworkEvent_MemberLeft() when memberLeft != null:
 return memberLeft(_that);case NetworkEvent_SyncCompleted() when syncCompleted != null:
-return syncCompleted(_that);case _:
+return syncCompleted(_that);case NetworkEvent_ServerJoined() when serverJoined != null:
+return serverJoined(_that);case _:
   return orElse();
 
 }
@@ -93,7 +97,7 @@ return syncCompleted(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( NetworkEvent_PeerDiscovered value)  peerDiscovered,required TResult Function( NetworkEvent_PeerExpired value)  peerExpired,required TResult Function( NetworkEvent_PeerDisconnected value)  peerDisconnected,required TResult Function( NetworkEvent_RoomCleared value)  roomCleared,required TResult Function( NetworkEvent_Listening value)  listening,required TResult Function( NetworkEvent_MessageReceived value)  messageReceived,required TResult Function( NetworkEvent_MessageSent value)  messageSent,required TResult Function( NetworkEvent_MessageSendFailed value)  messageSendFailed,required TResult Function( NetworkEvent_SessionEstablished value)  sessionEstablished,required TResult Function( NetworkEvent_Error value)  error,required TResult Function( NetworkEvent_ServerCreated value)  serverCreated,required TResult Function( NetworkEvent_ServerUpdated value)  serverUpdated,required TResult Function( NetworkEvent_ChannelAdded value)  channelAdded,required TResult Function( NetworkEvent_ChannelRemoved value)  channelRemoved,required TResult Function( NetworkEvent_MemberJoined value)  memberJoined,required TResult Function( NetworkEvent_MemberLeft value)  memberLeft,required TResult Function( NetworkEvent_SyncCompleted value)  syncCompleted,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( NetworkEvent_PeerDiscovered value)  peerDiscovered,required TResult Function( NetworkEvent_PeerExpired value)  peerExpired,required TResult Function( NetworkEvent_PeerDisconnected value)  peerDisconnected,required TResult Function( NetworkEvent_RoomCleared value)  roomCleared,required TResult Function( NetworkEvent_Listening value)  listening,required TResult Function( NetworkEvent_MessageReceived value)  messageReceived,required TResult Function( NetworkEvent_ChannelMessageReceived value)  channelMessageReceived,required TResult Function( NetworkEvent_MessageSent value)  messageSent,required TResult Function( NetworkEvent_MessageSendFailed value)  messageSendFailed,required TResult Function( NetworkEvent_SessionEstablished value)  sessionEstablished,required TResult Function( NetworkEvent_Error value)  error,required TResult Function( NetworkEvent_ServerCreated value)  serverCreated,required TResult Function( NetworkEvent_ServerUpdated value)  serverUpdated,required TResult Function( NetworkEvent_ChannelAdded value)  channelAdded,required TResult Function( NetworkEvent_ChannelRemoved value)  channelRemoved,required TResult Function( NetworkEvent_ChannelRenamed value)  channelRenamed,required TResult Function( NetworkEvent_ServerDeleted value)  serverDeleted,required TResult Function( NetworkEvent_MemberJoined value)  memberJoined,required TResult Function( NetworkEvent_MemberLeft value)  memberLeft,required TResult Function( NetworkEvent_SyncCompleted value)  syncCompleted,required TResult Function( NetworkEvent_ServerJoined value)  serverJoined,}){
 final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered():
@@ -102,7 +106,8 @@ return peerExpired(_that);case NetworkEvent_PeerDisconnected():
 return peerDisconnected(_that);case NetworkEvent_RoomCleared():
 return roomCleared(_that);case NetworkEvent_Listening():
 return listening(_that);case NetworkEvent_MessageReceived():
-return messageReceived(_that);case NetworkEvent_MessageSent():
+return messageReceived(_that);case NetworkEvent_ChannelMessageReceived():
+return channelMessageReceived(_that);case NetworkEvent_MessageSent():
 return messageSent(_that);case NetworkEvent_MessageSendFailed():
 return messageSendFailed(_that);case NetworkEvent_SessionEstablished():
 return sessionEstablished(_that);case NetworkEvent_Error():
@@ -110,10 +115,13 @@ return error(_that);case NetworkEvent_ServerCreated():
 return serverCreated(_that);case NetworkEvent_ServerUpdated():
 return serverUpdated(_that);case NetworkEvent_ChannelAdded():
 return channelAdded(_that);case NetworkEvent_ChannelRemoved():
-return channelRemoved(_that);case NetworkEvent_MemberJoined():
+return channelRemoved(_that);case NetworkEvent_ChannelRenamed():
+return channelRenamed(_that);case NetworkEvent_ServerDeleted():
+return serverDeleted(_that);case NetworkEvent_MemberJoined():
 return memberJoined(_that);case NetworkEvent_MemberLeft():
 return memberLeft(_that);case NetworkEvent_SyncCompleted():
-return syncCompleted(_that);}
+return syncCompleted(_that);case NetworkEvent_ServerJoined():
+return serverJoined(_that);}
 }
 /// A variant of `map` that fallback to returning `null`.
 ///
@@ -127,7 +135,7 @@ return syncCompleted(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult? Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult? Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult? Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult? Function( NetworkEvent_Listening value)?  listening,TResult? Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult? Function( NetworkEvent_MessageSent value)?  messageSent,TResult? Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult? Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult? Function( NetworkEvent_Error value)?  error,TResult? Function( NetworkEvent_ServerCreated value)?  serverCreated,TResult? Function( NetworkEvent_ServerUpdated value)?  serverUpdated,TResult? Function( NetworkEvent_ChannelAdded value)?  channelAdded,TResult? Function( NetworkEvent_ChannelRemoved value)?  channelRemoved,TResult? Function( NetworkEvent_MemberJoined value)?  memberJoined,TResult? Function( NetworkEvent_MemberLeft value)?  memberLeft,TResult? Function( NetworkEvent_SyncCompleted value)?  syncCompleted,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult? Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult? Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult? Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult? Function( NetworkEvent_Listening value)?  listening,TResult? Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult? Function( NetworkEvent_ChannelMessageReceived value)?  channelMessageReceived,TResult? Function( NetworkEvent_MessageSent value)?  messageSent,TResult? Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult? Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult? Function( NetworkEvent_Error value)?  error,TResult? Function( NetworkEvent_ServerCreated value)?  serverCreated,TResult? Function( NetworkEvent_ServerUpdated value)?  serverUpdated,TResult? Function( NetworkEvent_ChannelAdded value)?  channelAdded,TResult? Function( NetworkEvent_ChannelRemoved value)?  channelRemoved,TResult? Function( NetworkEvent_ChannelRenamed value)?  channelRenamed,TResult? Function( NetworkEvent_ServerDeleted value)?  serverDeleted,TResult? Function( NetworkEvent_MemberJoined value)?  memberJoined,TResult? Function( NetworkEvent_MemberLeft value)?  memberLeft,TResult? Function( NetworkEvent_SyncCompleted value)?  syncCompleted,TResult? Function( NetworkEvent_ServerJoined value)?  serverJoined,}){
 final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
@@ -136,7 +144,8 @@ return peerExpired(_that);case NetworkEvent_PeerDisconnected() when peerDisconne
 return peerDisconnected(_that);case NetworkEvent_RoomCleared() when roomCleared != null:
 return roomCleared(_that);case NetworkEvent_Listening() when listening != null:
 return listening(_that);case NetworkEvent_MessageReceived() when messageReceived != null:
-return messageReceived(_that);case NetworkEvent_MessageSent() when messageSent != null:
+return messageReceived(_that);case NetworkEvent_ChannelMessageReceived() when channelMessageReceived != null:
+return channelMessageReceived(_that);case NetworkEvent_MessageSent() when messageSent != null:
 return messageSent(_that);case NetworkEvent_MessageSendFailed() when messageSendFailed != null:
 return messageSendFailed(_that);case NetworkEvent_SessionEstablished() when sessionEstablished != null:
 return sessionEstablished(_that);case NetworkEvent_Error() when error != null:
@@ -144,10 +153,13 @@ return error(_that);case NetworkEvent_ServerCreated() when serverCreated != null
 return serverCreated(_that);case NetworkEvent_ServerUpdated() when serverUpdated != null:
 return serverUpdated(_that);case NetworkEvent_ChannelAdded() when channelAdded != null:
 return channelAdded(_that);case NetworkEvent_ChannelRemoved() when channelRemoved != null:
-return channelRemoved(_that);case NetworkEvent_MemberJoined() when memberJoined != null:
+return channelRemoved(_that);case NetworkEvent_ChannelRenamed() when channelRenamed != null:
+return channelRenamed(_that);case NetworkEvent_ServerDeleted() when serverDeleted != null:
+return serverDeleted(_that);case NetworkEvent_MemberJoined() when memberJoined != null:
 return memberJoined(_that);case NetworkEvent_MemberLeft() when memberLeft != null:
 return memberLeft(_that);case NetworkEvent_SyncCompleted() when syncCompleted != null:
-return syncCompleted(_that);case _:
+return syncCompleted(_that);case NetworkEvent_ServerJoined() when serverJoined != null:
+return serverJoined(_that);case _:
   return null;
 
 }
@@ -164,7 +176,7 @@ return syncCompleted(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( DiscoveredPeer peer)?  peerDiscovered,TResult Function( String peerId)?  peerExpired,TResult Function( String peerId)?  peerDisconnected,TResult Function()?  roomCleared,TResult Function( String address)?  listening,TResult Function( String fromPeer,  String text)?  messageReceived,TResult Function( String toPeer)?  messageSent,TResult Function( String toPeer,  String error)?  messageSendFailed,TResult Function( String peerId)?  sessionEstablished,TResult Function( String message)?  error,TResult Function( String serverId,  String name)?  serverCreated,TResult Function( String serverId)?  serverUpdated,TResult Function( String serverId,  String channelId,  String name)?  channelAdded,TResult Function( String serverId,  String channelId)?  channelRemoved,TResult Function( String serverId,  String peerId)?  memberJoined,TResult Function( String serverId,  String peerId)?  memberLeft,TResult Function( String serverId,  int opsApplied)?  syncCompleted,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( DiscoveredPeer peer)?  peerDiscovered,TResult Function( String peerId)?  peerExpired,TResult Function( String peerId)?  peerDisconnected,TResult Function()?  roomCleared,TResult Function( String address)?  listening,TResult Function( String fromPeer,  String text)?  messageReceived,TResult Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp)?  channelMessageReceived,TResult Function( String toPeer)?  messageSent,TResult Function( String toPeer,  String error)?  messageSendFailed,TResult Function( String peerId)?  sessionEstablished,TResult Function( String message)?  error,TResult Function( String serverId,  String name)?  serverCreated,TResult Function( String serverId)?  serverUpdated,TResult Function( String serverId,  String channelId,  String name)?  channelAdded,TResult Function( String serverId,  String channelId)?  channelRemoved,TResult Function( String serverId,  String channelId,  String newName)?  channelRenamed,TResult Function( String serverId)?  serverDeleted,TResult Function( String serverId,  String peerId)?  memberJoined,TResult Function( String serverId,  String peerId)?  memberLeft,TResult Function( String serverId,  int opsApplied)?  syncCompleted,TResult Function( String serverId,  String name)?  serverJoined,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
 return peerDiscovered(_that.peer);case NetworkEvent_PeerExpired() when peerExpired != null:
@@ -172,7 +184,8 @@ return peerExpired(_that.peerId);case NetworkEvent_PeerDisconnected() when peerD
 return peerDisconnected(_that.peerId);case NetworkEvent_RoomCleared() when roomCleared != null:
 return roomCleared();case NetworkEvent_Listening() when listening != null:
 return listening(_that.address);case NetworkEvent_MessageReceived() when messageReceived != null:
-return messageReceived(_that.fromPeer,_that.text);case NetworkEvent_MessageSent() when messageSent != null:
+return messageReceived(_that.fromPeer,_that.text);case NetworkEvent_ChannelMessageReceived() when channelMessageReceived != null:
+return channelMessageReceived(_that.serverId,_that.channelId,_that.fromPeer,_that.text,_that.timestamp);case NetworkEvent_MessageSent() when messageSent != null:
 return messageSent(_that.toPeer);case NetworkEvent_MessageSendFailed() when messageSendFailed != null:
 return messageSendFailed(_that.toPeer,_that.error);case NetworkEvent_SessionEstablished() when sessionEstablished != null:
 return sessionEstablished(_that.peerId);case NetworkEvent_Error() when error != null:
@@ -180,10 +193,13 @@ return error(_that.message);case NetworkEvent_ServerCreated() when serverCreated
 return serverCreated(_that.serverId,_that.name);case NetworkEvent_ServerUpdated() when serverUpdated != null:
 return serverUpdated(_that.serverId);case NetworkEvent_ChannelAdded() when channelAdded != null:
 return channelAdded(_that.serverId,_that.channelId,_that.name);case NetworkEvent_ChannelRemoved() when channelRemoved != null:
-return channelRemoved(_that.serverId,_that.channelId);case NetworkEvent_MemberJoined() when memberJoined != null:
+return channelRemoved(_that.serverId,_that.channelId);case NetworkEvent_ChannelRenamed() when channelRenamed != null:
+return channelRenamed(_that.serverId,_that.channelId,_that.newName);case NetworkEvent_ServerDeleted() when serverDeleted != null:
+return serverDeleted(_that.serverId);case NetworkEvent_MemberJoined() when memberJoined != null:
 return memberJoined(_that.serverId,_that.peerId);case NetworkEvent_MemberLeft() when memberLeft != null:
 return memberLeft(_that.serverId,_that.peerId);case NetworkEvent_SyncCompleted() when syncCompleted != null:
-return syncCompleted(_that.serverId,_that.opsApplied);case _:
+return syncCompleted(_that.serverId,_that.opsApplied);case NetworkEvent_ServerJoined() when serverJoined != null:
+return serverJoined(_that.serverId,_that.name);case _:
   return orElse();
 
 }
@@ -201,7 +217,7 @@ return syncCompleted(_that.serverId,_that.opsApplied);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( DiscoveredPeer peer)  peerDiscovered,required TResult Function( String peerId)  peerExpired,required TResult Function( String peerId)  peerDisconnected,required TResult Function()  roomCleared,required TResult Function( String address)  listening,required TResult Function( String fromPeer,  String text)  messageReceived,required TResult Function( String toPeer)  messageSent,required TResult Function( String toPeer,  String error)  messageSendFailed,required TResult Function( String peerId)  sessionEstablished,required TResult Function( String message)  error,required TResult Function( String serverId,  String name)  serverCreated,required TResult Function( String serverId)  serverUpdated,required TResult Function( String serverId,  String channelId,  String name)  channelAdded,required TResult Function( String serverId,  String channelId)  channelRemoved,required TResult Function( String serverId,  String peerId)  memberJoined,required TResult Function( String serverId,  String peerId)  memberLeft,required TResult Function( String serverId,  int opsApplied)  syncCompleted,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( DiscoveredPeer peer)  peerDiscovered,required TResult Function( String peerId)  peerExpired,required TResult Function( String peerId)  peerDisconnected,required TResult Function()  roomCleared,required TResult Function( String address)  listening,required TResult Function( String fromPeer,  String text)  messageReceived,required TResult Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp)  channelMessageReceived,required TResult Function( String toPeer)  messageSent,required TResult Function( String toPeer,  String error)  messageSendFailed,required TResult Function( String peerId)  sessionEstablished,required TResult Function( String message)  error,required TResult Function( String serverId,  String name)  serverCreated,required TResult Function( String serverId)  serverUpdated,required TResult Function( String serverId,  String channelId,  String name)  channelAdded,required TResult Function( String serverId,  String channelId)  channelRemoved,required TResult Function( String serverId,  String channelId,  String newName)  channelRenamed,required TResult Function( String serverId)  serverDeleted,required TResult Function( String serverId,  String peerId)  memberJoined,required TResult Function( String serverId,  String peerId)  memberLeft,required TResult Function( String serverId,  int opsApplied)  syncCompleted,required TResult Function( String serverId,  String name)  serverJoined,}) {final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered():
 return peerDiscovered(_that.peer);case NetworkEvent_PeerExpired():
@@ -209,7 +225,8 @@ return peerExpired(_that.peerId);case NetworkEvent_PeerDisconnected():
 return peerDisconnected(_that.peerId);case NetworkEvent_RoomCleared():
 return roomCleared();case NetworkEvent_Listening():
 return listening(_that.address);case NetworkEvent_MessageReceived():
-return messageReceived(_that.fromPeer,_that.text);case NetworkEvent_MessageSent():
+return messageReceived(_that.fromPeer,_that.text);case NetworkEvent_ChannelMessageReceived():
+return channelMessageReceived(_that.serverId,_that.channelId,_that.fromPeer,_that.text,_that.timestamp);case NetworkEvent_MessageSent():
 return messageSent(_that.toPeer);case NetworkEvent_MessageSendFailed():
 return messageSendFailed(_that.toPeer,_that.error);case NetworkEvent_SessionEstablished():
 return sessionEstablished(_that.peerId);case NetworkEvent_Error():
@@ -217,10 +234,13 @@ return error(_that.message);case NetworkEvent_ServerCreated():
 return serverCreated(_that.serverId,_that.name);case NetworkEvent_ServerUpdated():
 return serverUpdated(_that.serverId);case NetworkEvent_ChannelAdded():
 return channelAdded(_that.serverId,_that.channelId,_that.name);case NetworkEvent_ChannelRemoved():
-return channelRemoved(_that.serverId,_that.channelId);case NetworkEvent_MemberJoined():
+return channelRemoved(_that.serverId,_that.channelId);case NetworkEvent_ChannelRenamed():
+return channelRenamed(_that.serverId,_that.channelId,_that.newName);case NetworkEvent_ServerDeleted():
+return serverDeleted(_that.serverId);case NetworkEvent_MemberJoined():
 return memberJoined(_that.serverId,_that.peerId);case NetworkEvent_MemberLeft():
 return memberLeft(_that.serverId,_that.peerId);case NetworkEvent_SyncCompleted():
-return syncCompleted(_that.serverId,_that.opsApplied);}
+return syncCompleted(_that.serverId,_that.opsApplied);case NetworkEvent_ServerJoined():
+return serverJoined(_that.serverId,_that.name);}
 }
 /// A variant of `when` that fallback to returning `null`
 ///
@@ -234,7 +254,7 @@ return syncCompleted(_that.serverId,_that.opsApplied);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( DiscoveredPeer peer)?  peerDiscovered,TResult? Function( String peerId)?  peerExpired,TResult? Function( String peerId)?  peerDisconnected,TResult? Function()?  roomCleared,TResult? Function( String address)?  listening,TResult? Function( String fromPeer,  String text)?  messageReceived,TResult? Function( String toPeer)?  messageSent,TResult? Function( String toPeer,  String error)?  messageSendFailed,TResult? Function( String peerId)?  sessionEstablished,TResult? Function( String message)?  error,TResult? Function( String serverId,  String name)?  serverCreated,TResult? Function( String serverId)?  serverUpdated,TResult? Function( String serverId,  String channelId,  String name)?  channelAdded,TResult? Function( String serverId,  String channelId)?  channelRemoved,TResult? Function( String serverId,  String peerId)?  memberJoined,TResult? Function( String serverId,  String peerId)?  memberLeft,TResult? Function( String serverId,  int opsApplied)?  syncCompleted,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( DiscoveredPeer peer)?  peerDiscovered,TResult? Function( String peerId)?  peerExpired,TResult? Function( String peerId)?  peerDisconnected,TResult? Function()?  roomCleared,TResult? Function( String address)?  listening,TResult? Function( String fromPeer,  String text)?  messageReceived,TResult? Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp)?  channelMessageReceived,TResult? Function( String toPeer)?  messageSent,TResult? Function( String toPeer,  String error)?  messageSendFailed,TResult? Function( String peerId)?  sessionEstablished,TResult? Function( String message)?  error,TResult? Function( String serverId,  String name)?  serverCreated,TResult? Function( String serverId)?  serverUpdated,TResult? Function( String serverId,  String channelId,  String name)?  channelAdded,TResult? Function( String serverId,  String channelId)?  channelRemoved,TResult? Function( String serverId,  String channelId,  String newName)?  channelRenamed,TResult? Function( String serverId)?  serverDeleted,TResult? Function( String serverId,  String peerId)?  memberJoined,TResult? Function( String serverId,  String peerId)?  memberLeft,TResult? Function( String serverId,  int opsApplied)?  syncCompleted,TResult? Function( String serverId,  String name)?  serverJoined,}) {final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
 return peerDiscovered(_that.peer);case NetworkEvent_PeerExpired() when peerExpired != null:
@@ -242,7 +262,8 @@ return peerExpired(_that.peerId);case NetworkEvent_PeerDisconnected() when peerD
 return peerDisconnected(_that.peerId);case NetworkEvent_RoomCleared() when roomCleared != null:
 return roomCleared();case NetworkEvent_Listening() when listening != null:
 return listening(_that.address);case NetworkEvent_MessageReceived() when messageReceived != null:
-return messageReceived(_that.fromPeer,_that.text);case NetworkEvent_MessageSent() when messageSent != null:
+return messageReceived(_that.fromPeer,_that.text);case NetworkEvent_ChannelMessageReceived() when channelMessageReceived != null:
+return channelMessageReceived(_that.serverId,_that.channelId,_that.fromPeer,_that.text,_that.timestamp);case NetworkEvent_MessageSent() when messageSent != null:
 return messageSent(_that.toPeer);case NetworkEvent_MessageSendFailed() when messageSendFailed != null:
 return messageSendFailed(_that.toPeer,_that.error);case NetworkEvent_SessionEstablished() when sessionEstablished != null:
 return sessionEstablished(_that.peerId);case NetworkEvent_Error() when error != null:
@@ -250,10 +271,13 @@ return error(_that.message);case NetworkEvent_ServerCreated() when serverCreated
 return serverCreated(_that.serverId,_that.name);case NetworkEvent_ServerUpdated() when serverUpdated != null:
 return serverUpdated(_that.serverId);case NetworkEvent_ChannelAdded() when channelAdded != null:
 return channelAdded(_that.serverId,_that.channelId,_that.name);case NetworkEvent_ChannelRemoved() when channelRemoved != null:
-return channelRemoved(_that.serverId,_that.channelId);case NetworkEvent_MemberJoined() when memberJoined != null:
+return channelRemoved(_that.serverId,_that.channelId);case NetworkEvent_ChannelRenamed() when channelRenamed != null:
+return channelRenamed(_that.serverId,_that.channelId,_that.newName);case NetworkEvent_ServerDeleted() when serverDeleted != null:
+return serverDeleted(_that.serverId);case NetworkEvent_MemberJoined() when memberJoined != null:
 return memberJoined(_that.serverId,_that.peerId);case NetworkEvent_MemberLeft() when memberLeft != null:
 return memberLeft(_that.serverId,_that.peerId);case NetworkEvent_SyncCompleted() when syncCompleted != null:
-return syncCompleted(_that.serverId,_that.opsApplied);case _:
+return syncCompleted(_that.serverId,_that.opsApplied);case NetworkEvent_ServerJoined() when serverJoined != null:
+return serverJoined(_that.serverId,_that.name);case _:
   return null;
 
 }
@@ -619,6 +643,80 @@ class _$NetworkEvent_MessageReceivedCopyWithImpl<$Res>
 fromPeer: null == fromPeer ? _self.fromPeer : fromPeer // ignore: cast_nullable_to_non_nullable
 as String,text: null == text ? _self.text : text // ignore: cast_nullable_to_non_nullable
 as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_ChannelMessageReceived extends NetworkEvent {
+  const NetworkEvent_ChannelMessageReceived({required this.serverId, required this.channelId, required this.fromPeer, required this.text, required this.timestamp}): super._();
+  
+
+ final  String serverId;
+ final  String channelId;
+ final  String fromPeer;
+ final  String text;
+ final  PlatformInt64 timestamp;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_ChannelMessageReceivedCopyWith<NetworkEvent_ChannelMessageReceived> get copyWith => _$NetworkEvent_ChannelMessageReceivedCopyWithImpl<NetworkEvent_ChannelMessageReceived>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_ChannelMessageReceived&&(identical(other.serverId, serverId) || other.serverId == serverId)&&(identical(other.channelId, channelId) || other.channelId == channelId)&&(identical(other.fromPeer, fromPeer) || other.fromPeer == fromPeer)&&(identical(other.text, text) || other.text == text)&&(identical(other.timestamp, timestamp) || other.timestamp == timestamp));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,serverId,channelId,fromPeer,text,timestamp);
+
+@override
+String toString() {
+  return 'NetworkEvent.channelMessageReceived(serverId: $serverId, channelId: $channelId, fromPeer: $fromPeer, text: $text, timestamp: $timestamp)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_ChannelMessageReceivedCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_ChannelMessageReceivedCopyWith(NetworkEvent_ChannelMessageReceived value, $Res Function(NetworkEvent_ChannelMessageReceived) _then) = _$NetworkEvent_ChannelMessageReceivedCopyWithImpl;
+@useResult
+$Res call({
+ String serverId, String channelId, String fromPeer, String text, PlatformInt64 timestamp
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_ChannelMessageReceivedCopyWithImpl<$Res>
+    implements $NetworkEvent_ChannelMessageReceivedCopyWith<$Res> {
+  _$NetworkEvent_ChannelMessageReceivedCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_ChannelMessageReceived _self;
+  final $Res Function(NetworkEvent_ChannelMessageReceived) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? serverId = null,Object? channelId = null,Object? fromPeer = null,Object? text = null,Object? timestamp = null,}) {
+  return _then(NetworkEvent_ChannelMessageReceived(
+serverId: null == serverId ? _self.serverId : serverId // ignore: cast_nullable_to_non_nullable
+as String,channelId: null == channelId ? _self.channelId : channelId // ignore: cast_nullable_to_non_nullable
+as String,fromPeer: null == fromPeer ? _self.fromPeer : fromPeer // ignore: cast_nullable_to_non_nullable
+as String,text: null == text ? _self.text : text // ignore: cast_nullable_to_non_nullable
+as String,timestamp: null == timestamp ? _self.timestamp : timestamp // ignore: cast_nullable_to_non_nullable
+as PlatformInt64,
   ));
 }
 
@@ -1166,6 +1264,142 @@ as String,
 /// @nodoc
 
 
+class NetworkEvent_ChannelRenamed extends NetworkEvent {
+  const NetworkEvent_ChannelRenamed({required this.serverId, required this.channelId, required this.newName}): super._();
+  
+
+ final  String serverId;
+ final  String channelId;
+ final  String newName;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_ChannelRenamedCopyWith<NetworkEvent_ChannelRenamed> get copyWith => _$NetworkEvent_ChannelRenamedCopyWithImpl<NetworkEvent_ChannelRenamed>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_ChannelRenamed&&(identical(other.serverId, serverId) || other.serverId == serverId)&&(identical(other.channelId, channelId) || other.channelId == channelId)&&(identical(other.newName, newName) || other.newName == newName));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,serverId,channelId,newName);
+
+@override
+String toString() {
+  return 'NetworkEvent.channelRenamed(serverId: $serverId, channelId: $channelId, newName: $newName)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_ChannelRenamedCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_ChannelRenamedCopyWith(NetworkEvent_ChannelRenamed value, $Res Function(NetworkEvent_ChannelRenamed) _then) = _$NetworkEvent_ChannelRenamedCopyWithImpl;
+@useResult
+$Res call({
+ String serverId, String channelId, String newName
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_ChannelRenamedCopyWithImpl<$Res>
+    implements $NetworkEvent_ChannelRenamedCopyWith<$Res> {
+  _$NetworkEvent_ChannelRenamedCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_ChannelRenamed _self;
+  final $Res Function(NetworkEvent_ChannelRenamed) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? serverId = null,Object? channelId = null,Object? newName = null,}) {
+  return _then(NetworkEvent_ChannelRenamed(
+serverId: null == serverId ? _self.serverId : serverId // ignore: cast_nullable_to_non_nullable
+as String,channelId: null == channelId ? _self.channelId : channelId // ignore: cast_nullable_to_non_nullable
+as String,newName: null == newName ? _self.newName : newName // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_ServerDeleted extends NetworkEvent {
+  const NetworkEvent_ServerDeleted({required this.serverId}): super._();
+  
+
+ final  String serverId;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_ServerDeletedCopyWith<NetworkEvent_ServerDeleted> get copyWith => _$NetworkEvent_ServerDeletedCopyWithImpl<NetworkEvent_ServerDeleted>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_ServerDeleted&&(identical(other.serverId, serverId) || other.serverId == serverId));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,serverId);
+
+@override
+String toString() {
+  return 'NetworkEvent.serverDeleted(serverId: $serverId)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_ServerDeletedCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_ServerDeletedCopyWith(NetworkEvent_ServerDeleted value, $Res Function(NetworkEvent_ServerDeleted) _then) = _$NetworkEvent_ServerDeletedCopyWithImpl;
+@useResult
+$Res call({
+ String serverId
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_ServerDeletedCopyWithImpl<$Res>
+    implements $NetworkEvent_ServerDeletedCopyWith<$Res> {
+  _$NetworkEvent_ServerDeletedCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_ServerDeleted _self;
+  final $Res Function(NetworkEvent_ServerDeleted) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? serverId = null,}) {
+  return _then(NetworkEvent_ServerDeleted(
+serverId: null == serverId ? _self.serverId : serverId // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
 class NetworkEvent_MemberJoined extends NetworkEvent {
   const NetworkEvent_MemberJoined({required this.serverId, required this.peerId}): super._();
   
@@ -1361,6 +1595,74 @@ class _$NetworkEvent_SyncCompletedCopyWithImpl<$Res>
 serverId: null == serverId ? _self.serverId : serverId // ignore: cast_nullable_to_non_nullable
 as String,opsApplied: null == opsApplied ? _self.opsApplied : opsApplied // ignore: cast_nullable_to_non_nullable
 as int,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_ServerJoined extends NetworkEvent {
+  const NetworkEvent_ServerJoined({required this.serverId, required this.name}): super._();
+  
+
+ final  String serverId;
+ final  String name;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_ServerJoinedCopyWith<NetworkEvent_ServerJoined> get copyWith => _$NetworkEvent_ServerJoinedCopyWithImpl<NetworkEvent_ServerJoined>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_ServerJoined&&(identical(other.serverId, serverId) || other.serverId == serverId)&&(identical(other.name, name) || other.name == name));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,serverId,name);
+
+@override
+String toString() {
+  return 'NetworkEvent.serverJoined(serverId: $serverId, name: $name)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_ServerJoinedCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_ServerJoinedCopyWith(NetworkEvent_ServerJoined value, $Res Function(NetworkEvent_ServerJoined) _then) = _$NetworkEvent_ServerJoinedCopyWithImpl;
+@useResult
+$Res call({
+ String serverId, String name
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_ServerJoinedCopyWithImpl<$Res>
+    implements $NetworkEvent_ServerJoinedCopyWith<$Res> {
+  _$NetworkEvent_ServerJoinedCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_ServerJoined _self;
+  final $Res Function(NetworkEvent_ServerJoined) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? serverId = null,Object? name = null,}) {
+  return _then(NetworkEvent_ServerJoined(
+serverId: null == serverId ? _self.serverId : serverId // ignore: cast_nullable_to_non_nullable
+as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
+as String,
   ));
 }
 

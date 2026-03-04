@@ -72,10 +72,9 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
                 ))
             .toList();
 
-        state = {
-          ...state,
-          peerId: [...messages, ...?state[peerId]],
-        };
+        final updated = Map.of(state);
+        updated[peerId] = [...messages, ...?state[peerId]];
+        state = updated;
       }
     } catch (e) {
       debugPrint('[HAVEN] Failed to load history for $peerId: $e');
@@ -84,10 +83,9 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
 
   void _addMessage(String peerId, ChatMessage message) {
     final current = state[peerId] ?? [];
-    state = {
-      ...state,
-      peerId: [...current, message],
-    };
+    final updated = Map.of(state);
+    updated[peerId] = [...current, message];
+    state = updated;
   }
 }
 

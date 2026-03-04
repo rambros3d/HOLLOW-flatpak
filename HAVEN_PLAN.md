@@ -1,6 +1,6 @@
 # Haven — A Fully Distributed, Encrypted Discord Alternative
 
-> **Status:** Active Development — Phase 2 (Internet Connectivity) Complete. Phase 2.5 (UI Foundation) In Progress.
+> **Status:** Active Development — Phases 1-2.75 Complete. Phase 3 (Servers & Channels) In Progress.
 > **Author:** Designed through technical discussion, February 2026.
 > **Philosophy:** No central servers. No Electron. No Node.js hosting. The members ARE the server.
 
@@ -881,129 +881,26 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 **Deliverable:** The app looks and feels like a real product — custom visual identity, smooth animations, responsive layout. All future UI work builds on this foundation.
 
-### Phase 2.75: Haven Design System v2 — Making the App Alive
+### Phase 2.75: Haven Design System v2 — COMPLETE
 
-**Goal:** Replace all Material Design defaults with Haven's own interaction system. Kill the "Google feel" entirely. Every button, input, dialog, tooltip, and interactive element gets a custom Haven implementation with purposeful, smooth animations. Future features automatically inherit the Haven look.
+**Goal:** Replace all Material Design defaults with Haven's own interaction system. Zero Material interaction widgets remain. Spring physics, no ripple, custom everything.
 
-**Philosophy:** Restrained beauty. Smooth motion over flashy decoration. Premium feel through crisp interactions, not through gradients-on-everything. Think Discord's polish + Telegram's snappiness + Figma's precision, built on Flutter's GPU-accelerated renderer.
+- [X] HavenPressable — universal interaction widget (press: opacity 0.85 + scale 0.98, spring physics)
+- [X] HavenButton — 4 variants: filled, ghost, outline, danger (self-contained animations, hover glow)
+- [X] HavenTextField — flat design, animated border color, focus glow, error shake
+- [X] HavenDialog — showHavenDialog() with glassmorphism (BackdropFilter 12px blur, scale entrance)
+- [X] HavenTooltip — overlay-based, 400ms delay, fade+slide entrance
+- [X] HavenToggle — spring physics thumb, color crossfade track
+- [X] HavenToast — slide-up + fade, 3 types (success/error/info), auto-dismiss, replaces SnackBar
+- [X] HavenAvatar v2 — gradient background, status dot integration
+- [X] StatusDot v2 — breathing pulse glow (3s cycle, BoxShadow)
+- [X] PeerCard / ChannelTile — HavenPressable with smooth selection transitions
+- [X] ServerStrip icons — HavenPressable, scale-bounce for new icons, selection indicator
+- [X] Dialog migration — all 4 dialogs (CreateServer, CreateChannel, Invite, Mnemonic)
+- [X] Global cleanup — zero InkWell, IconButton, SnackBar, Tooltip, AlertDialog, FilledButton, TextButton, OutlinedButton remaining
+- [X] UI Polish Pass — glassmorphism, startup reveal (2500ms), ambient background, shader warmup, GPU-composited transitions
 
-#### Core Interaction System
-
-- [ ] **HavenPressable** — universal replacement for InkWell/GestureDetector across the entire app
-  - No Material ripple — ever. Kill it everywhere.
-  - On press: opacity dims to 0.85 + subtle scale to 0.98 (spring physics, ~150ms)
-  - On release: spring back to 1.0 opacity + 1.0 scale
-  - On hover (desktop): background color shifts to `haven.elevated` with smooth 120ms transition
-  - Configurable: `onTap`, `onLongPress`, `borderRadius`, `hoverColor`, `disabled` state (0.4 opacity)
-  - Used by every interactive element — buttons, cards, list items, nav items
-
-- [ ] **HavenButton** redesign — replace FilledButton/TextButton/OutlinedButton entirely
-  - **Filled variant:** solid accent bg, white text. Hover: bg lightens 10%. Press: opacity 0.85 + scale 0.98. Disabled: 0.4 opacity, no interaction.
-  - **Ghost variant (replaces TextButton):** transparent bg, accent text. Hover: `accentMuted` bg fade-in. Press: opacity dim.
-  - **Outline variant:** 1px accent border, accent text. Hover: fill with `accentMuted`. Press: opacity dim.
-  - **Danger variant:** error-red bg for destructive actions. Same interaction as filled.
-  - All variants: custom border radius (`haven.radiusMd`), no Material splash/highlight/ripple. Padding: 10px vertical, 16px horizontal. Font: `HavenTypography.label`.
-  - 🎞️ Animate: all state transitions use spring physics (damping: 0.8, stiffness: 300) — feels alive, not mechanical.
-
-- [ ] **HavenTextField** redesign — replace Material TextField/InputDecoration
-  - Flat design: `haven.elevated` fill, 1px `haven.border` border, `haven.radiusMd` corners
-  - Focus: border color transitions to `haven.accent` over 150ms (no floating label, no Material focus ring)
-  - No `InputDecoration` label animation — just a static placeholder that disappears on input
-  - Optional left icon (like the # in channel name input) — vertically centered, `haven.textSecondary`
-  - Error state: border turns `haven.error`, optional error text below in `haven.error` color
-  - Cursor: `haven.accent` color, 2px wide
-  - Selection: `haven.accentMuted` highlight
-  - 🎞️ Animate: focus border color change (150ms ease-out), error shake (subtle 3px horizontal oscillation, 300ms)
-
-- [ ] **HavenDialog** redesign — replace AlertDialog entirely
-  - Custom modal: `haven.elevated` background, `haven.radiusLg` corners, 1px `haven.border` border
-  - No Material elevation shadow — use a subtle `haven.border` glow or 1px border for depth
-  - Backdrop: black at 60% opacity (darker than Material default)
-  - 🎞️ Animate entrance: scale from 0.95 → 1.0 + opacity 0→1, 200ms with `HavenCurves.enter` (easeOutCubic). NOT Material's default slow fade-scale.
-  - 🎞️ Animate exit: scale 1.0 → 0.95 + opacity 1→0, 150ms (faster exit than entrance — feels snappy)
-  - Title: `HavenTypography.heading`, content: `HavenTypography.body`, actions: right-aligned HavenButtons
-  - `showHavenDialog()` function replaces `showDialog()` everywhere
-
-- [ ] **HavenTooltip** — replace Material Tooltip
-  - Dark tooltip: `haven.elevated` bg, `haven.textPrimary` text, `haven.radiusSm` corners
-  - Smaller padding (6px 10px), `HavenTypography.caption` font
-  - Appears after 400ms hover delay (not Material's slow 500ms)
-  - 🎞️ Animate: fade-in 100ms + translate Y from 4px → 0px (slides down into place). Fade-out 80ms.
-  - Positioned intelligently: prefer below, flip above if near bottom edge
-
-- [ ] **HavenToggle** — custom toggle/switch for settings
-  - Track: 36x20px rounded pill, `haven.border` bg when off, `haven.accent` when on
-  - Thumb: 16px circle, white, with subtle shadow
-  - 🎞️ Animate: thumb slides with spring physics (bouncy, 200ms). Track color crossfades (150ms). Satisfying.
-  - Replaces any future Switch widgets
-
-- [ ] **HavenSnackbar/Toast** — replace Material SnackBar
-  - Floating at bottom-center, `haven.elevated` bg, `haven.radiusMd` corners, 1px border
-  - Icon on left (success=check, error=alert, info=info), message text, optional action button
-  - 🎞️ Animate: slide up from bottom + fade-in (200ms), auto-dismiss after 3s with slide-down + fade-out (150ms)
-  - No Material SnackBar queue — only one toast visible at a time, new one replaces old
-
-#### Component Upgrades
-
-- [ ] **HavenAvatar v2** — upgrade existing HavenAvatar
-  - Current: static colored circle with initials
-  - Add: subtle gradient on the background color (15% lighter at top-left, creates depth)
-  - Add: 1px semi-transparent white inner border (gives a polished glass-like edge)
-  - Online status dot: currently using StatusDot — keep it but add a slow pulse animation (opacity 0.6→1.0→0.6, 2s loop) to show "alive" state
-
-- [ ] **StatusDot v2** — upgrade existing StatusDot
-  - Online (green): subtle pulse glow animation (2s loop, opacity 0.4→0.8→0.4 on a slightly larger circle behind)
-  - Away/idle (yellow): static, no pulse
-  - Offline (gray): static, smaller
-  - DND (red): static
-  - 🎞️ The pulse uses a simple `AnimationController` with repeat — costs nothing on GPU
-
-- [ ] **PeerCard / ChannelTile** — apply HavenPressable
-  - Replace InkWell/Material with HavenPressable
-  - Selected state: `haven.accentMuted` bg with smooth 150ms transition (no instant snap)
-  - Hover: `haven.elevated` bg with 120ms transition
-  - 🎞️ Selection change: background color animates (not instant), text color/weight animates too
-
-- [ ] **ServerStrip icons** — apply HavenPressable + refine
-  - Replace MouseRegion+GestureDetector with HavenPressable
-  - Keep existing scale-bounce for new icons
-  - Add: selected icon gets a very subtle glow (box-shadow with accent color at 15% opacity, 8px spread)
-
-#### Dialog & Modal Migration
-
-- [ ] **Migrate CreateServerDialog** → use `showHavenDialog()` + HavenTextField + HavenButton
-- [ ] **Migrate CreateChannelDialog** → same
-- [ ] **Migrate InviteDialog** → same
-- [ ] **Migrate MnemonicDialog** → same
-
-#### Global Cleanup
-
-- [ ] **Remove all InkWell usages** — replace with HavenPressable (search entire codebase)
-- [ ] **Remove all Material button usages** — replace with HavenButton variants
-- [ ] **Remove all showDialog()** — replace with showHavenDialog()
-- [ ] **Remove all SnackBar usages** — replace with HavenToast
-- [ ] **Remove all Tooltip usages** — replace with HavenTooltip
-- [ ] **ThemeData cleanup** — strip Material overrides from `haven_theme_data.dart` that are no longer needed since we bypass Material widgets entirely
-- [ ] **Verify no Material defaults leak through** — run app, inspect every interactive element
-
-#### What This Phase Does NOT Include
-- Rive/Lottie vector animations (deferred — these are design assets that need creation)
-- Custom shaders for backgrounds/effects (deferred to polishing phase)
-- Animated emoji/stickers (future feature)
-- Frutiger Aero theme (already deferred)
-- Anything that requires new backend work
-
-**Deliverable:** Every interactive element in Haven uses custom Haven widgets with spring-physics interactions, smooth transitions, and zero Material Design artifacts. The app feels premium, alive, and distinctly Haven — not "a Flutter app" or "a Google app."
-
-**Implementation order:**
-1. HavenPressable (everything depends on this)
-2. HavenButton (used everywhere)
-3. HavenTextField (used in dialogs + sidebar)
-4. HavenDialog + showHavenDialog (all dialogs depend on this)
-5. HavenTooltip, HavenToggle, HavenSnackbar (independent)
-6. Component upgrades (Avatar, StatusDot, PeerCard, ChannelTile, ServerStrip)
-7. Dialog migration (4 dialogs)
-8. Global cleanup + verification
+**Deliverable:** Every interactive element uses custom Haven widgets. The app feels premium and distinctly Haven.
 
 ### Phase 3: Servers & Channels
 
@@ -1016,11 +913,18 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [X] Sync protocol (state vectors, delta sync)
 - [X] Server creation and management — uses CRDTs for distributed state. 🎞️ Animate: server icon appears in ServerStrip with scale-bounce, creation dialog entrance/exit
 - [X] Channel system (text channels, categories) — uses CRDTs for channel list. 🎞️ Animate: channel switch crossfade in ChatPane, channel list reorder/add/remove with slide transitions
-- [ ] Roles and permissions system — uses CRDTs (LWW-Register with admin priority)
+- [X] Channel messaging — Olm E2EE fan-out per member, JSON envelope (`{"t":"ch","sid":"...","cid":"...","text":"..."}`), separate `channel_messages` SQLCipher table, ChannelChatPane + ChannelMessageBubble UI
+- [X] Server settings UI — full tabbed panel (Overview, Channels, Members, Danger Zone), rename server/channels, delete server/channels, server description, replaces chat pane
+- [X] Server invite join flow — invite link adds joiner to CRDT member list, joiner receives server state + channel history, bootstrap peer list in invite token
+- [X] Server/channel deletion broadcast — deleting a server or channel propagates to all connected members in real-time
+- [X] Message deduplication — sender timestamp in envelope, UNIQUE DB constraint, Rust-side dedup before emitting events
+- [X] Room gating — reject incoming CRDT state/ops for servers we haven't explicitly joined, prevent auto-sync of unknown servers to non-members
+- [X] Channel/server operation broadcast — channel creation, rename, and all CRDT mutations broadcast reliably to all server members (currently some operations only apply locally)
+- [ ] Message history sync on reconnection — pull-based catch-up: on peer reconnect, request missed channel messages since last-seen timestamp, peers respond from local DB. Prerequisite for reliable distributed messaging
+- [ ] Member presence (online/offline status) — cross-reference `connected_peers` with server membership, emit presence events to UI, StatusDot integration in member panel. 🎞️ Animate: member join/leave fade+slide, online→offline transitions, presence dot pulse
+- [ ] Roles and permissions system — uses CRDTs (LWW-Register with admin priority), UI for role assignment in server settings
 - [ ] MLS group encryption for channels — standalone crypto task, can parallel with UI work
-- [ ] Server settings UI. 🎞️ Animate: settings panel slide-in, toggle/switch micro-interactions
-- [ ] Member list with online/offline status. 🎞️ Animate: member join/leave fade+slide, online→offline status transitions, presence dot pulse
-- [ ] Basic offline message queuing (store-and-forward via online peers) — requires sync protocol. 🎞️ Animate: queued message shimmer/pending state, delivery confirmation tick
+- [ ] Offline message queuing (store-and-forward via online peers) — peer B holds messages for offline peer A, delivers on reconnect. Builds on message history sync. 🎞️ Animate: queued message shimmer/pending state, delivery confirmation tick
 - [ ] Device linking via QR code (multi-device identity sync) — requires MLS + CRDTs. 🎞️ Animate: QR scan success celebration, device linked confirmation
 
 **Deliverable:** A functional group chat platform with servers, channels, and multi-device support.

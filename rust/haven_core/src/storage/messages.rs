@@ -11,6 +11,17 @@ pub(crate) struct StoredMessage {
     pub timestamp: i64,
 }
 
+/// A stored channel message.
+pub(crate) struct StoredChannelMessage {
+    pub id: i64,
+    pub server_id: String,
+    pub channel_id: String,
+    pub sender_id: String,
+    pub text: String,
+    pub is_mine: bool,
+    pub timestamp: i64,
+}
+
 /// Encrypted SQLite message store.
 pub(crate) struct MessageStore {
     conn: Connection,
@@ -66,6 +77,51 @@ impl MessageStore {
             [],
         )
         .map_err(|e| format!("Failed to create olm_sessions table: {e}"))?;
+
+        // Channel messages table.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS channel_messages (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                server_id  TEXT    NOT NULL,
+                channel_id TEXT    NOT NULL,
+                sender_id  TEXT    NOT NULL,
+                text       TEXT    NOT NULL,
+                is_mine    INTEGER NOT NULL,
+                timestamp  INTEGER NOT NULL,
+                UNIQUE(server_id, channel_id, sender_id, timestamp, text)
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create channel_messages table: {e}"))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_channel_msgs ON channel_messages (server_id, channel_id, timestamp)",
+            [],
+        )
+        .map_err(|e| format!("Failed to create channel_messages index: {e}"))?;
+
+        // Migration: add UNIQUE constraint to existing channel_messages tables.
+        // SQLite can't ALTER constraints, so we create a unique index instead.
+        // This also deduplicates existing rows (OR IGNORE skips dupes).
+        conn.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_msgs_unique
+             ON channel_messages (server_id, channel_id, sender_id, timestamp, text);
+             DELETE FROM channel_messages WHERE id NOT IN (
+                SELECT MIN(id) FROM channel_messages
+                GROUP BY server_id, channel_id, sender_id, timestamp, text
+             );"
+        ).unwrap_or_else(|e| {
+            // If index creation fails because dupes exist, clean up first.
+            eprintln!("[HAVEN] Deduplicating channel_messages: {e}");
+            let _ = conn.execute_batch(
+                "DELETE FROM channel_messages WHERE id NOT IN (
+                    SELECT MIN(id) FROM channel_messages
+                    GROUP BY server_id, channel_id, sender_id, timestamp, text
+                 );
+                 CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_msgs_unique
+                 ON channel_messages (server_id, channel_id, sender_id, timestamp, text);"
+            );
+        });
 
         // -- CRDT tables (Phase 3) --
 
@@ -292,6 +348,17 @@ impl MessageStore {
         Ok(result)
     }
 
+    /// Delete a server's CRDT state and all its CRDT ops from the database.
+    pub fn delete_server_state(&self, server_id: &str) -> Result<(), String> {
+        self.conn
+            .execute("DELETE FROM servers WHERE server_id = ?1", params![server_id])
+            .map_err(|e| format!("Failed to delete server state: {e}"))?;
+        self.conn
+            .execute("DELETE FROM crdt_ops WHERE server_id = ?1", params![server_id])
+            .map_err(|e| format!("Failed to delete server ops: {e}"))?;
+        Ok(())
+    }
+
     /// Insert a CRDT operation. Uses INSERT OR IGNORE for dedup via UNIQUE constraint.
     pub fn insert_crdt_op(&self, op: &CrdtOp) -> Result<(), String> {
         let op_json =
@@ -348,6 +415,68 @@ impl MessageStore {
             )
             .map_err(|e| format!("Failed to save hlc_state: {e}"))?;
         Ok(())
+    }
+
+    // -- Channel message methods --
+
+    /// Insert a channel message. Returns number of rows inserted (0 if duplicate, 1 if new).
+    pub fn insert_channel_message(
+        &self,
+        server_id: &str,
+        channel_id: &str,
+        sender_id: &str,
+        text: &str,
+        is_mine: bool,
+        timestamp: i64,
+    ) -> Result<usize, String> {
+        let rows = self.conn
+            .execute(
+                "INSERT OR IGNORE INTO channel_messages (server_id, channel_id, sender_id, text, is_mine, timestamp)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![server_id, channel_id, sender_id, text, is_mine as i32, timestamp],
+            )
+            .map_err(|e| format!("Failed to insert channel message: {e}"))?;
+        Ok(rows)
+    }
+
+    /// Load recent messages for a channel, ordered oldest-first.
+    pub fn load_channel_messages(
+        &self,
+        server_id: &str,
+        channel_id: &str,
+        limit: i32,
+    ) -> Result<Vec<StoredChannelMessage>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp
+                 FROM channel_messages
+                 WHERE server_id = ?1 AND channel_id = ?2
+                 ORDER BY timestamp DESC
+                 LIMIT ?3",
+            )
+            .map_err(|e| format!("Failed to prepare channel_messages query: {e}"))?;
+
+        let rows = stmt
+            .query_map(params![server_id, channel_id, limit], |row| {
+                Ok(StoredChannelMessage {
+                    id: row.get(0)?,
+                    server_id: row.get(1)?,
+                    channel_id: row.get(2)?,
+                    sender_id: row.get(3)?,
+                    text: row.get(4)?,
+                    is_mine: row.get::<_, i32>(5)? != 0,
+                    timestamp: row.get(6)?,
+                })
+            })
+            .map_err(|e| format!("Failed to query channel_messages: {e}"))?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            messages.push(row.map_err(|e| format!("Failed to read channel_messages row: {e}"))?);
+        }
+        messages.reverse(); // Oldest first for display.
+        Ok(messages)
     }
 
     /// Load HLC state, if saved.

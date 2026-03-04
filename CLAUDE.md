@@ -23,7 +23,8 @@ HAVEN/
 │       ├── theme/        # Haven design system (colors, spacing, typography, ThemeExtension)
 │       └── ui/
 │           ├── shell/    # Layout: haven_shell, server_strip, channel_sidebar, member_panel, user_bar, mobile_nav, window_title_bar
-│           ├── chat/     # ChatPane, MessageBubble
+│           ├── chat/     # ChatPane, MessageBubble, ChannelChatPane, ChannelMessageBubble
+│           ├── settings/ # ServerSettingsPanel, OverviewTab, ChannelsTab, MembersTab, DangerZoneTab
 │           ├── sidebar/  # PeerCard, EmptyPeerList (reusable components)
 │           ├── components/ # HavenPressable, HavenButton, HavenTextField, HavenDialog, HavenTooltip, HavenToast, HavenToggle, HavenAvatar, HavenCard, StatusDot
 │           ├── dialogs/  # InviteDialog, MnemonicDialog, CreateServerDialog, CreateChannelDialog
@@ -62,17 +63,33 @@ ssh ubuntu@141.227.186.209 "cd relay && cargo build --release && sudo systemctl 
 ```
 
 ## Current Phase
-**UI Polish Pass** — COMPLETE (Mar 2 2026).
+**Phase 3: Servers & Channels** — In Progress.
 
-Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection management, invite links), 2.5 (UI Foundation), 2.75 (Haven Design System v2) are complete. WSS transport (Nginx + Let's Encrypt on port 443) deployed for censorship resistance.
+Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection management, invite links), 2.5 (UI Foundation), 2.75 (Haven Design System v2), UI Polish Pass — all COMPLETE. WSS transport deployed.
 
-**Phase 2.75 includes:** Complete custom widget system replacing ALL Material Design defaults. Zero InkWell, IconButton, SnackBar, Tooltip, AlertDialog, FilledButton, TextButton, or OutlinedButton remain in the codebase. All interactions use spring physics (no ripple). See "Haven Design System" section below.
+**Phase 3 completed so far:**
+- CRDT backend: `crdts` crate + custom `AdminLwwReg`, 18 Rust tests, HLC ordering, sync protocol
+- Server creation + channel system UI (ServerStrip, ChannelSidebar, ChatPane, MemberPanel)
+- Channel messaging: Olm E2EE fan-out, JSON envelope, `channel_messages` SQLCipher table, ChannelChatPane + ChannelMessageBubble
+- Server settings UI: full tabbed panel (Overview/Channels/Members/Danger Zone), rename/delete server+channels, server description
+- Server state reload from DB on restart (HLC re-initialized after deserialization)
+- Performance: `Opacity`→`FadeTransition` fix on HavenPressable/HavenButton/HavenToggle
+- Server invite join flow: `haven://join?server=<id>` links, `JoinServer` command, `ServerJoinRequest` message, auto-register in server signaling rooms on startup
+- Message deduplication: sender timestamp in envelope, UNIQUE DB constraint, Rust-side dedup before emitting events
+- Server/channel deletion broadcast: `ServerDeleteBroadcast` message propagates to all connected members
+- Room gating: reject incoming CRDT state/ops for servers not joined or pending join
+- Channel/server operation broadcast: all CRDT mutations broadcast to server members only (not all connected peers), receive handler emits specific events (ChannelAdded/Removed/Renamed, MemberJoined/Left)
+- Connection status indicator: per-server online member count in channel header (green/yellow/red dot + X/Y count)
 
-**Phase 3 foundation (Rust CRDT backend):** COMPLETE. `crdts` crate + custom `AdminLwwReg` for admin-only fields. 18 Rust tests passing. Dart FFI bindings generated, models (`ServerInfo`, `ChannelInfo`), providers (`serverListProvider`, `channelListProvider`, `selectedServerProvider`, `selectedChannelProvider`), and event dispatch for all 7 CRDT events wired. Server creation + channel system UI done (ServerStrip with server icons, dual-mode ChannelSidebar, channel placeholder in ChatPane, server members in MemberPanel).
+**Next up (Phase 3 remaining):**
+- Message history sync on reconnection (pull-based catch-up: request missed messages since last timestamp on reconnect)
+- Member presence (online/offline status via connected_peers × server membership)
+- Roles & permissions UI
+- MLS group encryption
+- Offline message queuing (push-based store-and-forward, builds on message sync)
+- Device linking
 
-**UI Polish:** COMPLETE. Tier 1 (focus glow, hover shadows, auto-scroll, crossfade transitions), Tier 2 (server strip gradient, breathing pulse StatusDot, message entrance), Tier 3 (full-screen glassmorphism blur, selection shimmer, comprehensive 1800ms startup reveal with building-block animations), ambient background (drifting gradient blobs on chat area).
-
-**Next:** Phase 3 — continue with channel messaging, sync protocol, room gating.
+**Known issue:** Peers can lose connection silently (one side sees 1/1 connected, other sees 0/1). Messages sent during disconnection are lost. Needs: reconnection detection + message history sync on reconnect.
 
 ## Haven Design System (Phase 2.75)
 All UI interactions go through custom Haven widgets — no Material defaults anywhere. Change behavior in one place, applies everywhere.
