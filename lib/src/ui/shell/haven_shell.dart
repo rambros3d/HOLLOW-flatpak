@@ -459,8 +459,8 @@ class _HavenShellState extends ConsumerState<HavenShell>
                       ),
                     ),
 
-                    // Member panel (desktop: shown by default, tablet: toggleable)
-                    if (memberPanelOpen && (isDesktop || !isMobile))
+                    // Member panel (only when a server is selected)
+                    if (selectedServerId != null && memberPanelOpen && (isDesktop || !isMobile))
                       const RepaintBoundary(child: MemberPanel()),
                   ],
                 ),

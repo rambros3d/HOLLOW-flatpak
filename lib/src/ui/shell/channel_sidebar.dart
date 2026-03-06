@@ -349,12 +349,19 @@ class _HomeContent extends StatelessWidget {
   Widget build(BuildContext innerContext) {
     final divider1Reveal =
         StartupRevealScope.interval(innerContext, 0.35, 0.45);
-    final peerLabelReveal =
-        StartupRevealScope.interval(innerContext, 0.42, 0.52);
-    final divider2Reveal =
-        StartupRevealScope.interval(innerContext, 0.41, 0.51);
+    final onlineLabelReveal =
+        StartupRevealScope.interval(innerContext, 0.38, 0.50);
+    final onlineLineReveal =
+        StartupRevealScope.interval(innerContext, 0.42, 0.55);
     final peerListReveal =
         StartupRevealScope.interval(innerContext, 0.45, 0.60);
+
+    final dividerTextStyle = HavenTypography.caption.copyWith(
+      color: haven.textSecondary,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.8,
+      fontSize: 11,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -368,29 +375,36 @@ class _HomeContent extends StatelessWidget {
           color: haven.border,
         ),
 
-        // Peer count label
+        // Peer count — ASOT-style divider with reveal animations
         Padding(
-          padding: const EdgeInsets.fromLTRB(
-            HavenSpacing.lg,
-            HavenSpacing.sm,
-            HavenSpacing.lg,
-            HavenSpacing.sm,
+          padding: const EdgeInsets.symmetric(
+            horizontal: HavenSpacing.sm + 2,
+            vertical: HavenSpacing.sm,
           ),
-          child: TypewriterText(
-            text: 'ONLINE \u2014 ${peers.length}',
-            animation: peerLabelReveal,
-            style: HavenTypography.caption.copyWith(
-              color: haven.textSecondary,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.8,
-            ),
+          child: Row(
+            children: [
+              TypewriterText(
+                text: 'Online',
+                animation: onlineLabelReveal,
+                style: dividerTextStyle,
+              ),
+              const SizedBox(width: HavenSpacing.sm),
+              Expanded(
+                child: LineDrawDivider(
+                  animation: onlineLineReveal,
+                  height: 1,
+                  color: haven.border,
+                ),
+              ),
+              const SizedBox(width: HavenSpacing.sm),
+              onlineLabelReveal != null
+                  ? FadeTransition(
+                      opacity: onlineLabelReveal,
+                      child: Text('${peers.length}', style: dividerTextStyle),
+                    )
+                  : Text('${peers.length}', style: dividerTextStyle),
+            ],
           ),
-        ),
-
-        LineDrawDivider(
-          animation: divider2Reveal,
-          height: 1,
-          color: haven.border,
         ),
 
         // Peer list

@@ -89,6 +89,8 @@ Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection mana
 - Graceful disconnect: `PeerDisconnecting` broadcast on app close, immediate `PeerDisconnected` event on receiver
 - Member presence: ASOT-style Online/Offline dividers, per-member sync spinning icon, offline 0.5 opacity, sync progress "Syncing 47/120...", user bar mirrors channel status, DM spinning icon for unestablished sessions
 - Perf optimization: eliminated Riverpod `ref`-passing anti-pattern in member panel (ConsumerWidget instead of passing ref)
+- Peer reconnect visibility: server members not in `expected_peers` now get `PeerDiscovered` on `ConnectionEstablished`
+- Header indicator cleanup: sync-only status (no redundant member count), fixed retry button
 
 **Next up (Phase 3 remaining):**
 - Roles & permissions UI

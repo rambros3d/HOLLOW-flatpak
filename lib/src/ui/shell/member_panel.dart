@@ -62,7 +62,8 @@ class MemberPanel extends ConsumerWidget {
 }
 
 /// ASOT-style section divider: "Online ------------ 10"
-class _SectionDivider extends StatelessWidget {
+/// Online variant has a subtle left-to-right glow sweep on the line.
+class _SectionDivider extends StatefulWidget {
   final String label;
   final int count;
   final bool isOnline;
@@ -74,8 +75,49 @@ class _SectionDivider extends StatelessWidget {
   });
 
   @override
+  State<_SectionDivider> createState() => _SectionDividerState();
+}
+
+class _SectionDividerState extends State<_SectionDivider>
+    with SingleTickerProviderStateMixin {
+  AnimationController? _controller;
+
+  late final CurvedAnimation? _curved;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isOnline) {
+      _controller = AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 4000),
+      )..repeat(reverse: true);
+      _curved = CurvedAnimation(
+        parent: _controller!,
+        curve: Curves.easeInOut,
+      );
+    } else {
+      _curved = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _curved?.dispose();
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final haven = HavenTheme.of(context);
+
+    final textStyle = HavenTypography.caption.copyWith(
+      color: haven.textSecondary,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.8,
+      fontSize: 11,
+    );
 
     return Padding(
       padding: const EdgeInsets.symmetric(
@@ -84,41 +126,48 @@ class _SectionDivider extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Text(
-            label,
-            style: HavenTypography.caption.copyWith(
-              color: haven.textSecondary,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.8,
-              fontSize: 11,
-            ),
-          ),
+          Text(widget.label, style: textStyle),
           const SizedBox(width: HavenSpacing.sm),
           Expanded(
-            child: Container(
-              height: 1,
-              decoration: BoxDecoration(
-                color: haven.border,
-                boxShadow: isOnline
-                    ? [
-                        BoxShadow(
-                          color: haven.accent.withValues(alpha: 0.3),
-                          blurRadius: 4,
+            child: widget.isOnline && _curved != null
+                ? AnimatedBuilder(
+                    animation: _curved,
+                    builder: (context, child) {
+                      // Map 0..1 to -0.2..1.2 so the glow fully exits both edges.
+                      final t = -0.2 + _curved.value * 1.4;
+                      const glowWidth = 0.15;
+                      return Container(
+                        height: 1,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              haven.border,
+                              haven.accent.withValues(alpha: 0.5),
+                              haven.border,
+                            ],
+                            stops: [
+                              (t - glowWidth).clamp(0.0, 1.0),
+                              t.clamp(0.0, 1.0),
+                              (t + glowWidth).clamp(0.0, 1.0),
+                            ],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: haven.accent.withValues(alpha: 0.2),
+                              blurRadius: 4,
+                            ),
+                          ],
                         ),
-                      ]
-                    : null,
-              ),
-            ),
+                      );
+                    },
+                  )
+                : Container(
+                    height: 1,
+                    color: haven.border,
+                  ),
           ),
           const SizedBox(width: HavenSpacing.sm),
-          Text(
-            '$count',
-            style: HavenTypography.caption.copyWith(
-              color: haven.textSecondary,
-              fontWeight: FontWeight.w600,
-              fontSize: 11,
-            ),
-          ),
+          Text('${widget.count}', style: textStyle),
         ],
       ),
     );
@@ -183,11 +232,9 @@ class _ServerMemberContent extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Header
+        // Header — ASOT-style divider matching Online/Offline sections
         Container(
           height: 48,
-          padding:
-              const EdgeInsets.symmetric(horizontal: HavenSpacing.lg),
           decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(color: haven.border),
@@ -195,28 +242,37 @@ class _ServerMemberContent extends ConsumerWidget {
           ),
           alignment: Alignment.centerLeft,
           child: membersAsync.when(
-            data: (members) => Text(
-              'Members \u2014 ${members.length}',
-              style: HavenTypography.caption.copyWith(
-                color: haven.textSecondary,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.8,
+            data: (members) => _SectionDivider(
+              label: 'Members',
+              count: members.length,
+              isOnline: false,
+            ),
+            loading: () => Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: HavenSpacing.sm + 2,
+              ),
+              child: Text(
+                'Members ...',
+                style: HavenTypography.caption.copyWith(
+                  color: haven.textSecondary,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.8,
+                  fontSize: 11,
+                ),
               ),
             ),
-            loading: () => Text(
-              'Members \u2014 ...',
-              style: HavenTypography.caption.copyWith(
-                color: haven.textSecondary,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.8,
+            error: (_, _) => Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: HavenSpacing.sm + 2,
               ),
-            ),
-            error: (_, _) => Text(
-              'Members \u2014 ?',
-              style: HavenTypography.caption.copyWith(
-                color: haven.textSecondary,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.8,
+              child: Text(
+                'Members ?',
+                style: HavenTypography.caption.copyWith(
+                  color: haven.textSecondary,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.8,
+                  fontSize: 11,
+                ),
               ),
             ),
           ),
@@ -322,73 +378,50 @@ class _PeerMemberContent extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final haven = HavenTheme.of(context);
     final peers = ref.watch(peersProvider);
-    final headerReveal =
-        StartupRevealScope.interval(context, 0.55, 0.65);
     final memberListReveal =
         StartupRevealScope.interval(context, 0.60, 0.80);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Header
-        Container(
-          height: 48,
-          padding:
-              const EdgeInsets.symmetric(horizontal: HavenSpacing.lg),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(color: haven.border),
-            ),
-          ),
-          alignment: Alignment.centerLeft,
-          child: TypewriterText(
-            text: 'Members \u2014 ${peers.length}',
-            animation: headerReveal,
-            style: HavenTypography.caption.copyWith(
-              color: haven.textSecondary,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.8,
-            ),
-          ),
-        ),
-
-        // Peer list
-        Expanded(
-          child: peers.isEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(HavenSpacing.xl),
-                    child: Text(
-                      'No peers online',
-                      style: HavenTypography.bodySmall.copyWith(
-                        color: haven.textSecondary,
-                      ),
-                    ),
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: peers.length,
-                  padding: const EdgeInsets.symmetric(
-                      vertical: HavenSpacing.sm),
-                  itemBuilder: (context, index) {
-                    final peerId = peers.keys.elementAt(index);
-                    final peer = peers[peerId];
-
-                    return StaggeredListItem(
-                      parentAnimation: memberListReveal,
-                      index: index,
-                      totalItems: peers.length,
-                      slideFrom: const Offset(0.3, 0),
-                      child: _MemberTile(
-                        peerId: peerId,
-                        isEncrypted: peer?.isEncrypted ?? false,
-                      ),
-                    );
-                  },
+    return peers.isEmpty
+        ? Center(
+            child: Padding(
+              padding: const EdgeInsets.all(HavenSpacing.xl),
+              child: Text(
+                'No peers online',
+                style: HavenTypography.bodySmall.copyWith(
+                  color: haven.textSecondary,
                 ),
-        ),
-      ],
-    );
+              ),
+            ),
+          )
+        : ListView.builder(
+            itemCount: peers.length + 1, // +1 for ASOT header
+            padding: const EdgeInsets.symmetric(
+                vertical: HavenSpacing.sm),
+            itemBuilder: (context, index) {
+              // First item: ASOT-style divider
+              if (index == 0) {
+                return _SectionDivider(
+                  label: 'Online',
+                  count: peers.length,
+                  isOnline: true,
+                );
+              }
+              final peerIndex = index - 1;
+              final peerId = peers.keys.elementAt(peerIndex);
+              final peer = peers[peerId];
+
+              return StaggeredListItem(
+                parentAnimation: memberListReveal,
+                index: peerIndex,
+                totalItems: peers.length,
+                slideFrom: const Offset(0.3, 0),
+                child: _MemberTile(
+                  peerId: peerId,
+                  isEncrypted: peer?.isEncrypted ?? false,
+                ),
+              );
+            },
+          );
   }
 }
 
