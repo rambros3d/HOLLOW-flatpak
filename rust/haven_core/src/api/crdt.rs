@@ -316,6 +316,110 @@ pub fn join_server(server_id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Get the local user's role in a server.
+/// Returns "owner", "admin", "moderator", or "member".
+#[frb]
+pub fn get_my_role(server_id: String) -> Result<String, String> {
+    let data_dir = dirs::data_dir().ok_or("Could not find app data directory")?;
+    let haven_dir = data_dir.join("haven");
+    let db_path = haven_dir
+        .join("messages.db")
+        .to_str()
+        .ok_or("Invalid path")?
+        .to_string();
+
+    let id = crate::identity::load_or_create_identity()?;
+    let proto = id
+        .keypair
+        .to_protobuf_encoding()
+        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+
+    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let state_json = store
+        .load_server_state(&server_id)?
+        .ok_or(format!("Server {server_id} not found"))?;
+
+    let state =
+        serde_json::from_str::<crate::crdt::server_state::ServerState>(&state_json)
+            .map_err(|e| format!("Failed to parse server state: {e}"))?;
+
+    let peer_id = id.peer_id.to_string();
+    Ok(state.get_role(&peer_id).as_str().to_string())
+}
+
+/// Get the local user's permissions bitmask in a server.
+#[frb]
+pub fn get_my_permissions(server_id: String) -> Result<u32, String> {
+    let data_dir = dirs::data_dir().ok_or("Could not find app data directory")?;
+    let haven_dir = data_dir.join("haven");
+    let db_path = haven_dir
+        .join("messages.db")
+        .to_str()
+        .ok_or("Invalid path")?
+        .to_string();
+
+    let id = crate::identity::load_or_create_identity()?;
+    let proto = id
+        .keypair
+        .to_protobuf_encoding()
+        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+
+    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let state_json = store
+        .load_server_state(&server_id)?
+        .ok_or(format!("Server {server_id} not found"))?;
+
+    let state =
+        serde_json::from_str::<crate::crdt::server_state::ServerState>(&state_json)
+            .map_err(|e| format!("Failed to parse server state: {e}"))?;
+
+    let peer_id = id.peer_id.to_string();
+    Ok(state.get_permissions(&peer_id))
+}
+
+/// Change a member's role in a server.
+/// Requires MANAGE_ROLES permission and must outrank the target.
+#[frb]
+pub fn change_member_role(server_id: String, peer_id: String, new_role: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::ChangeRole {
+            server_id,
+            peer_id,
+            new_role,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Kick a member from a server.
+/// Requires KICK_MEMBERS permission and must outrank the target.
+#[frb]
+pub fn kick_member(server_id: String, peer_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::KickMember {
+            server_id,
+            peer_id,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
 /// Delete a server entirely (removes from local DB and memory).
 #[frb]
 pub fn delete_server(server_id: String) -> Result<(), String> {

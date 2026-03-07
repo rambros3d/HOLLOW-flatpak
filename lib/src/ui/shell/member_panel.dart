@@ -63,15 +63,18 @@ class MemberPanel extends ConsumerWidget {
 
 /// ASOT-style section divider: "Online ------------ 10"
 /// Online variant has a subtle left-to-right glow sweep on the line.
+/// [glowColor] overrides the default accent color for the glow sweep.
 class _SectionDivider extends StatefulWidget {
   final String label;
   final int count;
   final bool isOnline;
+  final Color? glowColor;
 
   const _SectionDivider({
     required this.label,
     required this.count,
     required this.isOnline,
+    this.glowColor,
   });
 
   @override
@@ -136,13 +139,14 @@ class _SectionDividerState extends State<_SectionDivider>
                       // Map 0..1 to -0.2..1.2 so the glow fully exits both edges.
                       final t = -0.2 + _curved.value * 1.4;
                       const glowWidth = 0.15;
+                      final color = widget.glowColor ?? haven.accent;
                       return Container(
                         height: 1,
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
                               haven.border,
-                              haven.accent.withValues(alpha: 0.5),
+                              color.withValues(alpha: 0.5),
                               haven.border,
                             ],
                             stops: [
@@ -153,7 +157,7 @@ class _SectionDividerState extends State<_SectionDivider>
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: haven.accent.withValues(alpha: 0.2),
+                              color: color.withValues(alpha: 0.2),
                               blurRadius: 4,
                             ),
                           ],
@@ -211,6 +215,39 @@ class _SpinningRefreshIconState extends State<_SpinningRefreshIcon>
       child: Icon(LucideIcons.refreshCw, size: widget.size, color: widget.color),
     );
   }
+}
+
+/// Glow color for role-grouped ASOT dividers.
+/// Gold for owner, purple for admin, orange for moderator, teal for member.
+Color _roleGlowColor(String role, HavenTheme haven) {
+  return switch (role) {
+    'owner' => haven.warning,
+    'admin' => const Color(0xFFA78BFA),
+    'moderator' =>
+      Color.lerp(haven.warning, haven.error, 0.5) ?? haven.warning,
+    _ => haven.accent,
+  };
+}
+
+/// Divider label text for role groups.
+String _roleDividerLabel(String role) {
+  return switch (role) {
+    'owner' => 'Owner',
+    'admin' => 'Admin',
+    'moderator' => 'Moderator',
+    _ => 'Members',
+  };
+}
+
+/// Color for the role label text in member tiles.
+Color _roleLabelColor(String role, HavenTheme haven) {
+  return switch (role) {
+    'owner' => haven.warning,
+    'admin' => const Color(0xFFA78BFA),
+    'moderator' =>
+      Color.lerp(haven.warning, haven.error, 0.5) ?? haven.warning,
+    _ => haven.textSecondary,
+  };
 }
 
 /// Server member list content (header + online/offline member list).
@@ -307,21 +344,72 @@ class _ServerMemberContent extends ConsumerWidget {
                       !connectedPeers.containsKey(m.peerId))
                   .toList();
 
+              // Group by role within each section
+              final roleOrder = ['owner', 'admin', 'moderator', 'member'];
+
+              Widget buildRoleGrouped(
+                List<dynamic> memberList,
+                bool isOnline,
+              ) {
+                final groups = <String, List<dynamic>>{};
+                for (final m in memberList) {
+                  final role = m.role as String;
+                  (groups[role] ??= []).add(m);
+                }
+
+                final items = <Widget>[];
+                for (final role in roleOrder) {
+                  final group = groups[role];
+                  if (group == null || group.isEmpty) continue;
+
+                  // Role-colored divider for online groups
+                  if (isOnline) {
+                    final glowColor = _roleGlowColor(role, haven);
+                    final label = _roleDividerLabel(role);
+                    items.add(_SectionDivider(
+                      label: label,
+                      count: group.length,
+                      isOnline: true,
+                      glowColor: glowColor,
+                    ));
+                  }
+
+                  for (final m in group) {
+                    items.add(_ServerMemberTile(
+                      peerId: m.peerId,
+                      displayName: m.displayName,
+                      role: m.role,
+                      isOnline: isOnline,
+                    ));
+                  }
+                }
+                return Column(
+                    mainAxisSize: MainAxisSize.min, children: items);
+              }
+
               // Build flat item list
               final items = <Widget>[];
               if (online.isNotEmpty) {
-                items.add(_SectionDivider(
-                  label: 'Online',
-                  count: online.length,
-                  isOnline: true,
-                ));
-                for (final m in online) {
-                  items.add(_ServerMemberTile(
-                    peerId: m.peerId,
-                    displayName: m.displayName,
-                    role: m.role,
+                // If all online members share the same role, show "Online" divider
+                final roles = online.map((m) => m.role).toSet();
+                if (roles.length == 1 && roles.first == 'member') {
+                  // All regular members — use simple "Online" divider
+                  items.add(_SectionDivider(
+                    label: 'Online',
+                    count: online.length,
                     isOnline: true,
                   ));
+                  for (final m in online) {
+                    items.add(_ServerMemberTile(
+                      peerId: m.peerId,
+                      displayName: m.displayName,
+                      role: m.role,
+                      isOnline: true,
+                    ));
+                  }
+                } else {
+                  // Multiple roles — group by role with colored dividers
+                  items.add(buildRoleGrouped(online, true));
                 }
               }
               if (offline.isNotEmpty) {
@@ -503,11 +591,11 @@ class _ServerMemberTile extends ConsumerWidget {
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
-                  if (role == 'owner')
+                  if (role != 'member')
                     Text(
-                      'Owner',
+                      role[0].toUpperCase() + role.substring(1),
                       style: HavenTypography.caption.copyWith(
-                        color: haven.accent,
+                        color: _roleLabelColor(role, haven),
                         fontSize: 10,
                       ),
                     ),

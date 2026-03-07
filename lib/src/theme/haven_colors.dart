@@ -26,7 +26,7 @@ abstract final class HavenColors {
   // ── Semantic ──
   static const error = Color(0xFFEF4444);
   static const success = Color(0xFF10B981);
-  static const warning = Color(0xFFF59E0B);
+  static const warning = Color(0xFFFBBF24);
 
   // ══════════════════════════════════════════
   // ── Light Mode ──

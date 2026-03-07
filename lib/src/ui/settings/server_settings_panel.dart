@@ -13,6 +13,7 @@ import 'package:haven/src/ui/settings/overview_tab.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Full server settings panel — replaces the chat pane.
+/// Tabs are gated by the local user's permissions.
 class ServerSettingsPanel extends ConsumerStatefulWidget {
   final ServerInfo server;
 
@@ -26,12 +27,65 @@ class ServerSettingsPanel extends ConsumerStatefulWidget {
 class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
   int _selectedTab = 0;
 
-  static const _tabs = [
-    (icon: LucideIcons.info, label: 'Overview'),
-    (icon: LucideIcons.hash, label: 'Channels'),
-    (icon: LucideIcons.users, label: 'Members'),
-    (icon: LucideIcons.alertTriangle, label: 'Danger'),
-  ];
+  List<({IconData icon, String label, bool isDanger})> _visibleTabs(
+      int permissions) {
+    final tabs = <({IconData icon, String label, bool isDanger})>[];
+
+    // Overview — only for server managers (rename, description)
+    if (permissions & Permission.manageServer != 0) {
+      tabs.add((
+        icon: LucideIcons.info,
+        label: 'Overview',
+        isDanger: false,
+      ));
+    }
+
+    // Channels — only for channel managers
+    if (permissions & Permission.manageChannels != 0) {
+      tabs.add((
+        icon: LucideIcons.hash,
+        label: 'Channels',
+        isDanger: false,
+      ));
+    }
+
+    // Members — always visible (viewing is OK, actions gated inside)
+    tabs.add((
+      icon: LucideIcons.users,
+      label: 'Members',
+      isDanger: false,
+    ));
+
+    // Danger Zone — only for server owner
+    if (permissions & Permission.manageServer != 0) {
+      tabs.add((
+        icon: LucideIcons.alertTriangle,
+        label: 'Danger',
+        isDanger: true,
+      ));
+    }
+
+    return tabs;
+  }
+
+  Widget _buildTabContent(
+    ServerInfo server,
+    List<({IconData icon, String label, bool isDanger})> tabs,
+  ) {
+    if (_selectedTab >= tabs.length) return const SizedBox.shrink();
+    final tab = tabs[_selectedTab];
+    return switch (tab.label) {
+      'Overview' => OverviewTab(
+          key: const ValueKey('overview'), server: server),
+      'Channels' => ChannelsTab(
+          key: const ValueKey('channels'), serverId: server.serverId),
+      'Members' => MembersTab(
+          key: const ValueKey('members'), serverId: server.serverId),
+      'Danger' => DangerZoneTab(
+          key: const ValueKey('danger'), server: server),
+      _ => const SizedBox.shrink(),
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +94,57 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
     // Re-read the server from provider so it updates when renamed
     final currentServer =
         ref.watch(serverListProvider)[widget.server.serverId] ?? widget.server;
+
+    final permissionsAsync =
+        ref.watch(myPermissionsProvider(widget.server.serverId));
+
+    // Don't render until permissions are loaded — prevents flash of wrong tabs.
+    if (!permissionsAsync.hasValue) {
+      return Column(
+        children: [
+          Container(
+            height: 48,
+            padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.lg),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: haven.border)),
+            ),
+            child: Row(
+              children: [
+                Icon(LucideIcons.settings, size: 18, color: haven.textSecondary),
+                const SizedBox(width: HavenSpacing.sm),
+                Expanded(
+                  child: Text(
+                    'Server Settings — ${currentServer.name}',
+                    style: HavenTypography.subheading.copyWith(
+                      color: haven.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                HavenPressable(
+                  onTap: () {
+                    ref.read(serverSettingsOpenProvider.notifier).state = false;
+                  },
+                  borderRadius: BorderRadius.circular(haven.radiusSm),
+                  padding: const EdgeInsets.all(HavenSpacing.xs),
+                  child: Icon(LucideIcons.x, size: 18, color: haven.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          const Expanded(child: SizedBox.shrink()),
+        ],
+      );
+    }
+
+    final permissions = permissionsAsync.value!;
+    final tabs = _visibleTabs(permissions);
+
+    // Clamp selected tab if permissions changed
+    if (_selectedTab >= tabs.length) {
+      _selectedTab = 0;
+    }
 
     return Column(
       children: [
@@ -90,14 +195,14 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
             border: Border(bottom: BorderSide(color: haven.border)),
           ),
           child: Row(
-            children: List.generate(_tabs.length, (i) {
-              final tab = _tabs[i];
+            children: List.generate(tabs.length, (i) {
+              final tab = tabs[i];
               final isSelected = i == _selectedTab;
               return _TabButton(
                 icon: tab.icon,
                 label: tab.label,
                 isSelected: isSelected,
-                isDanger: i == 3,
+                isDanger: tab.isDanger,
                 onTap: () => setState(() => _selectedTab = i),
               );
             }),
@@ -108,23 +213,11 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
         Expanded(
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 200),
-            child: _buildTabContent(currentServer),
+            child: _buildTabContent(currentServer, tabs),
           ),
         ),
       ],
     );
-  }
-
-  Widget _buildTabContent(ServerInfo server) {
-    return switch (_selectedTab) {
-      0 => OverviewTab(key: const ValueKey('overview'), server: server),
-      1 => ChannelsTab(
-          key: const ValueKey('channels'), serverId: server.serverId),
-      2 => MembersTab(
-          key: const ValueKey('members'), serverId: server.serverId),
-      3 => DangerZoneTab(key: const ValueKey('danger'), server: server),
-      _ => const SizedBox.shrink(),
-    };
   }
 }
 

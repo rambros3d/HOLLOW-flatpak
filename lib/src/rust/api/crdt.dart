@@ -87,6 +87,35 @@ Future<void> updateServerSetting({
 Future<void> joinServer({required String serverId}) =>
     RustLib.instance.api.crateApiCrdtJoinServer(serverId: serverId);
 
+/// Get the local user's role in a server.
+/// Returns "owner", "admin", "moderator", or "member".
+Future<String> getMyRole({required String serverId}) =>
+    RustLib.instance.api.crateApiCrdtGetMyRole(serverId: serverId);
+
+/// Get the local user's permissions bitmask in a server.
+Future<int> getMyPermissions({required String serverId}) =>
+    RustLib.instance.api.crateApiCrdtGetMyPermissions(serverId: serverId);
+
+/// Change a member's role in a server.
+/// Requires MANAGE_ROLES permission and must outrank the target.
+Future<void> changeMemberRole({
+  required String serverId,
+  required String peerId,
+  required String newRole,
+}) => RustLib.instance.api.crateApiCrdtChangeMemberRole(
+  serverId: serverId,
+  peerId: peerId,
+  newRole: newRole,
+);
+
+/// Kick a member from a server.
+/// Requires KICK_MEMBERS permission and must outrank the target.
+Future<void> kickMember({required String serverId, required String peerId}) =>
+    RustLib.instance.api.crateApiCrdtKickMember(
+      serverId: serverId,
+      peerId: peerId,
+    );
+
 /// Delete a server entirely (removes from local DB and memory).
 Future<void> deleteServer({required String serverId}) =>
     RustLib.instance.api.crateApiCrdtDeleteServer(serverId: serverId);

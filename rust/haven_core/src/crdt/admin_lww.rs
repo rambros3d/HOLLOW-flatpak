@@ -104,9 +104,9 @@ mod tests {
     #[test]
     fn owner_always_wins() {
         let mut admin_reg =
-            AdminLwwReg::new("admin".to_string(), ts(5000, 0, "admin"), 1);
+            AdminLwwReg::new("admin".to_string(), ts(5000, 0, "admin"), 2); // Admin priority
         let owner_reg =
-            AdminLwwReg::new("owner".to_string(), ts(1000, 0, "owner"), 2);
+            AdminLwwReg::new("owner".to_string(), ts(1000, 0, "owner"), 3); // Owner priority
 
         admin_reg.merge(&owner_reg);
         assert_eq!(admin_reg.read(), "owner");
@@ -115,14 +115,29 @@ mod tests {
     #[test]
     fn lower_priority_does_not_override() {
         let mut admin_reg =
-            AdminLwwReg::new("admin".to_string(), ts(1000, 0, "admin"), 1);
+            AdminLwwReg::new("admin".to_string(), ts(1000, 0, "admin"), 2); // Admin priority
         let member_reg = AdminLwwReg::new(
             "member".to_string(),
             ts(9999, 0, "member"), // Much later timestamp
-            0,
+            0, // Member priority
         );
 
         admin_reg.merge(&member_reg);
         assert_eq!(admin_reg.read(), "admin");
+    }
+
+    #[test]
+    fn moderator_beats_member_not_admin() {
+        // Moderator (1) beats Member (0)
+        let mut member_reg = AdminLwwReg::new("member".to_string(), ts(5000, 0, "m"), 0);
+        let mod_reg = AdminLwwReg::new("moderator".to_string(), ts(1000, 0, "mod"), 1);
+        member_reg.merge(&mod_reg);
+        assert_eq!(member_reg.read(), "moderator");
+
+        // Admin (2) beats Moderator (1)
+        let mut mod_reg2 = AdminLwwReg::new("moderator".to_string(), ts(9999, 0, "mod"), 1);
+        let admin_reg = AdminLwwReg::new("admin".to_string(), ts(1000, 0, "admin"), 2);
+        mod_reg2.merge(&admin_reg);
+        assert_eq!(mod_reg2.read(), "admin");
     }
 }

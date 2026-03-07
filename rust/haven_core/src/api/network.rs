@@ -44,6 +44,7 @@ pub enum NetworkEvent {
     MessageSyncCompleted { server_id: String, new_message_count: u32 },
     MessageSyncFailed { server_id: String, error: String },
     MessageSyncProgress { server_id: String, channel_id: String, received_count: u32, total_count: u32 },
+    RoleChanged { server_id: String, peer_id: String, new_role: String },
 }
 
 /// Holds all mutable state for the running node.
@@ -149,6 +150,9 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::MessageSyncProgress { server_id, channel_id, received_count, total_count } => {
             haven_log!("[HAVEN] Sync progress for {channel_id} in {server_id}: {received_count}/{total_count}");
         }
+        node::NetworkEvent::RoleChanged { server_id, peer_id, new_role } => {
+            haven_log!("[HAVEN] Role changed: {peer_id} is now {new_role} in {server_id}");
+        }
         _ => {}
     }
     match event {
@@ -219,6 +223,9 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::MessageSyncProgress { server_id, channel_id, received_count, total_count } => {
             NetworkEvent::MessageSyncProgress { server_id, channel_id, received_count, total_count }
+        }
+        node::NetworkEvent::RoleChanged { server_id, peer_id, new_role } => {
+            NetworkEvent::RoleChanged { server_id, peer_id, new_role }
         }
     }
 }

@@ -83,6 +83,9 @@ class EventStreamNotifier extends Notifier<bool> {
 
       case NetworkEvent_SessionEstablished(:final peerId):
         ref.read(peersProvider.notifier).markEncrypted(peerId);
+        // After re-key, clear any "Sync failed" status for servers where this
+        // peer is a member, so the UI recovers automatically.
+        _clearFailedSyncForPeer(peerId);
 
       case NetworkEvent_MessageSent():
         break;
@@ -208,6 +211,50 @@ class EventStreamNotifier extends Notifier<bool> {
             '[HAVEN] Sync progress: $receivedCount/$totalCount for $channelId in $serverId');
         ref.read(syncProgressProvider.notifier).updateProgress(
             serverId, receivedCount, totalCount);
+
+      case NetworkEvent_RoleChanged(:final serverId, :final peerId, :final newRole):
+        debugPrint('[HAVEN] Role changed: $peerId is now $newRole in $serverId');
+        ref.read(serverListProvider.notifier).onServerUpdated(serverId);
+        ref.invalidate(serverMembersProvider(serverId));
+        ref.invalidate(myRoleProvider(serverId));
+        ref.invalidate(myPermissionsProvider(serverId));
+    }
+  }
+
+  /// When a session is (re-)established with a peer, clear any "Sync failed"
+  /// status for servers where that peer is a member, and re-trigger sync for
+  /// the active channel so the UI recovers automatically after re-key.
+  void _clearFailedSyncForPeer(String peerId) {
+    final syncStatuses = ref.read(syncStatusProvider);
+    final servers = ref.read(serverListProvider);
+
+    for (final serverId in servers.keys) {
+      final status = syncStatuses[serverId];
+      if (status != ServerSyncStatus.failed) continue;
+
+      // Check if this peer is a member of this server.
+      final membersAsync = ref.read(serverMembersProvider(serverId));
+      final isMember = membersAsync.whenOrNull(
+        data: (members) => members.any((m) => m.peerId == peerId),
+      ) ?? false;
+
+      if (isMember) {
+        // Clear the failed status — effective status will derive from peer count.
+        ref.read(syncStatusProvider.notifier).setStatus(
+            serverId, ServerSyncStatus.idle);
+
+        // Re-trigger sync for the currently viewed channel.
+        final selectedServer = ref.read(selectedServerProvider);
+        final selectedChannel = ref.read(selectedChannelProvider);
+        if (selectedServer == serverId && selectedChannel != null) {
+          try {
+            requestChannelSync(
+              serverId: serverId,
+              channelId: selectedChannel,
+            );
+          } catch (_) {}
+        }
+      }
     }
   }
 }

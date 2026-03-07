@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::admin_lww::AdminLwwReg;
 use super::hlc::Hlc;
-use super::operations::{CrdtOp, CrdtPayload, MemberRole};
+use super::operations::{CrdtOp, CrdtPayload, MemberRole, Permission};
 
 /// Metadata for a channel within a server.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -224,6 +224,9 @@ impl ServerState {
                 role,
                 priority,
             } => {
+                // Use the author's priority (from the op payload) so that higher-ranked
+                // authors can demote lower-ranked members. The priority in the payload
+                // is the author's role priority, not the target role's.
                 let entry = self.roles.entry(peer_id.clone()).or_insert_with(|| {
                     AdminLwwReg::new(role.clone(), op.hlc.clone(), *priority)
                 });
@@ -275,6 +278,61 @@ impl ServerState {
             .get(author)
             .map(|reg| reg.read().priority())
             .unwrap_or(0)
+    }
+
+    /// Get the effective permissions bitmask for a peer.
+    /// Owner gets ALL permissions regardless.
+    pub fn get_permissions(&self, peer_id: &str) -> u32 {
+        let role = self.get_role(peer_id);
+        if role == MemberRole::Owner {
+            return Permission::ALL;
+        }
+        role.default_permissions()
+    }
+
+    /// Check if a peer has a specific permission.
+    pub fn has_permission(&self, peer_id: &str, permission: u32) -> bool {
+        self.get_permissions(peer_id) & permission != 0
+    }
+
+    /// Check if `actor` can change `target`'s role to `new_role`.
+    /// Rules: Owner can do anything. Others can only change roles below
+    /// their own rank, and can only assign roles below their own rank.
+    pub fn can_change_role(&self, actor: &str, target: &str, new_role: &MemberRole) -> bool {
+        let actor_role = self.get_role(actor);
+        if actor_role == MemberRole::Owner {
+            return true;
+        }
+        if !self.has_permission(actor, Permission::MANAGE_ROLES) {
+            return false;
+        }
+        let target_role = self.get_role(target);
+        // Can't change someone of equal or higher rank
+        if !actor_role.outranks(&target_role) {
+            return false;
+        }
+        // Can't assign a role equal to or higher than your own
+        if !actor_role.outranks(new_role) {
+            return false;
+        }
+        // Can't set someone to Owner via role change
+        if *new_role == MemberRole::Owner {
+            return false;
+        }
+        true
+    }
+
+    /// Check if `actor` can kick `target`.
+    pub fn can_kick(&self, actor: &str, target: &str) -> bool {
+        let actor_role = self.get_role(actor);
+        if actor_role == MemberRole::Owner {
+            return true;
+        }
+        if !self.has_permission(actor, Permission::KICK_MEMBERS) {
+            return false;
+        }
+        let target_role = self.get_role(target);
+        actor_role.outranks(&target_role)
     }
 }
 
@@ -389,5 +447,159 @@ mod tests {
         // Both converge to the same state
         assert_eq!(state_a.channels.len(), state_b.channels.len());
         assert_eq!(state_a.members.len(), state_b.members.len());
+    }
+
+    #[test]
+    fn owner_has_all_permissions() {
+        let state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        assert!(state.has_permission("owner", Permission::MANAGE_SERVER));
+        assert!(state.has_permission("owner", Permission::MANAGE_CHANNELS));
+        assert!(state.has_permission("owner", Permission::MANAGE_ROLES));
+        assert!(state.has_permission("owner", Permission::KICK_MEMBERS));
+    }
+
+    #[test]
+    fn member_has_limited_permissions() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let op = state.create_op(CrdtPayload::MemberAdded {
+            peer_id: "member".into(),
+            display_name: "M".into(),
+        });
+        state.apply_op(&op).unwrap();
+
+        assert!(!state.has_permission("member", Permission::MANAGE_SERVER));
+        assert!(!state.has_permission("member", Permission::MANAGE_CHANNELS));
+        assert!(!state.has_permission("member", Permission::MANAGE_ROLES));
+        assert!(!state.has_permission("member", Permission::KICK_MEMBERS));
+        assert!(state.has_permission("member", Permission::SEND_MESSAGES));
+        assert!(state.has_permission("member", Permission::READ_MESSAGES));
+    }
+
+    #[test]
+    fn role_change_permissions() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let op = state.create_op(CrdtPayload::MemberAdded {
+            peer_id: "admin".into(),
+            display_name: "A".into(),
+        });
+        state.apply_op(&op).unwrap();
+        // Owner (priority 3) promotes admin — uses author's priority
+        let op = state.create_op(CrdtPayload::RoleChanged {
+            peer_id: "admin".into(),
+            role: MemberRole::Admin,
+            priority: MemberRole::Owner.priority(), // Author is owner
+        });
+        state.apply_op(&op).unwrap();
+
+        let op = state.create_op(CrdtPayload::MemberAdded {
+            peer_id: "member".into(),
+            display_name: "M".into(),
+        });
+        state.apply_op(&op).unwrap();
+
+        // Owner can change anyone
+        assert!(state.can_change_role("owner", "admin", &MemberRole::Member));
+        assert!(state.can_change_role("owner", "member", &MemberRole::Admin));
+
+        // Admin can change member to moderator
+        assert!(state.can_change_role("admin", "member", &MemberRole::Moderator));
+        // Admin cannot promote to admin (same rank)
+        assert!(!state.can_change_role("admin", "member", &MemberRole::Admin));
+        // Admin cannot change owner
+        assert!(!state.can_change_role("admin", "owner", &MemberRole::Member));
+        // Member cannot change anyone
+        assert!(!state.can_change_role("member", "admin", &MemberRole::Member));
+    }
+
+    #[test]
+    fn kick_permissions() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let op = state.create_op(CrdtPayload::MemberAdded {
+            peer_id: "mod".into(),
+            display_name: "Mod".into(),
+        });
+        state.apply_op(&op).unwrap();
+        // Owner (priority 3) promotes moderator — uses author's priority
+        let op = state.create_op(CrdtPayload::RoleChanged {
+            peer_id: "mod".into(),
+            role: MemberRole::Moderator,
+            priority: MemberRole::Owner.priority(), // Author is owner
+        });
+        state.apply_op(&op).unwrap();
+
+        let op = state.create_op(CrdtPayload::MemberAdded {
+            peer_id: "member".into(),
+            display_name: "M".into(),
+        });
+        state.apply_op(&op).unwrap();
+
+        // Owner can kick anyone
+        assert!(state.can_kick("owner", "mod"));
+        assert!(state.can_kick("owner", "member"));
+
+        // Moderator can kick members (lower rank)
+        assert!(state.can_kick("mod", "member"));
+        // Moderator cannot kick owner (higher rank)
+        assert!(!state.can_kick("mod", "owner"));
+        // Member cannot kick anyone
+        assert!(!state.can_kick("member", "mod"));
+    }
+
+    #[test]
+    fn role_demotion_works() {
+        // Regression test: Owner promotes member→admin, then demotes admin→member.
+        // The demotion must succeed because the author (Owner, priority 3) outranks
+        // the existing entry.
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let op = state.create_op(CrdtPayload::MemberAdded {
+            peer_id: "peer_b".into(),
+            display_name: "B".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.get_role("peer_b"), MemberRole::Member);
+
+        // Promote to Admin (author=owner, priority=3)
+        let op = state.create_op(CrdtPayload::RoleChanged {
+            peer_id: "peer_b".into(),
+            role: MemberRole::Admin,
+            priority: MemberRole::Owner.priority(),
+        });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.get_role("peer_b"), MemberRole::Admin);
+
+        // Demote back to Member (author=owner, priority=3)
+        let op = state.create_op(CrdtPayload::RoleChanged {
+            peer_id: "peer_b".into(),
+            role: MemberRole::Member,
+            priority: MemberRole::Owner.priority(),
+        });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.get_role("peer_b"), MemberRole::Member);
+
+        // Promote to Moderator, then demote to Member again
+        let op = state.create_op(CrdtPayload::RoleChanged {
+            peer_id: "peer_b".into(),
+            role: MemberRole::Moderator,
+            priority: MemberRole::Owner.priority(),
+        });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.get_role("peer_b"), MemberRole::Moderator);
+
+        let op = state.create_op(CrdtPayload::RoleChanged {
+            peer_id: "peer_b".into(),
+            role: MemberRole::Member,
+            priority: MemberRole::Owner.priority(),
+        });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.get_role("peer_b"), MemberRole::Member);
+    }
+
+    #[test]
+    fn moderator_role_hierarchy() {
+        assert!(MemberRole::Owner.outranks(&MemberRole::Admin));
+        assert!(MemberRole::Admin.outranks(&MemberRole::Moderator));
+        assert!(MemberRole::Moderator.outranks(&MemberRole::Member));
+        assert!(!MemberRole::Member.outranks(&MemberRole::Moderator));
+        assert!(!MemberRole::Moderator.outranks(&MemberRole::Admin));
     }
 }

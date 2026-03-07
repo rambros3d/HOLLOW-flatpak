@@ -183,4 +183,9 @@ sealed class NetworkEvent with _$NetworkEvent {
     required int receivedCount,
     required int totalCount,
   }) = NetworkEvent_MessageSyncProgress;
+  const factory NetworkEvent.roleChanged({
+    required String serverId,
+    required String peerId,
+    required String newRole,
+  }) = NetworkEvent_RoleChanged;
 }

@@ -93,14 +93,19 @@ Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection mana
 - Header indicator cleanup: sync-only status (no redundant member count), fixed retry button
 
 - Connectivity fixes: relay-first dialing (avoids stale address timeouts), ghost peer prevention (3-min disconnect cooldown), proactive Olm session on server join (KeyRequest in ServerJoinRequest/SyncResponse handlers)
+- Roles & permissions: Discord-like hierarchy (Owner > Admin > Moderator > Member), Permission bitmask gating on all CRDT commands, role change/kick with hierarchy validation, role-colored ASOT dividers in member panel, permission-gated server settings tabs
+- Role demotion fix: ChangeRole handler uses author's role priority (not target's) in CRDT op — ensures higher-ranked users can demote lower-ranked. AdminLwwReg merge correctly resolves.
+- Kick propagation fix: broadcast targets collected BEFORE apply_op removes member. New `MemberKickBroadcast` message sent to kicked peer — triggers server removal + DB cleanup (like ServerDeleteBroadcast).
+- Role colors: Owner = golden yellow (FBBF24), Admin = purple (A78BFA), Moderator = orange (lerp warning/error)
+- Sync recovery: SessionEstablished clears failed sync status + auto-retriggers channel sync. No more stuck "Sync failed" after re-key.
+- Permission loading: ServerSettingsPanel waits for myPermissionsProvider before rendering tabs (prevents flash of owner-level UI on non-owner peers)
 
 **Next up (Phase 3 remaining):**
-1. Roles & permissions system — CRDT-based (LWW-Register with admin priority), role assignment UI
-2. Per-message Ed25519 signing — cryptographic proof of authorship for "The Rat Files" evidence recovery. Sign before encryption, store signature with message. Sender public key known via CRDT membership.
-3. MLS group encryption for channels — replaces Olm fan-out. DMs stay on Olm (1:1 Double Ratchet).
-4. Offline message queuing (store-and-forward via online peers)
+1. Per-message Ed25519 signing — cryptographic proof of authorship for "The Rat Files" evidence recovery. Sign before encryption, store signature with message. Sender public key known via CRDT membership.
+2. MLS group encryption for channels — replaces Olm fan-out. DMs stay on Olm (1:1 Double Ratchet).
+3. Offline message queuing (store-and-forward via online peers)
    - Message ordering: append at bottom (not insert by sender timestamp — abusable), sender timestamp = display metadata only
-5. Device linking via QR code — requires MLS + CRDTs
+4. Device linking via QR code — requires MLS + CRDTs
 
 ## Haven Design System (Phase 2.75)
 All UI interactions go through custom Haven widgets — no Material defaults anywhere. Change behavior in one place, applies everywhere.
@@ -143,4 +148,6 @@ All UI interactions go through custom Haven widgets — no Material defaults any
 - All crypto operations must use constant-time implementations
 - Ask before making architectural decisions not covered in HAVEN_PLAN.md
 - When updating memory (MEMORY.md), also update this file (CLAUDE.md) if relevant
-- Ask user for external actions (installs, VPS ops, account setup) instead of trying silently
+- **VPS deployment:** Ask user — requires SSH password, never store credentials. User deploys themselves.
+- **Local dev commands:** Can run `cargo check/test/clippy`, `flutter_rust_bridge_codegen generate`, `flutter analyze` freely — these are local-only operations.
+- **Building/running the app:** User runs `flutter run -d windows` themselves for testing on their two laptops.

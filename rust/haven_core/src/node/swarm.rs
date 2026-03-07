@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::crdt::hlc::Hlc;
-use crate::crdt::operations::CrdtPayload;
+use crate::crdt::operations::{CrdtPayload, Permission};
 use crate::crdt::server_state::ServerState;
 use crate::crdt::sync::{self as crdt_sync, StateVector};
 use crate::crypto::{CryptoStore, OlmManager};
@@ -112,6 +112,7 @@ pub(crate) enum NetworkEvent {
     MessageSyncCompleted { server_id: String, new_message_count: u32 },
     MessageSyncFailed { server_id: String, error: String },
     MessageSyncProgress { server_id: String, channel_id: String, received_count: u32, total_count: u32 },
+    RoleChanged { server_id: String, peer_id: String, new_role: String },
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
@@ -129,6 +130,8 @@ pub(crate) enum NodeCommand {
     DeleteServer { server_id: String },
     JoinServer { server_id: String },
     RequestChannelSync { server_id: String, channel_id: String },
+    ChangeRole { server_id: String, peer_id: String, new_role: String },
+    KickMember { server_id: String, peer_id: String },
     NotifyShutdown,
 }
 
@@ -185,6 +188,12 @@ enum HavenMessage {
 
     #[serde(rename = "server_delete")]
     ServerDeleteBroadcast {
+        server_id: String,
+    },
+
+    /// Sent to the kicked member so they remove themselves from the server.
+    #[serde(rename = "member_kick")]
+    MemberKickBroadcast {
         server_id: String,
     },
 
@@ -959,6 +968,14 @@ async fn run_swarm(
 
                     NodeCommand::CreateChannel { server_id, name, category } => {
                         if let Some(state) = server_states.get_mut(&server_id) {
+                            let local_peer = swarm.local_peer_id().to_string();
+                            if !state.has_permission(&local_peer, Permission::MANAGE_CHANNELS) {
+                                haven_log!("[HAVEN-CRDT] Permission denied: cannot create channel in {server_id}");
+                                let _ = event_tx.send(NetworkEvent::Error {
+                                    message: "Permission denied: cannot manage channels".to_string(),
+                                }).await;
+                                continue;
+                            }
                             let channel_id = format!("{}-{}", &server_id[..8.min(server_id.len())], hex::encode(&{
                                 let mut buf = [0u8; 4];
                                 getrandom::fill(&mut buf).unwrap();
@@ -1018,6 +1035,14 @@ async fn run_swarm(
 
                     NodeCommand::RemoveChannel { server_id, channel_id } => {
                         if let Some(state) = server_states.get_mut(&server_id) {
+                            let local_peer = swarm.local_peer_id().to_string();
+                            if !state.has_permission(&local_peer, Permission::MANAGE_CHANNELS) {
+                                haven_log!("[HAVEN-CRDT] Permission denied: cannot remove channel in {server_id}");
+                                let _ = event_tx.send(NetworkEvent::Error {
+                                    message: "Permission denied: cannot manage channels".to_string(),
+                                }).await;
+                                continue;
+                            }
                             haven_log!("[HAVEN-CRDT] Removing channel {channel_id} from server {server_id}");
 
                             let op = state.create_op(CrdtPayload::ChannelRemoved {
@@ -1065,6 +1090,14 @@ async fn run_swarm(
 
                     NodeCommand::RenameServer { server_id, new_name } => {
                         if let Some(state) = server_states.get_mut(&server_id) {
+                            let local_peer = swarm.local_peer_id().to_string();
+                            if !state.has_permission(&local_peer, Permission::MANAGE_SERVER) {
+                                haven_log!("[HAVEN-CRDT] Permission denied: cannot rename server {server_id}");
+                                let _ = event_tx.send(NetworkEvent::Error {
+                                    message: "Permission denied: cannot manage server".to_string(),
+                                }).await;
+                                continue;
+                            }
                             haven_log!("[HAVEN-CRDT] Renaming server {server_id} to '{new_name}'");
 
                             let op = state.create_op(CrdtPayload::ServerRenamed {
@@ -1111,6 +1144,14 @@ async fn run_swarm(
 
                     NodeCommand::RenameChannel { server_id, channel_id, new_name } => {
                         if let Some(state) = server_states.get_mut(&server_id) {
+                            let local_peer = swarm.local_peer_id().to_string();
+                            if !state.has_permission(&local_peer, Permission::MANAGE_CHANNELS) {
+                                haven_log!("[HAVEN-CRDT] Permission denied: cannot rename channel in {server_id}");
+                                let _ = event_tx.send(NetworkEvent::Error {
+                                    message: "Permission denied: cannot manage channels".to_string(),
+                                }).await;
+                                continue;
+                            }
                             haven_log!("[HAVEN-CRDT] Renaming channel {channel_id} to '{new_name}' in server {server_id}");
 
                             let op = state.create_op(CrdtPayload::ChannelRenamed {
@@ -1206,6 +1247,18 @@ async fn run_swarm(
                     }
 
                     NodeCommand::DeleteServer { server_id } => {
+                        // Only owner can delete a server.
+                        if let Some(state) = server_states.get(&server_id) {
+                            let local_peer = swarm.local_peer_id().to_string();
+                            if !state.has_permission(&local_peer, Permission::MANAGE_SERVER) {
+                                haven_log!("[HAVEN-CRDT] Permission denied: cannot delete server {server_id}");
+                                let _ = event_tx.send(NetworkEvent::Error {
+                                    message: "Permission denied: only the owner can delete the server".to_string(),
+                                }).await;
+                                continue;
+                            }
+                        }
+
                         haven_log!("[HAVEN-CRDT] Deleting server {server_id}");
 
                         // Broadcast deletion to all connected server members.
@@ -1277,6 +1330,146 @@ async fn run_swarm(
                                     server_id: server_id.clone(),
                                 },
                             );
+                        }
+                    }
+
+                    NodeCommand::ChangeRole { server_id, peer_id, new_role } => {
+                        if let Some(state) = server_states.get_mut(&server_id) {
+                            let local_peer = swarm.local_peer_id().to_string();
+                            let new_member_role = crate::crdt::operations::MemberRole::from_str(&new_role);
+
+                            // Permission check: can the local user change this peer's role?
+                            if !state.can_change_role(&local_peer, &peer_id, &new_member_role) {
+                                haven_log!("[HAVEN-CRDT] Permission denied: cannot change {peer_id} to {new_role} in {server_id}");
+                                let _ = event_tx.send(NetworkEvent::Error {
+                                    message: format!("Permission denied: cannot change role to {new_role}"),
+                                }).await;
+                                continue;
+                            }
+
+                            haven_log!("[HAVEN-CRDT] Changing role of {peer_id} to {new_role} in {server_id}");
+                            // Use the author's (local user's) role priority, not the target role's.
+                            // This ensures demotions work: an Owner(3) demoting Admin(2)→Member
+                            // sends priority 3, which beats the existing priority 2 in AdminLwwReg.
+                            let author_role = state.get_role(&local_peer);
+                            let op = state.create_op(CrdtPayload::RoleChanged {
+                                peer_id: peer_id.clone(),
+                                role: new_member_role.clone(),
+                                priority: author_role.priority(),
+                            });
+                            let _ = state.apply_op(&op);
+
+                            // Persist
+                            if let Ok(json) = serde_json::to_string(&state) {
+                                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                    let _ = store.save_server_state(&server_id, &json);
+                                    let _ = store.insert_crdt_op(&op);
+                                }
+                            }
+
+                            let _ = event_tx.send(NetworkEvent::RoleChanged {
+                                server_id: server_id.clone(),
+                                peer_id: peer_id.clone(),
+                                new_role: new_role.clone(),
+                            }).await;
+
+                            // Broadcast to connected server members only.
+                            if let Ok(op_json) = serde_json::to_string(&op) {
+                                for member_peer_str in state.members.keys() {
+                                    if member_peer_str == &local_peer { continue; }
+                                    if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                        if connected_peers.contains(&pid) {
+                                            swarm.behaviour_mut().messaging.send_request(
+                                                &pid,
+                                                HavenMessage::CrdtOpBroadcast {
+                                                    server_id: server_id.clone(),
+                                                    op_json: op_json.clone(),
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    NodeCommand::KickMember { server_id, peer_id } => {
+                        if let Some(state) = server_states.get_mut(&server_id) {
+                            let local_peer = swarm.local_peer_id().to_string();
+
+                            // Permission check
+                            if !state.can_kick(&local_peer, &peer_id) {
+                                haven_log!("[HAVEN-CRDT] Permission denied: cannot kick {peer_id} from {server_id}");
+                                let _ = event_tx.send(NetworkEvent::Error {
+                                    message: "Permission denied: cannot kick this member".to_string(),
+                                }).await;
+                                continue;
+                            }
+
+                            haven_log!("[HAVEN-CRDT] Kicking member {peer_id} from {server_id}");
+                            let op = state.create_op(CrdtPayload::MemberRemoved {
+                                peer_id: peer_id.clone(),
+                            });
+
+                            // Collect broadcast targets BEFORE apply_op removes the member.
+                            let broadcast_targets: Vec<String> = state.members.keys()
+                                .filter(|m| *m != &local_peer)
+                                .cloned()
+                                .collect();
+
+                            let _ = state.apply_op(&op);
+
+                            // Persist
+                            if let Ok(json) = serde_json::to_string(&state) {
+                                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                    let _ = store.save_server_state(&server_id, &json);
+                                    let _ = store.insert_crdt_op(&op);
+                                }
+                            }
+
+                            let _ = event_tx.send(NetworkEvent::MemberLeft {
+                                server_id: server_id.clone(),
+                                peer_id: peer_id.clone(),
+                            }).await;
+
+                            // Broadcast CRDT op to remaining members (collected before removal).
+                            if let Ok(op_json) = serde_json::to_string(&op) {
+                                for member_peer_str in &broadcast_targets {
+                                    if member_peer_str == &peer_id { continue; } // Kicked peer gets MemberKickBroadcast instead
+                                    if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                        if connected_peers.contains(&pid) {
+                                            swarm.behaviour_mut().messaging.send_request(
+                                                &pid,
+                                                HavenMessage::CrdtOpBroadcast {
+                                                    server_id: server_id.clone(),
+                                                    op_json: op_json.clone(),
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Send kick notification directly to the kicked peer
+                            // so they remove themselves from the server.
+                            if let Ok(pid) = peer_id.parse::<PeerId>() {
+                                if connected_peers.contains(&pid) {
+                                    swarm.behaviour_mut().messaging.send_request(
+                                        &pid,
+                                        HavenMessage::MemberKickBroadcast {
+                                            server_id: server_id.clone(),
+                                        },
+                                    );
+                                }
+                            }
                         }
                     }
 
@@ -2798,6 +2991,13 @@ async fn handle_incoming_request(
                                 peer_id: peer_id.clone(),
                             }).await;
                         }
+                        CrdtPayload::RoleChanged { peer_id, role, .. } => {
+                            let _ = event_tx.send(NetworkEvent::RoleChanged {
+                                server_id: server_id.clone(),
+                                peer_id: peer_id.clone(),
+                                new_role: role.as_str().to_string(),
+                            }).await;
+                        }
                         _ => {
                             // ServerRenamed, ServerSettingChanged, etc.
                             let _ = event_tx.send(NetworkEvent::ServerUpdated {
@@ -2904,6 +3104,26 @@ async fn handle_incoming_request(
 
             if server_states.remove(&server_id).is_some() {
                 // Remove from DB.
+                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                    let _ = store.delete_server_state(&server_id);
+                }
+
+                let _ = event_tx.send(NetworkEvent::ServerDeleted {
+                    server_id,
+                }).await;
+            }
+        }
+
+        HavenMessage::MemberKickBroadcast { server_id } => {
+            haven_log!("[HAVEN-CRDT] MemberKickBroadcast from {peer_str} — kicked from server {server_id}");
+            let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
+
+            // Same cleanup as ServerDeleteBroadcast — remove ourselves from this server.
+            if server_states.remove(&server_id).is_some() {
                 let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
                 let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
                 let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
