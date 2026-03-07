@@ -694,7 +694,11 @@ async fn run_swarm(
     // Track peers that disconnected. Prevents ghost peers: if signaling
     // returns a stale peer we already tried and failed, skip it.
     // Cleared on room switch, removed on successful ConnectionEstablished.
-    let mut disconnected_peers: std::collections::HashSet<PeerId> = std::collections::HashSet::new();
+    // Track disconnected peers with the time they disconnected.
+    // Peers stay here for at least DISCONNECT_COOLDOWN to prevent ghost
+    // re-discovery from stale signaling entries.
+    let mut disconnected_peers: HashMap<PeerId, std::time::Instant> = HashMap::new();
+    const DISCONNECT_COOLDOWN: Duration = Duration::from_secs(180); // 3 min = signaling stale threshold
 
     // -- CRDT state (Phase 3) --
     // Server states keyed by server_id. Reload from DB so servers survive restarts.
@@ -736,10 +740,10 @@ async fn run_swarm(
     // Maps peer_id_str → Vec<(server_id, channel_id, since_timestamp)>
     let mut pending_sync_requests: HashMap<String, Vec<(String, String, i64)>> = HashMap::new();
 
-    // Re-bootstrap timer (60 seconds) for mutual peer discovery.
+    // Re-bootstrap timer (30 seconds) for mutual peer discovery.
     // Fires unconditionally — BootstrapPeers handler skips connected
     // and disconnected peers, so only genuinely new peers get processed.
-    let mut rebootstrap_timer = tokio::time::interval(Duration::from_secs(60));
+    let mut rebootstrap_timer = tokio::time::interval(Duration::from_secs(30));
     rebootstrap_timer.tick().await; // consume immediate first tick
 
     // Relay health check timer (60 seconds). Detects dropped relay connections
@@ -2022,7 +2026,7 @@ async fn run_swarm(
                         // Only emit PeerDisconnected when ALL connections to this peer are gone.
                         if num_established == 0 && relay_peer_id() != Some(peer_id) {
                             connected_peers.remove(&peer_id);
-                            disconnected_peers.insert(peer_id);
+                            disconnected_peers.insert(peer_id, std::time::Instant::now());
                             let _ = event_tx
                                 .send(NetworkEvent::PeerDisconnected {
                                     peer_id: peer_id.to_string(),
@@ -2074,7 +2078,7 @@ async fn run_swarm(
                             }
                             // Skip peers we already tried and disconnected from.
                             // Prevents ghost peers from stale signaling entries.
-                            if disconnected_peers.contains(&peer_id) {
+                            if disconnected_peers.contains_key(&peer_id) {
                                 continue;
                             }
                             // Skip peers we're already connected to.
@@ -2082,30 +2086,29 @@ async fn run_swarm(
                                 continue;
                             }
 
-                            // Register any addresses from signaling.
-                            for addr_str in &bp.addresses {
-                                if let Ok(addr) = addr_str.parse::<Multiaddr>() {
-                                    swarm.add_peer_address(peer_id, addr.clone());
-                                    // Only add non-circuit addresses to Kademlia.
-                                    if !addr_str.contains("p2p-circuit") {
-                                        swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
-                                    }
-                                }
-                            }
+                            // Register addresses from signaling + add relay circuits.
+                            // Strategy: dial relay circuit FIRST for instant connectivity,
+                            // then add direct addresses so libp2p can upgrade later.
+                            // This avoids 10s+ timeouts on stale direct addresses.
 
-                            // Always add relay circuit addresses for the peer so libp2p
-                            // can reach them through the relay even if their direct
-                            // addresses are unreachable (NAT, firewall, etc.).
-                            // Add both TCP and WSS circuits for censorship resilience.
+                            let mut relay_circuit_addrs = Vec::new();
+
+                            // Build relay circuit addresses (fast, reliable path).
                             if let Some(relay_pid) = relay_peer_id() {
                                 for base in [RELAY_ADDR_TCP, RELAY_ADDR_WSS] {
                                     if let Ok(circuit_addr) = format!(
                                         "{}/p2p/{}/p2p-circuit/p2p/{}",
                                         base, relay_pid, peer_id
                                     ).parse::<Multiaddr>() {
-                                        swarm.add_peer_address(peer_id, circuit_addr);
+                                        relay_circuit_addrs.push(circuit_addr);
                                     }
                                 }
+                            }
+
+                            // Add relay circuit addresses and dial them first.
+                            // This gives us a connection within ~1s via relay.
+                            for addr in &relay_circuit_addrs {
+                                swarm.add_peer_address(peer_id, addr.clone());
                             }
 
                             // Mark as expected so ConnectionEstablished can emit PeerDiscovered.
@@ -2121,9 +2124,19 @@ async fn run_swarm(
                                 })
                                 .await;
 
-                            // Attempt to dial the peer (libp2p tries all known
-                            // addresses including the relay circuit).
+                            // Dial relay circuit first for fast connection.
                             let _ = swarm.dial(peer_id);
+
+                            // NOW add direct addresses from signaling (for potential
+                            // direct upgrade via DCUtR/hole-punching later).
+                            for addr_str in &bp.addresses {
+                                if let Ok(addr) = addr_str.parse::<Multiaddr>() {
+                                    swarm.add_peer_address(peer_id, addr.clone());
+                                    if !addr_str.contains("p2p-circuit") {
+                                        swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
+                                    }
+                                }
+                            }
                         }
 
                         // Trigger Kademlia bootstrap to populate routing table.
@@ -2161,11 +2174,19 @@ async fn run_swarm(
 
             // Periodic re-bootstrap for mutual peer discovery.
             _ = rebootstrap_timer.tick() => {
-                // Clear stale disconnected peers so they can be re-discovered.
-                // 60s cooldown is sufficient to prevent reconnect storms.
+                // Clear disconnected peers that have cooled down past the stale threshold.
+                // This prevents ghost re-discovery from signaling entries that haven't
+                // been cleaned up yet. Only peers disconnected > 3 min ago are cleared.
                 if !disconnected_peers.is_empty() {
-                    haven_log!("[HAVEN-SWARM] Clearing {} disconnected peers for re-discovery", disconnected_peers.len());
-                    disconnected_peers.clear();
+                    let now = std::time::Instant::now();
+                    let before = disconnected_peers.len();
+                    disconnected_peers.retain(|_, disconnected_at| {
+                        now.duration_since(*disconnected_at) < DISCONNECT_COOLDOWN
+                    });
+                    let cleared = before - disconnected_peers.len();
+                    if cleared > 0 {
+                        haven_log!("[HAVEN-SWARM] Cleared {cleared} cooled-down disconnected peers ({} still cooling)", disconnected_peers.len());
+                    }
                 }
                 if let Some(room) = &active_room {
                     let _ = sig_cmd_tx.send(SignalingCmd::Bootstrap {
@@ -2653,6 +2674,38 @@ async fn handle_incoming_request(
                                 server_id: server_id.clone(),
                                 name: server_name,
                             }).await;
+
+                            // Establish Olm session with all server members we're
+                            // connected to but don't have sessions with yet.
+                            // Also emit PeerDiscovered so they show as online.
+                            for member in state.members_list() {
+                                let local_id = swarm.local_peer_id().to_string();
+                                if member.peer_id != local_id {
+                                    if let Ok(member_pid) = member.peer_id.parse::<PeerId>() {
+                                        if connected_peers.contains(&member_pid) {
+                                            // Ensure member shows as online in UI.
+                                            let _ = event_tx.send(NetworkEvent::PeerDiscovered {
+                                                peer: DiscoveredPeer {
+                                                    peer_id: member.peer_id.clone(),
+                                                    addresses: vec![],
+                                                },
+                                            }).await;
+
+                                            if !olm.has_session(&member.peer_id)
+                                                && !key_request_in_flight.contains(&member.peer_id)
+                                            {
+                                                haven_log!("[HAVEN-SWARM] No Olm session with server member {}, sending KeyRequest", member.peer_id);
+                                                let req_id = swarm.behaviour_mut().messaging.send_request(
+                                                    &member_pid,
+                                                    HavenMessage::KeyRequest,
+                                                );
+                                                pending_requests.insert(req_id, member.peer_id.clone());
+                                                key_request_in_flight.insert(member.peer_id.clone());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         let _ = event_tx.send(NetworkEvent::SyncCompleted {
@@ -2802,6 +2855,18 @@ async fn handle_incoming_request(
                         server_id: server_id.clone(),
                         peer_id: peer_str.clone(),
                     }).await;
+
+                    // Emit PeerDiscovered so the new member shows as online
+                    // in the member panel (they may have connected via mDNS
+                    // before being a server member, skipping the normal path).
+                    if connected_peers.contains(&peer) {
+                        let _ = event_tx.send(NetworkEvent::PeerDiscovered {
+                            peer: DiscoveredPeer {
+                                peer_id: peer_str.clone(),
+                                addresses: vec![],
+                            },
+                        }).await;
+                    }
                 }
 
                 // Send full server state to the joiner (all ops so they can reconstruct)
@@ -2815,6 +2880,18 @@ async fn handle_incoming_request(
                             ops_json,
                         },
                     );
+                }
+
+                // Proactively establish Olm session with the new member so
+                // encrypted channel sync batches can be sent immediately.
+                if !olm.has_session(&peer_str) && !key_request_in_flight.contains(&peer_str) {
+                    haven_log!("[HAVEN-SWARM] No Olm session with new member {peer_str}, sending KeyRequest");
+                    let req_id = swarm.behaviour_mut().messaging.send_request(
+                        &peer,
+                        HavenMessage::KeyRequest,
+                    );
+                    pending_requests.insert(req_id, peer_str.clone());
+                    key_request_in_flight.insert(peer_str.clone());
                 }
             } else {
                 haven_log!("[HAVEN-CRDT] ServerJoinRequest for unknown server {server_id}");

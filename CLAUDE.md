@@ -92,12 +92,15 @@ Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection mana
 - Peer reconnect visibility: server members not in `expected_peers` now get `PeerDiscovered` on `ConnectionEstablished`
 - Header indicator cleanup: sync-only status (no redundant member count), fixed retry button
 
+- Connectivity fixes: relay-first dialing (avoids stale address timeouts), ghost peer prevention (3-min disconnect cooldown), proactive Olm session on server join (KeyRequest in ServerJoinRequest/SyncResponse handlers)
+
 **Next up (Phase 3 remaining):**
-- Roles & permissions UI
-- MLS group encryption
-- Offline message queuing (push-based store-and-forward, builds on message sync)
-  - Message ordering: append at bottom (not insert by sender timestamp — abusable), sender timestamp = display metadata only
-- Device linking
+1. Roles & permissions system — CRDT-based (LWW-Register with admin priority), role assignment UI
+2. Per-message Ed25519 signing — cryptographic proof of authorship for "The Rat Files" evidence recovery. Sign before encryption, store signature with message. Sender public key known via CRDT membership.
+3. MLS group encryption for channels — replaces Olm fan-out. DMs stay on Olm (1:1 Double Ratchet).
+4. Offline message queuing (store-and-forward via online peers)
+   - Message ordering: append at bottom (not insert by sender timestamp — abusable), sender timestamp = display metadata only
+5. Device linking via QR code — requires MLS + CRDTs
 
 ## Haven Design System (Phase 2.75)
 All UI interactions go through custom Haven widgets — no Material defaults anywhere. Change behavior in one place, applies everywhere.

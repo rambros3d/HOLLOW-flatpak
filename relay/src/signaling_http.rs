@@ -16,9 +16,9 @@ use tokio::sync::RwLock;
 
 const MAX_PEERS_PER_ROOM: usize = 50;
 const MAX_ADDRS_PER_PEER: usize = 5;
-const STALE_THRESHOLD_SECS: u64 = 600; // 10 minutes
+const STALE_THRESHOLD_SECS: u64 = 180; // 3 minutes
 const TIMESTAMP_SKEW_SECS: u64 = 300; // 5 minutes anti-replay
-const CLEANUP_INTERVAL_SECS: u64 = 300; // 5 minutes
+const CLEANUP_INTERVAL_SECS: u64 = 120; // 2 minutes
 const MAX_BOOTSTRAP_PEERS: usize = 10;
 
 // -- Data types --
