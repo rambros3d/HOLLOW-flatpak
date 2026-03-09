@@ -1549,9 +1549,11 @@ impl SseDecode for crate::api::network::NetworkEvent {
             5 => {
                 let mut var_fromPeer = <String>::sse_decode(deserializer);
                 let mut var_text = <String>::sse_decode(deserializer);
+                let mut var_timestamp = <i64>::sse_decode(deserializer);
                 return crate::api::network::NetworkEvent::MessageReceived {
                     from_peer: var_fromPeer,
                     text: var_text,
+                    timestamp: var_timestamp,
                 };
             }
             6 => {
@@ -1718,6 +1720,14 @@ impl SseDecode for crate::api::network::NetworkEvent {
                     server_id: var_serverId,
                     peer_id: var_peerId,
                     new_role: var_newRole,
+                };
+            }
+            26 => {
+                let mut var_peerId = <String>::sse_decode(deserializer);
+                let mut var_newMessageCount = <u32>::sse_decode(deserializer);
+                return crate::api::network::NetworkEvent::DmSyncCompleted {
+                    peer_id: var_peerId,
+                    new_message_count: var_newMessageCount,
                 };
             }
             _ => {
@@ -2022,10 +2032,15 @@ impl flutter_rust_bridge::IntoDart for crate::api::network::NetworkEvent {
             crate::api::network::NetworkEvent::Listening { address } => {
                 [4.into_dart(), address.into_into_dart().into_dart()].into_dart()
             }
-            crate::api::network::NetworkEvent::MessageReceived { from_peer, text } => [
+            crate::api::network::NetworkEvent::MessageReceived {
+                from_peer,
+                text,
+                timestamp,
+            } => [
                 5.into_dart(),
                 from_peer.into_into_dart().into_dart(),
                 text.into_into_dart().into_dart(),
+                timestamp.into_into_dart().into_dart(),
             ]
             .into_dart(),
             crate::api::network::NetworkEvent::ChannelMessageReceived {
@@ -2171,6 +2186,15 @@ impl flutter_rust_bridge::IntoDart for crate::api::network::NetworkEvent {
                 server_id.into_into_dart().into_dart(),
                 peer_id.into_into_dart().into_dart(),
                 new_role.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
+            crate::api::network::NetworkEvent::DmSyncCompleted {
+                peer_id,
+                new_message_count,
+            } => [
+                26.into_dart(),
+                peer_id.into_into_dart().into_dart(),
+                new_message_count.into_into_dart().into_dart(),
             ]
             .into_dart(),
             _ => {
@@ -2436,10 +2460,15 @@ impl SseEncode for crate::api::network::NetworkEvent {
                 <i32>::sse_encode(4, serializer);
                 <String>::sse_encode(address, serializer);
             }
-            crate::api::network::NetworkEvent::MessageReceived { from_peer, text } => {
+            crate::api::network::NetworkEvent::MessageReceived {
+                from_peer,
+                text,
+                timestamp,
+            } => {
                 <i32>::sse_encode(5, serializer);
                 <String>::sse_encode(from_peer, serializer);
                 <String>::sse_encode(text, serializer);
+                <i64>::sse_encode(timestamp, serializer);
             }
             crate::api::network::NetworkEvent::ChannelMessageReceived {
                 server_id,
@@ -2575,6 +2604,14 @@ impl SseEncode for crate::api::network::NetworkEvent {
                 <String>::sse_encode(server_id, serializer);
                 <String>::sse_encode(peer_id, serializer);
                 <String>::sse_encode(new_role, serializer);
+            }
+            crate::api::network::NetworkEvent::DmSyncCompleted {
+                peer_id,
+                new_message_count,
+            } => {
+                <i32>::sse_encode(26, serializer);
+                <String>::sse_encode(peer_id, serializer);
+                <u32>::sse_encode(new_message_count, serializer);
             }
             _ => {
                 unimplemented!("");

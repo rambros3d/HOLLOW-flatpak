@@ -109,6 +109,7 @@ sealed class NetworkEvent with _$NetworkEvent {
   const factory NetworkEvent.messageReceived({
     required String fromPeer,
     required String text,
+    required PlatformInt64 timestamp,
   }) = NetworkEvent_MessageReceived;
   const factory NetworkEvent.channelMessageReceived({
     required String serverId,
@@ -188,4 +189,8 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String peerId,
     required String newRole,
   }) = NetworkEvent_RoleChanged;
+  const factory NetworkEvent.dmSyncCompleted({
+    required String peerId,
+    required int newMessageCount,
+  }) = NetworkEvent_DmSyncCompleted;
 }

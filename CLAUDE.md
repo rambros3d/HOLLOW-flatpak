@@ -7,7 +7,7 @@ Haven is a fully distributed, encrypted Discord alternative. No central servers.
 - **UI:** Flutter (Dart) — all platforms (Windows, macOS, Linux, Android, iOS, Web)
 - **Backend:** Rust via `flutter_rust_bridge` v2.11.1 FFI
 - **Networking:** libp2p 0.56 (QUIC, TCP, WSS, mDNS, Kademlia, relay, DCUtR, AutoNAT)
-- **E2EE:** vodozemac (Olm/Double Ratchet) for 1:1, MLS planned for groups
+- **E2EE:** vodozemac (Olm/Double Ratchet) for 1:1, OpenMLS 0.8 for server channels
 - **Local DB:** SQLCipher (encrypted SQLite)
 - **Identity:** Ed25519 keypairs via BIP-39 mnemonic
 - **Org ID:** com.anonlisten
@@ -100,12 +100,19 @@ Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection mana
 - Sync recovery: SessionEstablished clears failed sync status + auto-retriggers channel sync. No more stuck "Sync failed" after re-key.
 - Permission loading: ServerSettingsPanel waits for myPermissionsProvider before rendering tabs (prevents flash of owner-level UI on non-owner peers)
 - Per-message Ed25519 signing: canonical payload signing (`haven-msg:{type}:{context}:{sender}:{ts}:{text}`), sign before Olm encryption, verify after decryption, `sig`+`pk` fields in MessageEnvelope + SyncMessageItem (backward-compatible via `Option`), DB columns (`signature TEXT`, `public_key TEXT`) on both `channel_messages` and `messages`, DMs now wrapped in `MessageEnvelope::DirectMessage` with signing, Dart models carry `signature`/`publicKey` for future evidence export UI
+- Per-sender channel sync: `ChannelSyncRequest` carries `sender_timestamps: HashMap<String, i64>` for per-sender gap detection (fixes timestamp blind spot where own message masks unseen messages from others)
+- DM sync protocol: `DmSyncRequest`/`DmSyncBatch` pull-based catch-up, `DmSyncCompleted` event, triggered on `ConnectionEstablished`
+- DM persistence moved to Rust: both sent (in `SendMessage` handler) and received (in `DirectMessage` handler) DMs persisted with Rust-generated/sender's `ts` — fixes timestamp mismatch that caused sync duplicates. Dart `chat_provider.dart` no longer saves DMs to DB, only updates in-memory UI state. `get_dm_messages_since()` only returns `is_mine = 1` (only sync what we sent).
+- Signaling unregister on shutdown: `NotifyShutdown` sends `Unregister` for all rooms, fixing ghost online status on app restart
+
+- MLS group encryption — DONE: OpenMLS 0.8, O(1) channel encryption. One MLS group per server. Single-committer model (owner). `MlsManager` in `crypto/mls_manager.rs`, 6 unit tests (33 total). Wire protocol: `MlsChannelMessage`, `MlsKeyPackage`, `MlsWelcome`, `MlsCommit`, `MlsKeyPackageRequest`. MLS identity persisted in `mls_identity` SQLCipher table. Full swarm integration: CreateServer creates MLS group, SendChannelMessage uses MLS when group exists (Olm fallback), JoinServer sends KeyPackage, KickMember rotates epoch, reconnect triggers KeyPackageRequest for non-MLS members. Tested on two laptops.
+- Lock icon fix — DONE: `InboundCircuitEstablished` + `ConnectionEstablished` now emit `SessionEstablished` for existing Olm sessions (fixes DM lock icon missing after restart)
+- UI staleness fixes — DONE: Three rounds of fixes. (1) Debounced PeerDisconnected (2s) + dedup PeerDiscovered via `discovered_peers` HashSet — prevents libp2p connection churn from thrashing Dart UI. (2) `MessageReceived` event now carries sender timestamp; `loadHistory()` replaces state instead of merging. (3) Double PeerDisconnected fix (graceful disconnect removes from `connected_peers`), DmSyncCompleted always emitted (even with 0 new messages — forces Dart reload from DB), `is_first_connection` check bypasses `num_established == 1` guard when peer was gracefully disconnected but old transport lingers.
 
 **Next up (Phase 3 remaining):**
-1. MLS group encryption for channels — replaces Olm fan-out. DMs stay on Olm (1:1 Double Ratchet).
-2. Offline message queuing (store-and-forward via online peers)
+1. Offline message queuing (store-and-forward via online peers)
    - Message ordering: append at bottom (not insert by sender timestamp — abusable), sender timestamp = display metadata only
-3. Device linking via QR code — requires MLS + CRDTs
+2. Device linking via QR code — requires MLS + CRDTs
 
 ## Haven Design System (Phase 2.75)
 All UI interactions go through custom Haven widgets — no Material defaults anywhere. Change behavior in one place, applies everywhere.

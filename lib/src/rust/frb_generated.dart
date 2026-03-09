@@ -1597,6 +1597,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         return NetworkEvent_MessageReceived(
           fromPeer: dco_decode_String(raw[1]),
           text: dco_decode_String(raw[2]),
+          timestamp: dco_decode_i_64(raw[3]),
         );
       case 6:
         return NetworkEvent_ChannelMessageReceived(
@@ -1692,6 +1693,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           serverId: dco_decode_String(raw[1]),
           peerId: dco_decode_String(raw[2]),
           newRole: dco_decode_String(raw[3]),
+        );
+      case 26:
+        return NetworkEvent_DmSyncCompleted(
+          peerId: dco_decode_String(raw[1]),
+          newMessageCount: dco_decode_u_32(raw[2]),
         );
       default:
         throw Exception("unreachable");
@@ -1982,9 +1988,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 5:
         var var_fromPeer = sse_decode_String(deserializer);
         var var_text = sse_decode_String(deserializer);
+        var var_timestamp = sse_decode_i_64(deserializer);
         return NetworkEvent_MessageReceived(
           fromPeer: var_fromPeer,
           text: var_text,
+          timestamp: var_timestamp,
         );
       case 6:
         var var_serverId = sse_decode_String(deserializer);
@@ -2121,6 +2129,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           serverId: var_serverId,
           peerId: var_peerId,
           newRole: var_newRole,
+        );
+      case 26:
+        var var_peerId = sse_decode_String(deserializer);
+        var var_newMessageCount = sse_decode_u_32(deserializer);
+        return NetworkEvent_DmSyncCompleted(
+          peerId: var_peerId,
+          newMessageCount: var_newMessageCount,
         );
       default:
         throw UnimplementedError('');
@@ -2432,10 +2447,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case NetworkEvent_MessageReceived(
         fromPeer: final fromPeer,
         text: final text,
+        timestamp: final timestamp,
       ):
         sse_encode_i_32(5, serializer);
         sse_encode_String(fromPeer, serializer);
         sse_encode_String(text, serializer);
+        sse_encode_i_64(timestamp, serializer);
       case NetworkEvent_ChannelMessageReceived(
         serverId: final serverId,
         channelId: final channelId,
@@ -2572,6 +2589,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(serverId, serializer);
         sse_encode_String(peerId, serializer);
         sse_encode_String(newRole, serializer);
+      case NetworkEvent_DmSyncCompleted(
+        peerId: final peerId,
+        newMessageCount: final newMessageCount,
+      ):
+        sse_encode_i_32(26, serializer);
+        sse_encode_String(peerId, serializer);
+        sse_encode_u_32(newMessageCount, serializer);
     }
   }
 

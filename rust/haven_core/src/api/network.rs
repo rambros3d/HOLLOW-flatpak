@@ -23,7 +23,7 @@ pub enum NetworkEvent {
     PeerDisconnected { peer_id: String },
     RoomCleared,
     Listening { address: String },
-    MessageReceived { from_peer: String, text: String },
+    MessageReceived { from_peer: String, text: String, timestamp: i64 },
     ChannelMessageReceived { server_id: String, channel_id: String, from_peer: String, text: String, timestamp: i64 },
     MessageSent { to_peer: String },
     MessageSendFailed { to_peer: String, error: String },
@@ -45,6 +45,7 @@ pub enum NetworkEvent {
     MessageSyncFailed { server_id: String, error: String },
     MessageSyncProgress { server_id: String, channel_id: String, received_count: u32, total_count: u32 },
     RoleChanged { server_id: String, peer_id: String, new_role: String },
+    DmSyncCompleted { peer_id: String, new_message_count: u32 },
 }
 
 /// Holds all mutable state for the running node.
@@ -153,6 +154,9 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::RoleChanged { server_id, peer_id, new_role } => {
             haven_log!("[HAVEN] Role changed: {peer_id} is now {new_role} in {server_id}");
         }
+        node::NetworkEvent::DmSyncCompleted { peer_id, new_message_count } => {
+            haven_log!("[HAVEN] DM sync completed for {peer_id}: {new_message_count} new messages");
+        }
         _ => {}
     }
     match event {
@@ -168,8 +172,8 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::RoomCleared => NetworkEvent::RoomCleared,
         node::NetworkEvent::Listening { address } => NetworkEvent::Listening { address },
-        node::NetworkEvent::MessageReceived { from_peer, text } => {
-            NetworkEvent::MessageReceived { from_peer, text }
+        node::NetworkEvent::MessageReceived { from_peer, text, timestamp } => {
+            NetworkEvent::MessageReceived { from_peer, text, timestamp }
         }
         node::NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, text, timestamp } => {
             NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, text, timestamp }
@@ -226,6 +230,9 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::RoleChanged { server_id, peer_id, new_role } => {
             NetworkEvent::RoleChanged { server_id, peer_id, new_role }
+        }
+        node::NetworkEvent::DmSyncCompleted { peer_id, new_message_count } => {
+            NetworkEvent::DmSyncCompleted { peer_id, new_message_count }
         }
     }
 }

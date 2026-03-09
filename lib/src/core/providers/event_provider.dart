@@ -72,8 +72,8 @@ class EventStreamNotifier extends Notifier<bool> {
       case NetworkEvent_Listening(:final address):
         debugPrint('[HAVEN] Listening: $address');
 
-      case NetworkEvent_MessageReceived(:final fromPeer, :final text):
-        ref.read(chatProvider.notifier).receiveMessage(fromPeer, text);
+      case NetworkEvent_MessageReceived(:final fromPeer, :final text, :final timestamp):
+        ref.read(chatProvider.notifier).receiveMessage(fromPeer, text, timestamp);
 
       case NetworkEvent_ChannelMessageReceived(
             :final serverId, :final channelId, :final fromPeer, :final text, :final timestamp):
@@ -218,6 +218,18 @@ class EventStreamNotifier extends Notifier<bool> {
         ref.invalidate(serverMembersProvider(serverId));
         ref.invalidate(myRoleProvider(serverId));
         ref.invalidate(myPermissionsProvider(serverId));
+
+      case NetworkEvent_DmSyncCompleted(:final peerId, :final newMessageCount):
+        debugPrint('[HAVEN] DM sync: $newMessageCount new messages from $peerId');
+        // Always reload DM history from DB after sync completes — even if
+        // newMessageCount == 0. Dart may have cleared its in-memory cache on
+        // disconnect, and the messages are all in DB already (duplicates).
+        final chatNotifier = ref.read(chatProvider.notifier);
+        chatNotifier.clearPeerCache(peerId);
+        final selectedPeer = ref.read(selectedPeerProvider);
+        if (selectedPeer == peerId) {
+          chatNotifier.loadHistory(peerId);
+        }
     }
   }
 

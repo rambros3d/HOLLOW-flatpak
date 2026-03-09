@@ -13,7 +13,7 @@ use crate::crdt::hlc::Hlc;
 use crate::crdt::operations::{CrdtPayload, Permission};
 use crate::crdt::server_state::ServerState;
 use crate::crdt::sync::{self as crdt_sync, StateVector};
-use crate::crypto::{CryptoStore, OlmManager};
+use crate::crypto::{CryptoStore, MlsManager, OlmManager};
 use super::signaling::{self, SignalingCmd, SignalingEvent};
 
 // -- Relay node constants (OVH VPS, Belgium) --
@@ -91,7 +91,7 @@ pub(crate) enum NetworkEvent {
     PeerDisconnected { peer_id: String },
     RoomCleared,
     Listening { address: String },
-    MessageReceived { from_peer: String, text: String },
+    MessageReceived { from_peer: String, text: String, timestamp: i64 },
     ChannelMessageReceived { server_id: String, channel_id: String, from_peer: String, text: String, timestamp: i64 },
     MessageSent { to_peer: String },
     MessageSendFailed { to_peer: String, error: String },
@@ -113,6 +113,7 @@ pub(crate) enum NetworkEvent {
     MessageSyncFailed { server_id: String, error: String },
     MessageSyncProgress { server_id: String, channel_id: String, received_count: u32, total_count: u32 },
     RoleChanged { server_id: String, peer_id: String, new_role: String },
+    DmSyncCompleted { peer_id: String, new_message_count: u32 },
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
@@ -202,11 +203,58 @@ enum HavenMessage {
         server_id: String,
         channel_id: String,
         since_timestamp: i64,
+        /// Per-sender latest timestamps for gap-free sync.
+        /// Empty = legacy (fall back to since_timestamp).
+        #[serde(default)]
+        sender_timestamps: HashMap<String, i64>,
+    },
+
+    /// DM sync: request missed DMs from a peer.
+    #[serde(rename = "dm_sync_req")]
+    DmSyncRequest {
+        /// Latest DM timestamp the requester has from this peer.
+        since_timestamp: i64,
     },
 
     /// Sent to all connected peers when the app is shutting down.
     #[serde(rename = "disconnecting")]
     PeerDisconnecting,
+
+    // -- MLS group encryption messages --
+
+    /// MLS-encrypted channel message (replaces Olm fan-out for channels).
+    #[serde(rename = "mls_msg")]
+    MlsChannelMessage {
+        server_id: String,
+        body: String, // base64 MLS ciphertext
+    },
+
+    /// KeyPackage from a peer wanting to join an MLS group.
+    #[serde(rename = "mls_kp")]
+    MlsKeyPackage {
+        server_id: String,
+        key_package: String, // base64 serialized KeyPackage
+    },
+
+    /// Welcome message sent to a joiner after add_members().
+    #[serde(rename = "mls_welcome")]
+    MlsWelcome {
+        server_id: String,
+        welcome: String, // base64 serialized Welcome
+    },
+
+    /// Commit message (membership change) from the server owner.
+    #[serde(rename = "mls_commit")]
+    MlsCommit {
+        server_id: String,
+        commit: String, // base64 serialized Commit
+    },
+
+    /// Request peers to send their KeyPackages for MLS group bootstrap.
+    #[serde(rename = "mls_kp_req")]
+    MlsKeyPackageRequest {
+        server_id: String,
+    },
 }
 
 /// Envelope for the plaintext body inside an Encrypted message.
@@ -250,6 +298,11 @@ enum MessageEnvelope {
         #[serde(default)]
         total: u32,
     },
+    /// DM sync batch — carries missed DMs from the sender.
+    #[serde(rename = "dm_sync")]
+    DmSyncBatch {
+        messages: Vec<DmSyncItem>,
+    },
 }
 
 /// A single message in a sync batch.
@@ -262,6 +315,23 @@ struct SyncMessageItem {
     /// timestamp (millis since epoch)
     ts: i64,
     /// Ed25519 signature (base64) over canonical payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sig: Option<String>,
+    /// Sender's Ed25519 public key (base64 protobuf).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pk: Option<String>,
+}
+
+/// A single DM in a DM sync batch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DmSyncItem {
+    /// message text
+    t: String,
+    /// timestamp (millis since epoch)
+    ts: i64,
+    /// true if the sender of this sync batch sent this message
+    mine: bool,
+    /// Ed25519 signature (base64).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sig: Option<String>,
     /// Sender's Ed25519 public key (base64 protobuf).
@@ -794,6 +864,18 @@ async fn run_swarm(
     // preventing Kademlia routing connections from polluting the peer list.
     let mut expected_peers: std::collections::HashSet<PeerId> = std::collections::HashSet::new();
 
+    // Debounce PeerDisconnected events. When a connection closes with remaining=0,
+    // don't emit immediately — wait 2s. If ConnectionEstablished fires for the same
+    // peer within that window, cancel the disconnect. This prevents rapid
+    // add/remove/add UI churn when libp2p upgrades transports.
+    let mut pending_disconnects: HashMap<PeerId, std::time::Instant> = HashMap::new();
+    const DISCONNECT_DEBOUNCE: Duration = Duration::from_secs(2);
+
+    // Track peers we've already emitted PeerDiscovered for this session.
+    // Prevents flooding the UI with duplicate discovery events from multiple
+    // signaling rooms, bootstrap responses, or InboundCircuitEstablished events.
+    let mut discovered_peers: std::collections::HashSet<PeerId> = std::collections::HashSet::new();
+
     // Track peers that disconnected. Prevents ghost peers: if signaling
     // returns a stale peer we already tried and failed, skip it.
     // Cleared on room switch, removed on successful ConnectionEstablished.
@@ -836,6 +918,70 @@ async fn run_swarm(
         }
     }
 
+    // -- MLS state --
+    let local_peer_str = swarm.local_peer_id().to_string();
+    let mut mls: Option<MlsManager> = {
+        let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+            match store.load_mls_identity() {
+                Ok(Some((signer_data, credential_data, storage_data))) => {
+                    let server_ids: Vec<String> = server_states.keys().cloned().collect();
+                    match MlsManager::from_persisted(
+                        &signer_data,
+                        &credential_data,
+                        storage_data.as_deref(),
+                        &server_ids,
+                    ) {
+                        Ok(mgr) => {
+                            haven_log!("[HAVEN-MLS] Restored MLS identity from DB");
+                            Some(mgr)
+                        }
+                        Err(e) => {
+                            haven_log!("[HAVEN-MLS] Failed to restore MLS identity: {e}");
+                            None
+                        }
+                    }
+                }
+                Ok(None) => None,
+                Err(e) => {
+                    haven_log!("[HAVEN-MLS] Failed to load MLS identity: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    };
+    // Create MLS identity if none exists.
+    if mls.is_none() {
+        match MlsManager::new(&local_peer_str) {
+            Ok(mgr) => {
+                haven_log!("[HAVEN-MLS] Created new MLS identity");
+                // Persist immediately.
+                if let Ok(signer) = mgr.signer_bytes() {
+                    if let Ok(cred) = mgr.credential_bytes() {
+                        if let Ok(storage) = mgr.serialize_storage() {
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                let _ = store.save_mls_identity(&signer, &cred, &storage);
+                            }
+                        }
+                    }
+                }
+                mls = Some(mgr);
+            }
+            Err(e) => {
+                haven_log!("[HAVEN-MLS] Failed to create MLS identity: {e}");
+            }
+        }
+    }
+
     // Track server_ids we're trying to join (waiting for SyncResponse from existing members).
     let mut pending_server_joins: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -854,6 +1000,10 @@ async fn run_swarm(
     let mut relay_health_timer = tokio::time::interval(Duration::from_secs(60));
     relay_health_timer.tick().await; // consume immediate first tick
 
+    // Debounce timer for pending disconnects (500ms check interval).
+    let mut disconnect_debounce_timer = tokio::time::interval(Duration::from_millis(500));
+    disconnect_debounce_timer.tick().await; // consume immediate first tick
+
     loop {
         tokio::select! {
             // Handle commands from the FFI layer.
@@ -869,6 +1019,8 @@ async fn run_swarm(
                             connected_peers.clear();
                             expected_peers.clear();
                             disconnected_peers.clear();
+                            discovered_peers.clear();
+                            pending_disconnects.clear();
                         }
                         active_room = Some(room_code.clone());
                         // Register ourselves and bootstrap from the signaling service.
@@ -912,11 +1064,26 @@ async fn run_swarm(
                         let envelope = MessageEnvelope::DirectMessage {
                             text: text.clone(),
                             ts: dm_timestamp,
-                            sig,
-                            pk,
+                            sig: sig.clone(),
+                            pk: pk.clone(),
                         };
                         let envelope_json = serde_json::to_string(&envelope)
                             .unwrap_or_else(|_| text.clone());
+
+                        // Persist sent DM locally with the same Rust-generated timestamp.
+                        // This ensures DM sync timestamps are consistent (no Dart DateTime.now() mismatch).
+                        {
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                let _ = store.insert(
+                                    &peer_id_str, &text, true, dm_timestamp,
+                                    sig.as_deref(), pk.as_deref(),
+                                );
+                            }
+                        }
 
                         if olm.has_session(&peer_id_str) {
                             // Session exists — encrypt and send.
@@ -995,19 +1162,60 @@ async fn run_swarm(
                         let envelope_json = serde_json::to_string(&envelope)
                             .unwrap_or_else(|_| text.clone());
 
-                        // Send to each connected server member (except self).
-                        for member_peer_str in server.members.keys() {
-                            if member_peer_str == &local_peer {
-                                continue;
+                        // MLS path: encrypt once, send same ciphertext to all members.
+                        let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+                        if use_mls {
+                            let mls_mgr = mls.as_mut().unwrap();
+                            match mls_mgr.encrypt(&server_id, envelope_json.as_bytes()) {
+                                Ok(ciphertext) => {
+                                    let body_b64 = base64::engine::general_purpose::STANDARD.encode(&ciphertext);
+                                    persist_mls_state(mls_mgr, &bundle_keypair);
+                                    for member_peer_str in server.members.keys() {
+                                        if member_peer_str == &local_peer { continue; }
+                                        if let Ok(member_pid) = member_peer_str.parse::<PeerId>() {
+                                            if connected_peers.contains(&member_pid) {
+                                                swarm.behaviour_mut().messaging.send_request(
+                                                    &member_pid,
+                                                    HavenMessage::MlsChannelMessage {
+                                                        server_id: server_id.clone(),
+                                                        body: body_b64.clone(),
+                                                    },
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    haven_log!("[HAVEN-MLS] Encrypt failed, falling back to Olm: {e}");
+                                    // Fall through to Olm path below.
+                                    for member_peer_str in server.members.keys() {
+                                        if member_peer_str == &local_peer { continue; }
+                                        if let Ok(member_pid) = member_peer_str.parse::<PeerId>() {
+                                            if connected_peers.contains(&member_pid) {
+                                                send_encrypted_message(
+                                                    &mut swarm, &mut olm, &crypto_store,
+                                                    &mut pending_requests, &mut outbound_message_text,
+                                                    &member_pid, member_peer_str, &envelope_json,
+                                                    &event_tx,
+                                                ).await;
+                                            }
+                                        }
+                                    }
+                                }
                             }
-                            if let Ok(member_pid) = member_peer_str.parse::<PeerId>() {
-                                if connected_peers.contains(&member_pid) {
-                                    send_encrypted_message(
-                                        &mut swarm, &mut olm, &crypto_store,
-                                        &mut pending_requests, &mut outbound_message_text,
-                                        &member_pid, member_peer_str, &envelope_json,
-                                        &event_tx,
-                                    ).await;
+                        } else {
+                            // Legacy Olm fan-out path.
+                            for member_peer_str in server.members.keys() {
+                                if member_peer_str == &local_peer { continue; }
+                                if let Ok(member_pid) = member_peer_str.parse::<PeerId>() {
+                                    if connected_peers.contains(&member_pid) {
+                                        send_encrypted_message(
+                                            &mut swarm, &mut olm, &crypto_store,
+                                            &mut pending_requests, &mut outbound_message_text,
+                                            &member_pid, member_peer_str, &envelope_json,
+                                            &event_tx,
+                                        ).await;
+                                    }
                                 }
                             }
                         }
@@ -1067,6 +1275,14 @@ async fn run_swarm(
                         }
 
                         server_states.insert(server_id.clone(), state);
+
+                        // Create MLS group for this server (owner is sole member).
+                        if let Some(ref mut mls_mgr) = mls {
+                            match mls_mgr.create_group(&server_id) {
+                                Ok(()) => persist_mls_state(mls_mgr, &bundle_keypair),
+                                Err(e) => haven_log!("[HAVEN-MLS] Failed to create MLS group: {e}"),
+                            }
+                        }
 
                         let _ = event_tx.send(NetworkEvent::ServerCreated {
                             server_id: server_id.clone(),
@@ -1405,6 +1621,12 @@ async fn run_swarm(
 
                         server_states.remove(&server_id);
 
+                        // Clean up MLS group.
+                        if let Some(ref mut mls_mgr) = mls {
+                            mls_mgr.remove_group(&server_id);
+                            persist_mls_state(mls_mgr, &bundle_keypair);
+                        }
+
                         // Unregister from signaling room for this server.
                         let _ = sig_cmd_tx.send(SignalingCmd::Unregister {
                             room_code: server_id.clone(),
@@ -1446,6 +1668,14 @@ async fn run_swarm(
                             room_code: server_id.clone(),
                         }).await;
 
+                        // Generate MLS KeyPackage to send alongside join request.
+                        let mls_kp_b64 = mls.as_ref().and_then(|m| {
+                            match m.generate_key_package() {
+                                Ok(kp) => Some(base64::engine::general_purpose::STANDARD.encode(&kp)),
+                                Err(e) => { haven_log!("[HAVEN-MLS] Failed to generate KeyPackage: {e}"); None }
+                            }
+                        });
+
                         // Send join requests to any peers we're already connected to.
                         for &peer_id in &connected_peers {
                             swarm.behaviour_mut().messaging.send_request(
@@ -1454,6 +1684,16 @@ async fn run_swarm(
                                     server_id: server_id.clone(),
                                 },
                             );
+                            // Also send MLS KeyPackage if available.
+                            if let Some(ref kp) = mls_kp_b64 {
+                                swarm.behaviour_mut().messaging.send_request(
+                                    &peer_id,
+                                    HavenMessage::MlsKeyPackage {
+                                        server_id: server_id.clone(),
+                                        key_package: kp.clone(),
+                                    },
+                                );
+                            }
                         }
                     }
 
@@ -1594,6 +1834,40 @@ async fn run_swarm(
                                     );
                                 }
                             }
+
+                            // MLS: remove member from group (epoch rotation for forward secrecy).
+                            if let Some(ref mut mls_mgr) = mls {
+                                if mls_mgr.has_group(&server_id) {
+                                    match mls_mgr.remove_member(&server_id, &peer_id) {
+                                        Ok(commit_bytes) => {
+                                            match mls_mgr.merge_pending_commit(&server_id) {
+                                                Ok(()) => {
+                                                    persist_mls_state(mls_mgr, &bundle_keypair);
+                                                    let commit_b64 = base64::engine::general_purpose::STANDARD.encode(&commit_bytes);
+                                                    // Broadcast MLS commit to remaining members.
+                                                    for member_peer_str in &broadcast_targets {
+                                                        if member_peer_str == &peer_id { continue; }
+                                                        if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                                            if connected_peers.contains(&pid) {
+                                                                swarm.behaviour_mut().messaging.send_request(
+                                                                    &pid,
+                                                                    HavenMessage::MlsCommit {
+                                                                        server_id: server_id.clone(),
+                                                                        commit: commit_b64.clone(),
+                                                                    },
+                                                                );
+                                                            }
+                                                        }
+                                                    }
+                                                    haven_log!("[HAVEN-MLS] Removed {peer_id} from MLS group, epoch rotated");
+                                                }
+                                                Err(e) => haven_log!("[HAVEN-MLS] Failed to merge remove commit: {e}"),
+                                            }
+                                        }
+                                        Err(e) => haven_log!("[HAVEN-MLS] Failed to remove member from MLS group: {e}"),
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -1609,6 +1883,9 @@ async fn run_swarm(
                                         .get_latest_channel_timestamp(&server_id, &channel_id)
                                         .unwrap_or(None)
                                         .unwrap_or(0);
+                                    let sender_ts = store
+                                        .get_per_sender_timestamps(&server_id, &channel_id)
+                                        .unwrap_or_default();
                                     let local_peer = swarm.local_peer_id().to_string();
                                     for member_peer_str in state.members.keys() {
                                         if member_peer_str == &local_peer { continue; }
@@ -1620,6 +1897,7 @@ async fn run_swarm(
                                                         server_id: server_id.clone(),
                                                         channel_id: channel_id.clone(),
                                                         since_timestamp: since,
+                                                        sender_timestamps: sender_ts.clone(),
                                                     },
                                                 );
                                             }
@@ -1638,6 +1916,18 @@ async fn run_swarm(
                                 pid,
                                 HavenMessage::PeerDisconnecting,
                             );
+                        }
+
+                        // Unregister from signaling server so peers don't see us as online.
+                        if let Some(room) = active_room.as_ref() {
+                            let _ = sig_cmd_tx.send(SignalingCmd::Unregister {
+                                room_code: room.clone(),
+                            }).await;
+                        }
+                        for sid in server_states.keys() {
+                            let _ = sig_cmd_tx.send(SignalingCmd::Unregister {
+                                room_code: sid.clone(),
+                            }).await;
                         }
                     }
                 }
@@ -1723,23 +2013,24 @@ async fn run_swarm(
                             // Seed Kademlia DHT from LAN peers discovered via mDNS.
                             swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
                             expected_peers.insert(peer_id);
-                            let peer_id_str = peer_id.to_string();
-                            let _ = event_tx
-                                .send(NetworkEvent::PeerDiscovered {
-                                    peer: DiscoveredPeer {
-                                        peer_id: peer_id_str.clone(),
-                                        addresses: vec![addr.to_string()],
-                                    },
-                                })
-                                .await;
-                            // If we already have an Olm session from a previous run,
-                            // notify Dart so the encrypted indicator shows up immediately.
-                            if olm.has_session(&peer_id_str) {
+                            // Dedup: only emit PeerDiscovered once per session.
+                            if discovered_peers.insert(peer_id) {
+                                let peer_id_str = peer_id.to_string();
                                 let _ = event_tx
-                                    .send(NetworkEvent::SessionEstablished {
-                                        peer_id: peer_id_str,
+                                    .send(NetworkEvent::PeerDiscovered {
+                                        peer: DiscoveredPeer {
+                                            peer_id: peer_id_str.clone(),
+                                            addresses: vec![addr.to_string()],
+                                        },
                                     })
                                     .await;
+                                if olm.has_session(&peer_id_str) {
+                                    let _ = event_tx
+                                        .send(NetworkEvent::SessionEstablished {
+                                            peer_id: peer_id_str,
+                                        })
+                                        .await;
+                                }
                             }
                         }
                     }
@@ -1768,9 +2059,13 @@ async fn run_swarm(
                                             &mut key_request_in_flight,
                                             &mut server_states,
                                             &bundle_keypair,
-                                            &connected_peers,
+                                            &mut connected_peers,
                                             &mut pending_server_joins,
                                             &mut pending_sync_requests,
+                                            &mut mls,
+                                            &mut discovered_peers,
+                                            &mut disconnected_peers,
+                                            &mut pending_disconnects,
                                             peer,
                                             request,
                                             channel,
@@ -2075,19 +2370,31 @@ async fn run_swarm(
                                 // Peer is genuinely connecting to us — clear from
                                 // disconnected set so they can be re-discovered.
                                 disconnected_peers.remove(&src_peer_id);
+                                // Cancel any pending debounced disconnect.
+                                pending_disconnects.remove(&src_peer_id);
                                 expected_peers.insert(src_peer_id);
-                                // Emit PeerDiscovered so the Dart UI shows this peer.
-                                let _ = event_tx
-                                    .send(NetworkEvent::PeerDiscovered {
-                                        peer: DiscoveredPeer {
-                                            peer_id: src_peer_id.to_string(),
-                                            addresses: vec![format!(
-                                                "{}/p2p/{}/p2p-circuit/p2p/{}",
-                                                RELAY_ADDR_QUIC, RELAY_PEER_ID, src_peer_id
-                                            )],
-                                        },
-                                    })
-                                    .await;
+                                // Emit PeerDiscovered + SessionEstablished (dedup: only once per session).
+                                if discovered_peers.insert(src_peer_id) {
+                                    let src_peer_str = src_peer_id.to_string();
+                                    let _ = event_tx
+                                        .send(NetworkEvent::PeerDiscovered {
+                                            peer: DiscoveredPeer {
+                                                peer_id: src_peer_str.clone(),
+                                                addresses: vec![format!(
+                                                    "{}/p2p/{}/p2p-circuit/p2p/{}",
+                                                    RELAY_ADDR_QUIC, RELAY_PEER_ID, src_peer_id
+                                                )],
+                                            },
+                                        })
+                                        .await;
+                                    if olm.has_session(&src_peer_str) {
+                                        let _ = event_tx
+                                            .send(NetworkEvent::SessionEstablished {
+                                                peer_id: src_peer_str,
+                                            })
+                                            .await;
+                                    }
+                                }
                             }
                         }
                     }
@@ -2117,6 +2424,8 @@ async fn run_swarm(
                         // Track connected peers (skip relay node).
                         if relay_peer_id() != Some(peer_id) {
                             connected_peers.insert(peer_id);
+                            // Cancel any pending debounced disconnect for this peer.
+                            pending_disconnects.remove(&peer_id);
                             // Peer genuinely reconnected — allow future bootstraps to re-add them.
                             disconnected_peers.remove(&peer_id);
 
@@ -2130,20 +2439,29 @@ async fn run_swarm(
                                 );
                             }
 
+                            // Treat a connection as "first" if num_established==1 (truly first)
+                            // OR the peer is not in discovered_peers (was gracefully disconnected
+                            // but the old transport lingers, so num_established > 1).
+                            let is_first_connection = num_established.get() == 1
+                                || !discovered_peers.contains(&peer_id);
+
                             // Only emit PeerDiscovered for peers we expect (from
                             // signaling bootstrap, mDNS, or relay inbound circuit).
                             // This prevents Kademlia routing connections from
                             // polluting the peer list.
-                            if num_established.get() == 1 && expected_peers.contains(&peer_id) {
+                            if is_first_connection && expected_peers.contains(&peer_id) {
                                 let peer_id_str = peer_id.to_string();
-                                let _ = event_tx
-                                    .send(NetworkEvent::PeerDiscovered {
-                                        peer: DiscoveredPeer {
-                                            peer_id: peer_id_str.clone(),
-                                            addresses: vec![format!("{endpoint:?}")],
-                                        },
-                                    })
-                                    .await;
+                                // Dedup: only emit PeerDiscovered if not already emitted this session.
+                                if discovered_peers.insert(peer_id) {
+                                    let _ = event_tx
+                                        .send(NetworkEvent::PeerDiscovered {
+                                            peer: DiscoveredPeer {
+                                                peer_id: peer_id_str.clone(),
+                                                addresses: vec![format!("{endpoint:?}")],
+                                            },
+                                        })
+                                        .await;
+                                }
                                 if olm.has_session(&peer_id_str) {
                                     // Re-emit SessionEstablished so the lock icon appears.
                                     let _ = event_tx
@@ -2176,7 +2494,7 @@ async fn run_swarm(
 
                             // -- Trigger CRDT sync + message sync for shared servers --
                             // Only on FIRST connection to this peer (not duplicate TCP/QUIC/relay).
-                            if num_established.get() == 1 {
+                            if is_first_connection {
                                 let reconnected_peer_str = peer_id.to_string();
                                 let mut is_server_member = false;
                                 for (sid, state) in server_states.iter() {
@@ -2194,7 +2512,7 @@ async fn run_swarm(
                                             );
                                         }
 
-                                        // Channel message sync — request missed messages.
+                                        // Channel message sync — request missed messages with per-sender timestamps.
                                         let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
                                         let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
                                         if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
@@ -2205,12 +2523,16 @@ async fn run_swarm(
                                                         .get_latest_channel_timestamp(sid, cid)
                                                         .unwrap_or(None)
                                                         .unwrap_or(0);
+                                                    let sender_ts = store
+                                                        .get_per_sender_timestamps(sid, cid)
+                                                        .unwrap_or_default();
                                                     swarm.behaviour_mut().messaging.send_request(
                                                         &peer_id,
                                                         HavenMessage::ChannelSyncRequest {
                                                             server_id: sid.clone(),
                                                             channel_id: cid.clone(),
                                                             since_timestamp: since,
+                                                            sender_timestamps: sender_ts,
                                                         },
                                                     );
                                                 }
@@ -2221,21 +2543,68 @@ async fn run_swarm(
                                             server_id: sid.clone(),
                                             peer_id: reconnected_peer_str.clone(),
                                         }).await;
+
+                                        // MLS: if we're the owner and this peer isn't in the MLS group yet,
+                                        // request their KeyPackage so we can add them.
+                                        if let Some(ref mls_mgr) = mls {
+                                            if mls_mgr.has_group(sid) {
+                                                let mls_members = mls_mgr.group_members(sid);
+                                                if !mls_members.contains(&reconnected_peer_str) {
+                                                    let local_peer = swarm.local_peer_id().to_string();
+                                                    let is_owner = state.roles.get(&local_peer)
+                                                        .map(|r| *r.read() == crate::crdt::operations::MemberRole::Owner)
+                                                        .unwrap_or(false);
+                                                    if is_owner {
+                                                        haven_log!("[HAVEN-MLS] Requesting KeyPackage from {reconnected_peer_str} for server {sid}");
+                                                        swarm.behaviour_mut().messaging.send_request(
+                                                            &peer_id,
+                                                            HavenMessage::MlsKeyPackageRequest {
+                                                                server_id: sid.clone(),
+                                                            },
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
 
-                                // Ensure server members show as online in UI even if
-                                // they weren't in expected_peers (e.g., discovered via
-                                // CRDT membership, not signaling bootstrap).
-                                if is_server_member && !expected_peers.contains(&peer_id) {
-                                    let _ = event_tx
-                                        .send(NetworkEvent::PeerDiscovered {
-                                            peer: DiscoveredPeer {
-                                                peer_id: reconnected_peer_str.clone(),
-                                                addresses: vec![format!("{endpoint:?}")],
-                                            },
-                                        })
-                                        .await;
+                                // DM sync — request missed DMs from this peer.
+                                {
+                                    let dm_peer_str = peer_id.to_string();
+                                    let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                    if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                            let since = store
+                                                .get_latest_dm_timestamp(&dm_peer_str)
+                                                .unwrap_or(None)
+                                                .unwrap_or(0);
+                                            swarm.behaviour_mut().messaging.send_request(
+                                                &peer_id,
+                                                HavenMessage::DmSyncRequest {
+                                                    since_timestamp: since,
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+
+                                // Ensure peers show as online in UI even if they
+                                // weren't in expected_peers (e.g., direct connection
+                                // before signaling bootstrap, or DM-only peers).
+                                if !expected_peers.contains(&peer_id) && (is_server_member || olm.has_session(&reconnected_peer_str)) {
+                                    if discovered_peers.insert(peer_id) {
+                                        let _ = event_tx
+                                            .send(NetworkEvent::PeerDiscovered {
+                                                peer: DiscoveredPeer {
+                                                    peer_id: reconnected_peer_str.clone(),
+                                                    addresses: vec![format!("{endpoint:?}")],
+                                                },
+                                            })
+                                            .await;
+                                    }
                                     if olm.has_session(&reconnected_peer_str) {
                                         let _ = event_tx
                                             .send(NetworkEvent::SessionEstablished {
@@ -2340,15 +2709,18 @@ async fn run_swarm(
                             })
                             .await;
 
-                        // Only emit PeerDisconnected when ALL connections to this peer are gone.
+                        // When ALL connections to this peer are gone, queue a
+                        // debounced disconnect instead of emitting immediately.
+                        // This prevents rapid add/remove/add UI churn when libp2p
+                        // is upgrading transports (multiple connections established
+                        // then pruned down to one within the same second).
                         if num_established == 0 && relay_peer_id() != Some(peer_id) {
                             connected_peers.remove(&peer_id);
-                            disconnected_peers.insert(peer_id, std::time::Instant::now());
-                            let _ = event_tx
-                                .send(NetworkEvent::PeerDisconnected {
-                                    peer_id: peer_id.to_string(),
-                                })
-                                .await;
+                            // Only queue debounced disconnect if not already handled
+                            // by a graceful PeerDisconnecting message.
+                            if !disconnected_peers.contains_key(&peer_id) {
+                                pending_disconnects.insert(peer_id, std::time::Instant::now());
+                            }
                         }
 
                         // Relay connection lost — immediately re-dial to restore circuit.
@@ -2431,15 +2803,17 @@ async fn run_swarm(
                             // Mark as expected so ConnectionEstablished can emit PeerDiscovered.
                             expected_peers.insert(peer_id);
 
-                            // Notify Dart of the discovered peer.
-                            let _ = event_tx
-                                .send(NetworkEvent::PeerDiscovered {
-                                    peer: DiscoveredPeer {
-                                        peer_id: bp.peer_id.clone(),
-                                        addresses: bp.addresses.clone(),
-                                    },
-                                })
-                                .await;
+                            // Notify Dart of the discovered peer (dedup: only emit once per session).
+                            if discovered_peers.insert(peer_id) {
+                                let _ = event_tx
+                                    .send(NetworkEvent::PeerDiscovered {
+                                        peer: DiscoveredPeer {
+                                            peer_id: bp.peer_id.clone(),
+                                            addresses: bp.addresses.clone(),
+                                        },
+                                    })
+                                    .await;
+                            }
 
                             // Dial relay circuit first for fast connection.
                             let _ = swarm.dial(peer_id);
@@ -2518,6 +2892,36 @@ async fn run_swarm(
                 }
             }
 
+            // Flush pending disconnects that have passed the debounce window.
+            _ = disconnect_debounce_timer.tick() => {
+                if !pending_disconnects.is_empty() {
+                    let now = std::time::Instant::now();
+                    let mut to_emit = Vec::new();
+                    pending_disconnects.retain(|peer_id, queued_at| {
+                        if now.duration_since(*queued_at) >= DISCONNECT_DEBOUNCE {
+                            to_emit.push(*peer_id);
+                            false
+                        } else {
+                            true
+                        }
+                    });
+                    for peer_id in to_emit {
+                        // Only emit if the peer is still not connected AND wasn't
+                        // already handled by a graceful PeerDisconnecting (which adds
+                        // to disconnected_peers immediately).
+                        if !connected_peers.contains(&peer_id) && !disconnected_peers.contains_key(&peer_id) {
+                            disconnected_peers.insert(peer_id, now);
+                            discovered_peers.remove(&peer_id);
+                            let _ = event_tx
+                                .send(NetworkEvent::PeerDisconnected {
+                                    peer_id: peer_id.to_string(),
+                                })
+                                .await;
+                        }
+                    }
+                }
+            }
+
             // Relay health check — re-dial relay if connection dropped.
             _ = relay_health_timer.tick() => {
                 if let Some(relay_pid) = relay_peer_id() {
@@ -2551,6 +2955,29 @@ async fn run_swarm(
                 }
             }
         }
+    }
+}
+
+/// Persist MLS state (signer + credential + storage) to SQLCipher.
+fn persist_mls_state(mls: &MlsManager, keypair: &identity::Keypair) {
+    let signer = match mls.signer_bytes() {
+        Ok(s) => s,
+        Err(e) => { haven_log!("[HAVEN-MLS] Failed to serialize signer: {e}"); return; }
+    };
+    let cred = match mls.credential_bytes() {
+        Ok(c) => c,
+        Err(e) => { haven_log!("[HAVEN-MLS] Failed to serialize credential: {e}"); return; }
+    };
+    let storage = match mls.serialize_storage() {
+        Ok(s) => s,
+        Err(e) => { haven_log!("[HAVEN-MLS] Failed to serialize storage: {e}"); return; }
+    };
+    let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+        let _ = store.save_mls_identity(&signer, &cred, &storage);
     }
 }
 
@@ -2615,9 +3042,13 @@ async fn handle_incoming_request(
     key_request_in_flight: &mut std::collections::HashSet<String>,
     server_states: &mut HashMap<String, ServerState>,
     bundle_keypair: &identity::Keypair,
-    connected_peers: &std::collections::HashSet<PeerId>,
+    connected_peers: &mut std::collections::HashSet<PeerId>,
     pending_server_joins: &mut std::collections::HashSet<String>,
     pending_sync_requests: &mut HashMap<String, Vec<(String, String, i64)>>,
+    mls: &mut Option<MlsManager>,
+    discovered_peers: &mut std::collections::HashSet<PeerId>,
+    disconnected_peers: &mut HashMap<PeerId, std::time::Instant>,
+    pending_disconnects: &mut HashMap<PeerId, std::time::Instant>,
     peer: PeerId,
     request: HavenMessage,
     channel: request_response::ResponseChannel<HavenMessage>,
@@ -2918,30 +3349,107 @@ async fn handle_incoming_request(
                         new_message_count: new_count,
                     }).await;
                 }
-                Ok(MessageEnvelope::DirectMessage { text: msg_text, ts: _ts, sig, pk }) => {
+                Ok(MessageEnvelope::DirectMessage { text: msg_text, ts, sig, pk }) => {
                     // Verify DM signature if present.
                     if sig.is_some() {
                         let local_peer = swarm.local_peer_id().to_string();
                         let payload = message_signing_payload(
-                            "dm", &local_peer, &peer_str, _ts, &msg_text,
+                            "dm", &local_peer, &peer_str, ts, &msg_text,
                         );
                         if !verify_message_signature(&peer_str, sig.as_deref(), pk.as_deref(), &payload) {
                             haven_log!("[HAVEN-CRYPTO] Signature verification FAILED for DM from {peer_str}");
                         }
                     }
-                    let _ = event_tx
-                        .send(NetworkEvent::MessageReceived {
-                            from_peer: peer_str,
-                            text: msg_text,
-                        })
-                        .await;
+
+                    // Persist received DM using sender's timestamp (not Dart DateTime.now()).
+                    // This ensures DM sync timestamps are consistent for deduplication.
+                    let mut is_new = true;
+                    {
+                        let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                        if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                match store.insert(
+                                    &peer_str, &msg_text, false, ts,
+                                    sig.as_deref(), pk.as_deref(),
+                                ) {
+                                    Ok(0) => { is_new = false; } // Duplicate
+                                    Ok(_) => {}
+                                    Err(_) => { is_new = false; }
+                                }
+                            }
+                        }
+                    }
+
+                    // Only emit event if this is a genuinely new message.
+                    if is_new {
+                        let _ = event_tx
+                            .send(NetworkEvent::MessageReceived {
+                                from_peer: peer_str,
+                                text: msg_text,
+                                timestamp: ts,
+                            })
+                            .await;
+                    }
+                }
+                Ok(MessageEnvelope::DmSyncBatch { messages }) => {
+                    haven_log!("[HAVEN-SYNC] Received {} DM sync messages from {peer_str}", messages.len());
+                    let local_peer = swarm.local_peer_id().to_string();
+                    let mut new_count = 0u32;
+
+                    let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                    if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                            for msg in &messages {
+                                // All sync items are messages the peer SENT to us
+                                // (get_dm_messages_since only returns is_mine=1 from their DB).
+                                // From our perspective, these are received messages (is_mine=false).
+
+                                // Verify signature if present.
+                                if msg.sig.is_some() {
+                                    // Sender=them, recipient=us
+                                    let payload = message_signing_payload(
+                                        "dm", &local_peer, &peer_str, msg.ts, &msg.t,
+                                    );
+                                    if !verify_message_signature(&peer_str, msg.sig.as_deref(), msg.pk.as_deref(), &payload) {
+                                        haven_log!("[HAVEN-CRYPTO] Signature verification FAILED for DM sync message from {peer_str}");
+                                    }
+                                }
+
+                                match store.insert(
+                                    &peer_str, &msg.t, false, msg.ts,
+                                    msg.sig.as_deref(), msg.pk.as_deref(),
+                                ) {
+                                    Ok(id) if id > 0 => { new_count += 1; }
+                                    _ => {} // Duplicate or error — skip.
+                                }
+                            }
+                        }
+                    }
+
+                    haven_log!("[HAVEN-SYNC] DM sync: {new_count} new messages from {peer_str}");
+                    // Always emit DmSyncCompleted — even with 0 new messages.
+                    // Dart may have cleared its in-memory cache on disconnect;
+                    // this tells it to reload from DB regardless.
+                    let _ = event_tx.send(NetworkEvent::DmSyncCompleted {
+                        peer_id: peer_str,
+                        new_message_count: new_count,
+                    }).await;
                 }
                 Err(_) => {
                     // Legacy raw-text DM (backward compatible).
+                    let legacy_ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as i64;
                     let _ = event_tx
                         .send(NetworkEvent::MessageReceived {
                             from_peer: peer_str,
                             text,
+                            timestamp: legacy_ts,
                         })
                         .await;
                 }
@@ -3268,6 +3776,12 @@ async fn handle_incoming_request(
                     let _ = store.delete_server_state(&server_id);
                 }
 
+                // Clean up MLS group.
+                if let Some(mls_mgr) = mls {
+                    mls_mgr.remove_group(&server_id);
+                    persist_mls_state(mls_mgr, bundle_keypair);
+                }
+
                 let _ = event_tx.send(NetworkEvent::ServerDeleted {
                     server_id,
                 }).await;
@@ -3288,14 +3802,20 @@ async fn handle_incoming_request(
                     let _ = store.delete_server_state(&server_id);
                 }
 
+                // Clean up MLS group.
+                if let Some(mls_mgr) = mls {
+                    mls_mgr.remove_group(&server_id);
+                    persist_mls_state(mls_mgr, bundle_keypair);
+                }
+
                 let _ = event_tx.send(NetworkEvent::ServerDeleted {
                     server_id,
                 }).await;
             }
         }
 
-        HavenMessage::ChannelSyncRequest { server_id, channel_id, since_timestamp } => {
-            haven_log!("[HAVEN-SYNC] ChannelSyncRequest from {peer_str} for {channel_id} in {server_id} since {since_timestamp}");
+        HavenMessage::ChannelSyncRequest { server_id, channel_id, since_timestamp, sender_timestamps } => {
+            haven_log!("[HAVEN-SYNC] ChannelSyncRequest from {peer_str} for {channel_id} in {server_id} since {since_timestamp} (per-sender: {} entries)", sender_timestamps.len());
             let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
 
             // Room gating: only respond for servers we're a member of.
@@ -3308,9 +3828,17 @@ async fn handle_incoming_request(
             if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
                 let passphrase = hex::encode(&proto[..32.min(proto.len())]);
                 if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                    if let Ok(messages) = store.get_channel_messages_since(
-                        &server_id, &channel_id, since_timestamp, 200,
-                    ) {
+                    // Use per-sender sync if available, fall back to legacy single-timestamp.
+                    let messages_result = if !sender_timestamps.is_empty() {
+                        store.get_channel_messages_since_per_sender(
+                            &server_id, &channel_id, &sender_timestamps, 200,
+                        )
+                    } else {
+                        store.get_channel_messages_since(
+                            &server_id, &channel_id, since_timestamp, 200,
+                        )
+                    };
+                    if let Ok(messages) = messages_result {
                         haven_log!("[HAVEN-SYNC] Sending {} sync messages for {channel_id}", messages.len());
                         let items: Vec<SyncMessageItem> = messages.iter().map(|m| {
                             SyncMessageItem {
@@ -3322,9 +3850,15 @@ async fn handle_incoming_request(
                             }
                         }).collect();
 
-                        let total = store.count_channel_messages_since(
-                            &server_id, &channel_id, since_timestamp,
-                        ).unwrap_or(items.len() as u32);
+                        let total = if !sender_timestamps.is_empty() {
+                            store.count_channel_messages_since_per_sender(
+                                &server_id, &channel_id, &sender_timestamps,
+                            ).unwrap_or(items.len() as u32)
+                        } else {
+                            store.count_channel_messages_since(
+                                &server_id, &channel_id, since_timestamp,
+                            ).unwrap_or(items.len() as u32)
+                        };
 
                         let server_id_for_err = server_id.clone();
                         let channel_id_for_err = channel_id.clone();
@@ -3359,13 +3893,268 @@ async fn handle_incoming_request(
             }
         }
 
+        HavenMessage::DmSyncRequest { since_timestamp } => {
+            haven_log!("[HAVEN-SYNC] DmSyncRequest from {peer_str} since {since_timestamp}");
+            let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
+
+            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+            if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                    if let Ok(messages) = store.get_dm_messages_since(&peer_str, since_timestamp, 200) {
+                        haven_log!("[HAVEN-SYNC] Sending {} DM sync messages to {peer_str}", messages.len());
+                        let items: Vec<DmSyncItem> = messages.iter().map(|m| {
+                            DmSyncItem {
+                                t: m.text.clone(),
+                                ts: m.timestamp,
+                                mine: m.is_mine,
+                                sig: m.signature.clone(),
+                                pk: m.public_key.clone(),
+                            }
+                        }).collect();
+
+                        if !items.is_empty() {
+                            let envelope = MessageEnvelope::DmSyncBatch {
+                                messages: items,
+                            };
+                            let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+
+                            send_encrypted_message(
+                                swarm, olm, crypto_store,
+                                pending_requests, outbound_message_text,
+                                &peer, &peer_str, &envelope_json, event_tx,
+                            ).await;
+                        }
+                    }
+                }
+            }
+        }
+
         HavenMessage::PeerDisconnecting => {
             haven_log!("[HAVEN-SWARM] Peer {peer_str} is disconnecting gracefully");
             let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
-            // Emit PeerDisconnected immediately so the UI updates right away.
+            // Graceful disconnect bypasses debounce — emit immediately.
+            // Remove from connected_peers so the subsequent ConnectionClosed + debounce
+            // won't emit a second PeerDisconnected.
+            connected_peers.remove(&peer);
+            pending_disconnects.remove(&peer);
+            discovered_peers.remove(&peer);
+            disconnected_peers.insert(peer, std::time::Instant::now());
             let _ = event_tx.send(NetworkEvent::PeerDisconnected {
                 peer_id: peer_str,
             }).await;
+        }
+
+        // -- MLS message handlers --
+
+        HavenMessage::MlsChannelMessage { server_id, body } => {
+            let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
+
+            if let Some(mls_mgr) = mls {
+                if !mls_mgr.has_group(&server_id) {
+                    haven_log!("[HAVEN-MLS] Received MlsChannelMessage for unknown group {server_id}");
+                    return;
+                }
+
+                let ciphertext = match base64::engine::general_purpose::STANDARD.decode(&body) {
+                    Ok(ct) => ct,
+                    Err(e) => { haven_log!("[HAVEN-MLS] Base64 decode failed: {e}"); return; }
+                };
+
+                match mls_mgr.decrypt(&server_id, &ciphertext) {
+                    Ok((plaintext, sender_peer_id)) => {
+                        persist_mls_state(mls_mgr, bundle_keypair);
+
+                        // Parse the plaintext as a MessageEnvelope.
+                        let envelope_str = String::from_utf8_lossy(&plaintext);
+                        if let Ok(envelope) = serde_json::from_str::<MessageEnvelope>(&envelope_str) {
+                            if let MessageEnvelope::ChannelMessage { sid, cid, text, ts, sig, pk } = envelope {
+                                // Verify Ed25519 signature.
+                                let signing_payload = message_signing_payload(
+                                    "ch", &format!("{}:{}", sid, cid),
+                                    &sender_peer_id, ts, &text,
+                                );
+                                verify_message_signature(
+                                    &sender_peer_id,
+                                    sig.as_deref(),
+                                    pk.as_deref(),
+                                    &signing_payload,
+                                );
+
+                                let local_peer = swarm.local_peer_id().to_string();
+                                let is_mine = sender_peer_id == local_peer;
+
+                                // Persist to DB.
+                                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                    let rows = store.insert_channel_message(
+                                        &sid, &cid, &sender_peer_id, &text, is_mine, ts,
+                                        sig.as_deref(), pk.as_deref(),
+                                    );
+                                    let is_new = rows.as_ref().map(|&r| r > 0).unwrap_or(false);
+                                    if is_new {
+                                        let _ = event_tx.send(NetworkEvent::ChannelMessageReceived {
+                                            server_id: sid,
+                                            channel_id: cid,
+                                            from_peer: sender_peer_id,
+                                            text,
+                                            timestamp: ts,
+                                        }).await;
+                                    }
+                                }
+                            }
+                        } else {
+                            haven_log!("[HAVEN-MLS] Failed to parse decrypted envelope");
+                        }
+                    }
+                    Err(e) => haven_log!("[HAVEN-MLS] Decrypt failed: {e}"),
+                }
+            }
+        }
+
+        HavenMessage::MlsKeyPackage { server_id, key_package } => {
+            haven_log!("[HAVEN-MLS] MlsKeyPackage from {peer_str} for server {server_id}");
+            let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
+
+            // Only the server owner processes KeyPackages (single-committer model).
+            let local_peer = swarm.local_peer_id().to_string();
+            let is_owner = server_states.get(&server_id)
+                .map(|s| {
+                    s.roles.get(&local_peer)
+                        .map(|r| *r.read() == crate::crdt::operations::MemberRole::Owner)
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+
+            if !is_owner {
+                haven_log!("[HAVEN-MLS] Not owner of {server_id}, ignoring KeyPackage");
+                return;
+            }
+
+            if let Some(mls_mgr) = mls {
+                // Create MLS group lazily if it doesn't exist (migration for pre-MLS servers).
+                if !mls_mgr.has_group(&server_id) {
+                    haven_log!("[HAVEN-MLS] Lazily creating MLS group for existing server {server_id}");
+                    if let Err(e) = mls_mgr.create_group(&server_id) {
+                        haven_log!("[HAVEN-MLS] Failed to create MLS group: {e}");
+                        return;
+                    }
+                }
+
+                let kp_bytes = match base64::engine::general_purpose::STANDARD.decode(&key_package) {
+                    Ok(b) => b,
+                    Err(e) => { haven_log!("[HAVEN-MLS] Base64 decode KeyPackage failed: {e}"); return; }
+                };
+
+                match mls_mgr.add_member(&server_id, &kp_bytes) {
+                    Ok((commit_bytes, welcome_bytes)) => {
+                        if let Err(e) = mls_mgr.merge_pending_commit(&server_id) {
+                            haven_log!("[HAVEN-MLS] Failed to merge add commit: {e}");
+                            return;
+                        }
+                        persist_mls_state(mls_mgr, bundle_keypair);
+
+                        // Send Welcome to the joiner.
+                        let welcome_b64 = base64::engine::general_purpose::STANDARD.encode(&welcome_bytes);
+                        swarm.behaviour_mut().messaging.send_request(
+                            &peer,
+                            HavenMessage::MlsWelcome {
+                                server_id: server_id.clone(),
+                                welcome: welcome_b64,
+                            },
+                        );
+
+                        // Broadcast Commit to all other MLS group members.
+                        let commit_b64 = base64::engine::general_purpose::STANDARD.encode(&commit_bytes);
+                        if let Some(state) = server_states.get(&server_id) {
+                            let local_peer = swarm.local_peer_id().to_string();
+                            for member_peer_str in state.members.keys() {
+                                if member_peer_str == &local_peer || member_peer_str == &peer_str { continue; }
+                                if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                    if connected_peers.contains(&pid) {
+                                        swarm.behaviour_mut().messaging.send_request(
+                                            &pid,
+                                            HavenMessage::MlsCommit {
+                                                server_id: server_id.clone(),
+                                                commit: commit_b64.clone(),
+                                            },
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
+                        haven_log!("[HAVEN-MLS] Added {peer_str} to MLS group for server {server_id}");
+                    }
+                    Err(e) => haven_log!("[HAVEN-MLS] Failed to add member: {e}"),
+                }
+            }
+        }
+
+        HavenMessage::MlsWelcome { server_id, welcome } => {
+            haven_log!("[HAVEN-MLS] MlsWelcome from {peer_str} for server {server_id}");
+            let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
+
+            if let Some(mls_mgr) = mls {
+                let welcome_bytes = match base64::engine::general_purpose::STANDARD.decode(&welcome) {
+                    Ok(b) => b,
+                    Err(e) => { haven_log!("[HAVEN-MLS] Base64 decode Welcome failed: {e}"); return; }
+                };
+
+                match mls_mgr.join_from_welcome(&server_id, &welcome_bytes) {
+                    Ok(()) => {
+                        persist_mls_state(mls_mgr, bundle_keypair);
+                        haven_log!("[HAVEN-MLS] Joined MLS group for server {server_id}");
+                    }
+                    Err(e) => haven_log!("[HAVEN-MLS] Failed to join from Welcome: {e}"),
+                }
+            }
+        }
+
+        HavenMessage::MlsCommit { server_id, commit } => {
+            haven_log!("[HAVEN-MLS] MlsCommit from {peer_str} for server {server_id}");
+            let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
+
+            if let Some(mls_mgr) = mls {
+                let commit_bytes = match base64::engine::general_purpose::STANDARD.decode(&commit) {
+                    Ok(b) => b,
+                    Err(e) => { haven_log!("[HAVEN-MLS] Base64 decode Commit failed: {e}"); return; }
+                };
+
+                match mls_mgr.process_commit(&server_id, &commit_bytes) {
+                    Ok(()) => {
+                        persist_mls_state(mls_mgr, bundle_keypair);
+                        haven_log!("[HAVEN-MLS] Processed commit for server {server_id}");
+                    }
+                    Err(e) => haven_log!("[HAVEN-MLS] Failed to process commit: {e}"),
+                }
+            }
+        }
+
+        HavenMessage::MlsKeyPackageRequest { server_id } => {
+            haven_log!("[HAVEN-MLS] MlsKeyPackageRequest from {peer_str} for server {server_id}");
+            let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
+
+            // Respond with our KeyPackage if we have an MLS identity.
+            if let Some(mls_mgr) = mls {
+                match mls_mgr.generate_key_package() {
+                    Ok(kp_bytes) => {
+                        let kp_b64 = base64::engine::general_purpose::STANDARD.encode(&kp_bytes);
+                        swarm.behaviour_mut().messaging.send_request(
+                            &peer,
+                            HavenMessage::MlsKeyPackage {
+                                server_id,
+                                key_package: kp_b64,
+                            },
+                        );
+                    }
+                    Err(e) => haven_log!("[HAVEN-MLS] Failed to generate KeyPackage: {e}"),
+                }
+            }
         }
 
         // KeyBundle and Ack shouldn't arrive as requests, but handle gracefully.
@@ -3490,7 +4279,14 @@ async fn flush_pending_sync_requests(
             peer_id: peer_str.to_string(),
         }).await;
 
-        match store.get_channel_messages_since(&server_id, &channel_id, since_timestamp, 200) {
+        // Re-query per-sender timestamps at flush time (DB may have changed since original request).
+        let sender_ts = store.get_per_sender_timestamps(&server_id, &channel_id).unwrap_or_default();
+        let messages_result = if !sender_ts.is_empty() {
+            store.get_channel_messages_since_per_sender(&server_id, &channel_id, &sender_ts, 200)
+        } else {
+            store.get_channel_messages_since(&server_id, &channel_id, since_timestamp, 200)
+        };
+        match messages_result {
             Ok(messages) => {
                 haven_log!("[HAVEN-SYNC] Retry: sending {} messages for {channel_id} to {peer_str}", messages.len());
                 let items: Vec<SyncMessageItem> = messages.iter().map(|m| {
@@ -3503,9 +4299,15 @@ async fn flush_pending_sync_requests(
                     }
                 }).collect();
 
-                let total = store.count_channel_messages_since(
-                    &server_id, &channel_id, since_timestamp,
-                ).unwrap_or(items.len() as u32);
+                let total = if !sender_ts.is_empty() {
+                    store.count_channel_messages_since_per_sender(
+                        &server_id, &channel_id, &sender_ts,
+                    ).unwrap_or(items.len() as u32)
+                } else {
+                    store.count_channel_messages_since(
+                        &server_id, &channel_id, since_timestamp,
+                    ).unwrap_or(items.len() as u32)
+                };
 
                 let envelope = MessageEnvelope::ChannelSyncBatch {
                     sid: server_id.clone(),

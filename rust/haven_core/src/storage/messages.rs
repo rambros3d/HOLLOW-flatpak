@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use rusqlite::{params, Connection};
 
 use crate::crdt::operations::CrdtOp;
@@ -186,6 +188,25 @@ impl MessageStore {
             "ALTER TABLE messages ADD COLUMN public_key TEXT;"
         ).unwrap_or(());
 
+        // -- Migration: DM deduplication unique index --
+        // Allows INSERT OR IGNORE for DM sync (like channel_messages).
+        conn.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_dedup
+             ON messages (peer_id, timestamp, text, is_mine);"
+        ).unwrap_or(());
+
+        // -- MLS identity (singleton row, id=1) --
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS mls_identity (
+                id              INTEGER PRIMARY KEY CHECK (id = 1),
+                signer_data     BLOB NOT NULL,
+                credential_data BLOB NOT NULL,
+                storage_data    BLOB
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create mls_identity table: {e}"))?;
+
         Ok(MessageStore { conn })
     }
 
@@ -199,13 +220,17 @@ impl MessageStore {
         signature: Option<&str>,
         public_key: Option<&str>,
     ) -> Result<i64, String> {
-        self.conn
+        let rows = self.conn
             .execute(
-                "INSERT INTO messages (peer_id, text, is_mine, timestamp, signature, public_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT OR IGNORE INTO messages (peer_id, text, is_mine, timestamp, signature, public_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![peer_id, text, is_mine as i32, timestamp, signature, public_key],
             )
             .map_err(|e| format!("Failed to insert message: {e}"))?;
-        Ok(self.conn.last_insert_rowid())
+        if rows > 0 {
+            Ok(self.conn.last_insert_rowid())
+        } else {
+            Ok(0) // Duplicate — ignored.
+        }
     }
 
     // -- Olm persistence --
@@ -319,6 +344,68 @@ impl MessageStore {
             messages.push(row.map_err(|e| format!("Failed to read row: {e}"))?);
         }
         messages.reverse(); // Oldest first for display.
+        Ok(messages)
+    }
+
+    /// Get the latest DM timestamp for a peer (for DM sync requests).
+    pub fn get_latest_dm_timestamp(
+        &self,
+        peer_id: &str,
+    ) -> Result<Option<i64>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT MAX(timestamp) FROM messages WHERE peer_id = ?1",
+            )
+            .map_err(|e| format!("Failed to prepare dm latest timestamp query: {e}"))?;
+        let mut rows = stmt
+            .query_map(params![peer_id], |row| row.get::<_, Option<i64>>(0))
+            .map_err(|e| format!("Failed to query dm latest timestamp: {e}"))?;
+        match rows.next() {
+            Some(Ok(ts)) => Ok(ts),
+            Some(Err(e)) => Err(format!("Failed to read dm latest timestamp: {e}")),
+            None => Ok(None),
+        }
+    }
+
+    /// Get DM messages **we sent** newer than or equal to a given timestamp (for DM sync responses).
+    /// Only returns `is_mine = 1` — the requesting peer already has messages they sent.
+    /// Uses `>=` (inclusive) — INSERT OR IGNORE dedup handles overlap.
+    pub fn get_dm_messages_since(
+        &self,
+        peer_id: &str,
+        since_timestamp: i64,
+        limit: i32,
+    ) -> Result<Vec<StoredMessage>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key
+                 FROM messages
+                 WHERE peer_id = ?1 AND timestamp >= ?2 AND is_mine = 1
+                 ORDER BY timestamp ASC
+                 LIMIT ?3",
+            )
+            .map_err(|e| format!("Failed to prepare dm_messages_since query: {e}"))?;
+
+        let rows = stmt
+            .query_map(params![peer_id, since_timestamp, limit], |row| {
+                Ok(StoredMessage {
+                    id: row.get(0)?,
+                    peer_id: row.get(1)?,
+                    text: row.get(2)?,
+                    is_mine: row.get::<_, i32>(3)? != 0,
+                    timestamp: row.get(4)?,
+                    signature: row.get(5)?,
+                    public_key: row.get(6)?,
+                })
+            })
+            .map_err(|e| format!("Failed to query dm_messages_since: {e}"))?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            messages.push(row.map_err(|e| format!("Failed to read dm_messages_since row: {e}"))?);
+        }
         Ok(messages)
     }
 
@@ -598,6 +685,168 @@ impl MessageStore {
         Ok(count as u32)
     }
 
+    /// Get the latest timestamp per sender for a channel (for per-sender sync).
+    /// Returns a map of `{ sender_id → max_timestamp }`.
+    pub fn get_per_sender_timestamps(
+        &self,
+        server_id: &str,
+        channel_id: &str,
+    ) -> Result<HashMap<String, i64>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT sender_id, MAX(timestamp) FROM channel_messages
+                 WHERE server_id = ?1 AND channel_id = ?2
+                 GROUP BY sender_id",
+            )
+            .map_err(|e| format!("Failed to prepare per_sender_timestamps query: {e}"))?;
+        let rows = stmt
+            .query_map(params![server_id, channel_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .map_err(|e| format!("Failed to query per_sender_timestamps: {e}"))?;
+        let mut map = HashMap::new();
+        for row in rows {
+            let (sender, ts) = row.map_err(|e| format!("Failed to read per_sender row: {e}"))?;
+            map.insert(sender, ts);
+        }
+        Ok(map)
+    }
+
+    /// Get channel messages filling gaps from per-sender timestamps.
+    /// For each known sender, returns messages with `timestamp >= sender_ts`.
+    /// For unknown senders (not in the map), returns ALL their messages.
+    pub fn get_channel_messages_since_per_sender(
+        &self,
+        server_id: &str,
+        channel_id: &str,
+        sender_timestamps: &HashMap<String, i64>,
+        limit: i32,
+    ) -> Result<Vec<StoredChannelMessage>, String> {
+        if sender_timestamps.is_empty() {
+            // No known senders — return everything.
+            return self.get_channel_messages_since(server_id, channel_id, 0, limit);
+        }
+
+        // Build dynamic SQL: for each known sender, filter by their timestamp.
+        // Unknown senders get all messages.
+        // Uses `>=` (inclusive) to catch same-millisecond messages; INSERT OR IGNORE dedup handles overlap.
+        let mut conditions = Vec::new();
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        param_values.push(Box::new(server_id.to_string()));
+        param_values.push(Box::new(channel_id.to_string()));
+
+        let known_senders: Vec<&String> = sender_timestamps.keys().collect();
+        let mut param_idx = 3;
+
+        // Condition for each known sender: messages newer than or equal to their latest.
+        for (sender, ts) in sender_timestamps {
+            conditions.push(format!("(sender_id = ?{} AND timestamp >= ?{})", param_idx, param_idx + 1));
+            param_values.push(Box::new(sender.clone()));
+            param_values.push(Box::new(*ts));
+            param_idx += 2;
+        }
+
+        // Condition for unknown senders: all their messages.
+        if !known_senders.is_empty() {
+            let placeholders: Vec<String> = known_senders.iter().enumerate().map(|(i, _)| {
+                let idx = param_idx + i;
+                format!("?{idx}")
+            }).collect();
+            conditions.push(format!("(sender_id NOT IN ({}))", placeholders.join(",")));
+            for s in &known_senders {
+                param_values.push(Box::new(s.to_string()));
+            }
+        }
+
+        let where_clause = conditions.join(" OR ");
+        let sql = format!(
+            "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key
+             FROM channel_messages
+             WHERE server_id = ?1 AND channel_id = ?2 AND ({where_clause})
+             ORDER BY timestamp ASC
+             LIMIT ?{}",
+            param_values.len() + 1,
+        );
+        param_values.push(Box::new(limit));
+
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)
+            .map_err(|e| format!("Failed to prepare per_sender_since query: {e}"))?;
+        let rows = stmt
+            .query_map(params_ref.as_slice(), |row| {
+                Ok(StoredChannelMessage {
+                    id: row.get(0)?,
+                    server_id: row.get(1)?,
+                    channel_id: row.get(2)?,
+                    sender_id: row.get(3)?,
+                    text: row.get(4)?,
+                    is_mine: row.get::<_, i32>(5)? != 0,
+                    timestamp: row.get(6)?,
+                    signature: row.get(7)?,
+                    public_key: row.get(8)?,
+                })
+            })
+            .map_err(|e| format!("Failed to query per_sender_since: {e}"))?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            messages.push(row.map_err(|e| format!("Failed to read per_sender row: {e}"))?);
+        }
+        Ok(messages)
+    }
+
+    /// Count channel messages that would be returned by per-sender sync.
+    pub fn count_channel_messages_since_per_sender(
+        &self,
+        server_id: &str,
+        channel_id: &str,
+        sender_timestamps: &HashMap<String, i64>,
+    ) -> Result<u32, String> {
+        if sender_timestamps.is_empty() {
+            return self.count_channel_messages_since(server_id, channel_id, 0);
+        }
+
+        let mut conditions = Vec::new();
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        param_values.push(Box::new(server_id.to_string()));
+        param_values.push(Box::new(channel_id.to_string()));
+
+        let known_senders: Vec<&String> = sender_timestamps.keys().collect();
+        let mut param_idx = 3;
+
+        for (sender, ts) in sender_timestamps {
+            conditions.push(format!("(sender_id = ?{} AND timestamp >= ?{})", param_idx, param_idx + 1));
+            param_values.push(Box::new(sender.clone()));
+            param_values.push(Box::new(*ts));
+            param_idx += 2;
+        }
+
+        if !known_senders.is_empty() {
+            let placeholders: Vec<String> = known_senders.iter().enumerate().map(|(i, _)| {
+                let idx = param_idx + i;
+                format!("?{idx}")
+            }).collect();
+            conditions.push(format!("(sender_id NOT IN ({}))", placeholders.join(",")));
+            for s in &known_senders {
+                param_values.push(Box::new(s.to_string()));
+            }
+        }
+
+        let where_clause = conditions.join(" OR ");
+        let sql = format!(
+            "SELECT COUNT(*) FROM channel_messages
+             WHERE server_id = ?1 AND channel_id = ?2 AND ({where_clause})",
+        );
+
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+
+        let count: i64 = self.conn.query_row(&sql, params_ref.as_slice(), |row| row.get(0))
+            .map_err(|e| format!("Failed to count per_sender messages: {e}"))?;
+        Ok(count as u32)
+    }
+
     /// Load HLC state, if saved.
     pub fn load_hlc_state(&self) -> Result<Option<(u64, u32, String)>, String> {
         let mut stmt = self
@@ -616,6 +865,51 @@ impl MessageStore {
         match rows.next() {
             Some(Ok(tuple)) => Ok(Some(tuple)),
             Some(Err(e)) => Err(format!("Failed to read hlc_state row: {e}")),
+            None => Ok(None),
+        }
+    }
+
+    // ── MLS Identity Persistence ──
+
+    /// Save MLS identity (signer + credential + storage blob). Upsert singleton row.
+    pub fn save_mls_identity(
+        &self,
+        signer_data: &[u8],
+        credential_data: &[u8],
+        storage_data: &[u8],
+    ) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT INTO mls_identity (id, signer_data, credential_data, storage_data)
+                 VALUES (1, ?1, ?2, ?3)
+                 ON CONFLICT(id) DO UPDATE SET
+                    signer_data = excluded.signer_data,
+                    credential_data = excluded.credential_data,
+                    storage_data = excluded.storage_data",
+                params![signer_data, credential_data, storage_data],
+            )
+            .map_err(|e| format!("Failed to save MLS identity: {e}"))?;
+        Ok(())
+    }
+
+    /// Load MLS identity. Returns (signer_data, credential_data, storage_data) if exists.
+    pub fn load_mls_identity(&self) -> Result<Option<(Vec<u8>, Vec<u8>, Option<Vec<u8>>)>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT signer_data, credential_data, storage_data FROM mls_identity WHERE id = 1")
+            .map_err(|e| format!("Failed to prepare mls_identity query: {e}"))?;
+        let mut rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, Vec<u8>>(0)?,
+                    row.get::<_, Vec<u8>>(1)?,
+                    row.get::<_, Option<Vec<u8>>>(2)?,
+                ))
+            })
+            .map_err(|e| format!("Failed to query mls_identity: {e}"))?;
+        match rows.next() {
+            Some(Ok(tuple)) => Ok(Some(tuple)),
+            Some(Err(e)) => Err(format!("Failed to read mls_identity row: {e}")),
             None => Ok(None),
         }
     }
