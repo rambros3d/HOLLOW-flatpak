@@ -63,56 +63,20 @@ ssh ubuntu@141.227.186.209 "cd relay && cargo build --release && sudo systemctl 
 ```
 
 ## Current Phase
-**Phase 3: Servers & Channels** — In Progress.
+**Phase 3.5: Daily Driver — Chat Features & Identity** — In Progress.
 
-Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection management, invite links), 2.5 (UI Foundation), 2.75 (Haven Design System v2), UI Polish Pass — all COMPLETE. WSS transport deployed.
+Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection management, invite links), 2.5 (UI Foundation), 2.75 (Haven Design System v2), UI Polish Pass, 3 (Servers & Channels) — all COMPLETE. WSS transport deployed.
 
-**Phase 3 completed so far:**
-- CRDT backend: `crdts` crate + custom `AdminLwwReg`, 18 Rust tests, HLC ordering, sync protocol
-- Server creation + channel system UI (ServerStrip, ChannelSidebar, ChatPane, MemberPanel)
-- Channel messaging: Olm E2EE fan-out, JSON envelope, `channel_messages` SQLCipher table, ChannelChatPane + ChannelMessageBubble
-- Server settings UI: full tabbed panel (Overview/Channels/Members/Danger Zone), rename/delete server+channels, server description
-- Server state reload from DB on restart (HLC re-initialized after deserialization)
-- Performance: `Opacity`→`FadeTransition` fix on HavenPressable/HavenButton/HavenToggle
-- Server invite join flow: `haven://join?server=<id>` links, `JoinServer` command, `ServerJoinRequest` message, auto-register in server signaling rooms on startup
-- Message deduplication: sender timestamp in envelope, UNIQUE DB constraint, Rust-side dedup before emitting events
-- Server/channel deletion broadcast: `ServerDeleteBroadcast` message propagates to all connected members
-- Room gating: reject incoming CRDT state/ops for servers not joined or pending join
-- Channel/server operation broadcast: all CRDT mutations broadcast to server members only (not all connected peers), receive handler emits specific events (ChannelAdded/Removed/Renamed, MemberJoined/Left)
-- Connection status indicator: per-server online member count in channel header (green/yellow/red dot + X/Y count)
-- Message history sync on reconnection: pull-based catch-up (`ChannelSyncRequest`/`ChannelSyncBatch`), `INSERT OR IGNORE` dedup, triggers on reconnect + on-demand channel open
-- Peer reconnection: `disconnected_peers` cleared every 60s, CRDT sync on reconnect via `ConnectionEstablished`
-- Olm session race fix: 3-layer PreKey defense (`try_decrypt_prekey_with_existing` → `create_inbound_session` → auto re-key)
-- Olm session preservation: stopped destroying sessions on transport failure (`OutboundFailure`), preventing dual-outbound race
-- Sync retry system: `MessageSyncFailed` event, `pending_sync_requests` retry after re-key, `flush_pending_sync_requests` helper
-- Granular sync UI: `ServerSyncStatus` enum (idle/connecting/syncing/synced/retrying/failed), `_ConnectionIndicator` with StatusDot + retry button
-- Graceful disconnect: `PeerDisconnecting` broadcast on app close, immediate `PeerDisconnected` event on receiver
-- Member presence: ASOT-style Online/Offline dividers, per-member sync spinning icon, offline 0.5 opacity, sync progress "Syncing 47/120...", user bar mirrors channel status, DM spinning icon for unestablished sessions
-- Perf optimization: eliminated Riverpod `ref`-passing anti-pattern in member panel (ConsumerWidget instead of passing ref)
-- Peer reconnect visibility: server members not in `expected_peers` now get `PeerDiscovered` on `ConnectionEstablished`
-- Header indicator cleanup: sync-only status (no redundant member count), fixed retry button
+**Phase 3.5 completed so far:**
+- User profiles: Rust `user_profiles` SQLCipher table, `ProfileUpdate` HavenMessage broadcast, timestamp-gated upsert, auto-exchange on `ConnectionEstablished`, `ProfileNotifier` Dart provider, `displayNameFor()` helper used everywhere (user_bar, member_panel, channel_message_bubble, peer_card, chat_pane)
+- User settings dialog: two-column layout (live profile preview card with centered banner/avatar/name/about-me on left, edit fields + dark mode toggle on right), `showHavenDialog` glassmorphism entrance, settings gear icon replaces theme toggle in user bar
+- Member panel slide animation: `_MemberPanelSlider` with ClipRect + Align(widthFactor) + FadeTransition (GPU-composited), `ProviderScope` override freezes `selectedServerProvider` during close animation (prevents "No peers online" flash), chat pane crossfade via single AnimatedSwitcher
 
-- Connectivity fixes: relay-first dialing (avoids stale address timeouts), ghost peer prevention (3-min disconnect cooldown), proactive Olm session on server join (KeyRequest in ServerJoinRequest/SyncResponse handlers)
-- Roles & permissions: Discord-like hierarchy (Owner > Admin > Moderator > Member), Permission bitmask gating on all CRDT commands, role change/kick with hierarchy validation, role-colored ASOT dividers in member panel, permission-gated server settings tabs
-- Role demotion fix: ChangeRole handler uses author's role priority (not target's) in CRDT op — ensures higher-ranked users can demote lower-ranked. AdminLwwReg merge correctly resolves.
-- Kick propagation fix: broadcast targets collected BEFORE apply_op removes member. New `MemberKickBroadcast` message sent to kicked peer — triggers server removal + DB cleanup (like ServerDeleteBroadcast).
-- Role colors: Owner = golden yellow (FBBF24), Admin = purple (A78BFA), Moderator = orange (lerp warning/error)
-- Sync recovery: SessionEstablished clears failed sync status + auto-retriggers channel sync. No more stuck "Sync failed" after re-key.
-- Permission loading: ServerSettingsPanel waits for myPermissionsProvider before rendering tabs (prevents flash of owner-level UI on non-owner peers)
-- Per-message Ed25519 signing: canonical payload signing (`haven-msg:{type}:{context}:{sender}:{ts}:{text}`), sign before Olm encryption, verify after decryption, `sig`+`pk` fields in MessageEnvelope + SyncMessageItem (backward-compatible via `Option`), DB columns (`signature TEXT`, `public_key TEXT`) on both `channel_messages` and `messages`, DMs now wrapped in `MessageEnvelope::DirectMessage` with signing, Dart models carry `signature`/`publicKey` for future evidence export UI
-- Per-sender channel sync: `ChannelSyncRequest` carries `sender_timestamps: HashMap<String, i64>` for per-sender gap detection (fixes timestamp blind spot where own message masks unseen messages from others)
-- DM sync protocol: `DmSyncRequest`/`DmSyncBatch` pull-based catch-up, `DmSyncCompleted` event, triggered on `ConnectionEstablished`
-- DM persistence moved to Rust: both sent (in `SendMessage` handler) and received (in `DirectMessage` handler) DMs persisted with Rust-generated/sender's `ts` — fixes timestamp mismatch that caused sync duplicates. Dart `chat_provider.dart` no longer saves DMs to DB, only updates in-memory UI state. `get_dm_messages_since()` only returns `is_mine = 1` (only sync what we sent).
-- Signaling unregister on shutdown: `NotifyShutdown` sends `Unregister` for all rooms, fixing ghost online status on app restart
-
-- MLS group encryption — DONE: OpenMLS 0.8, O(1) channel encryption. One MLS group per server. Single-committer model (owner). `MlsManager` in `crypto/mls_manager.rs`, 6 unit tests (33 total). Wire protocol: `MlsChannelMessage`, `MlsKeyPackage`, `MlsWelcome`, `MlsCommit`, `MlsKeyPackageRequest`. MLS identity persisted in `mls_identity` SQLCipher table. Full swarm integration: CreateServer creates MLS group, SendChannelMessage uses MLS when group exists (Olm fallback), JoinServer sends KeyPackage, KickMember rotates epoch, reconnect triggers KeyPackageRequest for non-MLS members. Tested on two laptops.
-- Lock icon fix — DONE: `InboundCircuitEstablished` + `ConnectionEstablished` now emit `SessionEstablished` for existing Olm sessions (fixes DM lock icon missing after restart)
-- UI staleness fixes — DONE: Three rounds of fixes. (1) Debounced PeerDisconnected (2s) + dedup PeerDiscovered via `discovered_peers` HashSet — prevents libp2p connection churn from thrashing Dart UI. (2) `MessageReceived` event now carries sender timestamp; `loadHistory()` replaces state instead of merging. (3) Double PeerDisconnected fix (graceful disconnect removes from `connected_peers`), DmSyncCompleted always emitted (even with 0 new messages — forces Dart reload from DB), `is_first_connection` check bypasses `num_established == 1` guard when peer was gracefully disconnected but old transport lingers.
-
-**Next up (Phase 3 remaining):**
-1. Offline message queuing (store-and-forward via online peers)
-   - Message ordering: append at bottom (not insert by sender timestamp — abusable), sender timestamp = display metadata only
-2. Device linking via QR code — requires MLS + CRDTs
+**Phase 3.5 remaining:**
+1. Server nicknames via CRDT (LWW-Register per server)
+2. Profile card popup on member click
+3. Chat Essentials: message editing & deletion, reply chains, emoji reactions, typing indicators, markdown rendering, pinned messages
+4. QoL: notifications, search, keyboard shortcuts, basic P2P file sharing (WebP internal format)
 
 ## Haven Design System (Phase 2.75)
 All UI interactions go through custom Haven widgets — no Material defaults anywhere. Change behavior in one place, applies everywhere.

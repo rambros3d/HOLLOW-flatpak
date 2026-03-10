@@ -55,7 +55,7 @@ extension NetworkEventPatterns on NetworkEvent {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult Function( NetworkEvent_Listening value)?  listening,TResult Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult Function( NetworkEvent_ChannelMessageReceived value)?  channelMessageReceived,TResult Function( NetworkEvent_MessageSent value)?  messageSent,TResult Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult Function( NetworkEvent_Error value)?  error,TResult Function( NetworkEvent_ServerCreated value)?  serverCreated,TResult Function( NetworkEvent_ServerUpdated value)?  serverUpdated,TResult Function( NetworkEvent_ChannelAdded value)?  channelAdded,TResult Function( NetworkEvent_ChannelRemoved value)?  channelRemoved,TResult Function( NetworkEvent_ChannelRenamed value)?  channelRenamed,TResult Function( NetworkEvent_ServerDeleted value)?  serverDeleted,TResult Function( NetworkEvent_MemberJoined value)?  memberJoined,TResult Function( NetworkEvent_MemberLeft value)?  memberLeft,TResult Function( NetworkEvent_SyncCompleted value)?  syncCompleted,TResult Function( NetworkEvent_ServerJoined value)?  serverJoined,TResult Function( NetworkEvent_MessageSyncStarted value)?  messageSyncStarted,TResult Function( NetworkEvent_MessageSyncCompleted value)?  messageSyncCompleted,TResult Function( NetworkEvent_MessageSyncFailed value)?  messageSyncFailed,TResult Function( NetworkEvent_MessageSyncProgress value)?  messageSyncProgress,TResult Function( NetworkEvent_RoleChanged value)?  roleChanged,TResult Function( NetworkEvent_DmSyncCompleted value)?  dmSyncCompleted,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult Function( NetworkEvent_Listening value)?  listening,TResult Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult Function( NetworkEvent_ChannelMessageReceived value)?  channelMessageReceived,TResult Function( NetworkEvent_MessageSent value)?  messageSent,TResult Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult Function( NetworkEvent_Error value)?  error,TResult Function( NetworkEvent_ServerCreated value)?  serverCreated,TResult Function( NetworkEvent_ServerUpdated value)?  serverUpdated,TResult Function( NetworkEvent_ChannelAdded value)?  channelAdded,TResult Function( NetworkEvent_ChannelRemoved value)?  channelRemoved,TResult Function( NetworkEvent_ChannelRenamed value)?  channelRenamed,TResult Function( NetworkEvent_ServerDeleted value)?  serverDeleted,TResult Function( NetworkEvent_MemberJoined value)?  memberJoined,TResult Function( NetworkEvent_MemberLeft value)?  memberLeft,TResult Function( NetworkEvent_SyncCompleted value)?  syncCompleted,TResult Function( NetworkEvent_ServerJoined value)?  serverJoined,TResult Function( NetworkEvent_MessageSyncStarted value)?  messageSyncStarted,TResult Function( NetworkEvent_MessageSyncCompleted value)?  messageSyncCompleted,TResult Function( NetworkEvent_MessageSyncFailed value)?  messageSyncFailed,TResult Function( NetworkEvent_MessageSyncProgress value)?  messageSyncProgress,TResult Function( NetworkEvent_RoleChanged value)?  roleChanged,TResult Function( NetworkEvent_DmSyncCompleted value)?  dmSyncCompleted,TResult Function( NetworkEvent_ProfileUpdated value)?  profileUpdated,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
@@ -85,7 +85,8 @@ return messageSyncCompleted(_that);case NetworkEvent_MessageSyncFailed() when me
 return messageSyncFailed(_that);case NetworkEvent_MessageSyncProgress() when messageSyncProgress != null:
 return messageSyncProgress(_that);case NetworkEvent_RoleChanged() when roleChanged != null:
 return roleChanged(_that);case NetworkEvent_DmSyncCompleted() when dmSyncCompleted != null:
-return dmSyncCompleted(_that);case _:
+return dmSyncCompleted(_that);case NetworkEvent_ProfileUpdated() when profileUpdated != null:
+return profileUpdated(_that);case _:
   return orElse();
 
 }
@@ -103,7 +104,7 @@ return dmSyncCompleted(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( NetworkEvent_PeerDiscovered value)  peerDiscovered,required TResult Function( NetworkEvent_PeerExpired value)  peerExpired,required TResult Function( NetworkEvent_PeerDisconnected value)  peerDisconnected,required TResult Function( NetworkEvent_RoomCleared value)  roomCleared,required TResult Function( NetworkEvent_Listening value)  listening,required TResult Function( NetworkEvent_MessageReceived value)  messageReceived,required TResult Function( NetworkEvent_ChannelMessageReceived value)  channelMessageReceived,required TResult Function( NetworkEvent_MessageSent value)  messageSent,required TResult Function( NetworkEvent_MessageSendFailed value)  messageSendFailed,required TResult Function( NetworkEvent_SessionEstablished value)  sessionEstablished,required TResult Function( NetworkEvent_Error value)  error,required TResult Function( NetworkEvent_ServerCreated value)  serverCreated,required TResult Function( NetworkEvent_ServerUpdated value)  serverUpdated,required TResult Function( NetworkEvent_ChannelAdded value)  channelAdded,required TResult Function( NetworkEvent_ChannelRemoved value)  channelRemoved,required TResult Function( NetworkEvent_ChannelRenamed value)  channelRenamed,required TResult Function( NetworkEvent_ServerDeleted value)  serverDeleted,required TResult Function( NetworkEvent_MemberJoined value)  memberJoined,required TResult Function( NetworkEvent_MemberLeft value)  memberLeft,required TResult Function( NetworkEvent_SyncCompleted value)  syncCompleted,required TResult Function( NetworkEvent_ServerJoined value)  serverJoined,required TResult Function( NetworkEvent_MessageSyncStarted value)  messageSyncStarted,required TResult Function( NetworkEvent_MessageSyncCompleted value)  messageSyncCompleted,required TResult Function( NetworkEvent_MessageSyncFailed value)  messageSyncFailed,required TResult Function( NetworkEvent_MessageSyncProgress value)  messageSyncProgress,required TResult Function( NetworkEvent_RoleChanged value)  roleChanged,required TResult Function( NetworkEvent_DmSyncCompleted value)  dmSyncCompleted,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( NetworkEvent_PeerDiscovered value)  peerDiscovered,required TResult Function( NetworkEvent_PeerExpired value)  peerExpired,required TResult Function( NetworkEvent_PeerDisconnected value)  peerDisconnected,required TResult Function( NetworkEvent_RoomCleared value)  roomCleared,required TResult Function( NetworkEvent_Listening value)  listening,required TResult Function( NetworkEvent_MessageReceived value)  messageReceived,required TResult Function( NetworkEvent_ChannelMessageReceived value)  channelMessageReceived,required TResult Function( NetworkEvent_MessageSent value)  messageSent,required TResult Function( NetworkEvent_MessageSendFailed value)  messageSendFailed,required TResult Function( NetworkEvent_SessionEstablished value)  sessionEstablished,required TResult Function( NetworkEvent_Error value)  error,required TResult Function( NetworkEvent_ServerCreated value)  serverCreated,required TResult Function( NetworkEvent_ServerUpdated value)  serverUpdated,required TResult Function( NetworkEvent_ChannelAdded value)  channelAdded,required TResult Function( NetworkEvent_ChannelRemoved value)  channelRemoved,required TResult Function( NetworkEvent_ChannelRenamed value)  channelRenamed,required TResult Function( NetworkEvent_ServerDeleted value)  serverDeleted,required TResult Function( NetworkEvent_MemberJoined value)  memberJoined,required TResult Function( NetworkEvent_MemberLeft value)  memberLeft,required TResult Function( NetworkEvent_SyncCompleted value)  syncCompleted,required TResult Function( NetworkEvent_ServerJoined value)  serverJoined,required TResult Function( NetworkEvent_MessageSyncStarted value)  messageSyncStarted,required TResult Function( NetworkEvent_MessageSyncCompleted value)  messageSyncCompleted,required TResult Function( NetworkEvent_MessageSyncFailed value)  messageSyncFailed,required TResult Function( NetworkEvent_MessageSyncProgress value)  messageSyncProgress,required TResult Function( NetworkEvent_RoleChanged value)  roleChanged,required TResult Function( NetworkEvent_DmSyncCompleted value)  dmSyncCompleted,required TResult Function( NetworkEvent_ProfileUpdated value)  profileUpdated,}){
 final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered():
@@ -133,7 +134,8 @@ return messageSyncCompleted(_that);case NetworkEvent_MessageSyncFailed():
 return messageSyncFailed(_that);case NetworkEvent_MessageSyncProgress():
 return messageSyncProgress(_that);case NetworkEvent_RoleChanged():
 return roleChanged(_that);case NetworkEvent_DmSyncCompleted():
-return dmSyncCompleted(_that);}
+return dmSyncCompleted(_that);case NetworkEvent_ProfileUpdated():
+return profileUpdated(_that);}
 }
 /// A variant of `map` that fallback to returning `null`.
 ///
@@ -147,7 +149,7 @@ return dmSyncCompleted(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult? Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult? Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult? Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult? Function( NetworkEvent_Listening value)?  listening,TResult? Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult? Function( NetworkEvent_ChannelMessageReceived value)?  channelMessageReceived,TResult? Function( NetworkEvent_MessageSent value)?  messageSent,TResult? Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult? Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult? Function( NetworkEvent_Error value)?  error,TResult? Function( NetworkEvent_ServerCreated value)?  serverCreated,TResult? Function( NetworkEvent_ServerUpdated value)?  serverUpdated,TResult? Function( NetworkEvent_ChannelAdded value)?  channelAdded,TResult? Function( NetworkEvent_ChannelRemoved value)?  channelRemoved,TResult? Function( NetworkEvent_ChannelRenamed value)?  channelRenamed,TResult? Function( NetworkEvent_ServerDeleted value)?  serverDeleted,TResult? Function( NetworkEvent_MemberJoined value)?  memberJoined,TResult? Function( NetworkEvent_MemberLeft value)?  memberLeft,TResult? Function( NetworkEvent_SyncCompleted value)?  syncCompleted,TResult? Function( NetworkEvent_ServerJoined value)?  serverJoined,TResult? Function( NetworkEvent_MessageSyncStarted value)?  messageSyncStarted,TResult? Function( NetworkEvent_MessageSyncCompleted value)?  messageSyncCompleted,TResult? Function( NetworkEvent_MessageSyncFailed value)?  messageSyncFailed,TResult? Function( NetworkEvent_MessageSyncProgress value)?  messageSyncProgress,TResult? Function( NetworkEvent_RoleChanged value)?  roleChanged,TResult? Function( NetworkEvent_DmSyncCompleted value)?  dmSyncCompleted,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult? Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult? Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult? Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult? Function( NetworkEvent_Listening value)?  listening,TResult? Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult? Function( NetworkEvent_ChannelMessageReceived value)?  channelMessageReceived,TResult? Function( NetworkEvent_MessageSent value)?  messageSent,TResult? Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult? Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult? Function( NetworkEvent_Error value)?  error,TResult? Function( NetworkEvent_ServerCreated value)?  serverCreated,TResult? Function( NetworkEvent_ServerUpdated value)?  serverUpdated,TResult? Function( NetworkEvent_ChannelAdded value)?  channelAdded,TResult? Function( NetworkEvent_ChannelRemoved value)?  channelRemoved,TResult? Function( NetworkEvent_ChannelRenamed value)?  channelRenamed,TResult? Function( NetworkEvent_ServerDeleted value)?  serverDeleted,TResult? Function( NetworkEvent_MemberJoined value)?  memberJoined,TResult? Function( NetworkEvent_MemberLeft value)?  memberLeft,TResult? Function( NetworkEvent_SyncCompleted value)?  syncCompleted,TResult? Function( NetworkEvent_ServerJoined value)?  serverJoined,TResult? Function( NetworkEvent_MessageSyncStarted value)?  messageSyncStarted,TResult? Function( NetworkEvent_MessageSyncCompleted value)?  messageSyncCompleted,TResult? Function( NetworkEvent_MessageSyncFailed value)?  messageSyncFailed,TResult? Function( NetworkEvent_MessageSyncProgress value)?  messageSyncProgress,TResult? Function( NetworkEvent_RoleChanged value)?  roleChanged,TResult? Function( NetworkEvent_DmSyncCompleted value)?  dmSyncCompleted,TResult? Function( NetworkEvent_ProfileUpdated value)?  profileUpdated,}){
 final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
@@ -177,7 +179,8 @@ return messageSyncCompleted(_that);case NetworkEvent_MessageSyncFailed() when me
 return messageSyncFailed(_that);case NetworkEvent_MessageSyncProgress() when messageSyncProgress != null:
 return messageSyncProgress(_that);case NetworkEvent_RoleChanged() when roleChanged != null:
 return roleChanged(_that);case NetworkEvent_DmSyncCompleted() when dmSyncCompleted != null:
-return dmSyncCompleted(_that);case _:
+return dmSyncCompleted(_that);case NetworkEvent_ProfileUpdated() when profileUpdated != null:
+return profileUpdated(_that);case _:
   return null;
 
 }
@@ -194,7 +197,7 @@ return dmSyncCompleted(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( DiscoveredPeer peer)?  peerDiscovered,TResult Function( String peerId)?  peerExpired,TResult Function( String peerId)?  peerDisconnected,TResult Function()?  roomCleared,TResult Function( String address)?  listening,TResult Function( String fromPeer,  String text,  PlatformInt64 timestamp)?  messageReceived,TResult Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp)?  channelMessageReceived,TResult Function( String toPeer)?  messageSent,TResult Function( String toPeer,  String error)?  messageSendFailed,TResult Function( String peerId)?  sessionEstablished,TResult Function( String message)?  error,TResult Function( String serverId,  String name)?  serverCreated,TResult Function( String serverId)?  serverUpdated,TResult Function( String serverId,  String channelId,  String name)?  channelAdded,TResult Function( String serverId,  String channelId)?  channelRemoved,TResult Function( String serverId,  String channelId,  String newName)?  channelRenamed,TResult Function( String serverId)?  serverDeleted,TResult Function( String serverId,  String peerId)?  memberJoined,TResult Function( String serverId,  String peerId)?  memberLeft,TResult Function( String serverId,  int opsApplied)?  syncCompleted,TResult Function( String serverId,  String name)?  serverJoined,TResult Function( String serverId,  String peerId)?  messageSyncStarted,TResult Function( String serverId,  int newMessageCount)?  messageSyncCompleted,TResult Function( String serverId,  String error)?  messageSyncFailed,TResult Function( String serverId,  String channelId,  int receivedCount,  int totalCount)?  messageSyncProgress,TResult Function( String serverId,  String peerId,  String newRole)?  roleChanged,TResult Function( String peerId,  int newMessageCount)?  dmSyncCompleted,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( DiscoveredPeer peer)?  peerDiscovered,TResult Function( String peerId)?  peerExpired,TResult Function( String peerId)?  peerDisconnected,TResult Function()?  roomCleared,TResult Function( String address)?  listening,TResult Function( String fromPeer,  String text,  PlatformInt64 timestamp)?  messageReceived,TResult Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp)?  channelMessageReceived,TResult Function( String toPeer)?  messageSent,TResult Function( String toPeer,  String error)?  messageSendFailed,TResult Function( String peerId)?  sessionEstablished,TResult Function( String message)?  error,TResult Function( String serverId,  String name)?  serverCreated,TResult Function( String serverId)?  serverUpdated,TResult Function( String serverId,  String channelId,  String name)?  channelAdded,TResult Function( String serverId,  String channelId)?  channelRemoved,TResult Function( String serverId,  String channelId,  String newName)?  channelRenamed,TResult Function( String serverId)?  serverDeleted,TResult Function( String serverId,  String peerId)?  memberJoined,TResult Function( String serverId,  String peerId)?  memberLeft,TResult Function( String serverId,  int opsApplied)?  syncCompleted,TResult Function( String serverId,  String name)?  serverJoined,TResult Function( String serverId,  String peerId)?  messageSyncStarted,TResult Function( String serverId,  int newMessageCount)?  messageSyncCompleted,TResult Function( String serverId,  String error)?  messageSyncFailed,TResult Function( String serverId,  String channelId,  int receivedCount,  int totalCount)?  messageSyncProgress,TResult Function( String serverId,  String peerId,  String newRole)?  roleChanged,TResult Function( String peerId,  int newMessageCount)?  dmSyncCompleted,TResult Function( String peerId)?  profileUpdated,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
 return peerDiscovered(_that.peer);case NetworkEvent_PeerExpired() when peerExpired != null:
@@ -223,7 +226,8 @@ return messageSyncCompleted(_that.serverId,_that.newMessageCount);case NetworkEv
 return messageSyncFailed(_that.serverId,_that.error);case NetworkEvent_MessageSyncProgress() when messageSyncProgress != null:
 return messageSyncProgress(_that.serverId,_that.channelId,_that.receivedCount,_that.totalCount);case NetworkEvent_RoleChanged() when roleChanged != null:
 return roleChanged(_that.serverId,_that.peerId,_that.newRole);case NetworkEvent_DmSyncCompleted() when dmSyncCompleted != null:
-return dmSyncCompleted(_that.peerId,_that.newMessageCount);case _:
+return dmSyncCompleted(_that.peerId,_that.newMessageCount);case NetworkEvent_ProfileUpdated() when profileUpdated != null:
+return profileUpdated(_that.peerId);case _:
   return orElse();
 
 }
@@ -241,7 +245,7 @@ return dmSyncCompleted(_that.peerId,_that.newMessageCount);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( DiscoveredPeer peer)  peerDiscovered,required TResult Function( String peerId)  peerExpired,required TResult Function( String peerId)  peerDisconnected,required TResult Function()  roomCleared,required TResult Function( String address)  listening,required TResult Function( String fromPeer,  String text,  PlatformInt64 timestamp)  messageReceived,required TResult Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp)  channelMessageReceived,required TResult Function( String toPeer)  messageSent,required TResult Function( String toPeer,  String error)  messageSendFailed,required TResult Function( String peerId)  sessionEstablished,required TResult Function( String message)  error,required TResult Function( String serverId,  String name)  serverCreated,required TResult Function( String serverId)  serverUpdated,required TResult Function( String serverId,  String channelId,  String name)  channelAdded,required TResult Function( String serverId,  String channelId)  channelRemoved,required TResult Function( String serverId,  String channelId,  String newName)  channelRenamed,required TResult Function( String serverId)  serverDeleted,required TResult Function( String serverId,  String peerId)  memberJoined,required TResult Function( String serverId,  String peerId)  memberLeft,required TResult Function( String serverId,  int opsApplied)  syncCompleted,required TResult Function( String serverId,  String name)  serverJoined,required TResult Function( String serverId,  String peerId)  messageSyncStarted,required TResult Function( String serverId,  int newMessageCount)  messageSyncCompleted,required TResult Function( String serverId,  String error)  messageSyncFailed,required TResult Function( String serverId,  String channelId,  int receivedCount,  int totalCount)  messageSyncProgress,required TResult Function( String serverId,  String peerId,  String newRole)  roleChanged,required TResult Function( String peerId,  int newMessageCount)  dmSyncCompleted,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( DiscoveredPeer peer)  peerDiscovered,required TResult Function( String peerId)  peerExpired,required TResult Function( String peerId)  peerDisconnected,required TResult Function()  roomCleared,required TResult Function( String address)  listening,required TResult Function( String fromPeer,  String text,  PlatformInt64 timestamp)  messageReceived,required TResult Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp)  channelMessageReceived,required TResult Function( String toPeer)  messageSent,required TResult Function( String toPeer,  String error)  messageSendFailed,required TResult Function( String peerId)  sessionEstablished,required TResult Function( String message)  error,required TResult Function( String serverId,  String name)  serverCreated,required TResult Function( String serverId)  serverUpdated,required TResult Function( String serverId,  String channelId,  String name)  channelAdded,required TResult Function( String serverId,  String channelId)  channelRemoved,required TResult Function( String serverId,  String channelId,  String newName)  channelRenamed,required TResult Function( String serverId)  serverDeleted,required TResult Function( String serverId,  String peerId)  memberJoined,required TResult Function( String serverId,  String peerId)  memberLeft,required TResult Function( String serverId,  int opsApplied)  syncCompleted,required TResult Function( String serverId,  String name)  serverJoined,required TResult Function( String serverId,  String peerId)  messageSyncStarted,required TResult Function( String serverId,  int newMessageCount)  messageSyncCompleted,required TResult Function( String serverId,  String error)  messageSyncFailed,required TResult Function( String serverId,  String channelId,  int receivedCount,  int totalCount)  messageSyncProgress,required TResult Function( String serverId,  String peerId,  String newRole)  roleChanged,required TResult Function( String peerId,  int newMessageCount)  dmSyncCompleted,required TResult Function( String peerId)  profileUpdated,}) {final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered():
 return peerDiscovered(_that.peer);case NetworkEvent_PeerExpired():
@@ -270,7 +274,8 @@ return messageSyncCompleted(_that.serverId,_that.newMessageCount);case NetworkEv
 return messageSyncFailed(_that.serverId,_that.error);case NetworkEvent_MessageSyncProgress():
 return messageSyncProgress(_that.serverId,_that.channelId,_that.receivedCount,_that.totalCount);case NetworkEvent_RoleChanged():
 return roleChanged(_that.serverId,_that.peerId,_that.newRole);case NetworkEvent_DmSyncCompleted():
-return dmSyncCompleted(_that.peerId,_that.newMessageCount);}
+return dmSyncCompleted(_that.peerId,_that.newMessageCount);case NetworkEvent_ProfileUpdated():
+return profileUpdated(_that.peerId);}
 }
 /// A variant of `when` that fallback to returning `null`
 ///
@@ -284,7 +289,7 @@ return dmSyncCompleted(_that.peerId,_that.newMessageCount);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( DiscoveredPeer peer)?  peerDiscovered,TResult? Function( String peerId)?  peerExpired,TResult? Function( String peerId)?  peerDisconnected,TResult? Function()?  roomCleared,TResult? Function( String address)?  listening,TResult? Function( String fromPeer,  String text,  PlatformInt64 timestamp)?  messageReceived,TResult? Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp)?  channelMessageReceived,TResult? Function( String toPeer)?  messageSent,TResult? Function( String toPeer,  String error)?  messageSendFailed,TResult? Function( String peerId)?  sessionEstablished,TResult? Function( String message)?  error,TResult? Function( String serverId,  String name)?  serverCreated,TResult? Function( String serverId)?  serverUpdated,TResult? Function( String serverId,  String channelId,  String name)?  channelAdded,TResult? Function( String serverId,  String channelId)?  channelRemoved,TResult? Function( String serverId,  String channelId,  String newName)?  channelRenamed,TResult? Function( String serverId)?  serverDeleted,TResult? Function( String serverId,  String peerId)?  memberJoined,TResult? Function( String serverId,  String peerId)?  memberLeft,TResult? Function( String serverId,  int opsApplied)?  syncCompleted,TResult? Function( String serverId,  String name)?  serverJoined,TResult? Function( String serverId,  String peerId)?  messageSyncStarted,TResult? Function( String serverId,  int newMessageCount)?  messageSyncCompleted,TResult? Function( String serverId,  String error)?  messageSyncFailed,TResult? Function( String serverId,  String channelId,  int receivedCount,  int totalCount)?  messageSyncProgress,TResult? Function( String serverId,  String peerId,  String newRole)?  roleChanged,TResult? Function( String peerId,  int newMessageCount)?  dmSyncCompleted,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( DiscoveredPeer peer)?  peerDiscovered,TResult? Function( String peerId)?  peerExpired,TResult? Function( String peerId)?  peerDisconnected,TResult? Function()?  roomCleared,TResult? Function( String address)?  listening,TResult? Function( String fromPeer,  String text,  PlatformInt64 timestamp)?  messageReceived,TResult? Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp)?  channelMessageReceived,TResult? Function( String toPeer)?  messageSent,TResult? Function( String toPeer,  String error)?  messageSendFailed,TResult? Function( String peerId)?  sessionEstablished,TResult? Function( String message)?  error,TResult? Function( String serverId,  String name)?  serverCreated,TResult? Function( String serverId)?  serverUpdated,TResult? Function( String serverId,  String channelId,  String name)?  channelAdded,TResult? Function( String serverId,  String channelId)?  channelRemoved,TResult? Function( String serverId,  String channelId,  String newName)?  channelRenamed,TResult? Function( String serverId)?  serverDeleted,TResult? Function( String serverId,  String peerId)?  memberJoined,TResult? Function( String serverId,  String peerId)?  memberLeft,TResult? Function( String serverId,  int opsApplied)?  syncCompleted,TResult? Function( String serverId,  String name)?  serverJoined,TResult? Function( String serverId,  String peerId)?  messageSyncStarted,TResult? Function( String serverId,  int newMessageCount)?  messageSyncCompleted,TResult? Function( String serverId,  String error)?  messageSyncFailed,TResult? Function( String serverId,  String channelId,  int receivedCount,  int totalCount)?  messageSyncProgress,TResult? Function( String serverId,  String peerId,  String newRole)?  roleChanged,TResult? Function( String peerId,  int newMessageCount)?  dmSyncCompleted,TResult? Function( String peerId)?  profileUpdated,}) {final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
 return peerDiscovered(_that.peer);case NetworkEvent_PeerExpired() when peerExpired != null:
@@ -313,7 +318,8 @@ return messageSyncCompleted(_that.serverId,_that.newMessageCount);case NetworkEv
 return messageSyncFailed(_that.serverId,_that.error);case NetworkEvent_MessageSyncProgress() when messageSyncProgress != null:
 return messageSyncProgress(_that.serverId,_that.channelId,_that.receivedCount,_that.totalCount);case NetworkEvent_RoleChanged() when roleChanged != null:
 return roleChanged(_that.serverId,_that.peerId,_that.newRole);case NetworkEvent_DmSyncCompleted() when dmSyncCompleted != null:
-return dmSyncCompleted(_that.peerId,_that.newMessageCount);case _:
+return dmSyncCompleted(_that.peerId,_that.newMessageCount);case NetworkEvent_ProfileUpdated() when profileUpdated != null:
+return profileUpdated(_that.peerId);case _:
   return null;
 
 }
@@ -2115,6 +2121,72 @@ class _$NetworkEvent_DmSyncCompletedCopyWithImpl<$Res>
 peerId: null == peerId ? _self.peerId : peerId // ignore: cast_nullable_to_non_nullable
 as String,newMessageCount: null == newMessageCount ? _self.newMessageCount : newMessageCount // ignore: cast_nullable_to_non_nullable
 as int,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_ProfileUpdated extends NetworkEvent {
+  const NetworkEvent_ProfileUpdated({required this.peerId}): super._();
+  
+
+ final  String peerId;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_ProfileUpdatedCopyWith<NetworkEvent_ProfileUpdated> get copyWith => _$NetworkEvent_ProfileUpdatedCopyWithImpl<NetworkEvent_ProfileUpdated>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_ProfileUpdated&&(identical(other.peerId, peerId) || other.peerId == peerId));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,peerId);
+
+@override
+String toString() {
+  return 'NetworkEvent.profileUpdated(peerId: $peerId)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_ProfileUpdatedCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_ProfileUpdatedCopyWith(NetworkEvent_ProfileUpdated value, $Res Function(NetworkEvent_ProfileUpdated) _then) = _$NetworkEvent_ProfileUpdatedCopyWithImpl;
+@useResult
+$Res call({
+ String peerId
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_ProfileUpdatedCopyWithImpl<$Res>
+    implements $NetworkEvent_ProfileUpdatedCopyWith<$Res> {
+  _$NetworkEvent_ProfileUpdatedCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_ProfileUpdated _self;
+  final $Res Function(NetworkEvent_ProfileUpdated) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? peerId = null,}) {
+  return _then(NetworkEvent_ProfileUpdated(
+peerId: null == peerId ? _self.peerId : peerId // ignore: cast_nullable_to_non_nullable
+as String,
   ));
 }
 

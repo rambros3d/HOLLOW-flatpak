@@ -45,6 +45,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkEvent dco_decode_box_autoadd_network_event(dynamic raw);
 
   @protected
+  UserProfile dco_decode_box_autoadd_user_profile(dynamic raw);
+
+  @protected
   ChannelFfi dco_decode_channel_ffi(dynamic raw);
 
   @protected
@@ -83,6 +86,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<StoredMessage> dco_decode_list_stored_message(dynamic raw);
 
   @protected
+  List<UserProfile> dco_decode_list_user_profile(dynamic raw);
+
+  @protected
   MemberFfi dco_decode_member_ffi(dynamic raw);
 
   @protected
@@ -93,6 +99,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   NetworkEvent? dco_decode_opt_box_autoadd_network_event(dynamic raw);
+
+  @protected
+  UserProfile? dco_decode_opt_box_autoadd_user_profile(dynamic raw);
 
   @protected
   ServerFfi dco_decode_server_ffi(dynamic raw);
@@ -111,6 +120,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void dco_decode_unit(dynamic raw);
+
+  @protected
+  UserProfile dco_decode_user_profile(dynamic raw);
 
   @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
@@ -135,6 +147,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkEvent sse_decode_box_autoadd_network_event(
     SseDeserializer deserializer,
   );
+
+  @protected
+  UserProfile sse_decode_box_autoadd_user_profile(SseDeserializer deserializer);
 
   @protected
   ChannelFfi sse_decode_channel_ffi(SseDeserializer deserializer);
@@ -177,6 +192,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<UserProfile> sse_decode_list_user_profile(SseDeserializer deserializer);
+
+  @protected
   MemberFfi sse_decode_member_ffi(SseDeserializer deserializer);
 
   @protected
@@ -187,6 +205,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   NetworkEvent? sse_decode_opt_box_autoadd_network_event(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  UserProfile? sse_decode_opt_box_autoadd_user_profile(
     SseDeserializer deserializer,
   );
 
@@ -209,6 +232,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_decode_unit(SseDeserializer deserializer);
+
+  @protected
+  UserProfile sse_decode_user_profile(SseDeserializer deserializer);
 
   @protected
   void sse_encode_AnyhowException(
@@ -237,6 +263,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_network_event(
     NetworkEvent self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_user_profile(
+    UserProfile self,
     SseSerializer serializer,
   );
 
@@ -298,6 +330,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_user_profile(
+    List<UserProfile> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_member_ffi(MemberFfi self, SseSerializer serializer);
 
   @protected
@@ -309,6 +347,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_network_event(
     NetworkEvent? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_user_profile(
+    UserProfile? self,
     SseSerializer serializer,
   );
 
@@ -332,6 +376,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_unit(void self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_user_profile(UserProfile self, SseSerializer serializer);
 }
 
 // Section: wire_class

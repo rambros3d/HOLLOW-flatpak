@@ -4,6 +4,15 @@ use rusqlite::{params, Connection};
 
 use crate::crdt::operations::CrdtOp;
 
+/// A user profile stored locally (ours or a peer's).
+pub(crate) struct StoredProfile {
+    pub peer_id: String,
+    pub display_name: String,
+    pub status: String,
+    pub about_me: String,
+    pub updated_at: i64,
+}
+
 /// A stored chat message.
 pub(crate) struct StoredMessage {
     pub id: i64,
@@ -194,6 +203,19 @@ impl MessageStore {
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_dedup
              ON messages (peer_id, timestamp, text, is_mine);"
         ).unwrap_or(());
+
+        // -- User profiles (Phase 3.5) --
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS user_profiles (
+                peer_id      TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL DEFAULT '',
+                status       TEXT NOT NULL DEFAULT '',
+                about_me     TEXT NOT NULL DEFAULT '',
+                updated_at   INTEGER NOT NULL DEFAULT 0
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create user_profiles table: {e}"))?;
 
         // -- MLS identity (singleton row, id=1) --
         conn.execute(
@@ -912,5 +934,86 @@ impl MessageStore {
             Some(Err(e)) => Err(format!("Failed to read mls_identity row: {e}")),
             None => Ok(None),
         }
+    }
+
+    // ── User Profile Persistence (Phase 3.5) ──
+
+    /// Upsert a user profile (ours or a peer's).
+    pub fn save_profile(
+        &self,
+        peer_id: &str,
+        display_name: &str,
+        status: &str,
+        about_me: &str,
+        updated_at: i64,
+    ) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT INTO user_profiles (peer_id, display_name, status, about_me, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(peer_id) DO UPDATE SET
+                    display_name = excluded.display_name,
+                    status = excluded.status,
+                    about_me = excluded.about_me,
+                    updated_at = excluded.updated_at
+                 WHERE excluded.updated_at >= user_profiles.updated_at",
+                params![peer_id, display_name, status, about_me, updated_at],
+            )
+            .map_err(|e| format!("Failed to save profile: {e}"))?;
+        Ok(())
+    }
+
+    /// Load a profile for a specific peer.
+    pub fn load_profile(&self, peer_id: &str) -> Result<Option<StoredProfile>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT peer_id, display_name, status, about_me, updated_at
+                 FROM user_profiles WHERE peer_id = ?1",
+            )
+            .map_err(|e| format!("Failed to prepare profile query: {e}"))?;
+        let mut rows = stmt
+            .query_map(params![peer_id], |row| {
+                Ok(StoredProfile {
+                    peer_id: row.get(0)?,
+                    display_name: row.get(1)?,
+                    status: row.get(2)?,
+                    about_me: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| format!("Failed to query profile: {e}"))?;
+        match rows.next() {
+            Some(Ok(profile)) => Ok(Some(profile)),
+            Some(Err(e)) => Err(format!("Failed to read profile row: {e}")),
+            None => Ok(None),
+        }
+    }
+
+    /// Load all stored profiles.
+    pub fn load_all_profiles(&self) -> Result<Vec<StoredProfile>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT peer_id, display_name, status, about_me, updated_at
+                 FROM user_profiles",
+            )
+            .map_err(|e| format!("Failed to prepare all profiles query: {e}"))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(StoredProfile {
+                    peer_id: row.get(0)?,
+                    display_name: row.get(1)?,
+                    status: row.get(2)?,
+                    about_me: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| format!("Failed to query all profiles: {e}"))?;
+        let mut profiles = Vec::new();
+        for row in rows {
+            profiles.push(row.map_err(|e| format!("Failed to read profile row: {e}"))?);
+        }
+        Ok(profiles)
     }
 }

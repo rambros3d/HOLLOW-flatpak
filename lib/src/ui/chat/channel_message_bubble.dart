@@ -1,24 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/models/channel_chat_message.dart';
+import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
 import 'package:haven/src/ui/animations/haven_transitions.dart';
 import 'package:haven/src/ui/components/haven_avatar.dart';
 
-class ChannelMessageBubble extends StatelessWidget {
+class ChannelMessageBubble extends ConsumerWidget {
   final ChannelChatMessage message;
 
   const ChannelMessageBubble({super.key, required this.message});
 
-  String get _shortSender =>
-      message.senderId.length > 8
-          ? message.senderId.substring(0, 8)
-          : message.senderId;
-
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final haven = HavenTheme.of(context);
+    final profiles = ref.watch(profileProvider);
+    final senderName = displayNameFor(profiles, message.senderId);
     final isMe = message.isMe;
     final time =
         '${message.timestamp.hour.toString().padLeft(2, '0')}:${message.timestamp.minute.toString().padLeft(2, '0')}';
@@ -67,7 +66,7 @@ class ChannelMessageBubble extends StatelessWidget {
                         padding:
                             const EdgeInsets.only(bottom: HavenSpacing.xs),
                         child: Text(
-                          _shortSender,
+                          senderName,
                           style: HavenTypography.caption.copyWith(
                             color: haven.accent,
                             fontWeight: FontWeight.w600,

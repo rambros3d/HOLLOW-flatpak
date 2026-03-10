@@ -5,8 +5,8 @@ import 'package:haven/src/core/models/node_status.dart';
 import 'package:haven/src/core/providers/identity_provider.dart';
 import 'package:haven/src/core/providers/node_provider.dart';
 import 'package:haven/src/core/providers/peers_provider.dart';
+import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/server_provider.dart';
-import 'package:haven/src/core/providers/theme_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
@@ -16,6 +16,7 @@ import 'package:haven/src/ui/components/haven_toast.dart';
 import 'package:haven/src/ui/components/haven_tooltip.dart';
 import 'package:haven/src/ui/components/status_dot.dart';
 import 'package:haven/src/ui/dialogs/mnemonic_dialog.dart';
+import 'package:haven/src/ui/dialogs/user_settings_dialog.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Bottom bar in the channel sidebar showing the local user's identity and status.
@@ -31,9 +32,10 @@ class UserBar extends ConsumerWidget {
     final selectedServerId = ref.watch(selectedServerProvider);
 
     final localPeerId = identity.peerId;
-    final shortPeerId = localPeerId != null && localPeerId.length > 8
-        ? '${localPeerId.substring(0, 8)}...'
-        : localPeerId ?? '---';
+    final profiles = ref.watch(profileProvider);
+    final myDisplayName = localPeerId != null
+        ? displayNameFor(profiles, localPeerId)
+        : '---';
 
     // Derive status: mirror channel pane when a server is selected.
     String statusText;
@@ -142,13 +144,16 @@ class UserBar extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      shortPeerId,
-                      style: HavenTypography.mono.copyWith(
+                      myDisplayName,
+                      style: HavenTypography.body.copyWith(
                         color: haven.textPrimary,
-                        fontSize: 12,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 1),
                     Row(
                       children: [
                         StatusDot(
@@ -171,23 +176,15 @@ class UserBar extends ConsumerWidget {
             ),
           ),
 
-          // Theme toggle
+          // Settings
           HavenTooltip(
-            message: ref.watch(themeModeProvider) == ThemeMode.dark
-                ? 'Switch to light mode'
-                : 'Switch to dark mode',
+            message: 'Settings',
             child: HavenPressable(
-              onTap: () {
-                final current = ref.read(themeModeProvider);
-                ref.read(themeModeProvider.notifier).state =
-                    current == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
-              },
+              onTap: () => showUserSettingsDialog(context, ref),
               borderRadius: BorderRadius.circular(haven.radiusSm),
               padding: const EdgeInsets.all(HavenSpacing.xs),
               child: Icon(
-                ref.watch(themeModeProvider) == ThemeMode.dark
-                    ? LucideIcons.sun
-                    : LucideIcons.moon,
+                LucideIcons.settings,
                 size: 16,
                 color: haven.textSecondary,
               ),

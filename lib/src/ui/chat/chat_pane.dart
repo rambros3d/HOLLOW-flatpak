@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/providers/chat_provider.dart';
 import 'package:haven/src/core/providers/member_panel_provider.dart';
+import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
@@ -115,12 +116,29 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
               StatusDot(color: haven.success, size: 8, pulse: true),
               const SizedBox(width: HavenSpacing.sm),
               Expanded(
-                child: SelectableText(
-                  widget.peerId,
-                  style: HavenTypography.mono.copyWith(
-                    color: haven.textSecondary,
-                    fontSize: 12,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      displayNameFor(ref.watch(profileProvider), widget.peerId),
+                      style: HavenTypography.body.copyWith(
+                        color: haven.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      widget.peerId.length > 16
+                          ? '${widget.peerId.substring(0, 16)}...'
+                          : widget.peerId,
+                      style: HavenTypography.caption.copyWith(
+                        color: haven.textSecondary,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               if (widget.isEncrypted) ...[

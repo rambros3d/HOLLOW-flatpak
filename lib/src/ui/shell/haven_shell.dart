@@ -12,6 +12,7 @@ import 'package:haven/src/core/providers/identity_provider.dart';
 import 'package:haven/src/core/providers/member_panel_provider.dart';
 import 'package:haven/src/core/providers/node_provider.dart';
 import 'package:haven/src/core/providers/peers_provider.dart';
+import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/room_provider.dart';
 import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
 import 'package:haven/src/core/providers/selected_peer_provider.dart';
@@ -110,6 +111,9 @@ class _HavenShellState extends ConsumerState<HavenShell>
 
     // Load servers from local DB after node starts.
     await ref.read(serverListProvider.notifier).loadFromDb();
+
+    // Load cached user profiles into memory.
+    await ref.read(profileProvider.notifier).loadAll();
   }
 
   Future<void> _createInvite() async {
@@ -426,7 +430,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
                       selectedChannelId: selectedChannelId,
                     ),
 
-                    // Chat pane (expanded) with crossfade on switch
+                    // Chat pane with crossfade
                     Expanded(
                       child: _chatRevealWrap(
                         RepaintBoundary(
@@ -459,9 +463,12 @@ class _HavenShellState extends ConsumerState<HavenShell>
                       ),
                     ),
 
-                    // Member panel (only when a server is selected)
-                    if (selectedServerId != null && memberPanelOpen && (isDesktop || !isMobile))
-                      const RepaintBoundary(child: MemberPanel()),
+                    // Member panel — slide in/out from right
+                    if (isDesktop || !isMobile)
+                      _MemberPanelSlider(
+                        visible: selectedServerId != null && memberPanelOpen,
+                        serverId: selectedServerId,
+                      ),
                   ],
                 ),
               ),
@@ -547,6 +554,108 @@ class _HavenShellState extends ConsumerState<HavenShell>
           Expanded(child: body),
           const MobileNav(),
         ],
+      ),
+    );
+  }
+}
+
+/// Animates the member panel sliding in/out from the right edge.
+/// Uses clip + width factor like the startup RevealClip.
+///
+/// Freezes the panel content during close animation by overriding
+/// [selectedServerProvider] with the last known server ID, preventing
+/// the "No peers online" flash.
+class _MemberPanelSlider extends StatefulWidget {
+  final bool visible;
+  final String? serverId;
+
+  const _MemberPanelSlider({
+    required this.visible,
+    this.serverId,
+  });
+
+  @override
+  State<_MemberPanelSlider> createState() => _MemberPanelSliderState();
+}
+
+class _MemberPanelSliderState extends State<_MemberPanelSlider>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final CurvedAnimation _curved;
+
+  /// Cached server ID — kept while closing so panel doesn't flash.
+  String? _frozenServerId;
+
+  @override
+  void initState() {
+    super.initState();
+    _frozenServerId = widget.serverId;
+    _controller = AnimationController(
+      vsync: this,
+      duration: HavenDurations.normal,
+      value: widget.visible ? 1.0 : 0.0,
+    );
+    _curved = CurvedAnimation(
+      parent: _controller,
+      curve: HavenCurves.enter,
+      reverseCurve: HavenCurves.exit,
+    );
+  }
+
+  @override
+  void didUpdateWidget(_MemberPanelSlider oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.visible != oldWidget.visible) {
+      if (widget.visible) {
+        // Opening — update to current server ID.
+        _frozenServerId = widget.serverId;
+        _controller.forward();
+      } else {
+        // Closing — keep _frozenServerId as-is so content stays.
+        _controller.reverse();
+      }
+    } else if (widget.visible && widget.serverId != oldWidget.serverId) {
+      // Server changed while panel is open — update live.
+      _frozenServerId = widget.serverId;
+    }
+  }
+
+  @override
+  void dispose() {
+    _curved.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _curved,
+      builder: (context, child) {
+        // Hide completely when animation finishes closing.
+        if (_curved.value == 0.0) return const SizedBox.shrink();
+
+        return ClipRect(
+          child: Align(
+            alignment: Alignment.centerRight,
+            widthFactor: _curved.value,
+            child: FadeTransition(
+              opacity: _curved,
+              child: child,
+            ),
+          ),
+        );
+      },
+      // Override selectedServerProvider so panel keeps showing
+      // the cached server's members during close animation.
+      child: ProviderScope(
+        overrides: [
+          if (_frozenServerId != null)
+            selectedServerProvider.overrideWith(
+              (ref) => _frozenServerId,
+            ),
+        ],
+        child: const RepaintBoundary(child: MemberPanel()),
       ),
     );
   }

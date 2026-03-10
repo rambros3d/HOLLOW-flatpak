@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/providers/identity_provider.dart';
 import 'package:haven/src/core/providers/peers_provider.dart';
+import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/server_provider.dart';
 import 'package:haven/src/core/providers/sync_progress_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
@@ -532,6 +533,9 @@ class _ServerMemberTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final haven = HavenTheme.of(context);
     final isSyncing = ref.watch(isPeerSyncingProvider(peerId));
+    // Prefer profile display name over CRDT display name.
+    final profiles = ref.watch(profileProvider);
+    final resolvedName = displayNameFor(profiles, peerId);
 
     return AnimatedOpacity(
       opacity: isOnline ? 1.0 : 0.5,
@@ -579,14 +583,9 @@ class _ServerMemberTile extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    displayName.isNotEmpty
-                        ? displayName
-                        : (peerId.length > 12
-                            ? '${peerId.substring(0, 12)}...'
-                            : peerId),
+                    resolvedName,
                     style: HavenTypography.bodySmall.copyWith(
                       color: haven.textPrimary,
-                      fontFamily: 'Consolas',
                       fontSize: 12,
                     ),
                     overflow: TextOverflow.ellipsis,
@@ -610,7 +609,7 @@ class _ServerMemberTile extends ConsumerWidget {
 }
 
 /// A compact member row in the member panel (peer/DM mode).
-class _MemberTile extends StatelessWidget {
+class _MemberTile extends ConsumerWidget {
   final String peerId;
   final bool isEncrypted;
 
@@ -620,8 +619,10 @@ class _MemberTile extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final haven = HavenTheme.of(context);
+    final profiles = ref.watch(profileProvider);
+    final peerName = displayNameFor(profiles, peerId);
 
     return Padding(
       padding: const EdgeInsets.symmetric(
@@ -652,15 +653,12 @@ class _MemberTile extends StatelessWidget {
 
           const SizedBox(width: HavenSpacing.sm),
 
-          // Peer ID
+          // Display name
           Expanded(
             child: Text(
-              peerId.length > 12
-                  ? '${peerId.substring(0, 12)}...'
-                  : peerId,
+              peerName,
               style: HavenTypography.bodySmall.copyWith(
                 color: haven.textSecondary,
-                fontFamily: 'Consolas',
                 fontSize: 12,
               ),
               overflow: TextOverflow.ellipsis,

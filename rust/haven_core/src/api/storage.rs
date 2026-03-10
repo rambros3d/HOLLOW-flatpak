@@ -102,6 +102,54 @@ pub fn load_messages(peer_id: String, limit: i32) -> Result<Vec<StoredMessage>, 
         .collect())
 }
 
+/// A user profile returned to Dart.
+pub struct UserProfile {
+    pub peer_id: String,
+    pub display_name: String,
+    pub status: String,
+    pub about_me: String,
+    pub updated_at: i64,
+}
+
+/// Get a profile for a specific peer (or ourselves). Returns None if no profile stored.
+#[frb]
+pub fn get_profile(peer_id: String) -> Result<Option<UserProfile>, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+
+    match ms.load_profile(&peer_id)? {
+        Some(p) => Ok(Some(UserProfile {
+            peer_id: p.peer_id,
+            display_name: p.display_name,
+            status: p.status,
+            about_me: p.about_me,
+            updated_at: p.updated_at,
+        })),
+        None => Ok(None),
+    }
+}
+
+/// Get all stored profiles (for populating the profile cache on startup).
+#[frb]
+pub fn get_all_profiles() -> Result<Vec<UserProfile>, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+
+    let profiles = ms.load_all_profiles()?;
+    Ok(profiles
+        .into_iter()
+        .map(|p| UserProfile {
+            peer_id: p.peer_id,
+            display_name: p.display_name,
+            status: p.status,
+            about_me: p.about_me,
+            updated_at: p.updated_at,
+        })
+        .collect())
+}
+
 /// A channel message returned to Dart from the local database.
 pub struct StoredChannelMessage {
     pub id: i64,

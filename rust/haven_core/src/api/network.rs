@@ -46,6 +46,8 @@ pub enum NetworkEvent {
     MessageSyncProgress { server_id: String, channel_id: String, received_count: u32, total_count: u32 },
     RoleChanged { server_id: String, peer_id: String, new_role: String },
     DmSyncCompleted { peer_id: String, new_message_count: u32 },
+    // -- Profile events (Phase 3.5) --
+    ProfileUpdated { peer_id: String },
 }
 
 /// Holds all mutable state for the running node.
@@ -157,6 +159,9 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::DmSyncCompleted { peer_id, new_message_count } => {
             haven_log!("[HAVEN] DM sync completed for {peer_id}: {new_message_count} new messages");
         }
+        node::NetworkEvent::ProfileUpdated { peer_id } => {
+            haven_log!("[HAVEN] Profile updated for {peer_id}");
+        }
         _ => {}
     }
     match event {
@@ -233,6 +238,9 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::DmSyncCompleted { peer_id, new_message_count } => {
             NetworkEvent::DmSyncCompleted { peer_id, new_message_count }
+        }
+        node::NetworkEvent::ProfileUpdated { peer_id } => {
+            NetworkEvent::ProfileUpdated { peer_id }
         }
     }
 }
@@ -452,6 +460,26 @@ pub fn request_channel_sync(server_id: String, channel_id: String) -> Result<(),
 /// Notify all connected peers that we're shutting down gracefully.
 /// Call this before closing the app so peers can immediately update their state.
 #[frb]
+/// Update our display name, status, and about me — saves to DB and broadcasts to all connected peers.
+#[frb]
+pub fn update_profile(display_name: String, status: String, about_me: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::UpdateProfile {
+            display_name,
+            status,
+            about_me,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
 pub fn notify_shutdown() -> Result<(), String> {
     let node = get_node();
     let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;

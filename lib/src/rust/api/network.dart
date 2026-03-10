@@ -63,6 +63,17 @@ Future<void> requestChannelSync({
 
 /// Notify all connected peers that we're shutting down gracefully.
 /// Call this before closing the app so peers can immediately update their state.
+/// Update our display name, status, and about me — saves to DB and broadcasts to all connected peers.
+Future<void> updateProfile({
+  required String displayName,
+  required String status,
+  required String aboutMe,
+}) => RustLib.instance.api.crateApiNetworkUpdateProfile(
+  displayName: displayName,
+  status: status,
+  aboutMe: aboutMe,
+);
+
 Future<void> notifyShutdown() =>
     RustLib.instance.api.crateApiNetworkNotifyShutdown();
 
@@ -193,4 +204,6 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String peerId,
     required int newMessageCount,
   }) = NetworkEvent_DmSyncCompleted;
+  const factory NetworkEvent.profileUpdated({required String peerId}) =
+      NetworkEvent_ProfileUpdated;
 }

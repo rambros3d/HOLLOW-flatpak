@@ -114,6 +114,8 @@ pub(crate) enum NetworkEvent {
     MessageSyncProgress { server_id: String, channel_id: String, received_count: u32, total_count: u32 },
     RoleChanged { server_id: String, peer_id: String, new_role: String },
     DmSyncCompleted { peer_id: String, new_message_count: u32 },
+    // -- Profile events (Phase 3.5) --
+    ProfileUpdated { peer_id: String },
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
@@ -134,6 +136,8 @@ pub(crate) enum NodeCommand {
     ChangeRole { server_id: String, peer_id: String, new_role: String },
     KickMember { server_id: String, peer_id: String },
     NotifyShutdown,
+    // -- Profile commands (Phase 3.5) --
+    UpdateProfile { display_name: String, status: String, about_me: String },
 }
 
 // -- Wire protocol types (v2: encrypted) --
@@ -254,6 +258,17 @@ enum HavenMessage {
     #[serde(rename = "mls_kp_req")]
     MlsKeyPackageRequest {
         server_id: String,
+    },
+
+    // -- Profile sync (Phase 3.5) --
+
+    /// Broadcast profile update to connected peers. Plaintext (not sensitive).
+    #[serde(rename = "profile_update")]
+    ProfileUpdate {
+        display_name: String,
+        status: String,
+        about_me: String,
+        updated_at: i64,
     },
 }
 
@@ -1917,6 +1932,44 @@ async fn run_swarm(
                             }
                         }
                     }
+                    NodeCommand::UpdateProfile { display_name, status, about_me } => {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64;
+
+                        // Save our own profile to DB.
+                        {
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(db) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                if let Err(e) = db.save_profile(&local_peer_str, &display_name, &status, &about_me, now) {
+                                    haven_log!("[HAVEN-SWARM] Failed to save own profile: {e}");
+                                }
+                            }
+                        }
+
+                        // Broadcast to all connected peers.
+                        let msg = HavenMessage::ProfileUpdate {
+                            display_name: display_name.clone(),
+                            status: status.clone(),
+                            about_me: about_me.clone(),
+                            updated_at: now,
+                        };
+                        haven_log!("[HAVEN-SWARM] Broadcasting profile update to {} peers", connected_peers.len());
+                        for pid in connected_peers.iter() {
+                            if relay_peer_id() == Some(*pid) { continue; }
+                            swarm.behaviour_mut().messaging.send_request(pid, msg.clone());
+                        }
+
+                        // Emit event so Dart updates UI.
+                        let _ = event_tx.send(NetworkEvent::ProfileUpdated {
+                            peer_id: local_peer_str.clone(),
+                        }).await;
+                    }
+
                     NodeCommand::NotifyShutdown => {
                         // Broadcast graceful disconnect to all connected peers.
                         haven_log!("[HAVEN-SWARM] Notifying {} peers of shutdown", connected_peers.len());
@@ -2598,6 +2651,30 @@ async fn run_swarm(
                                                     since_timestamp: since,
                                                 },
                                             );
+                                        }
+                                    }
+                                }
+
+                                // Send our profile to the newly connected peer.
+                                {
+                                    let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                    if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                        if let Ok(db) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                            if let Ok(Some(profile)) = db.load_profile(&local_peer_str) {
+                                                if !profile.display_name.is_empty() {
+                                                    swarm.behaviour_mut().messaging.send_request(
+                                                        &peer_id,
+                                                        HavenMessage::ProfileUpdate {
+                                                            display_name: profile.display_name,
+                                                            status: profile.status,
+                                                            about_me: profile.about_me,
+                                                            updated_at: profile.updated_at,
+                                                        },
+                                                    );
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -4285,6 +4362,33 @@ async fn handle_incoming_request(
                     Err(e) => haven_log!("[HAVEN-MLS] Failed to generate KeyPackage: {e}"),
                 }
             }
+        }
+
+        // -- Profile sync (Phase 3.5) --
+
+        HavenMessage::ProfileUpdate { display_name, status, about_me, updated_at } => {
+            let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
+
+            haven_log!("[HAVEN-SWARM] ProfileUpdate from {peer_str}: name={display_name}");
+
+            // Save to local DB (upsert with timestamp check — only update if newer).
+            {
+                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                    if let Ok(db) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                        if let Err(e) = db.save_profile(&peer_str, &display_name, &status, &about_me, updated_at) {
+                            haven_log!("[HAVEN-SWARM] Failed to save peer profile: {e}");
+                        }
+                    }
+                }
+            }
+
+            // Notify Dart to refresh UI.
+            let _ = event_tx.send(NetworkEvent::ProfileUpdated {
+                peer_id: peer_str,
+            }).await;
         }
 
         // KeyBundle and Ack shouldn't arrive as requests, but handle gracefully.

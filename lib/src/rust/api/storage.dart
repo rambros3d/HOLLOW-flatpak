@@ -40,6 +40,14 @@ Future<List<StoredMessage>> loadMessages({
   limit: limit,
 );
 
+/// Get a profile for a specific peer (or ourselves). Returns None if no profile stored.
+Future<UserProfile?> getProfile({required String peerId}) =>
+    RustLib.instance.api.crateApiStorageGetProfile(peerId: peerId);
+
+/// Get all stored profiles (for populating the profile cache on startup).
+Future<List<UserProfile>> getAllProfiles() =>
+    RustLib.instance.api.crateApiStorageGetAllProfiles();
+
 /// Save a channel message to the local database.
 Future<PlatformInt64> saveChannelMessage({
   required String serverId,
@@ -167,4 +175,40 @@ class StoredMessage {
           timestamp == other.timestamp &&
           signature == other.signature &&
           publicKey == other.publicKey;
+}
+
+/// A user profile returned to Dart.
+class UserProfile {
+  final String peerId;
+  final String displayName;
+  final String status;
+  final String aboutMe;
+  final PlatformInt64 updatedAt;
+
+  const UserProfile({
+    required this.peerId,
+    required this.displayName,
+    required this.status,
+    required this.aboutMe,
+    required this.updatedAt,
+  });
+
+  @override
+  int get hashCode =>
+      peerId.hashCode ^
+      displayName.hashCode ^
+      status.hashCode ^
+      aboutMe.hashCode ^
+      updatedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is UserProfile &&
+          runtimeType == other.runtimeType &&
+          peerId == other.peerId &&
+          displayName == other.displayName &&
+          status == other.status &&
+          aboutMe == other.aboutMe &&
+          updatedAt == other.updatedAt;
 }

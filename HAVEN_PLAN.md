@@ -1,6 +1,6 @@
 # Haven — A Fully Distributed, Encrypted Discord Alternative
 
-> **Status:** Active Development — Phases 1-2.75 Complete. Phase 3 (Servers & Channels) In Progress.
+> **Status:** Active Development — Phases 1-3 Complete. Phase 3.5 (Daily Driver — Chat Features & Identity) In Progress.
 > **Author:** Designed through technical discussion, February 2026.
 > **Philosophy:** No central servers. No Electron. No Node.js hosting. The members ARE the server.
 
@@ -938,9 +938,35 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - Peer B holds messages for offline peer A, delivers on reconnect. Builds on message history sync.
   - MESSAGE ORDERING DECISION: Don't insert by sender timestamp (abusable — clock manipulation, spam injection). Instead: append offline messages at bottom with visual separator ("3 messages from Peer B while offline"). Sender timestamp = display metadata only ("sent at 10:12"), not sort position. Receive order = authoritative sequence for live messages.
   - Animate: queued message shimmer/pending state, delivery confirmation tick
-- [ ] Device linking via QR code (multi-device identity sync) — requires MLS + CRDTs. Animate: QR scan success celebration, device linked confirmation
 
-**Deliverable:** A functional group chat platform with servers, channels, and multi-device support.
+**Deliverable:** A functional group chat platform with servers, channels, roles, MLS encryption, and message sync.
+
+### Phase 3.5: Daily Driver — Chat Features & Identity
+
+**Goal:** Everything that makes Haven a usable daily chat app. Core features that turn a working prototype into something people want to use every day.
+
+**Identity & Profiles:**
+- [X] User profiles (avatar, status message, about me). Display name (global, user-changeable) already exists — acts as the nickname. Peer ID shown under display name as the immutable identity tag. Avatar stored locally for now, synced to peers' encrypted DBs once basic file sharing is built. 🎞️ Animate: profile card pop-up with scale+fade, status change transitions
+- [ ] Server nicknames — per-server display name override via CRDT LWW-Register per member. Falls back to global display name when unset
+- [ ] Profile card popup on member click — shows avatar, display name, server nickname, role, peer ID snippet, status. 🎞️ Animate: scale+fade entrance from click origin
+- [ ] Identity design: no tag system (no central registry). Ed25519 key IS identity. Display names are decorative, not unique. Disambiguate via short peer ID suffix (e.g., "Alex · hVn8x") when needed
+
+**Chat Essentials:**
+- [ ] Message editing — CRDT op (EditMessage with original message ID + new text), broadcast to server members, update in local DB + UI. Edited messages show "(edited)" indicator. 🎞️ Animate: edit highlight flash
+- [ ] Message deletion — CRDT op (DeleteMessage with message ID), broadcast to server members, tombstone in DB (preserve signature for evidence). Deleted messages show "Message deleted" placeholder. 🎞️ Animate: delete shrink+fade-out
+- [ ] Reply chains — reference parent message ID in envelope, render with quoted preview above reply. Clicking quote scrolls to original. 🎞️ Animate: reply chain indent slide
+- [ ] Emoji reactions — PN-Counter CRDT per emoji per message, broadcast to server members. 🎞️ Animate: reaction pop-in with spring bounce, count increment/decrement
+- [ ] Typing indicators — lightweight ephemeral signal (no persistence, no encryption needed). Broadcast to channel members, auto-expire after 5s. 🎞️ Animate: classic bouncing dots, smooth fade in/out
+- [ ] Rich text / markdown rendering in messages (bold, italic, code, code blocks, links). Link previews deferred to Phase 6
+- [ ] Pinned messages — CRDT OR-Set of pinned message IDs per channel, pin/unpin broadcast
+
+**Quality of Life:**
+- [ ] Notifications — system-level (Windows toast / macOS notification center), configurable per server and per channel (all / mentions only / none)
+- [ ] Search — local full-text search over decrypted messages in SQLCipher. 🎞️ Animate: search bar expand, results list staggered fade-in
+- [ ] Keyboard shortcuts (navigate channels, servers, quick-switch, mark as read)
+- [ ] Basic file sharing — direct P2P transfer via libp2p, encrypt with MLS/Olm before sending, store locally on receiver. Image/file preview in chat. No erasure coding yet (that's Phase 4). All images auto-converted to lossless WebP on send (25-35% smaller than PNG/JPEG, Flutter decodes natively, Rust `image` crate encodes). "Save as" option converts to user's chosen format (PNG/JPEG/WebP). 🎞️ Animate: upload progress, image shimmer placeholder → fade-in
+
+**Deliverable:** Haven feels like a complete, polished chat app. Ready for daily use with friends.
 
 ### Phase 4: Shared Vault — Distributed Storage
 
@@ -986,30 +1012,21 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 **Deliverable:** Full voice/video/screen-share with E2EE.
 
-### Phase 6: Polish & Features
+### Phase 6: Polish & Launch Prep
 
-**Goal:** Feature parity with Discord's core experience.
+**Goal:** Final features, platform testing, and polish pass before distribution.
 
-- [ ] Rich text messages (markdown, embeds, link previews)
-- [ ] Emoji reactions. 🎞️ Animate: reaction pop-in with spring bounce, count increment/decrement
-- [ ] Threads / reply chains. 🎞️ Animate: thread expand/collapse, reply chain indent slide
-- [ ] File sharing with previews (images, videos, documents)
-- [ ] User profiles with avatars and status. 🎞️ Animate: profile card pop-up with scale+fade, status change transitions
-- [ ] Notifications (system-level, configurable per channel)
-- [ ] Search (local full-text search of decrypted messages). 🎞️ Animate: search bar expand, results list staggered fade-in
-- [ ] Typing indicators. 🎞️ Animate: classic bouncing dots, smooth fade in/out
-- [ ] Message editing and deletion. 🎞️ Animate: edit highlight flash, delete shrink+fade-out
-- [ ] Pinned messages
-- [ ] Discord import system (full implementation)
-- [ ] Data export system (messages, files, identity — verifiable with signatures)
+- [ ] Link previews (URL metadata fetch + embed card rendering)
+- [ ] Discord import system (full implementation — parse GDPR export ZIP, map servers/channels/roles/messages, placeholder identities, member claiming)
+- [ ] Data export system (messages, files, identity — verifiable with Ed25519 signatures)
 - [ ] Server template export/import (share server structures)
 - [ ] Evidence Recovery UI tool (cooperative shard gathering for ex-members) — depends on Phase 4 shard system
+- [ ] Device linking via QR code (multi-device identity sync) — requires MLS + CRDTs. 🎞️ Animate: QR scan success celebration, device linked confirmation
 - [ ] Mobile platform testing & platform-specific fixes (adaptive layout built in Phase 2.5)
-- [ ] Keyboard shortcuts
 - [ ] Accessibility (screen reader support, high contrast)
 - [ ] 🎞️ Animation final pass — sweep all existing UI: hover micro-interactions on every button/card, panel slide transitions (sidebar open/close, member panel toggle), message appearance animations (staggered fade+slide on load, instant append on new), smooth theme switching crossfade, page/route transitions, loading skeletons replacing spinners
 
-**Deliverable:** A polished, feature-complete communication platform.
+**Deliverable:** A polished, feature-complete communication platform ready for public release.
 
 ### Phase 7: Distribution & Launch
 

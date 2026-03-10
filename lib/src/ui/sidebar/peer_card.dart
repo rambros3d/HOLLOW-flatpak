@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/models/chat_message.dart';
+import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
@@ -10,7 +12,7 @@ import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/status_dot.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
-class PeerCard extends StatelessWidget {
+class PeerCard extends ConsumerWidget {
   final String peerId;
   final bool isSelected;
   final bool isEncrypted;
@@ -29,8 +31,10 @@ class PeerCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final haven = HavenTheme.of(context);
+    final profiles = ref.watch(profileProvider);
+    final peerName = displayNameFor(profiles, peerId);
     final radius = BorderRadius.circular(haven.radiusMd);
 
     Widget card = HavenPressable(
@@ -86,11 +90,8 @@ class PeerCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      peerId.length > 16
-                          ? '${peerId.substring(0, 16)}...'
-                          : peerId,
+                      peerName,
                       style: HavenTypography.body.copyWith(
-                        fontFamily: 'Consolas',
                         fontSize: 13,
                         fontWeight: isSelected
                             ? FontWeight.w600

@@ -10,6 +10,7 @@ import 'package:haven/src/core/providers/peers_provider.dart';
 import 'package:haven/src/core/providers/selected_peer_provider.dart';
 import 'package:haven/src/core/providers/server_provider.dart';
 import 'package:haven/src/core/providers/service_providers.dart';
+import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/sync_progress_provider.dart';
 import 'package:haven/src/rust/api/network.dart';
 
@@ -230,6 +231,10 @@ class EventStreamNotifier extends Notifier<bool> {
         if (selectedPeer == peerId) {
           chatNotifier.loadHistory(peerId);
         }
+
+      case NetworkEvent_ProfileUpdated(:final peerId):
+        debugPrint('[HAVEN] Profile updated: $peerId');
+        ref.read(profileProvider.notifier).reloadProfile(peerId);
     }
   }
 
