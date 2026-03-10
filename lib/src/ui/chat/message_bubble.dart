@@ -1,66 +1,131 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/models/chat_message.dart';
+import 'package:haven/src/core/providers/identity_provider.dart';
+import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/animations/haven_transitions.dart';
+import 'package:haven/src/ui/components/haven_avatar.dart';
 
-class MessageBubble extends StatelessWidget {
+/// Deterministic name color from peer ID (same hue as avatar, lighter for readability).
+Color nameColorFromId(String id) {
+  final hash = id.hashCode;
+  final hue = (hash % 360).abs().toDouble();
+  return HSLColor.fromAHSL(1.0, hue, 0.6, 0.65).toColor();
+}
+
+/// Flat message row for DMs — no bubbles.
+///
+/// [showHeader] controls whether avatar + name + timestamp are shown
+/// (first message in a group) or just indented text (continuation).
+class MessageBubble extends ConsumerWidget {
   final ChatMessage message;
+  final String peerId;
+  final bool showHeader;
 
-  const MessageBubble({super.key, required this.message});
+  const MessageBubble({
+    super.key,
+    required this.message,
+    required this.peerId,
+    required this.showHeader,
+  });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final haven = HavenTheme.of(context);
     final isMe = message.isMe;
     final time =
         '${message.timestamp.hour.toString().padLeft(2, '0')}:${message.timestamp.minute.toString().padLeft(2, '0')}';
 
-    return FadeSlideTransition(
-      beginOffset: Offset(isMe ? 0.05 : -0.05, 0.0),
-      duration: const Duration(milliseconds: 200),
-      child: Align(
-        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+    final profiles = ref.watch(profileProvider);
+    final localPeerId = ref.watch(identityProvider).peerId ?? '';
+    final senderId = isMe ? localPeerId : peerId;
+    final senderName = displayNameFor(profiles, senderId);
+
+    const avatarSize = 32.0;
+    const avatarGap = HavenSpacing.sm + 2; // 10px
+    const indent = avatarSize + avatarGap;
+
+    final meDecoration = BoxDecoration(
+      border: Border(
+        right: BorderSide(color: haven.accent, width: 2),
+      ),
+    );
+
+    if (showHeader) {
+      // Group spacing is outside the border container.
+      return Padding(
+        padding: const EdgeInsets.only(top: HavenSpacing.sm + 2),
         child: Container(
-          margin: const EdgeInsets.symmetric(vertical: HavenSpacing.xs),
-          padding: const EdgeInsets.symmetric(
-            horizontal: HavenSpacing.md + 2,
-            vertical: HavenSpacing.sm + 2,
+          padding: EdgeInsets.only(
+            top: 4,
+            bottom: 4,
+            left: HavenSpacing.md,
+            right: isMe ? 0 : HavenSpacing.md,
           ),
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.5,
-          ),
-          decoration: BoxDecoration(
-            color: isMe ? haven.accent : haven.elevated,
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(haven.radiusLg),
-              topRight: Radius.circular(haven.radiusLg),
-              bottomLeft: Radius.circular(isMe ? haven.radiusLg : haven.radiusSm),
-              bottomRight: Radius.circular(isMe ? haven.radiusSm : haven.radiusLg),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment:
-                isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          decoration: isMe ? meDecoration : null,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                message.text,
-                style: HavenTypography.body.copyWith(
-                  color: isMe ? haven.textOnAccent : haven.textPrimary,
-                ),
-              ),
-              const SizedBox(height: HavenSpacing.xs),
-              Text(
-                time,
-                style: HavenTypography.caption.copyWith(
-                  color: isMe
-                      ? haven.textOnAccent.withValues(alpha: 0.7)
-                      : haven.textSecondary,
+              HavenAvatar(peerId: senderId, size: avatarSize),
+              const SizedBox(width: avatarGap),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          senderName,
+                          style: HavenTypography.body.copyWith(
+                            color: isMe
+                                ? haven.accent
+                                : nameColorFromId(senderId),
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(width: HavenSpacing.sm),
+                        Text(
+                          time,
+                          style: HavenTypography.caption.copyWith(
+                            color:
+                                haven.textSecondary.withValues(alpha: 0.5),
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      message.text,
+                      style: HavenTypography.body.copyWith(
+                        color: haven.textPrimary,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
+        ),
+      );
+    }
+
+    // Continuation message — indented, no avatar/name.
+    return Container(
+      padding: EdgeInsets.only(
+        top: 2,
+        bottom: 2,
+        left: HavenSpacing.md + indent,
+        right: isMe ? 0 : HavenSpacing.md,
+      ),
+      decoration: isMe ? meDecoration : null,
+      child: Text(
+        message.text,
+        style: HavenTypography.body.copyWith(
+          color: haven.textPrimary,
         ),
       ),
     );

@@ -951,6 +951,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [X] Profile card popup on member click — shows avatar, display name, server nickname, role, peer ID snippet, status. 🎞️ Animate: scale+fade entrance from click origin
 
 **Chat Essentials:**
+- [X] Chat Redesign — flat stacked layout.
 - [ ] Message editing — CRDT op (EditMessage with original message ID + new text), broadcast to server members, update in local DB + UI. Edited messages show "(edited)" indicator. 🎞️ Animate: edit highlight flash
 - [ ] Message deletion — CRDT op (DeleteMessage with message ID), broadcast to server members, tombstone in DB (preserve signature for evidence). Deleted messages show "Message deleted" placeholder. 🎞️ Animate: delete shrink+fade-out
 - [ ] Reply chains — reference parent message ID in envelope, render with quoted preview above reply. Clicking quote scrolls to original. 🎞️ Animate: reply chain indent slide

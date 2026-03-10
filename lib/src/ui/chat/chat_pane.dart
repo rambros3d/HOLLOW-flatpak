@@ -16,6 +16,26 @@ import 'package:haven/src/ui/components/haven_tooltip.dart';
 import 'package:haven/src/ui/components/status_dot.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
+/// Whether two consecutive messages should be grouped (same sender, within 5 min).
+bool shouldGroup({
+  required bool currentIsMe,
+  required bool previousIsMe,
+  required DateTime currentTime,
+  required DateTime previousTime,
+  String? currentSenderId,
+  String? previousSenderId,
+}) {
+  // For DMs: just check isMe flag.
+  // For channels: also check senderId.
+  if (currentIsMe != previousIsMe) return false;
+  if (currentSenderId != null &&
+      previousSenderId != null &&
+      currentSenderId != previousSenderId) {
+    return false;
+  }
+  return currentTime.difference(previousTime).inMinutes.abs() < 5;
+}
+
 class ChatPane extends ConsumerStatefulWidget {
   final String peerId;
   final bool isEncrypted;
@@ -33,6 +53,7 @@ class ChatPane extends ConsumerStatefulWidget {
 class _ChatPaneState extends ConsumerState<ChatPane> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
+  final _focusNode = FocusNode();
   bool _historyLoaded = false;
   int _previousMessageCount = 0;
 
@@ -46,23 +67,33 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     if (_historyLoaded) return;
     _historyLoaded = true;
     await ref.read(chatProvider.notifier).loadHistory(widget.peerId);
-    _scrollToBottom();
+    _jumpToBottom();
   }
 
   @override
   void dispose() {
     _controller.dispose();
     _scrollController.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
-  /// Whether the user is scrolled near the bottom (within 150px).
   bool get _isNearBottom {
     if (!_scrollController.hasClients) return true;
     final pos = _scrollController.position;
     return pos.maxScrollExtent - pos.pixels < 150;
   }
 
+  /// Instant jump — no animation.
+  void _jumpToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      }
+    });
+  }
+
+  /// Smooth scroll for new incoming messages.
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
@@ -79,6 +110,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
     _controller.clear();
+    _focusNode.requestFocus();
     await ref.read(chatProvider.notifier).sendMessage(widget.peerId, text);
     _scrollToBottom();
   }
@@ -170,7 +202,8 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                   },
                   borderRadius: BorderRadius.circular(haven.radiusSm),
                   padding: const EdgeInsets.all(HavenSpacing.xs),
-                  child: Icon(LucideIcons.copy, size: 16, color: haven.textSecondary),
+                  child: Icon(LucideIcons.copy,
+                      size: 16, color: haven.textSecondary),
                 ),
               ),
               const SizedBox(width: HavenSpacing.xs),
@@ -220,13 +253,31 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                       ],
                     ),
                   )
-                : ListView.builder(
+                : ScrollConfiguration(
+                    behavior: ScrollConfiguration.of(context)
+                        .copyWith(scrollbars: false),
+                    child: ListView.builder(
                     controller: _scrollController,
-                    padding: const EdgeInsets.all(HavenSpacing.md),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: HavenSpacing.sm,
+                    ),
                     itemCount: messages.length,
                     itemBuilder: (context, index) {
-                      return MessageBubble(message: messages[index]);
+                      final msg = messages[index];
+                      final showHeader = index == 0 ||
+                          !shouldGroup(
+                            currentIsMe: msg.isMe,
+                            previousIsMe: messages[index - 1].isMe,
+                            currentTime: msg.timestamp,
+                            previousTime: messages[index - 1].timestamp,
+                          );
+                      return MessageBubble(
+                        message: msg,
+                        peerId: widget.peerId,
+                        showHeader: showHeader,
+                      );
                     },
+                  ),
                   ),
           ),
         ),
@@ -248,7 +299,9 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
               Expanded(
                 child: HavenTextField(
                   controller: _controller,
+                  focusNode: _focusNode,
                   hintText: 'Type a message...',
+                  autofocus: true,
                   style: HavenTypography.body.copyWith(
                     color: haven.textPrimary,
                   ),

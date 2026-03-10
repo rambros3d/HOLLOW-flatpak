@@ -10,6 +10,7 @@ import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
 import 'package:haven/src/ui/chat/channel_message_bubble.dart';
+import 'package:haven/src/ui/chat/chat_pane.dart';
 import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/haven_text_field.dart';
 import 'package:haven/src/ui/components/haven_tooltip.dart';
@@ -36,6 +37,7 @@ class ChannelChatPane extends ConsumerStatefulWidget {
 class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
+  final _focusNode = FocusNode();
   bool _historyLoaded = false;
   int _previousMessageCount = 0;
 
@@ -53,13 +55,14 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     await ref
         .read(channelChatProvider.notifier)
         .loadHistory(widget.serverId, widget.channelId);
-    _scrollToBottom();
+    _jumpToBottom();
   }
 
   @override
   void dispose() {
     _controller.dispose();
     _scrollController.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -69,6 +72,16 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     return pos.maxScrollExtent - pos.pixels < 150;
   }
 
+  /// Instant jump — no animation.
+  void _jumpToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      }
+    });
+  }
+
+  /// Smooth scroll for new incoming messages.
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
@@ -85,6 +98,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
     _controller.clear();
+    _focusNode.requestFocus();
     await ref
         .read(channelChatProvider.notifier)
         .sendMessage(widget.serverId, widget.channelId, text);
@@ -188,16 +202,33 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                       ],
                     ),
                   )
-                : ListView.builder(
+                : ScrollConfiguration(
+                    behavior: ScrollConfiguration.of(context)
+                        .copyWith(scrollbars: false),
+                    child: ListView.builder(
                     controller: _scrollController,
-                    padding: const EdgeInsets.all(HavenSpacing.md),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: HavenSpacing.sm,
+                    ),
                     itemCount: messages.length,
                     itemBuilder: (context, index) {
+                      final msg = messages[index];
+                      final showHeader = index == 0 ||
+                          !shouldGroup(
+                            currentIsMe: msg.isMe,
+                            previousIsMe: messages[index - 1].isMe,
+                            currentTime: msg.timestamp,
+                            previousTime: messages[index - 1].timestamp,
+                            currentSenderId: msg.senderId,
+                            previousSenderId: messages[index - 1].senderId,
+                          );
                       return ChannelMessageBubble(
-                        message: messages[index],
+                        message: msg,
                         serverId: widget.serverId,
+                        showHeader: showHeader,
                       );
                     },
+                  ),
                   ),
           ),
         ),
@@ -217,7 +248,9 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
               Expanded(
                 child: HavenTextField(
                   controller: _controller,
+                  focusNode: _focusNode,
                   hintText: 'Message #${widget.channelName}',
+                  autofocus: true,
                   style: HavenTypography.body
                       .copyWith(color: haven.textPrimary),
                   borderRadius: haven.radiusLg,
@@ -278,12 +311,13 @@ class _SpinningRefreshIconState extends State<_SpinningRefreshIcon>
   Widget build(BuildContext context) {
     return RotationTransition(
       turns: _controller,
-      child: Icon(LucideIcons.refreshCw, size: widget.size, color: widget.color),
+      child:
+          Icon(LucideIcons.refreshCw, size: widget.size, color: widget.color),
     );
   }
 }
 
-/// Shows sync status in the channel header (no member count — that's in the member panel).
+/// Shows sync status in the channel header.
 class _ConnectionIndicator extends ConsumerStatefulWidget {
   final String serverId;
   final String channelId;
@@ -302,9 +336,8 @@ class _ConnectionIndicatorState extends ConsumerState<_ConnectionIndicator> {
 
   void _retry() {
     final now = DateTime.now();
-    if (_lastRetry != null &&
-        now.difference(_lastRetry!).inSeconds < 3) {
-      return; // 3s debounce
+    if (_lastRetry != null && now.difference(_lastRetry!).inSeconds < 3) {
+      return;
     }
     _lastRetry = now;
     try {
@@ -333,13 +366,11 @@ class _ConnectionIndicatorState extends ConsumerState<_ConnectionIndicator> {
             .where((m) => connectedPeers.containsKey(m.peerId))
             .length;
 
-        // Derive effective status — show "Connecting..." when idle + no peers online.
         final effectiveStatus = syncStatus == ServerSyncStatus.idle &&
                 onlineCount == 0
             ? ServerSyncStatus.connecting
             : syncStatus;
 
-        // Don't show anything when idle and peers are online (normal state).
         if (effectiveStatus == ServerSyncStatus.idle) {
           return const SizedBox.shrink();
         }
@@ -378,7 +409,7 @@ class _ConnectionIndicatorState extends ConsumerState<_ConnectionIndicator> {
             label = 'Sync failed';
             showRetry = true;
           case ServerSyncStatus.idle:
-            return const SizedBox.shrink(); // Already handled above
+            return const SizedBox.shrink();
         }
 
         return Row(
