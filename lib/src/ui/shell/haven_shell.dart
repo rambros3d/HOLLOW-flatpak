@@ -602,16 +602,21 @@ class _MemberPanelSliderState extends State<_MemberPanelSlider>
     );
   }
 
+  /// True while the panel is animating closed — freezes content.
+  bool _isClosing = false;
+
   @override
   void didUpdateWidget(_MemberPanelSlider oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.visible != oldWidget.visible) {
       if (widget.visible) {
-        // Opening — update to current server ID.
+        // Opening — unfreeze content, update server ID.
+        _isClosing = false;
         _frozenServerId = widget.serverId;
         _controller.forward();
       } else {
-        // Closing — keep _frozenServerId as-is so content stays.
+        // Closing — freeze content so it doesn't flash "No peers online".
+        _isClosing = true;
         _controller.reverse();
       }
     } else if (widget.visible && widget.serverId != oldWidget.serverId) {
@@ -646,17 +651,18 @@ class _MemberPanelSliderState extends State<_MemberPanelSlider>
           ),
         );
       },
-      // Override selectedServerProvider so panel keeps showing
-      // the cached server's members during close animation.
-      child: ProviderScope(
-        overrides: [
-          if (_frozenServerId != null)
-            selectedServerProvider.overrideWith(
-              (ref) => _frozenServerId,
-            ),
-        ],
-        child: const RepaintBoundary(child: MemberPanel()),
-      ),
+      // Only override selectedServerProvider during close animation
+      // to freeze content. Otherwise let it use the real provider.
+      child: _isClosing && _frozenServerId != null
+          ? ProviderScope(
+              overrides: [
+                selectedServerProvider.overrideWith(
+                  (ref) => _frozenServerId,
+                ),
+              ],
+              child: const RepaintBoundary(child: MemberPanel()),
+            )
+          : const RepaintBoundary(child: MemberPanel()),
     );
   }
 }
