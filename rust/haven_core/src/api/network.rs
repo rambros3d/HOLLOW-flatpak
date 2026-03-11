@@ -23,8 +23,8 @@ pub enum NetworkEvent {
     PeerDisconnected { peer_id: String },
     RoomCleared,
     Listening { address: String },
-    MessageReceived { from_peer: String, text: String, timestamp: i64 },
-    ChannelMessageReceived { server_id: String, channel_id: String, from_peer: String, text: String, timestamp: i64 },
+    MessageReceived { from_peer: String, text: String, timestamp: i64, message_id: String },
+    ChannelMessageReceived { server_id: String, channel_id: String, from_peer: String, text: String, timestamp: i64, message_id: String },
     MessageSent { to_peer: String },
     MessageSendFailed { to_peer: String, error: String },
     SessionEstablished { peer_id: String },
@@ -48,6 +48,9 @@ pub enum NetworkEvent {
     DmSyncCompleted { peer_id: String, new_message_count: u32 },
     // -- Profile events (Phase 3.5) --
     ProfileUpdated { peer_id: String },
+    // -- Message editing events (Phase 3.5) --
+    ChannelMessageEdited { server_id: String, channel_id: String, message_id: String, new_text: String, edited_at: i64 },
+    DmMessageEdited { peer_id: String, message_id: String, new_text: String, edited_at: i64 },
 }
 
 /// Holds all mutable state for the running node.
@@ -162,6 +165,12 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::ProfileUpdated { peer_id } => {
             haven_log!("[HAVEN] Profile updated for {peer_id}");
         }
+        node::NetworkEvent::ChannelMessageEdited { server_id, channel_id, message_id, .. } => {
+            haven_log!("[HAVEN] Channel message {message_id} edited in {server_id}/{channel_id}");
+        }
+        node::NetworkEvent::DmMessageEdited { peer_id, message_id, .. } => {
+            haven_log!("[HAVEN] DM message {message_id} edited for {peer_id}");
+        }
         _ => {}
     }
     match event {
@@ -177,11 +186,11 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::RoomCleared => NetworkEvent::RoomCleared,
         node::NetworkEvent::Listening { address } => NetworkEvent::Listening { address },
-        node::NetworkEvent::MessageReceived { from_peer, text, timestamp } => {
-            NetworkEvent::MessageReceived { from_peer, text, timestamp }
+        node::NetworkEvent::MessageReceived { from_peer, text, timestamp, message_id } => {
+            NetworkEvent::MessageReceived { from_peer, text, timestamp, message_id }
         }
-        node::NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, text, timestamp } => {
-            NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, text, timestamp }
+        node::NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, text, timestamp, message_id } => {
+            NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, text, timestamp, message_id }
         }
         node::NetworkEvent::MessageSent { to_peer } => NetworkEvent::MessageSent { to_peer },
         node::NetworkEvent::MessageSendFailed { to_peer, error } => {
@@ -241,6 +250,12 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::ProfileUpdated { peer_id } => {
             NetworkEvent::ProfileUpdated { peer_id }
+        }
+        node::NetworkEvent::ChannelMessageEdited { server_id, channel_id, message_id, new_text, edited_at } => {
+            NetworkEvent::ChannelMessageEdited { server_id, channel_id, message_id, new_text, edited_at }
+        }
+        node::NetworkEvent::DmMessageEdited { peer_id, message_id, new_text, edited_at } => {
+            NetworkEvent::DmMessageEdited { peer_id, message_id, new_text, edited_at }
         }
     }
 }
@@ -391,7 +406,7 @@ pub fn get_olm_fingerprint() -> Option<String> {
 
 /// Send a text message to a peer. The peer must be reachable (discovered via mDNS).
 #[frb]
-pub fn send_message(peer_id: String, text: String) -> Result<(), String> {
+pub fn send_message(peer_id: String, text: String, message_id: String) -> Result<(), String> {
     let node = get_node();
     let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
 
@@ -405,7 +420,7 @@ pub fn send_message(peer_id: String, text: String) -> Result<(), String> {
     rt.block_on(
         state
             .cmd_tx
-            .send(node::NodeCommand::SendMessage { peer_id: peer, text }),
+            .send(node::NodeCommand::SendMessage { peer_id: peer, text, message_id }),
     )
     .map_err(|e| format!("Failed to send command: {e}"))?;
 
@@ -419,6 +434,7 @@ pub fn send_channel_message(
     server_id: String,
     channel_id: String,
     text: String,
+    message_id: String,
 ) -> Result<(), String> {
     let node = get_node();
     let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
@@ -430,6 +446,61 @@ pub fn send_channel_message(
             server_id,
             channel_id,
             text,
+            message_id,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Edit a channel message. Broadcasts the edit to all server members.
+#[frb]
+pub fn edit_channel_message(
+    server_id: String,
+    channel_id: String,
+    message_id: String,
+    new_text: String,
+) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::EditChannelMessage {
+            server_id,
+            channel_id,
+            message_id,
+            new_text,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Edit a DM message. Sends the edit to the DM peer.
+#[frb]
+pub fn edit_dm_message(
+    peer_id: String,
+    message_id: String,
+    new_text: String,
+) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let peer: PeerId = peer_id
+        .parse()
+        .map_err(|e| format!("Invalid peer ID: {e}"))?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::EditDmMessage {
+            peer_id: peer,
+            message_id,
+            new_text,
         }),
     )
     .map_err(|e| format!("Failed to send command: {e}"))?;

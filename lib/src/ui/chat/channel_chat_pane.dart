@@ -11,6 +11,7 @@ import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
 import 'package:haven/src/ui/chat/channel_message_bubble.dart';
 import 'package:haven/src/ui/chat/chat_pane.dart';
+import 'package:haven/src/ui/chat/message_action_bar.dart';
 import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/haven_text_field.dart';
 import 'package:haven/src/ui/components/haven_tooltip.dart';
@@ -40,6 +41,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   final _focusNode = FocusNode();
   bool _historyLoaded = false;
   int _previousMessageCount = 0;
+  String? _editingMessageId;
 
   String get _stateKey => '${widget.serverId}:${widget.channelId}';
 
@@ -174,6 +176,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
 
         // Messages list
         Expanded(
+          child: MessageActionBarScope(
           child: Container(
             color: haven.background,
             child: messages.isEmpty
@@ -222,14 +225,42 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                             currentSenderId: msg.senderId,
                             previousSenderId: messages[index - 1].senderId,
                           );
-                      return ChannelMessageBubble(
-                        message: msg,
-                        serverId: widget.serverId,
-                        showHeader: showHeader,
+                      final wrapper = MessageHoverWrapper(
+                        isMe: msg.isMe,
+                        messageId: msg.messageId,
+                        currentText: msg.text,
+                        isEditing: _editingMessageId != null &&
+                            _editingMessageId == msg.messageId,
+                        onEditStart: msg.messageId != null
+                            ? () => setState(() =>
+                                _editingMessageId = msg.messageId)
+                            : null,
+                        onEditSubmit: (newText) {
+                          setState(() => _editingMessageId = null);
+                          ref
+                              .read(channelChatProvider.notifier)
+                              .editMessage(widget.serverId, widget.channelId,
+                                  msg.messageId!, newText);
+                        },
+                        onEditCancel: () =>
+                            setState(() => _editingMessageId = null),
+                        child: ChannelMessageBubble(
+                          message: msg,
+                          serverId: widget.serverId,
+                          showHeader: showHeader,
+                        ),
                       );
+                      if (showHeader) {
+                        return Padding(
+                          padding: const EdgeInsets.only(top: HavenSpacing.sm + 2),
+                          child: wrapper,
+                        );
+                      }
+                      return wrapper;
                     },
                   ),
                   ),
+          ),
           ),
         ),
 

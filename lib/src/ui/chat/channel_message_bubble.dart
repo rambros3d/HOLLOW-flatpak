@@ -38,10 +38,29 @@ class ChannelMessageBubble extends ConsumerWidget {
     final isMe = message.isMe;
     final time =
         '${message.timestamp.hour.toString().padLeft(2, '0')}:${message.timestamp.minute.toString().padLeft(2, '0')}';
+    final isEdited = message.editedAt != null;
 
     const avatarSize = 32.0;
     const avatarGap = HavenSpacing.sm + 2; // 10px
     const indent = avatarSize + avatarGap;
+
+    final messageTextWidget = Text.rich(
+      TextSpan(
+        text: message.text,
+        style: HavenTypography.body.copyWith(color: haven.textPrimary),
+        children: isEdited
+            ? [
+                TextSpan(
+                  text: ' (edited)',
+                  style: HavenTypography.caption.copyWith(
+                    color: haven.textSecondary.withValues(alpha: 0.5),
+                    fontSize: 10,
+                  ),
+                ),
+              ]
+            : null,
+      ),
+    );
 
     final meDecoration = BoxDecoration(
       border: Border(
@@ -50,80 +69,66 @@ class ChannelMessageBubble extends ConsumerWidget {
     );
 
     if (showHeader) {
-      // Group spacing is outside the border container.
-      return Padding(
-        padding: const EdgeInsets.only(top: HavenSpacing.sm + 2),
-        child: Container(
-          padding: EdgeInsets.only(
-            top: 4,
-            bottom: 4,
-            left: HavenSpacing.md,
-            right: isMe ? 0 : HavenSpacing.md,
-          ),
-          decoration: isMe ? meDecoration : null,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              HavenAvatar(peerId: message.senderId, size: avatarSize),
-              const SizedBox(width: avatarGap),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          senderName,
-                          style: HavenTypography.body.copyWith(
-                            color: isMe
-                                ? haven.accent
-                                : nameColorFromId(message.senderId),
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                          ),
+      return Container(
+        padding: const EdgeInsets.only(
+          top: 4,
+          bottom: 4,
+          left: HavenSpacing.md,
+          right: HavenSpacing.md,
+        ),
+        decoration: isMe ? meDecoration : null,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            HavenAvatar(peerId: message.senderId, size: avatarSize),
+            const SizedBox(width: avatarGap),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        senderName,
+                        style: HavenTypography.body.copyWith(
+                          color: isMe
+                              ? haven.accent
+                              : nameColorFromId(message.senderId),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
                         ),
-                        const SizedBox(width: HavenSpacing.sm),
-                        Text(
-                          time,
-                          style: HavenTypography.caption.copyWith(
-                            color:
-                                haven.textSecondary.withValues(alpha: 0.5),
-                            fontSize: 10,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      message.text,
-                      style: HavenTypography.body.copyWith(
-                        color: haven.textPrimary,
                       ),
-                    ),
-                  ],
-                ),
+                      const SizedBox(width: HavenSpacing.sm),
+                      Text(
+                        time,
+                        style: HavenTypography.caption.copyWith(
+                          color:
+                              haven.textSecondary.withValues(alpha: 0.5),
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  messageTextWidget,
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }
 
     // Continuation message — indented, no avatar/name.
     return Container(
-      padding: EdgeInsets.only(
+      padding: const EdgeInsets.only(
         top: 2,
         bottom: 2,
         left: HavenSpacing.md + indent,
-        right: isMe ? 0 : HavenSpacing.md,
+        right: HavenSpacing.md,
       ),
       decoration: isMe ? meDecoration : null,
-      child: Text(
-        message.text,
-        style: HavenTypography.body.copyWith(
-          color: haven.textPrimary,
-        ),
-      ),
+      child: messageTextWidget,
     );
   }
 }

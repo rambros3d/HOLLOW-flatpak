@@ -92,6 +92,8 @@ class StoredChannelMessage {
   final PlatformInt64 timestamp;
   final String? signature;
   final String? publicKey;
+  final String? messageId;
+  final PlatformInt64? editedAt;
 
   const StoredChannelMessage({
     required this.id,
@@ -103,6 +105,8 @@ class StoredChannelMessage {
     required this.timestamp,
     this.signature,
     this.publicKey,
+    this.messageId,
+    this.editedAt,
   });
 
   @override
@@ -115,7 +119,9 @@ class StoredChannelMessage {
       isMine.hashCode ^
       timestamp.hashCode ^
       signature.hashCode ^
-      publicKey.hashCode;
+      publicKey.hashCode ^
+      messageId.hashCode ^
+      editedAt.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -130,7 +136,9 @@ class StoredChannelMessage {
           isMine == other.isMine &&
           timestamp == other.timestamp &&
           signature == other.signature &&
-          publicKey == other.publicKey;
+          publicKey == other.publicKey &&
+          messageId == other.messageId &&
+          editedAt == other.editedAt;
 }
 
 /// A message returned to Dart from the local database.
@@ -142,6 +150,8 @@ class StoredMessage {
   final PlatformInt64 timestamp;
   final String? signature;
   final String? publicKey;
+  final String? messageId;
+  final PlatformInt64? editedAt;
 
   const StoredMessage({
     required this.id,
@@ -151,6 +161,8 @@ class StoredMessage {
     required this.timestamp,
     this.signature,
     this.publicKey,
+    this.messageId,
+    this.editedAt,
   });
 
   @override
@@ -161,7 +173,9 @@ class StoredMessage {
       isMine.hashCode ^
       timestamp.hashCode ^
       signature.hashCode ^
-      publicKey.hashCode;
+      publicKey.hashCode ^
+      messageId.hashCode ^
+      editedAt.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -174,7 +188,9 @@ class StoredMessage {
           isMine == other.isMine &&
           timestamp == other.timestamp &&
           signature == other.signature &&
-          publicKey == other.publicKey;
+          publicKey == other.publicKey &&
+          messageId == other.messageId &&
+          editedAt == other.editedAt;
 }
 
 /// A user profile returned to Dart.

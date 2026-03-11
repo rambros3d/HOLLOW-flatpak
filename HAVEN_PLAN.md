@@ -953,7 +953,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 **Chat Essentials:**
 - [X] Chat Redesign — flat stacked layout.
 - [ ] Message editing — CRDT op (EditMessage with original message ID + new text), broadcast to server members, update in local DB + UI. Edited messages show "(edited)" indicator. 🎞️ Animate: edit highlight flash
-- [ ] Message deletion — CRDT op (DeleteMessage with message ID), broadcast to server members, tombstone in DB (preserve signature for evidence). Deleted messages show "Message deleted" placeholder. 🎞️ Animate: delete shrink+fade-out
+- [ ] Message deletion — Channel: soft-delete (deleted_at timestamp, row stays in DB for Rat Files evidence preservation). DM: hard delete from local DB only (other peer keeps their copy). UI shows "Message deleted" placeholder. 🎞️ Animate: delete shrink+fade-out
 - [ ] Reply chains — reference parent message ID in envelope, render with quoted preview above reply. Clicking quote scrolls to original. 🎞️ Animate: reply chain indent slide
 - [ ] Emoji reactions — PN-Counter CRDT per emoji per message, broadcast to server members. 🎞️ Animate: reaction pop-in with spring bounce, count increment/decrement
 - [ ] Typing indicators — lightweight ephemeral signal (no persistence, no encryption needed). Broadcast to channel members, auto-expire after 5s. 🎞️ Animate: classic bouncing dots, smooth fade in/out
@@ -961,6 +961,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] Pinned messages — CRDT OR-Set of pinned message IDs per channel, pin/unpin broadcast
 
 **Quality of Life:**
+- [ ] Friends system & DM overhaul — Rust: `friends` SQLCipher table (peer_id, display_name, added_at, status). Friend request flow: `FriendRequest` → `FriendAccepted`/`FriendDeclined` wire messages over Olm. Friends list persists offline (not just "who's online"). DM sidebar shows all friends (online/offline) with status dots, sorted online-first. DM history persists and loads from DB regardless of connection status. Unfriend removes from list but keeps DM history. No mutual server required — friends are independent of servers.
 - [ ] Notifications — system-level (Windows toast / macOS notification center), configurable per server and per channel (all / mentions only / none)
 - [ ] Search — local full-text search over decrypted messages in SQLCipher. 🎞️ Animate: search bar expand, results list staggered fade-in
 - [ ] Keyboard shortcuts (navigate channels, servers, quick-switch, mark as read)

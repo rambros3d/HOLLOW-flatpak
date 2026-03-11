@@ -36,8 +36,15 @@ Future<String?> getOlmFingerprint() =>
     RustLib.instance.api.crateApiNetworkGetOlmFingerprint();
 
 /// Send a text message to a peer. The peer must be reachable (discovered via mDNS).
-Future<void> sendMessage({required String peerId, required String text}) =>
-    RustLib.instance.api.crateApiNetworkSendMessage(peerId: peerId, text: text);
+Future<void> sendMessage({
+  required String peerId,
+  required String text,
+  required String messageId,
+}) => RustLib.instance.api.crateApiNetworkSendMessage(
+  peerId: peerId,
+  text: text,
+  messageId: messageId,
+);
 
 /// Send a text message to a server channel.
 /// The message will be encrypted and sent to all connected server members.
@@ -45,10 +52,36 @@ Future<void> sendChannelMessage({
   required String serverId,
   required String channelId,
   required String text,
+  required String messageId,
 }) => RustLib.instance.api.crateApiNetworkSendChannelMessage(
   serverId: serverId,
   channelId: channelId,
   text: text,
+  messageId: messageId,
+);
+
+/// Edit a channel message. Broadcasts the edit to all server members.
+Future<void> editChannelMessage({
+  required String serverId,
+  required String channelId,
+  required String messageId,
+  required String newText,
+}) => RustLib.instance.api.crateApiNetworkEditChannelMessage(
+  serverId: serverId,
+  channelId: channelId,
+  messageId: messageId,
+  newText: newText,
+);
+
+/// Edit a DM message. Sends the edit to the DM peer.
+Future<void> editDmMessage({
+  required String peerId,
+  required String messageId,
+  required String newText,
+}) => RustLib.instance.api.crateApiNetworkEditDmMessage(
+  peerId: peerId,
+  messageId: messageId,
+  newText: newText,
 );
 
 /// Request message sync for a specific channel from all connected server members.
@@ -121,6 +154,7 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String fromPeer,
     required String text,
     required PlatformInt64 timestamp,
+    required String messageId,
   }) = NetworkEvent_MessageReceived;
   const factory NetworkEvent.channelMessageReceived({
     required String serverId,
@@ -128,6 +162,7 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String fromPeer,
     required String text,
     required PlatformInt64 timestamp,
+    required String messageId,
   }) = NetworkEvent_ChannelMessageReceived;
   const factory NetworkEvent.messageSent({required String toPeer}) =
       NetworkEvent_MessageSent;
@@ -206,4 +241,17 @@ sealed class NetworkEvent with _$NetworkEvent {
   }) = NetworkEvent_DmSyncCompleted;
   const factory NetworkEvent.profileUpdated({required String peerId}) =
       NetworkEvent_ProfileUpdated;
+  const factory NetworkEvent.channelMessageEdited({
+    required String serverId,
+    required String channelId,
+    required String messageId,
+    required String newText,
+    required PlatformInt64 editedAt,
+  }) = NetworkEvent_ChannelMessageEdited;
+  const factory NetworkEvent.dmMessageEdited({
+    required String peerId,
+    required String messageId,
+    required String newText,
+    required PlatformInt64 editedAt,
+  }) = NetworkEvent_DmMessageEdited;
 }

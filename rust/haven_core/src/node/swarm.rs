@@ -91,8 +91,8 @@ pub(crate) enum NetworkEvent {
     PeerDisconnected { peer_id: String },
     RoomCleared,
     Listening { address: String },
-    MessageReceived { from_peer: String, text: String, timestamp: i64 },
-    ChannelMessageReceived { server_id: String, channel_id: String, from_peer: String, text: String, timestamp: i64 },
+    MessageReceived { from_peer: String, text: String, timestamp: i64, message_id: String },
+    ChannelMessageReceived { server_id: String, channel_id: String, from_peer: String, text: String, timestamp: i64, message_id: String },
     MessageSent { to_peer: String },
     MessageSendFailed { to_peer: String, error: String },
     SessionEstablished { peer_id: String },
@@ -116,12 +116,15 @@ pub(crate) enum NetworkEvent {
     DmSyncCompleted { peer_id: String, new_message_count: u32 },
     // -- Profile events (Phase 3.5) --
     ProfileUpdated { peer_id: String },
+    // -- Message editing events (Phase 3.5) --
+    ChannelMessageEdited { server_id: String, channel_id: String, message_id: String, new_text: String, edited_at: i64 },
+    DmMessageEdited { peer_id: String, message_id: String, new_text: String, edited_at: i64 },
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
 pub(crate) enum NodeCommand {
-    SendMessage { peer_id: PeerId, text: String },
-    SendChannelMessage { server_id: String, channel_id: String, text: String },
+    SendMessage { peer_id: PeerId, text: String, message_id: String },
+    SendChannelMessage { server_id: String, channel_id: String, text: String, message_id: String },
     JoinRoom { room_code: String },
     // -- CRDT commands (Phase 3) --
     CreateServer { name: String },
@@ -139,6 +142,9 @@ pub(crate) enum NodeCommand {
     NotifyShutdown,
     // -- Profile commands (Phase 3.5) --
     UpdateProfile { display_name: String, status: String, about_me: String },
+    // -- Message editing (Phase 3.5) --
+    EditChannelMessage { server_id: String, channel_id: String, message_id: String, new_text: String },
+    EditDmMessage { peer_id: PeerId, message_id: String, new_text: String },
 }
 
 // -- Wire protocol types (v2: encrypted) --
@@ -290,6 +296,9 @@ enum MessageEnvelope {
         /// Sender's Ed25519 public key (base64 protobuf).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pk: Option<String>,
+        /// Unique message ID (UUID, sender-generated).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mid: Option<String>,
     },
     #[serde(rename = "ch")]
     ChannelMessage {
@@ -304,6 +313,9 @@ enum MessageEnvelope {
         /// Sender's Ed25519 public key (base64 protobuf).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pk: Option<String>,
+        /// Unique message ID (UUID, sender-generated).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mid: Option<String>,
     },
     #[serde(rename = "ch_sync")]
     ChannelSyncBatch {
@@ -325,6 +337,28 @@ enum MessageEnvelope {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         has_more: Option<bool>,
     },
+    /// Edit an existing message (channel or DM).
+    #[serde(rename = "edit")]
+    EditMessage {
+        /// The message_id of the original message.
+        mid: String,
+        /// New text content.
+        text: String,
+        /// Edit timestamp (millis since epoch).
+        ts: i64,
+        /// Ed25519 signature over the edit payload.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sig: Option<String>,
+        /// Sender's Ed25519 public key.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pk: Option<String>,
+        /// Server ID (present for channel edits, absent for DM edits).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sid: Option<String>,
+        /// Channel ID (present for channel edits, absent for DM edits).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cid: Option<String>,
+    },
 }
 
 /// A single message in a sync batch.
@@ -342,6 +376,12 @@ struct SyncMessageItem {
     /// Sender's Ed25519 public key (base64 protobuf).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pk: Option<String>,
+    /// Unique message ID (UUID).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mid: Option<String>,
+    /// Edit timestamp (if message was edited).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    edited_at: Option<i64>,
 }
 
 /// A single DM in a DM sync batch.
@@ -359,6 +399,12 @@ struct DmSyncItem {
     /// Sender's Ed25519 public key (base64 protobuf).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pk: Option<String>,
+    /// Unique message ID (UUID).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mid: Option<String>,
+    /// Edit timestamp (if message was edited).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    edited_at: Option<i64>,
 }
 
 /// JSON codec for the Haven v2 protocol.
@@ -1073,9 +1119,9 @@ async fn run_swarm(
                             room_code,
                         }).await;
                     }
-                    NodeCommand::SendMessage { peer_id, text } => {
+                    NodeCommand::SendMessage { peer_id, text, message_id } => {
                         let peer_id_str = peer_id.to_string();
-                        haven_log!("[HAVEN-SWARM] SendMessage received for {peer_id_str}");
+                        haven_log!("[HAVEN-SWARM] SendMessage received for {peer_id_str} mid={message_id}");
 
                         // Wrap DM in signed envelope.
                         let local_peer = swarm.local_peer_id().to_string();
@@ -1092,6 +1138,7 @@ async fn run_swarm(
                             ts: dm_timestamp,
                             sig: sig.clone(),
                             pk: pk.clone(),
+                            mid: Some(message_id.clone()),
                         };
                         let envelope_json = serde_json::to_string(&envelope)
                             .unwrap_or_else(|_| text.clone());
@@ -1106,7 +1153,7 @@ async fn run_swarm(
                             if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
                                 let _ = store.insert(
                                     &peer_id_str, &text, true, dm_timestamp,
-                                    sig.as_deref(), pk.as_deref(),
+                                    sig.as_deref(), pk.as_deref(), Some(&message_id),
                                 );
                             }
                         }
@@ -1151,8 +1198,8 @@ async fn run_swarm(
                         }
                     }
 
-                    NodeCommand::SendChannelMessage { server_id, channel_id, text } => {
-                        haven_log!("[HAVEN-SWARM] SendChannelMessage for channel {channel_id} in server {server_id}");
+                    NodeCommand::SendChannelMessage { server_id, channel_id, text, message_id } => {
+                        haven_log!("[HAVEN-SWARM] SendChannelMessage for channel {channel_id} in server {server_id} mid={message_id}");
 
                         let server = match server_states.get(&server_id) {
                             Some(s) => s,
@@ -1184,6 +1231,7 @@ async fn run_swarm(
                             ts: timestamp,
                             sig: sig.clone(),
                             pk: pk.clone(),
+                            mid: Some(message_id.clone()),
                         };
                         let envelope_json = serde_json::to_string(&envelope)
                             .unwrap_or_else(|_| text.clone());
@@ -1254,7 +1302,7 @@ async fn run_swarm(
                         if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
                             let _ = store.insert_channel_message(
                                 &server_id, &channel_id, &local_peer, &text, true, timestamp,
-                                sig.as_deref(), pk.as_deref(),
+                                sig.as_deref(), pk.as_deref(), Some(&message_id),
                             );
                         }
                     }
@@ -2023,6 +2071,178 @@ async fn run_swarm(
                         // Emit event so Dart updates UI.
                         let _ = event_tx.send(NetworkEvent::ProfileUpdated {
                             peer_id: local_peer_str.clone(),
+                        }).await;
+                    }
+
+                    NodeCommand::EditChannelMessage { server_id, channel_id, message_id, new_text } => {
+                        haven_log!("[HAVEN-SWARM] EditChannelMessage {message_id} in {server_id}/{channel_id}");
+
+                        let server = match server_states.get(&server_id) {
+                            Some(s) => s,
+                            None => {
+                                let _ = event_tx.send(NetworkEvent::Error {
+                                    message: format!("Unknown server {server_id}"),
+                                }).await;
+                                continue;
+                            }
+                        };
+
+                        let local_peer = swarm.local_peer_id().to_string();
+                        let edit_timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64;
+
+                        // Sign the edit.
+                        let signing_payload = format!("edit:{}:{}:{}", message_id, new_text, edit_timestamp);
+                        let (sig, pk) = sign_message(&bundle_keypair, &pub_key_b64, &signing_payload);
+
+                        // Update local DB (preserves old text in message_edits table).
+                        {
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                let _ = store.edit_channel_message(
+                                    &message_id, &new_text, edit_timestamp,
+                                    sig.as_deref(), pk.as_deref(),
+                                );
+                            }
+                        }
+
+                        // Broadcast edit to all server members.
+                        let envelope = MessageEnvelope::EditMessage {
+                            mid: message_id.clone(),
+                            text: new_text.clone(),
+                            ts: edit_timestamp,
+                            sig: sig.clone(),
+                            pk: pk.clone(),
+                            sid: Some(server_id.clone()),
+                            cid: Some(channel_id.clone()),
+                        };
+                        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+
+                        let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+                        if use_mls {
+                            let mls_mgr = mls.as_mut().unwrap();
+                            match mls_mgr.encrypt(&server_id, envelope_json.as_bytes()) {
+                                Ok(ciphertext) => {
+                                    let body_b64 = base64::engine::general_purpose::STANDARD.encode(&ciphertext);
+                                    persist_mls_state(mls_mgr, &bundle_keypair);
+                                    for member_peer_str in server.members.keys() {
+                                        if member_peer_str == &local_peer { continue; }
+                                        if let Ok(member_pid) = member_peer_str.parse::<PeerId>() {
+                                            if connected_peers.contains(&member_pid) {
+                                                swarm.behaviour_mut().messaging.send_request(
+                                                    &member_pid,
+                                                    HavenMessage::MlsChannelMessage {
+                                                        server_id: server_id.clone(),
+                                                        body: body_b64.clone(),
+                                                    },
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    haven_log!("[HAVEN-MLS] Edit encrypt failed, falling back to Olm: {e}");
+                                    for member_peer_str in server.members.keys() {
+                                        if member_peer_str == &local_peer { continue; }
+                                        if let Ok(member_pid) = member_peer_str.parse::<PeerId>() {
+                                            if connected_peers.contains(&member_pid) {
+                                                send_encrypted_message(
+                                                    &mut swarm, &mut olm, &crypto_store,
+                                                    &mut pending_requests, &mut outbound_message_text,
+                                                    &member_pid, member_peer_str, &envelope_json,
+                                                    &event_tx,
+                                                ).await;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Olm fan-out fallback.
+                            for member_peer_str in server.members.keys() {
+                                if member_peer_str == &local_peer { continue; }
+                                if let Ok(member_pid) = member_peer_str.parse::<PeerId>() {
+                                    if connected_peers.contains(&member_pid) {
+                                        send_encrypted_message(
+                                            &mut swarm, &mut olm, &crypto_store,
+                                            &mut pending_requests, &mut outbound_message_text,
+                                            &member_pid, member_peer_str, &envelope_json,
+                                            &event_tx,
+                                        ).await;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Emit event so Dart updates UI.
+                        let _ = event_tx.send(NetworkEvent::ChannelMessageEdited {
+                            server_id,
+                            channel_id,
+                            message_id,
+                            new_text,
+                            edited_at: edit_timestamp,
+                        }).await;
+                    }
+
+                    NodeCommand::EditDmMessage { peer_id, message_id, new_text } => {
+                        let peer_id_str = peer_id.to_string();
+                        haven_log!("[HAVEN-SWARM] EditDmMessage {message_id} for {peer_id_str}");
+
+                        let edit_timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64;
+
+                        // Sign the edit.
+                        let signing_payload = format!("edit:{}:{}:{}", message_id, new_text, edit_timestamp);
+                        let (sig, pk) = sign_message(&bundle_keypair, &pub_key_b64, &signing_payload);
+
+                        // Update local DB.
+                        {
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                let _ = store.edit_dm_message(
+                                    &message_id, &new_text, edit_timestamp,
+                                    sig.as_deref(), pk.as_deref(),
+                                );
+                            }
+                        }
+
+                        // Send edit to the DM peer.
+                        let envelope = MessageEnvelope::EditMessage {
+                            mid: message_id.clone(),
+                            text: new_text.clone(),
+                            ts: edit_timestamp,
+                            sig: sig.clone(),
+                            pk: pk.clone(),
+                            sid: None,
+                            cid: None,
+                        };
+                        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+
+                        if olm.has_session(&peer_id_str) {
+                            send_encrypted_message(
+                                &mut swarm, &mut olm, &crypto_store,
+                                &mut pending_requests, &mut outbound_message_text,
+                                &peer_id, &peer_id_str, &envelope_json,
+                                &event_tx,
+                            ).await;
+                        }
+
+                        // Emit event so Dart updates UI.
+                        let _ = event_tx.send(NetworkEvent::DmMessageEdited {
+                            peer_id: peer_id_str,
+                            message_id,
+                            new_text,
+                            edited_at: edit_timestamp,
                         }).await;
                     }
 
@@ -3401,7 +3621,7 @@ async fn handle_incoming_request(
             // Detect message envelope and route accordingly.
             let text = String::from_utf8_lossy(&plaintext).to_string();
             match serde_json::from_str::<MessageEnvelope>(&text) {
-                Ok(MessageEnvelope::ChannelMessage { sid, cid, text: msg_text, ts, sig, pk }) => {
+                Ok(MessageEnvelope::ChannelMessage { sid, cid, text: msg_text, ts, sig, pk, mid }) => {
                     // Verify Ed25519 signature if present.
                     if sig.is_some() {
                         let payload = message_signing_payload(
@@ -3422,7 +3642,7 @@ async fn handle_incoming_request(
                         if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
                             match store.insert_channel_message(
                                 &sid, &cid, &peer_str, &msg_text, false, ts,
-                                sig.as_deref(), pk.as_deref(),
+                                sig.as_deref(), pk.as_deref(), mid.as_deref(),
                             ) {
                                 Ok(0) => { is_new = false; } // INSERT OR IGNORE skipped — duplicate
                                 Ok(_) => {}
@@ -3440,6 +3660,7 @@ async fn handle_incoming_request(
                                 from_peer: peer_str,
                                 text: msg_text,
                                 timestamp: ts,
+                                message_id: mid.unwrap_or_default(),
                             })
                             .await;
                     }
@@ -3469,7 +3690,7 @@ async fn handle_incoming_request(
                                 let is_mine = msg.s == local_peer;
                                 match store.insert_channel_message(
                                     &sid, &cid, &msg.s, &msg.t, is_mine, msg.ts,
-                                    msg.sig.as_deref(), msg.pk.as_deref(),
+                                    msg.sig.as_deref(), msg.pk.as_deref(), msg.mid.as_deref(),
                                 ) {
                                     Ok(1) => { new_count += 1; }
                                     _ => {} // Duplicate or error — skip.
@@ -3518,7 +3739,7 @@ async fn handle_incoming_request(
                         }).await;
                     }
                 }
-                Ok(MessageEnvelope::DirectMessage { text: msg_text, ts, sig, pk }) => {
+                Ok(MessageEnvelope::DirectMessage { text: msg_text, ts, sig, pk, mid }) => {
                     // Verify DM signature if present.
                     if sig.is_some() {
                         let local_peer = swarm.local_peer_id().to_string();
@@ -3541,7 +3762,7 @@ async fn handle_incoming_request(
                             if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
                                 match store.insert(
                                     &peer_str, &msg_text, false, ts,
-                                    sig.as_deref(), pk.as_deref(),
+                                    sig.as_deref(), pk.as_deref(), mid.as_deref(),
                                 ) {
                                     Ok(0) => { is_new = false; } // Duplicate
                                     Ok(_) => {}
@@ -3558,6 +3779,7 @@ async fn handle_incoming_request(
                                 from_peer: peer_str,
                                 text: msg_text,
                                 timestamp: ts,
+                                message_id: mid.unwrap_or_default(),
                             })
                             .await;
                     }
@@ -3590,7 +3812,7 @@ async fn handle_incoming_request(
 
                                 match store.insert(
                                     &peer_str, &msg.t, false, msg.ts,
-                                    msg.sig.as_deref(), msg.pk.as_deref(),
+                                    msg.sig.as_deref(), msg.pk.as_deref(), msg.mid.as_deref(),
                                 ) {
                                     Ok(id) if id > 0 => { new_count += 1; }
                                     _ => {} // Duplicate or error — skip.
@@ -3626,6 +3848,49 @@ async fn handle_incoming_request(
                         }).await;
                     }
                 }
+                Ok(MessageEnvelope::EditMessage { mid, text: new_text, ts, sig, pk, sid, cid }) => {
+                    haven_log!("[HAVEN-EDIT] Received edit for message {mid} from {peer_str}");
+
+                    // Persist the edit to local DB (preserves old text).
+                    let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                    if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                            if sid.is_some() {
+                                // Channel edit.
+                                let _ = store.edit_channel_message(
+                                    &mid, &new_text, ts,
+                                    sig.as_deref(), pk.as_deref(),
+                                );
+                            } else {
+                                // DM edit.
+                                let _ = store.edit_dm_message(
+                                    &mid, &new_text, ts,
+                                    sig.as_deref(), pk.as_deref(),
+                                );
+                            }
+                        }
+                    }
+
+                    // Emit event so Dart updates UI.
+                    if let (Some(server_id), Some(channel_id)) = (sid, cid) {
+                        let _ = event_tx.send(NetworkEvent::ChannelMessageEdited {
+                            server_id,
+                            channel_id,
+                            message_id: mid,
+                            new_text,
+                            edited_at: ts,
+                        }).await;
+                    } else {
+                        let _ = event_tx.send(NetworkEvent::DmMessageEdited {
+                            peer_id: peer_str,
+                            message_id: mid,
+                            new_text,
+                            edited_at: ts,
+                        }).await;
+                    }
+                }
                 Err(_) => {
                     // Legacy raw-text DM (backward compatible).
                     let legacy_ts = std::time::SystemTime::now()
@@ -3637,6 +3902,7 @@ async fn handle_incoming_request(
                             from_peer: peer_str,
                             text,
                             timestamp: legacy_ts,
+                            message_id: String::new(),
                         })
                         .await;
                 }
@@ -4075,6 +4341,8 @@ async fn handle_incoming_request(
                                 ts: m.timestamp,
                                 sig: m.signature.clone(),
                                 pk: m.public_key.clone(),
+                                mid: m.message_id.clone(),
+                                edited_at: m.edited_at,
                             }
                         }).collect();
 
@@ -4139,6 +4407,8 @@ async fn handle_incoming_request(
                                 mine: m.is_mine,
                                 sig: m.signature.clone(),
                                 pk: m.public_key.clone(),
+                                mid: m.message_id.clone(),
+                                edited_at: m.edited_at,
                             }
                         }).collect();
 
@@ -4238,7 +4508,7 @@ async fn handle_incoming_request(
                         // Parse the plaintext as a MessageEnvelope.
                         let envelope_str = String::from_utf8_lossy(&plaintext);
                         if let Ok(envelope) = serde_json::from_str::<MessageEnvelope>(&envelope_str) {
-                            if let MessageEnvelope::ChannelMessage { sid, cid, text, ts, sig, pk } = envelope {
+                            if let MessageEnvelope::ChannelMessage { sid, cid, text, ts, sig, pk, mid } = envelope {
                                 // Verify Ed25519 signature.
                                 let signing_payload = message_signing_payload(
                                     "ch", &format!("{}:{}", sid, cid),
@@ -4262,7 +4532,7 @@ async fn handle_incoming_request(
                                 if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
                                     let rows = store.insert_channel_message(
                                         &sid, &cid, &sender_peer_id, &text, is_mine, ts,
-                                        sig.as_deref(), pk.as_deref(),
+                                        sig.as_deref(), pk.as_deref(), mid.as_deref(),
                                     );
                                     let is_new = rows.as_ref().map(|&r| r > 0).unwrap_or(false);
                                     if is_new {
@@ -4272,8 +4542,30 @@ async fn handle_incoming_request(
                                             from_peer: sender_peer_id,
                                             text,
                                             timestamp: ts,
+                                            message_id: mid.unwrap_or_default(),
                                         }).await;
                                     }
+                                }
+                            } else if let MessageEnvelope::EditMessage { mid, text: new_text, ts, sig, pk, sid, cid } = envelope {
+                                // Handle edit received via MLS.
+                                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                    let _ = store.edit_channel_message(
+                                        &mid, &new_text, ts,
+                                        sig.as_deref(), pk.as_deref(),
+                                    );
+                                }
+                                if let (Some(s_id), Some(c_id)) = (sid, cid) {
+                                    let _ = event_tx.send(NetworkEvent::ChannelMessageEdited {
+                                        server_id: s_id,
+                                        channel_id: c_id,
+                                        message_id: mid,
+                                        new_text,
+                                        edited_at: ts,
+                                    }).await;
                                 }
                             }
                         } else {
@@ -4593,6 +4885,8 @@ async fn flush_pending_sync_requests(
                         ts: m.timestamp,
                         sig: m.signature.clone(),
                         pk: m.public_key.clone(),
+                        mid: m.message_id.clone(),
+                        edited_at: m.edited_at,
                     }
                 }).collect();
 

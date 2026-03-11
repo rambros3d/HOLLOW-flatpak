@@ -73,14 +73,14 @@ class EventStreamNotifier extends Notifier<bool> {
       case NetworkEvent_Listening(:final address):
         debugPrint('[HAVEN] Listening: $address');
 
-      case NetworkEvent_MessageReceived(:final fromPeer, :final text, :final timestamp):
-        ref.read(chatProvider.notifier).receiveMessage(fromPeer, text, timestamp);
+      case NetworkEvent_MessageReceived(:final fromPeer, :final text, :final timestamp, :final messageId):
+        ref.read(chatProvider.notifier).receiveMessage(fromPeer, text, timestamp, messageId);
 
       case NetworkEvent_ChannelMessageReceived(
-            :final serverId, :final channelId, :final fromPeer, :final text, :final timestamp):
+            :final serverId, :final channelId, :final fromPeer, :final text, :final timestamp, :final messageId):
         ref
             .read(channelChatProvider.notifier)
-            .receiveMessage(serverId, channelId, fromPeer, text, timestamp);
+            .receiveMessage(serverId, channelId, fromPeer, text, timestamp, messageId);
 
       case NetworkEvent_SessionEstablished(:final peerId):
         ref.read(peersProvider.notifier).markEncrypted(peerId);
@@ -235,6 +235,18 @@ class EventStreamNotifier extends Notifier<bool> {
       case NetworkEvent_ProfileUpdated(:final peerId):
         debugPrint('[HAVEN] Profile updated: $peerId');
         ref.read(profileProvider.notifier).reloadProfile(peerId);
+
+      case NetworkEvent_ChannelMessageEdited(
+            :final serverId, :final channelId, :final messageId, :final newText, :final editedAt):
+        debugPrint('[HAVEN] Channel message edited: $messageId in $serverId/$channelId');
+        ref.read(channelChatProvider.notifier).applyEdit(
+            serverId, channelId, messageId, newText, editedAt);
+
+      case NetworkEvent_DmMessageEdited(
+            :final peerId, :final messageId, :final newText, :final editedAt):
+        debugPrint('[HAVEN] DM message edited: $messageId from $peerId');
+        ref.read(chatProvider.notifier).applyEdit(
+            peerId, messageId, newText, editedAt);
     }
   }
 

@@ -74,8 +74,12 @@ Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection mana
 - Server nicknames: CRDT-based per-server nicknames (`NicknameChanged` payload, `AdminLwwReg<String>` in `ServerState.nicknames`), `set_nickname()` FFI, `serverDisplayNameFor()` (nickname → profile name → short peer ID), `serverNicknamesProvider` derived from members. Overview tab restructured: "SERVER SETTINGS" (admin+) above "YOUR IDENTITY" (all members). Name resolution: server context uses nickname, DM context uses display name only.
 - Profile card popup: reusable overlay (`profile_card_popup.dart`), scale+fade entrance animation, centered layout matching settings preview style. Banner, avatar, nickname/name, role badge, status (italic), about me, peer ID footer (copy on tap). User bar → card above, member panel → card to the left (Discord-style). "Edit Profile" button for self.
 
+- Message editing: Full pipeline — Rust storage (`message_id`, `edited_at`, `message_edits` evidence table), wire protocol (`EditMessage` envelope, `mid` field on all message types), command/receive handlers for both MLS and Olm paths, FFI `edit_channel_message()`/`edit_dm_message()`, Dart models with `messageId`/`editedAt`/`copyWith()`, provider `editMessage()`/`applyEdit()` methods.
+- Message IDs: Generated in Dart (`generateMessageId()` in `chat_provider.dart`, Random.secure 32-char hex), passed to Rust via FFI. Both `MessageReceived`/`ChannelMessageReceived` events include `message_id`. Messages editable immediately after send.
+- Hover action bar: Overlay-based system (`message_action_bar.dart`). `MessageActionBarScope` + `MessageActionBarController` ensure one active bar at a time. `MessageHoverWrapper` uses `RenderBox.localToGlobal` + `OverlayEntry` with `Positioned` (same pattern as profile_card_popup). Highlight overlay (3% white, IgnorePointer) + action bar (edit pencil). 60ms dismiss timer for message↔bar mouse travel. Teal right border stays in bubble widgets permanently. Group spacing padding lives outside the hover wrapper in ListView builders for exact alignment.
+
 **Phase 3.5 remaining:**
-1. Chat Essentials: message editing & deletion, reply chains, emoji reactions, typing indicators, markdown rendering, pinned messages
+1. Chat Essentials: message deletion, reply chains, emoji reactions, typing indicators, markdown rendering, pinned messages
 2. QoL: notifications, search, keyboard shortcuts, basic P2P file sharing (WebP internal format)
 
 ## Haven Design System (Phase 2.75)

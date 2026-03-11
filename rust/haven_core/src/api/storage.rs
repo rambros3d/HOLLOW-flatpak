@@ -14,6 +14,8 @@ pub struct StoredMessage {
     pub timestamp: i64,
     pub signature: Option<String>,
     pub public_key: Option<String>,
+    pub message_id: Option<String>,
+    pub edited_at: Option<i64>,
 }
 
 // Global message store: None = not opened, Some = ready.
@@ -76,7 +78,7 @@ pub fn save_message(
     let store = get_store();
     let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
     let ms = guard.as_ref().ok_or("Message store is not open")?;
-    ms.insert(&peer_id, &text, is_mine, timestamp, signature.as_deref(), public_key.as_deref())
+    ms.insert(&peer_id, &text, is_mine, timestamp, signature.as_deref(), public_key.as_deref(), None)
 }
 
 /// Load recent messages for a peer from the local database.
@@ -98,6 +100,8 @@ pub fn load_messages(peer_id: String, limit: i32) -> Result<Vec<StoredMessage>, 
             timestamp: r.timestamp,
             signature: r.signature,
             public_key: r.public_key,
+            message_id: r.message_id,
+            edited_at: r.edited_at,
         })
         .collect())
 }
@@ -161,6 +165,8 @@ pub struct StoredChannelMessage {
     pub timestamp: i64,
     pub signature: Option<String>,
     pub public_key: Option<String>,
+    pub message_id: Option<String>,
+    pub edited_at: Option<i64>,
 }
 
 /// Save a channel message to the local database.
@@ -178,7 +184,7 @@ pub fn save_channel_message(
     let store = get_store();
     let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
     let ms = guard.as_ref().ok_or("Message store is not open")?;
-    ms.insert_channel_message(&server_id, &channel_id, &sender_id, &text, is_mine, timestamp, signature.as_deref(), public_key.as_deref())
+    ms.insert_channel_message(&server_id, &channel_id, &sender_id, &text, is_mine, timestamp, signature.as_deref(), public_key.as_deref(), None)
         .map(|n| n as i64)
 }
 
@@ -207,6 +213,8 @@ pub fn load_channel_messages(
             timestamp: r.timestamp,
             signature: r.signature,
             public_key: r.public_key,
+            message_id: r.message_id,
+            edited_at: r.edited_at,
         })
         .collect())
 }

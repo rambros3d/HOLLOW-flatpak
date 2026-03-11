@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/models/channel_chat_message.dart';
+import 'package:haven/src/core/providers/chat_provider.dart' show generateMessageId;
 import 'package:haven/src/core/providers/identity_provider.dart';
 import 'package:haven/src/core/providers/service_providers.dart';
 import 'package:haven/src/rust/api/network.dart' as network_api;
@@ -18,12 +19,14 @@ class ChannelChatNotifier
       String serverId, String channelId, String text) async {
     final networkService = ref.read(networkServiceProvider);
     final localPeerId = ref.read(identityProvider).peerId ?? 'unknown';
+    final messageId = generateMessageId();
 
     // Rust will generate the timestamp and persist to DB.
     await networkService.sendChannelMessage(
       serverId: serverId,
       channelId: channelId,
       text: text,
+      messageId: messageId,
     );
 
     // Add to in-memory state for instant UI feedback.
@@ -33,6 +36,7 @@ class ChannelChatNotifier
       text: text,
       isMe: true,
       timestamp: now,
+      messageId: messageId,
     );
     _addMessage(serverId, channelId, msg);
   }
@@ -41,7 +45,7 @@ class ChannelChatNotifier
   /// Called only for genuinely new messages (Rust deduplicates before emitting).
   /// [timestampMs] is the sender's original timestamp in milliseconds.
   void receiveMessage(String serverId, String channelId, String fromPeer,
-      String text, int timestampMs) {
+      String text, int timestampMs, String messageId) {
     final key = _key(serverId, channelId);
     final existing = state[key] ?? [];
 
@@ -56,9 +60,41 @@ class ChannelChatNotifier
       text: text,
       isMe: false,
       timestamp: ts,
+      messageId: messageId.isNotEmpty ? messageId : null,
     );
     _addMessage(serverId, channelId, msg);
     // No DB save here — Rust already persisted before emitting the event.
+  }
+
+  /// Edit a channel message.
+  Future<void> editMessage(String serverId, String channelId,
+      String messageId, String newText) async {
+    await network_api.editChannelMessage(
+      serverId: serverId,
+      channelId: channelId,
+      messageId: messageId,
+      newText: newText,
+    );
+    // UI update happens via the ChannelMessageEdited event.
+  }
+
+  /// Apply an edit to an in-memory message (from network event or own edit).
+  void applyEdit(String serverId, String channelId, String messageId,
+      String newText, int editedAtMs) {
+    final key = _key(serverId, channelId);
+    final current = state[key];
+    if (current == null) return;
+
+    final editedAt = DateTime.fromMillisecondsSinceEpoch(editedAtMs);
+    final idx = current.indexWhere((m) => m.messageId == messageId);
+    if (idx == -1) return;
+
+    final updatedList = List<ChannelChatMessage>.from(current);
+    updatedList[idx] =
+        updatedList[idx].copyWith(text: newText, editedAt: editedAt);
+    final updated = Map.of(state);
+    updated[key] = updatedList;
+    state = updated;
   }
 
   /// Load history for a channel from SQLCipher.
@@ -88,6 +124,10 @@ class ChannelChatNotifier
                       DateTime.fromMillisecondsSinceEpoch(m.timestamp),
                   signature: m.signature,
                   publicKey: m.publicKey,
+                  messageId: m.messageId,
+                  editedAt: m.editedAt != null
+                      ? DateTime.fromMillisecondsSinceEpoch(m.editedAt!)
+                      : null,
                 ))
             .toList();
 

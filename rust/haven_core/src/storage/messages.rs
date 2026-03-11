@@ -22,6 +22,8 @@ pub(crate) struct StoredMessage {
     pub timestamp: i64,
     pub signature: Option<String>,
     pub public_key: Option<String>,
+    pub message_id: Option<String>,
+    pub edited_at: Option<i64>,
 }
 
 /// A stored channel message.
@@ -35,6 +37,8 @@ pub(crate) struct StoredChannelMessage {
     pub timestamp: i64,
     pub signature: Option<String>,
     pub public_key: Option<String>,
+    pub message_id: Option<String>,
+    pub edited_at: Option<i64>,
 }
 
 /// Encrypted SQLite message store.
@@ -217,6 +221,49 @@ impl MessageStore {
         )
         .map_err(|e| format!("Failed to create user_profiles table: {e}"))?;
 
+        // -- Migration: message_id + edited_at columns (Phase 3.5 editing) --
+        conn.execute_batch(
+            "ALTER TABLE messages ADD COLUMN message_id TEXT;"
+        ).unwrap_or(());
+        conn.execute_batch(
+            "ALTER TABLE messages ADD COLUMN edited_at INTEGER;"
+        ).unwrap_or(());
+        conn.execute_batch(
+            "ALTER TABLE channel_messages ADD COLUMN message_id TEXT;"
+        ).unwrap_or(());
+        conn.execute_batch(
+            "ALTER TABLE channel_messages ADD COLUMN edited_at INTEGER;"
+        ).unwrap_or(());
+
+        // Index on message_id for fast edit lookups.
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_messages_msg_id ON messages (message_id);"
+        ).unwrap_or(());
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_channel_msgs_msg_id ON channel_messages (message_id);"
+        ).unwrap_or(());
+
+        // Edit history table — preserves previous text for Rat Files evidence.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS message_edits (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id  TEXT    NOT NULL,
+                old_text    TEXT    NOT NULL,
+                new_text    TEXT    NOT NULL,
+                edited_at   INTEGER NOT NULL,
+                signature   TEXT,
+                public_key  TEXT
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create message_edits table: {e}"))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_edits_msg_id ON message_edits (message_id)",
+            [],
+        )
+        .map_err(|e| format!("Failed to create message_edits index: {e}"))?;
+
         // -- MLS identity (singleton row, id=1) --
         conn.execute(
             "CREATE TABLE IF NOT EXISTS mls_identity (
@@ -241,11 +288,12 @@ impl MessageStore {
         timestamp: i64,
         signature: Option<&str>,
         public_key: Option<&str>,
+        message_id: Option<&str>,
     ) -> Result<i64, String> {
         let rows = self.conn
             .execute(
-                "INSERT OR IGNORE INTO messages (peer_id, text, is_mine, timestamp, signature, public_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![peer_id, text, is_mine as i32, timestamp, signature, public_key],
+                "INSERT OR IGNORE INTO messages (peer_id, text, is_mine, timestamp, signature, public_key, message_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![peer_id, text, is_mine as i32, timestamp, signature, public_key, message_id],
             )
             .map_err(|e| format!("Failed to insert message: {e}"))?;
         if rows > 0 {
@@ -339,7 +387,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key
+                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at
                  FROM messages
                  WHERE peer_id = ?1
                  ORDER BY timestamp DESC
@@ -357,6 +405,8 @@ impl MessageStore {
                     timestamp: row.get(4)?,
                     signature: row.get(5)?,
                     public_key: row.get(6)?,
+                    message_id: row.get(7)?,
+                    edited_at: row.get(8)?,
                 })
             })
             .map_err(|e| format!("Failed to query messages: {e}"))?;
@@ -402,7 +452,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key
+                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at
                  FROM messages
                  WHERE peer_id = ?1 AND timestamp >= ?2 AND is_mine = 1
                  ORDER BY timestamp ASC
@@ -420,6 +470,8 @@ impl MessageStore {
                     timestamp: row.get(4)?,
                     signature: row.get(5)?,
                     public_key: row.get(6)?,
+                    message_id: row.get(7)?,
+                    edited_at: row.get(8)?,
                 })
             })
             .map_err(|e| format!("Failed to query dm_messages_since: {e}"))?;
@@ -563,12 +615,13 @@ impl MessageStore {
         timestamp: i64,
         signature: Option<&str>,
         public_key: Option<&str>,
+        message_id: Option<&str>,
     ) -> Result<usize, String> {
         let rows = self.conn
             .execute(
-                "INSERT OR IGNORE INTO channel_messages (server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![server_id, channel_id, sender_id, text, is_mine as i32, timestamp, signature, public_key],
+                "INSERT OR IGNORE INTO channel_messages (server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![server_id, channel_id, sender_id, text, is_mine as i32, timestamp, signature, public_key, message_id],
             )
             .map_err(|e| format!("Failed to insert channel message: {e}"))?;
         Ok(rows)
@@ -584,7 +637,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key
+                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at
                  FROM channel_messages
                  WHERE server_id = ?1 AND channel_id = ?2
                  ORDER BY timestamp DESC
@@ -604,6 +657,8 @@ impl MessageStore {
                     timestamp: row.get(6)?,
                     signature: row.get(7)?,
                     public_key: row.get(8)?,
+                    message_id: row.get(9)?,
+                    edited_at: row.get(10)?,
                 })
             })
             .map_err(|e| format!("Failed to query channel_messages: {e}"))?;
@@ -652,7 +707,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key
+                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at
                  FROM channel_messages
                  WHERE server_id = ?1 AND channel_id = ?2 AND timestamp > ?3
                  ORDER BY timestamp ASC
@@ -674,6 +729,8 @@ impl MessageStore {
                         timestamp: row.get(6)?,
                         signature: row.get(7)?,
                         public_key: row.get(8)?,
+                        message_id: row.get(9)?,
+                        edited_at: row.get(10)?,
                     })
                 },
             )
@@ -783,7 +840,7 @@ impl MessageStore {
 
         let where_clause = conditions.join(" OR ");
         let sql = format!(
-            "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key
+            "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at
              FROM channel_messages
              WHERE server_id = ?1 AND channel_id = ?2 AND ({where_clause})
              ORDER BY timestamp ASC
@@ -808,6 +865,8 @@ impl MessageStore {
                     timestamp: row.get(6)?,
                     signature: row.get(7)?,
                     public_key: row.get(8)?,
+                    message_id: row.get(9)?,
+                    edited_at: row.get(10)?,
                 })
             })
             .map_err(|e| format!("Failed to query per_sender_since: {e}"))?;
@@ -1015,5 +1074,105 @@ impl MessageStore {
             profiles.push(row.map_err(|e| format!("Failed to read profile row: {e}"))?);
         }
         Ok(profiles)
+    }
+
+    // ── Message Editing (Phase 3.5) ──
+
+    /// Edit a channel message by message_id. Preserves old text in message_edits table.
+    /// Returns true if the message was found and updated.
+    pub fn edit_channel_message(
+        &self,
+        message_id: &str,
+        new_text: &str,
+        edited_at: i64,
+        signature: Option<&str>,
+        public_key: Option<&str>,
+    ) -> Result<bool, String> {
+        // 1. Read the current text before overwriting.
+        let old_text: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT text FROM channel_messages WHERE message_id = ?1",
+                params![message_id],
+                |row| row.get(0),
+            )
+            .ok();
+
+        let Some(old_text) = old_text else {
+            return Ok(false); // Message not found.
+        };
+
+        if old_text == new_text {
+            return Ok(false); // No change.
+        }
+
+        // 2. Preserve the old text in message_edits.
+        self.conn
+            .execute(
+                "INSERT INTO message_edits (message_id, old_text, new_text, edited_at, signature, public_key)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![message_id, old_text, new_text, edited_at, signature, public_key],
+            )
+            .map_err(|e| format!("Failed to insert edit history: {e}"))?;
+
+        // 3. Update the message text and edited_at timestamp.
+        let rows = self
+            .conn
+            .execute(
+                "UPDATE channel_messages SET text = ?1, edited_at = ?2 WHERE message_id = ?3",
+                params![new_text, edited_at, message_id],
+            )
+            .map_err(|e| format!("Failed to update channel message: {e}"))?;
+
+        Ok(rows > 0)
+    }
+
+    /// Edit a DM message by message_id. Preserves old text in message_edits table.
+    /// Returns true if the message was found and updated.
+    pub fn edit_dm_message(
+        &self,
+        message_id: &str,
+        new_text: &str,
+        edited_at: i64,
+        signature: Option<&str>,
+        public_key: Option<&str>,
+    ) -> Result<bool, String> {
+        // 1. Read the current text.
+        let old_text: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT text FROM messages WHERE message_id = ?1",
+                params![message_id],
+                |row| row.get(0),
+            )
+            .ok();
+
+        let Some(old_text) = old_text else {
+            return Ok(false);
+        };
+
+        if old_text == new_text {
+            return Ok(false);
+        }
+
+        // 2. Preserve old text.
+        self.conn
+            .execute(
+                "INSERT INTO message_edits (message_id, old_text, new_text, edited_at, signature, public_key)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![message_id, old_text, new_text, edited_at, signature, public_key],
+            )
+            .map_err(|e| format!("Failed to insert edit history: {e}"))?;
+
+        // 3. Update the message.
+        let rows = self
+            .conn
+            .execute(
+                "UPDATE messages SET text = ?1, edited_at = ?2 WHERE message_id = ?3",
+                params![new_text, edited_at, message_id],
+            )
+            .map_err(|e| format!("Failed to update DM message: {e}"))?;
+
+        Ok(rows > 0)
     }
 }
