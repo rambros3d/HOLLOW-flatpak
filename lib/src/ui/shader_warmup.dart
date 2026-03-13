@@ -191,7 +191,18 @@ class HavenShaderWarmUp extends ShaderWarmUp {
     );
     canvas.restore();
 
-    // ── 12. Transform (ScaleTransition, SlideTransition) ──
+    // ── 12. BackdropFilter / ImageFilter.blur (glassmorphism dialogs) ──
+    canvas.saveLayer(rect, Paint());
+    canvas.drawRect(rect, Paint()..color = const Color(0xFF14161C));
+    canvas.restore();
+    // Draw with blur to trigger the blur shader compilation.
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..imageFilter = ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+    );
+
+    // ── 13. Transform (ScaleTransition, SlideTransition) ──
     canvas.save();
     canvas.translate(100, 100);
     canvas.scale(0.5);

@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1203312084;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1625827046;
 
 // Section: executor
 
@@ -1680,6 +1680,41 @@ fn wire__crate__api__network__send_message_impl(
         },
     )
 }
+fn wire__crate__api__network__send_typing_indicator_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "send_typing_indicator",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_server_id = <String>::sse_decode(&mut deserializer);
+            let api_channel_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok =
+                        crate::api::network::send_typing_indicator(api_server_id, api_channel_id)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__crdt__set_nickname_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -2445,6 +2480,16 @@ impl SseDecode for crate::api::network::NetworkEvent {
                     removed_at: var_removedAt,
                 };
             }
+            36 => {
+                let mut var_peerId = <String>::sse_decode(deserializer);
+                let mut var_serverId = <String>::sse_decode(deserializer);
+                let mut var_channelId = <String>::sse_decode(deserializer);
+                return crate::api::network::NetworkEvent::TypingStarted {
+                    peer_id: var_peerId,
+                    server_id: var_serverId,
+                    channel_id: var_channelId,
+                };
+            }
             _ => {
                 unimplemented!("");
             }
@@ -2724,12 +2769,15 @@ fn pde_ffi_dispatcher_primary_impl(
             wire__crate__api__network__send_channel_message_impl(port, ptr, rust_vec_len, data_len)
         }
         46 => wire__crate__api__network__send_message_impl(port, ptr, rust_vec_len, data_len),
-        47 => wire__crate__api__crdt__set_nickname_impl(port, ptr, rust_vec_len, data_len),
-        48 => wire__crate__api__network__start_node_impl(port, ptr, rust_vec_len, data_len),
-        49 => wire__crate__api__network__stop_node_impl(port, ptr, rust_vec_len, data_len),
-        50 => wire__crate__api__network__update_profile_impl(port, ptr, rust_vec_len, data_len),
-        51 => wire__crate__api__crdt__update_server_setting_impl(port, ptr, rust_vec_len, data_len),
-        52 => {
+        47 => {
+            wire__crate__api__network__send_typing_indicator_impl(port, ptr, rust_vec_len, data_len)
+        }
+        48 => wire__crate__api__crdt__set_nickname_impl(port, ptr, rust_vec_len, data_len),
+        49 => wire__crate__api__network__start_node_impl(port, ptr, rust_vec_len, data_len),
+        50 => wire__crate__api__network__stop_node_impl(port, ptr, rust_vec_len, data_len),
+        51 => wire__crate__api__network__update_profile_impl(port, ptr, rust_vec_len, data_len),
+        52 => wire__crate__api__crdt__update_server_setting_impl(port, ptr, rust_vec_len, data_len),
+        53 => {
             wire__crate__api__network__watch_network_events_impl(port, ptr, rust_vec_len, data_len)
         }
         _ => unreachable!(),
@@ -3139,6 +3187,17 @@ impl flutter_rust_bridge::IntoDart for crate::api::network::NetworkEvent {
                 emoji.into_into_dart().into_dart(),
                 reactor.into_into_dart().into_dart(),
                 removed_at.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
+            crate::api::network::NetworkEvent::TypingStarted {
+                peer_id,
+                server_id,
+                channel_id,
+            } => [
+                36.into_dart(),
+                peer_id.into_into_dart().into_dart(),
+                server_id.into_into_dart().into_dart(),
+                channel_id.into_into_dart().into_dart(),
             ]
             .into_dart(),
             _ => {
@@ -3752,6 +3811,16 @@ impl SseEncode for crate::api::network::NetworkEvent {
                 <String>::sse_encode(emoji, serializer);
                 <String>::sse_encode(reactor, serializer);
                 <i64>::sse_encode(removed_at, serializer);
+            }
+            crate::api::network::NetworkEvent::TypingStarted {
+                peer_id,
+                server_id,
+                channel_id,
+            } => {
+                <i32>::sse_encode(36, serializer);
+                <String>::sse_encode(peer_id, serializer);
+                <String>::sse_encode(server_id, serializer);
+                <String>::sse_encode(channel_id, serializer);
             }
             _ => {
                 unimplemented!("");

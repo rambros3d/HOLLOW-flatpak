@@ -7,12 +7,14 @@ import 'package:haven/src/core/providers/peers_provider.dart';
 import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/server_provider.dart';
 import 'package:haven/src/core/providers/sync_progress_provider.dart';
+import 'package:haven/src/core/providers/typing_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
 import 'package:haven/src/ui/chat/channel_message_bubble.dart';
 import 'package:haven/src/ui/chat/chat_pane.dart';
 import 'package:haven/src/ui/chat/message_action_bar.dart';
+import 'package:haven/src/ui/components/connection_progress.dart';
 import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/haven_text_field.dart';
 import 'package:haven/src/ui/components/haven_tooltip.dart';
@@ -46,6 +48,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   String? _replyToMessageId;
   String? _replyToText;
   String? _replyToSenderName;
+  DateTime? _lastTypingSent;
 
   String get _stateKey => '${widget.serverId}:${widget.channelId}';
 
@@ -100,10 +103,27 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     });
   }
 
+  void _onTextChanged(String text) {
+    if (text.isEmpty) return;
+    final now = DateTime.now();
+    if (_lastTypingSent != null &&
+        now.difference(_lastTypingSent!).inSeconds < 3) {
+      return;
+    }
+    _lastTypingSent = now;
+    try {
+      network_api.sendTypingIndicator(
+        serverId: widget.serverId,
+        channelId: widget.channelId,
+      );
+    } catch (_) {}
+  }
+
   Future<void> _handleSend() async {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
     _controller.clear();
+    _lastTypingSent = null;
     _focusNode.requestFocus();
     final replyMid = _replyToMessageId;
     setState(() {
@@ -130,6 +150,8 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     }
     _previousMessageCount = messages.length;
 
+    final typingPeers = ref.watch(typingProvider)[_stateKey] ?? {};
+
     return Column(
       children: [
         // Channel header
@@ -152,15 +174,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                 ),
               ),
               const SizedBox(width: HavenSpacing.md),
-              Icon(LucideIcons.lock, size: 14, color: haven.success),
-              const SizedBox(width: HavenSpacing.xs),
-              Text(
-                'E2E Encrypted',
-                style:
-                    HavenTypography.caption.copyWith(color: haven.success),
-              ),
-              const SizedBox(width: HavenSpacing.md),
-              _ConnectionIndicator(
+              _ChannelConnectionStatus(
                 serverId: widget.serverId,
                 channelId: widget.channelId,
               ),
@@ -349,6 +363,22 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
           ),
         ),
 
+        // Typing indicator
+        if (typingPeers.isNotEmpty)
+          TypingIndicatorBar(
+            names: typingPeers
+                .map((pid) {
+                  final nicknames =
+                      ref.watch(serverNicknamesProvider(widget.serverId));
+                  return serverDisplayNameFor(
+                    ref.watch(profileProvider),
+                    pid,
+                    nickname: nicknames[pid] ?? '',
+                  );
+                })
+                .toList(),
+          ),
+
         // Reply preview bar
         if (_replyToMessageId != null)
           Container(
@@ -431,6 +461,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                   style: HavenTypography.body
                       .copyWith(color: haven.textPrimary),
                   borderRadius: haven.radiusLg,
+                  onChanged: _onTextChanged,
                   onSubmitted: (_) => _handleSend(),
                 ),
               ),
@@ -449,6 +480,172 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
             ],
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// Unified connection + encryption + sync status for channel headers.
+/// Shows: progress bar (Connecting → Encrypting) → lock + "Encrypted" + sync status.
+class _ChannelConnectionStatus extends ConsumerWidget {
+  final String serverId;
+  final String channelId;
+
+  const _ChannelConnectionStatus({
+    required this.serverId,
+    required this.channelId,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final connectedPeers = ref.watch(peersProvider);
+    final membersAsync = ref.watch(serverMembersProvider(serverId));
+    final localPeerId = ref.watch(identityProvider).peerId;
+
+    return membersAsync.when(
+      data: (members) {
+        final otherMembers =
+            members.where((m) => m.peerId != localPeerId).toList();
+
+        final onlineMembers = otherMembers
+            .where((m) => connectedPeers.containsKey(m.peerId))
+            .toList();
+
+        final encryptedMembers = onlineMembers
+            .where((m) => connectedPeers[m.peerId]?.isEncrypted ?? false)
+            .toList();
+
+        // Determine connection stage.
+        final ConnectionStage stage;
+        if (onlineMembers.isEmpty) {
+          stage = ConnectionStage.connecting;
+        } else if (encryptedMembers.isEmpty) {
+          stage = ConnectionStage.encrypting;
+        } else {
+          stage = ConnectionStage.encrypted;
+        }
+
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ConnectionProgress(
+              key: ValueKey('conn-$serverId'),
+              stage: stage,
+            ),
+            if (stage == ConnectionStage.encrypted) ...[
+              const SizedBox(width: HavenSpacing.md),
+              _SyncIndicator(serverId: serverId, channelId: channelId),
+            ],
+          ],
+        );
+      },
+      loading: () => ConnectionProgress(
+        key: ValueKey('conn-$serverId'),
+        stage: ConnectionStage.connecting,
+      ),
+      error: (_, _) => const SizedBox.shrink(),
+    );
+  }
+}
+
+/// Sync status indicator (Syncing, Synced, Failed, Retrying).
+/// Shown after encryption is established.
+class _SyncIndicator extends ConsumerStatefulWidget {
+  final String serverId;
+  final String channelId;
+
+  const _SyncIndicator({required this.serverId, required this.channelId});
+
+  @override
+  ConsumerState<_SyncIndicator> createState() => _SyncIndicatorState();
+}
+
+class _SyncIndicatorState extends ConsumerState<_SyncIndicator> {
+  DateTime? _lastRetry;
+
+  void _retry() {
+    final now = DateTime.now();
+    if (_lastRetry != null && now.difference(_lastRetry!).inSeconds < 3) {
+      return;
+    }
+    _lastRetry = now;
+    try {
+      network_api.requestChannelSync(
+        serverId: widget.serverId,
+        channelId: widget.channelId,
+      );
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final haven = HavenTheme.of(context);
+    final syncStatus = ref.watch(serverSyncStatusProvider(widget.serverId));
+    final progress = ref.watch(syncProgressProvider)[widget.serverId];
+
+    // Only show sync-related statuses (not idle/connecting).
+    if (syncStatus == ServerSyncStatus.idle ||
+        syncStatus == ServerSyncStatus.connecting) {
+      return const SizedBox.shrink();
+    }
+
+    final Color dotColor;
+    final bool useSpinning;
+    final String label;
+    final bool showRetry;
+
+    switch (syncStatus) {
+      case ServerSyncStatus.syncing:
+        dotColor = haven.accent;
+        useSpinning = true;
+        label = progress != null && progress.totalCount > 0
+            ? 'Syncing ${progress.receivedCount}/${progress.totalCount}...'
+            : 'Syncing...';
+        showRetry = false;
+      case ServerSyncStatus.synced:
+        dotColor = haven.success;
+        useSpinning = false;
+        label = 'Synced';
+        showRetry = false;
+      case ServerSyncStatus.retrying:
+        dotColor = haven.warning;
+        useSpinning = true;
+        label = 'Retrying...';
+        showRetry = false;
+      case ServerSyncStatus.failed:
+        dotColor = haven.error;
+        useSpinning = false;
+        label = 'Sync failed';
+        showRetry = true;
+      default:
+        return const SizedBox.shrink();
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (useSpinning)
+          _SpinningRefreshIcon(size: 10, color: dotColor)
+        else
+          StatusDot(color: dotColor),
+        const SizedBox(width: HavenSpacing.xs),
+        Text(
+          label,
+          style: HavenTypography.caption.copyWith(color: dotColor),
+        ),
+        if (showRetry) ...[
+          const SizedBox(width: HavenSpacing.xs),
+          HavenPressable(
+            onTap: _retry,
+            borderRadius: BorderRadius.circular(haven.radiusSm),
+            padding: const EdgeInsets.all(2),
+            child: Icon(
+              LucideIcons.refreshCw,
+              size: 12,
+              color: haven.error,
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -494,134 +691,3 @@ class _SpinningRefreshIconState extends State<_SpinningRefreshIcon>
   }
 }
 
-/// Shows sync status in the channel header.
-class _ConnectionIndicator extends ConsumerStatefulWidget {
-  final String serverId;
-  final String channelId;
-  const _ConnectionIndicator({
-    required this.serverId,
-    required this.channelId,
-  });
-
-  @override
-  ConsumerState<_ConnectionIndicator> createState() =>
-      _ConnectionIndicatorState();
-}
-
-class _ConnectionIndicatorState extends ConsumerState<_ConnectionIndicator> {
-  DateTime? _lastRetry;
-
-  void _retry() {
-    final now = DateTime.now();
-    if (_lastRetry != null && now.difference(_lastRetry!).inSeconds < 3) {
-      return;
-    }
-    _lastRetry = now;
-    try {
-      network_api.requestChannelSync(
-        serverId: widget.serverId,
-        channelId: widget.channelId,
-      );
-    } catch (_) {}
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
-    final connectedPeers = ref.watch(peersProvider);
-    final membersAsync = ref.watch(serverMembersProvider(widget.serverId));
-    final localPeerId = ref.watch(identityProvider).peerId;
-    final syncStatus = ref.watch(serverSyncStatusProvider(widget.serverId));
-    final progress = ref.watch(syncProgressProvider)[widget.serverId];
-
-    return membersAsync.when(
-      data: (members) {
-        final otherMembers =
-            members.where((m) => m.peerId != localPeerId).toList();
-
-        final onlineCount = otherMembers
-            .where((m) => connectedPeers.containsKey(m.peerId))
-            .length;
-
-        final effectiveStatus = syncStatus == ServerSyncStatus.idle &&
-                onlineCount == 0
-            ? ServerSyncStatus.connecting
-            : syncStatus;
-
-        if (effectiveStatus == ServerSyncStatus.idle) {
-          return const SizedBox.shrink();
-        }
-
-        final Color dotColor;
-        final bool useSpinning;
-        final String label;
-        final bool showRetry;
-
-        switch (effectiveStatus) {
-          case ServerSyncStatus.connecting:
-            dotColor = haven.textSecondary;
-            useSpinning = false;
-            label = 'Connecting...';
-            showRetry = false;
-          case ServerSyncStatus.syncing:
-            dotColor = haven.accent;
-            useSpinning = true;
-            label = progress != null && progress.totalCount > 0
-                ? 'Syncing ${progress.receivedCount}/${progress.totalCount}...'
-                : 'Syncing...';
-            showRetry = false;
-          case ServerSyncStatus.synced:
-            dotColor = haven.success;
-            useSpinning = false;
-            label = 'Synced';
-            showRetry = false;
-          case ServerSyncStatus.retrying:
-            dotColor = haven.warning;
-            useSpinning = true;
-            label = 'Retrying...';
-            showRetry = false;
-          case ServerSyncStatus.failed:
-            dotColor = haven.error;
-            useSpinning = false;
-            label = 'Sync failed';
-            showRetry = true;
-          case ServerSyncStatus.idle:
-            return const SizedBox.shrink();
-        }
-
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (useSpinning)
-              _SpinningRefreshIcon(size: 10, color: dotColor)
-            else
-              StatusDot(
-                color: dotColor,
-                pulse: effectiveStatus == ServerSyncStatus.connecting,
-              ),
-            const SizedBox(width: HavenSpacing.xs),
-            Text(
-              label,
-              style: HavenTypography.caption.copyWith(color: dotColor),
-            ),
-            if (showRetry) ...[
-              const SizedBox(width: HavenSpacing.xs),
-              HavenPressable(
-                onTap: _retry,
-                borderRadius: BorderRadius.circular(haven.radiusSm),
-                padding: const EdgeInsets.all(2),
-                child: Icon(
-                  LucideIcons.refreshCw,
-                  size: 12,
-                  color: haven.error,
-                ),
-              ),
-            ],
-          ],
-        );
-      },
-      loading: () => const SizedBox.shrink(),
-      error: (_, _) => const SizedBox.shrink(),
-    );
-  }
-}

@@ -142,6 +142,8 @@ pub(crate) enum NetworkEvent {
     DmReactionAdded { peer_id: String, message_id: String, emoji: String, reactor: String, added_at: i64 },
     ChannelReactionRemoved { server_id: String, channel_id: String, message_id: String, emoji: String, reactor: String, removed_at: i64 },
     DmReactionRemoved { peer_id: String, message_id: String, emoji: String, reactor: String, removed_at: i64 },
+    // -- Typing indicator events (Phase 3.5) --
+    TypingStarted { peer_id: String, server_id: String, channel_id: String },
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
@@ -176,6 +178,8 @@ pub(crate) enum NodeCommand {
     AddDmReaction { peer_id: PeerId, message_id: String, emoji: String },
     RemoveChannelReaction { server_id: String, channel_id: String, message_id: String, emoji: String },
     RemoveDmReaction { peer_id: PeerId, message_id: String, emoji: String },
+    // -- Typing indicators (Phase 3.5) --
+    SendTypingIndicator { server_id: String, channel_id: String },
 }
 
 // -- Wire protocol types (v2: encrypted) --
@@ -319,6 +323,17 @@ enum HavenMessage {
         channel_id: String,
         /// Our latest timestamp for this channel (so the peer can quickly compare).
         our_latest: i64,
+    },
+
+    // -- Typing indicators (Phase 3.5) --
+
+    /// Ephemeral typing indicator. Not stored, not signed. Fire-and-forget.
+    #[serde(rename = "typing")]
+    TypingIndicator {
+        /// Empty string for DMs.
+        server_id: String,
+        /// Empty string for DMs.
+        channel_id: String,
     },
 
     /// Response to a sync probe: the peer's latest timestamp for the channel.
@@ -3046,6 +3061,38 @@ async fn run_swarm(
                             reactor: local_peer,
                             removed_at: remove_ts,
                         }).await;
+                    }
+
+                    NodeCommand::SendTypingIndicator { server_id, channel_id } => {
+                        let msg = HavenMessage::TypingIndicator {
+                            server_id: server_id.clone(),
+                            channel_id: channel_id.clone(),
+                        };
+
+                        if server_id.is_empty() {
+                            // DM typing: channel_id is actually the peer ID.
+                            if let Ok(pid) = channel_id.parse::<PeerId>() {
+                                if connected_peers.contains(&pid) {
+                                    swarm.behaviour_mut().messaging.send_request(&pid, msg);
+                                }
+                            }
+                        } else {
+                            // Channel typing: broadcast to all connected server members.
+                            let local_peer = swarm.local_peer_id().to_string();
+                            if let Some(server) = server_states.get(&server_id) {
+                                for member_peer_str in server.members.keys() {
+                                    if member_peer_str == &local_peer { continue; }
+                                    if let Ok(member_pid) = member_peer_str.parse::<PeerId>() {
+                                        if connected_peers.contains(&member_pid) {
+                                            swarm.behaviour_mut().messaging.send_request(
+                                                &member_pid,
+                                                msg.clone(),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     NodeCommand::NotifyShutdown => {
@@ -5882,6 +5929,16 @@ async fn handle_incoming_request(
         }
 
         // -- Profile sync (Phase 3.5) --
+
+        HavenMessage::TypingIndicator { server_id, channel_id } => {
+            let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
+
+            let _ = event_tx.send(NetworkEvent::TypingStarted {
+                peer_id: peer_str,
+                server_id,
+                channel_id,
+            }).await;
+        }
 
         HavenMessage::ProfileUpdate { display_name, status, about_me, updated_at } => {
             let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);

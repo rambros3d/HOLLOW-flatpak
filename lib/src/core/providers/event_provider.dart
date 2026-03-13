@@ -12,6 +12,7 @@ import 'package:haven/src/core/providers/server_provider.dart';
 import 'package:haven/src/core/providers/service_providers.dart';
 import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/sync_progress_provider.dart';
+import 'package:haven/src/core/providers/typing_provider.dart';
 import 'package:haven/src/rust/api/network.dart';
 
 /// Listens to the Rust event stream and dispatches events
@@ -75,12 +76,14 @@ class EventStreamNotifier extends Notifier<bool> {
 
       case NetworkEvent_MessageReceived(:final fromPeer, :final text, :final timestamp, :final messageId, :final replyToMid):
         ref.read(chatProvider.notifier).receiveMessage(fromPeer, text, timestamp, messageId, replyToMid);
+        ref.read(typingProvider.notifier).clearTyping(fromPeer, fromPeer);
 
       case NetworkEvent_ChannelMessageReceived(
             :final serverId, :final channelId, :final fromPeer, :final text, :final timestamp, :final messageId, :final replyToMid):
         ref
             .read(channelChatProvider.notifier)
             .receiveMessage(serverId, channelId, fromPeer, text, timestamp, messageId, replyToMid);
+        ref.read(typingProvider.notifier).clearTyping('$serverId:$channelId', fromPeer);
 
       case NetworkEvent_SessionEstablished(:final peerId):
         ref.read(peersProvider.notifier).markEncrypted(peerId);
@@ -284,6 +287,12 @@ class EventStreamNotifier extends Notifier<bool> {
         debugPrint('[HAVEN] DM reaction $emoji removed on $messageId by $reactor for $peerId');
         ref.read(chatProvider.notifier).applyRemoveReaction(
             peerId, messageId, emoji, reactor);
+
+      // -- Typing indicator events (Phase 3.5) --
+      case NetworkEvent_TypingStarted(
+            :final peerId, :final serverId, :final channelId):
+        final key = serverId.isEmpty ? peerId : '$serverId:$channelId';
+        ref.read(typingProvider.notifier).setTyping(key, peerId);
     }
   }
 

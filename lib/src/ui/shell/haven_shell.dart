@@ -191,6 +191,14 @@ class _HavenShellState extends ConsumerState<HavenShell>
       selectedChannelId: selectedChannelId,
       onChannelSelected: (channelId) {
         ref.read(selectedChannelProvider.notifier).state = channelId;
+        // Remember last channel for this server.
+        final serverId = ref.read(selectedServerProvider);
+        if (serverId != null) {
+          final map = Map<String, String>.from(
+              ref.read(lastChannelPerServerProvider));
+          map[serverId] = channelId;
+          ref.read(lastChannelPerServerProvider.notifier).state = map;
+        }
         // On mobile, switch to chat tab when channel is selected.
         ref.read(mobileTabProvider.notifier).state = 1;
       },
@@ -318,11 +326,9 @@ class _HavenShellState extends ConsumerState<HavenShell>
     }
     // DM chat view
     if (selectedPeerId == null) return _buildEmptyChat(haven);
-    final peer = (peers as Map)[selectedPeerId];
     return ChatPane(
       key: ValueKey(selectedPeerId),
       peerId: selectedPeerId,
-      isEncrypted: peer?.isEncrypted ?? false,
     );
   }
 

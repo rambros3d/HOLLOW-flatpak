@@ -157,6 +157,17 @@ Future<void> removeDmReaction({
   emoji: emoji,
 );
 
+/// Send a typing indicator to peers. Ephemeral, not stored.
+/// For DMs: server_id = "", channel_id = peer ID.
+/// For channels: server_id and channel_id as normal.
+Future<void> sendTypingIndicator({
+  required String serverId,
+  required String channelId,
+}) => RustLib.instance.api.crateApiNetworkSendTypingIndicator(
+  serverId: serverId,
+  channelId: channelId,
+);
+
 /// Request message sync for a specific channel from all connected server members.
 /// Called when the user opens a channel to catch up on missed messages.
 Future<void> requestChannelSync({
@@ -370,4 +381,9 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String reactor,
     required PlatformInt64 removedAt,
   }) = NetworkEvent_DmReactionRemoved;
+  const factory NetworkEvent.typingStarted({
+    required String peerId,
+    required String serverId,
+    required String channelId,
+  }) = NetworkEvent_TypingStarted;
 }

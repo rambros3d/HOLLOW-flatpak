@@ -70,7 +70,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => -1203312084;
+  int get rustContentHash => 1625827046;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -277,6 +277,11 @@ abstract class RustLibApi extends BaseApi {
     required String text,
     required String messageId,
     String? replyToMid,
+  });
+
+  Future<void> crateApiNetworkSendTypingIndicator({
+    required String serverId,
+    required String channelId,
   });
 
   Future<void> crateApiCrdtSetNickname({
@@ -1845,6 +1850,41 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<void> crateApiNetworkSendTypingIndicator({
+    required String serverId,
+    required String channelId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(serverId, serializer);
+          sse_encode_String(channelId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 47,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiNetworkSendTypingIndicatorConstMeta,
+        argValues: [serverId, channelId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiNetworkSendTypingIndicatorConstMeta =>
+      const TaskConstMeta(
+        debugName: "send_typing_indicator",
+        argNames: ["serverId", "channelId"],
+      );
+
+  @override
   Future<void> crateApiCrdtSetNickname({
     required String serverId,
     required String peerId,
@@ -1860,7 +1900,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 47,
+            funcId: 48,
             port: port_,
           );
         },
@@ -1889,7 +1929,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 48,
+            funcId: 49,
             port: port_,
           );
         },
@@ -1916,7 +1956,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 49,
+            funcId: 50,
             port: port_,
           );
         },
@@ -1950,7 +1990,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 50,
+            funcId: 51,
             port: port_,
           );
         },
@@ -1987,7 +2027,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 51,
+            funcId: 52,
             port: port_,
           );
         },
@@ -2020,7 +2060,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 52,
+              funcId: 53,
               port: port_,
             );
           },
@@ -2403,6 +2443,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           emoji: dco_decode_String(raw[3]),
           reactor: dco_decode_String(raw[4]),
           removedAt: dco_decode_i_64(raw[5]),
+        );
+      case 36:
+        return NetworkEvent_TypingStarted(
+          peerId: dco_decode_String(raw[1]),
+          serverId: dco_decode_String(raw[2]),
+          channelId: dco_decode_String(raw[3]),
         );
       default:
         throw Exception("unreachable");
@@ -3043,6 +3089,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           emoji: var_emoji,
           reactor: var_reactor,
           removedAt: var_removedAt,
+        );
+      case 36:
+        var var_peerId = sse_decode_String(deserializer);
+        var var_serverId = sse_decode_String(deserializer);
+        var var_channelId = sse_decode_String(deserializer);
+        return NetworkEvent_TypingStarted(
+          peerId: var_peerId,
+          serverId: var_serverId,
+          channelId: var_channelId,
         );
       default:
         throw UnimplementedError('');
@@ -3729,6 +3784,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(emoji, serializer);
         sse_encode_String(reactor, serializer);
         sse_encode_i_64(removedAt, serializer);
+      case NetworkEvent_TypingStarted(
+        peerId: final peerId,
+        serverId: final serverId,
+        channelId: final channelId,
+      ):
+        sse_encode_i_32(36, serializer);
+        sse_encode_String(peerId, serializer);
+        sse_encode_String(serverId, serializer);
+        sse_encode_String(channelId, serializer);
     }
   }
 

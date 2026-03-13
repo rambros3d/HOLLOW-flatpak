@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/providers/channel_provider.dart';
+import 'package:haven/src/core/providers/selected_peer_provider.dart';
 import 'package:haven/src/core/providers/server_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
@@ -124,16 +125,40 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
                     isSelected: isSelected,
                     backgroundColor: _colorFromId(server.serverId),
                     tooltip: server.name,
-                    onTap: () {
+                    onTap: () async {
                       ref.read(selectedServerProvider.notifier).state =
                           server.serverId;
-                      ref
-                          .read(channelListProvider.notifier)
-                          .loadForServer(server.serverId);
-                      ref.read(selectedChannelProvider.notifier).state =
-                          null;
+                      ref.read(selectedPeerProvider.notifier).state = null;
                       ref.read(serverSettingsOpenProvider.notifier).state =
                           false;
+
+                      // Restore last viewed channel, or auto-select first.
+                      final lastChannels =
+                          ref.read(lastChannelPerServerProvider);
+                      final lastChannel = lastChannels[server.serverId];
+
+                      await ref
+                          .read(channelListProvider.notifier)
+                          .loadForServer(server.serverId);
+
+                      final channels = ref.read(channelListProvider);
+                      String? channelToSelect;
+                      if (lastChannel != null &&
+                          channels.containsKey(lastChannel)) {
+                        channelToSelect = lastChannel;
+                      } else if (channels.isNotEmpty) {
+                        channelToSelect = channels.keys.first;
+                      }
+                      ref.read(selectedChannelProvider.notifier).state =
+                          channelToSelect;
+                      // Save auto-selected channel as last viewed.
+                      if (channelToSelect != null) {
+                        final map = Map<String, String>.from(
+                            ref.read(lastChannelPerServerProvider));
+                        map[server.serverId] = channelToSelect;
+                        ref.read(lastChannelPerServerProvider.notifier)
+                            .state = map;
+                      }
                     },
                     child: Text(
                       _initialsFromName(server.name),

@@ -74,3 +74,7 @@ final channelListProvider =
 
 /// Currently selected channel ID.
 final selectedChannelProvider = StateProvider<String?>((ref) => null);
+
+/// Remembers the last selected channel per server so switching back restores it.
+final lastChannelPerServerProvider =
+    StateProvider<Map<String, String>>((ref) => {});

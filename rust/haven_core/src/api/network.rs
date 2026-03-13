@@ -59,6 +59,8 @@ pub enum NetworkEvent {
     DmReactionAdded { peer_id: String, message_id: String, emoji: String, reactor: String, added_at: i64 },
     ChannelReactionRemoved { server_id: String, channel_id: String, message_id: String, emoji: String, reactor: String, removed_at: i64 },
     DmReactionRemoved { peer_id: String, message_id: String, emoji: String, reactor: String, removed_at: i64 },
+    // -- Typing indicator events (Phase 3.5) --
+    TypingStarted { peer_id: String, server_id: String, channel_id: String },
 }
 
 /// Holds all mutable state for the running node.
@@ -197,6 +199,9 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::DmReactionRemoved { peer_id, message_id, emoji, reactor, .. } => {
             haven_log!("[HAVEN] Reaction {emoji} removed on DM {message_id} by {reactor} for {peer_id}");
         }
+        node::NetworkEvent::TypingStarted { peer_id, server_id, .. } => {
+            haven_log!("[HAVEN] Typing started: {peer_id} in {server_id}");
+        }
         _ => {}
     }
     match event {
@@ -300,6 +305,9 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::DmReactionRemoved { peer_id, message_id, emoji, reactor, removed_at } => {
             NetworkEvent::DmReactionRemoved { peer_id, message_id, emoji, reactor, removed_at }
+        }
+        node::NetworkEvent::TypingStarted { peer_id, server_id, channel_id } => {
+            NetworkEvent::TypingStarted { peer_id, server_id, channel_id }
         }
     }
 }
@@ -715,6 +723,27 @@ pub fn remove_dm_reaction(
             peer_id: peer,
             message_id,
             emoji,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Send a typing indicator to peers. Ephemeral, not stored.
+/// For DMs: server_id = "", channel_id = peer ID.
+/// For channels: server_id and channel_id as normal.
+#[frb]
+pub fn send_typing_indicator(server_id: String, channel_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::SendTypingIndicator {
+            server_id,
+            channel_id,
         }),
     )
     .map_err(|e| format!("Failed to send command: {e}"))?;

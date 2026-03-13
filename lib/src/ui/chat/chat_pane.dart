@@ -4,18 +4,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/providers/chat_provider.dart';
 import 'package:haven/src/core/providers/identity_provider.dart';
 import 'package:haven/src/core/providers/member_panel_provider.dart';
+import 'package:haven/src/core/providers/peers_provider.dart';
 import 'package:haven/src/core/providers/profile_provider.dart';
+import 'package:haven/src/core/providers/typing_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
 import 'package:haven/src/ui/chat/message_action_bar.dart';
 import 'package:haven/src/ui/chat/message_bubble.dart';
+import 'package:haven/src/ui/components/connection_progress.dart';
 import 'package:haven/src/ui/components/haven_avatar.dart';
 import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/haven_text_field.dart';
 import 'package:haven/src/ui/components/haven_toast.dart';
 import 'package:haven/src/ui/components/haven_tooltip.dart';
 import 'package:haven/src/ui/components/status_dot.dart';
+import 'package:haven/src/rust/api/network.dart' as network_api;
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Whether two consecutive messages should be grouped (same sender, within 5 min).
@@ -40,12 +44,10 @@ bool shouldGroup({
 
 class ChatPane extends ConsumerStatefulWidget {
   final String peerId;
-  final bool isEncrypted;
 
   const ChatPane({
     super.key,
     required this.peerId,
-    required this.isEncrypted,
   });
 
   @override
@@ -62,6 +64,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
   String? _replyToMessageId;
   String? _replyToText;
   String? _replyToSenderName;
+  DateTime? _lastTypingSent;
 
   @override
   void initState() {
@@ -112,10 +115,27 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     });
   }
 
+  void _onTextChanged(String text) {
+    if (text.isEmpty) return;
+    final now = DateTime.now();
+    if (_lastTypingSent != null &&
+        now.difference(_lastTypingSent!).inSeconds < 3) {
+      return;
+    }
+    _lastTypingSent = now;
+    try {
+      network_api.sendTypingIndicator(
+        serverId: '',
+        channelId: widget.peerId,
+      );
+    } catch (_) {}
+  }
+
   Future<void> _handleSend() async {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
     _controller.clear();
+    _lastTypingSent = null;
     _focusNode.requestFocus();
     final replyMid = _replyToMessageId;
     setState(() {
@@ -140,6 +160,8 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
       _scrollToBottom();
     }
     _previousMessageCount = messages.length;
+
+    final typingPeers = ref.watch(typingProvider)[widget.peerId] ?? {};
 
     return Column(
       children: [
@@ -187,21 +209,13 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                   ],
                 ),
               ),
-              if (widget.isEncrypted) ...[
-                Icon(
-                  LucideIcons.lock,
-                  size: 14,
-                  color: haven.success,
-                ),
-                const SizedBox(width: HavenSpacing.xs),
-                Text(
-                  'Encrypted',
-                  style: HavenTypography.caption.copyWith(
-                    color: haven.success,
-                  ),
-                ),
-                const SizedBox(width: HavenSpacing.sm),
-              ],
+              ConnectionProgress(
+                key: ValueKey('dm-conn-${widget.peerId}'),
+                stage: (ref.watch(peersProvider)[widget.peerId]?.isEncrypted ?? false)
+                    ? ConnectionStage.encrypted
+                    : ConnectionStage.encrypting,
+              ),
+              const SizedBox(width: HavenSpacing.sm),
               HavenTooltip(
                 message: 'Copy peer ID',
                 child: HavenPressable(
@@ -394,6 +408,15 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
           ),
         ),
 
+        // Typing indicator
+        if (typingPeers.isNotEmpty)
+          TypingIndicatorBar(
+            names: typingPeers
+                .map((pid) =>
+                    displayNameFor(ref.watch(profileProvider), pid))
+                .toList(),
+          ),
+
         // Reply preview bar
         if (_replyToMessageId != null)
           Container(
@@ -477,6 +500,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                     color: haven.textPrimary,
                   ),
                   borderRadius: haven.radiusLg,
+                  onChanged: _onTextChanged,
                   onSubmitted: (_) => _handleSend(),
                 ),
               ),
@@ -496,6 +520,110 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Typing indicator bar shown above the input area.
+/// Displays up to 3 names, or "Several people are typing..." for 4+.
+class TypingIndicatorBar extends StatelessWidget {
+  final List<String> names;
+
+  const TypingIndicatorBar({super.key, required this.names});
+
+  @override
+  Widget build(BuildContext context) {
+    final haven = HavenTheme.of(context);
+
+    final String text;
+    if (names.length == 1) {
+      text = '${names[0]} is typing';
+    } else if (names.length == 2) {
+      text = '${names[0]} and ${names[1]} are typing';
+    } else if (names.length == 3) {
+      text = '${names[0]}, ${names[1]}, and ${names[2]} are typing';
+    } else {
+      text = 'Several people are typing';
+    }
+
+    return Container(
+      height: 24,
+      padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.md),
+      alignment: Alignment.centerLeft,
+      color: haven.surface,
+      child: Row(
+        children: [
+          Text(
+            text,
+            style: HavenTypography.caption.copyWith(
+              color: haven.textSecondary,
+              fontStyle: FontStyle.italic,
+              fontSize: 11,
+            ),
+          ),
+          const SizedBox(width: HavenSpacing.xs),
+          TypingDots(color: haven.textSecondary),
+        ],
+      ),
+    );
+  }
+}
+
+/// Animated bouncing dots for typing indicators.
+class TypingDots extends StatefulWidget {
+  final Color color;
+
+  const TypingDots({super.key, required this.color});
+
+  @override
+  State<TypingDots> createState() => TypingDotsState();
+}
+
+class TypingDotsState extends State<TypingDots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      child: null,
+      builder: (context, _) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (i) {
+            final delay = i * 0.2;
+            final t = (_controller.value - delay).clamp(0.0, 1.0);
+            final bounce = t < 0.5
+                ? (t * 2) // 0→1
+                : (1 - (t - 0.5) * 2); // 1→0
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 1),
+              width: 4,
+              height: 4,
+              decoration: BoxDecoration(
+                color: widget.color.withValues(alpha: 0.4 + bounce * 0.6),
+                shape: BoxShape.circle,
+              ),
+            );
+          }),
+        );
+      },
     );
   }
 }
