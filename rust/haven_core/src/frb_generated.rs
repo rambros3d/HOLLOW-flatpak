@@ -1429,6 +1429,7 @@ fn wire__crate__api__network__send_channel_message_impl(
             let api_channel_id = <String>::sse_decode(&mut deserializer);
             let api_text = <String>::sse_decode(&mut deserializer);
             let api_message_id = <String>::sse_decode(&mut deserializer);
+            let api_reply_to_mid = <Option<String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, String>((move || {
@@ -1437,6 +1438,7 @@ fn wire__crate__api__network__send_channel_message_impl(
                         api_channel_id,
                         api_text,
                         api_message_id,
+                        api_reply_to_mid,
                     )?;
                     Ok(output_ok)
                 })())
@@ -1469,11 +1471,16 @@ fn wire__crate__api__network__send_message_impl(
             let api_peer_id = <String>::sse_decode(&mut deserializer);
             let api_text = <String>::sse_decode(&mut deserializer);
             let api_message_id = <String>::sse_decode(&mut deserializer);
+            let api_reply_to_mid = <Option<String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, String>((move || {
-                    let output_ok =
-                        crate::api::network::send_message(api_peer_id, api_text, api_message_id)?;
+                    let output_ok = crate::api::network::send_message(
+                        api_peer_id,
+                        api_text,
+                        api_message_id,
+                        api_reply_to_mid,
+                    )?;
                     Ok(output_ok)
                 })())
             }
@@ -1930,11 +1937,13 @@ impl SseDecode for crate::api::network::NetworkEvent {
                 let mut var_text = <String>::sse_decode(deserializer);
                 let mut var_timestamp = <i64>::sse_decode(deserializer);
                 let mut var_messageId = <String>::sse_decode(deserializer);
+                let mut var_replyToMid = <String>::sse_decode(deserializer);
                 return crate::api::network::NetworkEvent::MessageReceived {
                     from_peer: var_fromPeer,
                     text: var_text,
                     timestamp: var_timestamp,
                     message_id: var_messageId,
+                    reply_to_mid: var_replyToMid,
                 };
             }
             6 => {
@@ -1944,6 +1953,7 @@ impl SseDecode for crate::api::network::NetworkEvent {
                 let mut var_text = <String>::sse_decode(deserializer);
                 let mut var_timestamp = <i64>::sse_decode(deserializer);
                 let mut var_messageId = <String>::sse_decode(deserializer);
+                let mut var_replyToMid = <String>::sse_decode(deserializer);
                 return crate::api::network::NetworkEvent::ChannelMessageReceived {
                     server_id: var_serverId,
                     channel_id: var_channelId,
@@ -1951,6 +1961,7 @@ impl SseDecode for crate::api::network::NetworkEvent {
                     text: var_text,
                     timestamp: var_timestamp,
                     message_id: var_messageId,
+                    reply_to_mid: var_replyToMid,
                 };
             }
             7 => {
@@ -2251,6 +2262,7 @@ impl SseDecode for crate::api::storage::StoredChannelMessage {
         let mut var_messageId = <Option<String>>::sse_decode(deserializer);
         let mut var_editedAt = <Option<i64>>::sse_decode(deserializer);
         let mut var_hiddenAt = <Option<i64>>::sse_decode(deserializer);
+        let mut var_replyToMid = <Option<String>>::sse_decode(deserializer);
         return crate::api::storage::StoredChannelMessage {
             id: var_id,
             server_id: var_serverId,
@@ -2264,6 +2276,7 @@ impl SseDecode for crate::api::storage::StoredChannelMessage {
             message_id: var_messageId,
             edited_at: var_editedAt,
             hidden_at: var_hiddenAt,
+            reply_to_mid: var_replyToMid,
         };
     }
 }
@@ -2281,6 +2294,7 @@ impl SseDecode for crate::api::storage::StoredMessage {
         let mut var_messageId = <Option<String>>::sse_decode(deserializer);
         let mut var_editedAt = <Option<i64>>::sse_decode(deserializer);
         let mut var_hiddenAt = <Option<i64>>::sse_decode(deserializer);
+        let mut var_replyToMid = <Option<String>>::sse_decode(deserializer);
         return crate::api::storage::StoredMessage {
             id: var_id,
             peer_id: var_peerId,
@@ -2292,6 +2306,7 @@ impl SseDecode for crate::api::storage::StoredMessage {
             message_id: var_messageId,
             edited_at: var_editedAt,
             hidden_at: var_hiddenAt,
+            reply_to_mid: var_replyToMid,
         };
     }
 }
@@ -2544,12 +2559,14 @@ impl flutter_rust_bridge::IntoDart for crate::api::network::NetworkEvent {
                 text,
                 timestamp,
                 message_id,
+                reply_to_mid,
             } => [
                 5.into_dart(),
                 from_peer.into_into_dart().into_dart(),
                 text.into_into_dart().into_dart(),
                 timestamp.into_into_dart().into_dart(),
                 message_id.into_into_dart().into_dart(),
+                reply_to_mid.into_into_dart().into_dart(),
             ]
             .into_dart(),
             crate::api::network::NetworkEvent::ChannelMessageReceived {
@@ -2559,6 +2576,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::network::NetworkEvent {
                 text,
                 timestamp,
                 message_id,
+                reply_to_mid,
             } => [
                 6.into_dart(),
                 server_id.into_into_dart().into_dart(),
@@ -2567,6 +2585,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::network::NetworkEvent {
                 text.into_into_dart().into_dart(),
                 timestamp.into_into_dart().into_dart(),
                 message_id.into_into_dart().into_dart(),
+                reply_to_mid.into_into_dart().into_dart(),
             ]
             .into_dart(),
             crate::api::network::NetworkEvent::MessageSent { to_peer } => {
@@ -2816,6 +2835,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::storage::StoredChannelMessage
             self.message_id.into_into_dart().into_dart(),
             self.edited_at.into_into_dart().into_dart(),
             self.hidden_at.into_into_dart().into_dart(),
+            self.reply_to_mid.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -2845,6 +2865,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::storage::StoredMessage {
             self.message_id.into_into_dart().into_dart(),
             self.edited_at.into_into_dart().into_dart(),
             self.hidden_at.into_into_dart().into_dart(),
+            self.reply_to_mid.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -3072,12 +3093,14 @@ impl SseEncode for crate::api::network::NetworkEvent {
                 text,
                 timestamp,
                 message_id,
+                reply_to_mid,
             } => {
                 <i32>::sse_encode(5, serializer);
                 <String>::sse_encode(from_peer, serializer);
                 <String>::sse_encode(text, serializer);
                 <i64>::sse_encode(timestamp, serializer);
                 <String>::sse_encode(message_id, serializer);
+                <String>::sse_encode(reply_to_mid, serializer);
             }
             crate::api::network::NetworkEvent::ChannelMessageReceived {
                 server_id,
@@ -3086,6 +3109,7 @@ impl SseEncode for crate::api::network::NetworkEvent {
                 text,
                 timestamp,
                 message_id,
+                reply_to_mid,
             } => {
                 <i32>::sse_encode(6, serializer);
                 <String>::sse_encode(server_id, serializer);
@@ -3094,6 +3118,7 @@ impl SseEncode for crate::api::network::NetworkEvent {
                 <String>::sse_encode(text, serializer);
                 <i64>::sse_encode(timestamp, serializer);
                 <String>::sse_encode(message_id, serializer);
+                <String>::sse_encode(reply_to_mid, serializer);
             }
             crate::api::network::NetworkEvent::MessageSent { to_peer } => {
                 <i32>::sse_encode(7, serializer);
@@ -3348,6 +3373,7 @@ impl SseEncode for crate::api::storage::StoredChannelMessage {
         <Option<String>>::sse_encode(self.message_id, serializer);
         <Option<i64>>::sse_encode(self.edited_at, serializer);
         <Option<i64>>::sse_encode(self.hidden_at, serializer);
+        <Option<String>>::sse_encode(self.reply_to_mid, serializer);
     }
 }
 
@@ -3364,6 +3390,7 @@ impl SseEncode for crate::api::storage::StoredMessage {
         <Option<String>>::sse_encode(self.message_id, serializer);
         <Option<i64>>::sse_encode(self.edited_at, serializer);
         <Option<i64>>::sse_encode(self.hidden_at, serializer);
+        <Option<String>>::sse_encode(self.reply_to_mid, serializer);
     }
 }
 

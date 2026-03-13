@@ -23,8 +23,8 @@ pub enum NetworkEvent {
     PeerDisconnected { peer_id: String },
     RoomCleared,
     Listening { address: String },
-    MessageReceived { from_peer: String, text: String, timestamp: i64, message_id: String },
-    ChannelMessageReceived { server_id: String, channel_id: String, from_peer: String, text: String, timestamp: i64, message_id: String },
+    MessageReceived { from_peer: String, text: String, timestamp: i64, message_id: String, reply_to_mid: String },
+    ChannelMessageReceived { server_id: String, channel_id: String, from_peer: String, text: String, timestamp: i64, message_id: String, reply_to_mid: String },
     MessageSent { to_peer: String },
     MessageSendFailed { to_peer: String, error: String },
     SessionEstablished { peer_id: String },
@@ -195,11 +195,11 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::RoomCleared => NetworkEvent::RoomCleared,
         node::NetworkEvent::Listening { address } => NetworkEvent::Listening { address },
-        node::NetworkEvent::MessageReceived { from_peer, text, timestamp, message_id } => {
-            NetworkEvent::MessageReceived { from_peer, text, timestamp, message_id }
+        node::NetworkEvent::MessageReceived { from_peer, text, timestamp, message_id, reply_to_mid } => {
+            NetworkEvent::MessageReceived { from_peer, text, timestamp, message_id, reply_to_mid }
         }
-        node::NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, text, timestamp, message_id } => {
-            NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, text, timestamp, message_id }
+        node::NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, text, timestamp, message_id, reply_to_mid } => {
+            NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, text, timestamp, message_id, reply_to_mid }
         }
         node::NetworkEvent::MessageSent { to_peer } => NetworkEvent::MessageSent { to_peer },
         node::NetworkEvent::MessageSendFailed { to_peer, error } => {
@@ -430,7 +430,7 @@ pub fn get_olm_fingerprint() -> Option<String> {
 
 /// Send a text message to a peer. The peer must be reachable (discovered via mDNS).
 #[frb]
-pub fn send_message(peer_id: String, text: String, message_id: String) -> Result<(), String> {
+pub fn send_message(peer_id: String, text: String, message_id: String, reply_to_mid: Option<String>) -> Result<(), String> {
     let node = get_node();
     let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
 
@@ -444,7 +444,7 @@ pub fn send_message(peer_id: String, text: String, message_id: String) -> Result
     rt.block_on(
         state
             .cmd_tx
-            .send(node::NodeCommand::SendMessage { peer_id: peer, text, message_id }),
+            .send(node::NodeCommand::SendMessage { peer_id: peer, text, message_id, reply_to_mid }),
     )
     .map_err(|e| format!("Failed to send command: {e}"))?;
 
@@ -459,6 +459,7 @@ pub fn send_channel_message(
     channel_id: String,
     text: String,
     message_id: String,
+    reply_to_mid: Option<String>,
 ) -> Result<(), String> {
     let node = get_node();
     let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
@@ -471,6 +472,7 @@ pub fn send_channel_message(
             channel_id,
             text,
             message_id,
+            reply_to_mid,
         }),
     )
     .map_err(|e| format!("Failed to send command: {e}"))?;

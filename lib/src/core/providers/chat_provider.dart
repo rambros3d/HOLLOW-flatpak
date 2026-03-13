@@ -19,7 +19,8 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
 
   /// Send a message to a peer (FFI + update state).
   /// DB persistence happens in Rust (SendMessage handler) with Rust-generated timestamp.
-  Future<void> sendMessage(String peerId, String text) async {
+  Future<void> sendMessage(String peerId, String text,
+      {String? replyToMid}) async {
     final networkService = ref.read(networkServiceProvider);
     final messageId = generateMessageId();
 
@@ -27,6 +28,7 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
       peerId: peerId,
       text: text,
       messageId: messageId,
+      replyToMid: replyToMid,
     );
 
     final now = DateTime.now();
@@ -35,6 +37,7 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
       isMe: true,
       timestamp: now,
       messageId: messageId,
+      replyToMid: replyToMid,
     );
 
     _addMessage(peerId, msg);
@@ -42,14 +45,15 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
 
   /// Receive a message from a peer (from network events).
   /// DB persistence happens in Rust (DirectMessage handler) with sender's timestamp.
-  void receiveMessage(
-      String fromPeer, String text, int timestamp, String messageId) {
+  void receiveMessage(String fromPeer, String text, int timestamp,
+      String messageId, String replyToMid) {
     final ts = DateTime.fromMillisecondsSinceEpoch(timestamp);
     final msg = ChatMessage(
       text: text,
       isMe: false,
       timestamp: ts,
       messageId: messageId.isNotEmpty ? messageId : null,
+      replyToMid: replyToMid.isNotEmpty ? replyToMid : null,
     );
     _addMessage(fromPeer, msg);
   }
@@ -138,6 +142,7 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
                 editedAt: m.editedAt != null
                     ? DateTime.fromMillisecondsSinceEpoch(m.editedAt!)
                     : null,
+                replyToMid: m.replyToMid,
               ))
           .toList();
 

@@ -25,6 +25,7 @@ pub(crate) struct StoredMessage {
     pub message_id: Option<String>,
     pub edited_at: Option<i64>,
     pub hidden_at: Option<i64>,
+    pub reply_to_mid: Option<String>,
 }
 
 /// A stored channel message.
@@ -41,6 +42,7 @@ pub(crate) struct StoredChannelMessage {
     pub message_id: Option<String>,
     pub edited_at: Option<i64>,
     pub hidden_at: Option<i64>,
+    pub reply_to_mid: Option<String>,
 }
 
 /// Encrypted SQLite message store.
@@ -294,6 +296,14 @@ impl MessageStore {
         )
         .map_err(|e| format!("Failed to create message_deletions index: {e}"))?;
 
+        // -- Migration: reply_to_mid column for reply chains (Phase 3.5) --
+        conn.execute_batch(
+            "ALTER TABLE messages ADD COLUMN reply_to_mid TEXT;"
+        ).unwrap_or(());
+        conn.execute_batch(
+            "ALTER TABLE channel_messages ADD COLUMN reply_to_mid TEXT;"
+        ).unwrap_or(());
+
         // -- App settings (key-value, general purpose) --
         conn.execute(
             "CREATE TABLE IF NOT EXISTS app_settings (
@@ -329,11 +339,12 @@ impl MessageStore {
         signature: Option<&str>,
         public_key: Option<&str>,
         message_id: Option<&str>,
+        reply_to_mid: Option<&str>,
     ) -> Result<i64, String> {
         let rows = self.conn
             .execute(
-                "INSERT OR IGNORE INTO messages (peer_id, text, is_mine, timestamp, signature, public_key, message_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![peer_id, text, is_mine as i32, timestamp, signature, public_key, message_id],
+                "INSERT OR IGNORE INTO messages (peer_id, text, is_mine, timestamp, signature, public_key, message_id, reply_to_mid) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![peer_id, text, is_mine as i32, timestamp, signature, public_key, message_id, reply_to_mid],
             )
             .map_err(|e| format!("Failed to insert message: {e}"))?;
         if rows > 0 {
@@ -428,7 +439,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at
+                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid
                  FROM messages
                  WHERE peer_id = ?1 AND hidden_at IS NULL
                  ORDER BY timestamp DESC
@@ -449,6 +460,7 @@ impl MessageStore {
                     message_id: row.get(7)?,
                     edited_at: row.get(8)?,
                     hidden_at: row.get(9)?,
+                    reply_to_mid: row.get(10)?,
                 })
             })
             .map_err(|e| format!("Failed to query messages: {e}"))?;
@@ -495,7 +507,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at
+                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid
                  FROM messages
                  WHERE peer_id = ?1 AND timestamp >= ?2 AND is_mine = 1
                  ORDER BY timestamp ASC
@@ -516,6 +528,7 @@ impl MessageStore {
                     message_id: row.get(7)?,
                     edited_at: row.get(8)?,
                     hidden_at: row.get(9)?,
+                    reply_to_mid: row.get(10)?,
                 })
             })
             .map_err(|e| format!("Failed to query dm_messages_since: {e}"))?;
@@ -660,12 +673,13 @@ impl MessageStore {
         signature: Option<&str>,
         public_key: Option<&str>,
         message_id: Option<&str>,
+        reply_to_mid: Option<&str>,
     ) -> Result<usize, String> {
         let rows = self.conn
             .execute(
-                "INSERT OR IGNORE INTO channel_messages (server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![server_id, channel_id, sender_id, text, is_mine as i32, timestamp, signature, public_key, message_id],
+                "INSERT OR IGNORE INTO channel_messages (server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, reply_to_mid)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![server_id, channel_id, sender_id, text, is_mine as i32, timestamp, signature, public_key, message_id, reply_to_mid],
             )
             .map_err(|e| format!("Failed to insert channel message: {e}"))?;
         Ok(rows)
@@ -682,7 +696,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at
+                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid
                  FROM channel_messages
                  WHERE server_id = ?1 AND channel_id = ?2 AND hidden_at IS NULL
                  ORDER BY timestamp DESC
@@ -705,6 +719,7 @@ impl MessageStore {
                     message_id: row.get(9)?,
                     edited_at: row.get(10)?,
                     hidden_at: row.get(11)?,
+                    reply_to_mid: row.get(12)?,
                 })
             })
             .map_err(|e| format!("Failed to query channel_messages: {e}"))?;
@@ -754,7 +769,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at
+                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid
                  FROM channel_messages
                  WHERE server_id = ?1 AND channel_id = ?2 AND timestamp > ?3
                  ORDER BY timestamp ASC
@@ -779,6 +794,7 @@ impl MessageStore {
                         message_id: row.get(9)?,
                         edited_at: row.get(10)?,
                         hidden_at: row.get(11)?,
+                        reply_to_mid: row.get(12)?,
                     })
                 },
             )
@@ -888,7 +904,7 @@ impl MessageStore {
 
         let where_clause = conditions.join(" OR ");
         let sql = format!(
-            "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at
+            "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid
              FROM channel_messages
              WHERE server_id = ?1 AND channel_id = ?2 AND ({where_clause})
              ORDER BY timestamp ASC
@@ -916,6 +932,7 @@ impl MessageStore {
                     message_id: row.get(9)?,
                     edited_at: row.get(10)?,
                     hidden_at: row.get(11)?,
+                    reply_to_mid: row.get(12)?,
                 })
             })
             .map_err(|e| format!("Failed to query per_sender_since: {e}"))?;
@@ -1129,6 +1146,28 @@ impl MessageStore {
 
     /// Edit a channel message by message_id. Preserves old text in message_edits table.
     /// Returns true if the message was found and updated.
+    /// Returns the sender_id for a channel message, if found.
+    pub fn get_channel_message_sender(&self, message_id: &str) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT sender_id FROM channel_messages WHERE message_id = ?1",
+                params![message_id],
+                |row| row.get(0),
+            )
+            .ok()
+    }
+
+    /// Returns whether a DM message is mine (true) or from the peer (false).
+    pub fn get_dm_message_is_mine(&self, message_id: &str) -> Option<bool> {
+        self.conn
+            .query_row(
+                "SELECT is_mine FROM messages WHERE message_id = ?1",
+                params![message_id],
+                |row| row.get::<_, i32>(0).map(|v| v != 0),
+            )
+            .ok()
+    }
+
     pub fn edit_channel_message(
         &self,
         message_id: &str,

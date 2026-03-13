@@ -4,6 +4,7 @@ import 'package:haven/src/core/providers/channel_chat_provider.dart';
 import 'package:haven/src/core/providers/identity_provider.dart';
 import 'package:haven/src/core/providers/member_panel_provider.dart';
 import 'package:haven/src/core/providers/peers_provider.dart';
+import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/server_provider.dart';
 import 'package:haven/src/core/providers/sync_progress_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
@@ -42,6 +43,9 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   bool _historyLoaded = false;
   int _previousMessageCount = 0;
   String? _editingMessageId;
+  String? _replyToMessageId;
+  String? _replyToText;
+  String? _replyToSenderName;
 
   String get _stateKey => '${widget.serverId}:${widget.channelId}';
 
@@ -101,9 +105,16 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     if (text.isEmpty) return;
     _controller.clear();
     _focusNode.requestFocus();
+    final replyMid = _replyToMessageId;
+    setState(() {
+      _replyToMessageId = null;
+      _replyToText = null;
+      _replyToSenderName = null;
+    });
     await ref
         .read(channelChatProvider.notifier)
-        .sendMessage(widget.serverId, widget.channelId, text);
+        .sendMessage(widget.serverId, widget.channelId, text,
+            replyToMid: replyMid);
     _scrollToBottom();
   }
 
@@ -225,13 +236,15 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                             currentSenderId: msg.senderId,
                             previousSenderId: messages[index - 1].senderId,
                           );
+                      final profiles = ref.watch(profileProvider);
+                      final nicknames = ref.watch(serverNicknamesProvider(widget.serverId));
                       final wrapper = MessageHoverWrapper(
                         isMe: msg.isMe,
                         messageId: msg.messageId,
                         currentText: msg.text,
                         isEditing: _editingMessageId != null &&
                             _editingMessageId == msg.messageId,
-                        onEditStart: msg.messageId != null
+                        onEditStart: msg.messageId != null && msg.isMe
                             ? () => setState(() =>
                                 _editingMessageId = msg.messageId)
                             : null,
@@ -250,11 +263,45 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                                 .deleteMessage(widget.serverId,
                                     widget.channelId, msg.messageId!)
                             : null,
-                        child: ChannelMessageBubble(
-                          message: msg,
-                          serverId: widget.serverId,
-                          showHeader: showHeader,
-                        ),
+                        onReply: msg.messageId != null
+                            ? () {
+                                final senderName = serverDisplayNameFor(
+                                  profiles,
+                                  msg.senderId,
+                                  nickname: nicknames[msg.senderId] ?? '',
+                                );
+                                setState(() {
+                                  _replyToMessageId = msg.messageId;
+                                  _replyToText = msg.text;
+                                  _replyToSenderName = senderName;
+                                });
+                                _focusNode.requestFocus();
+                              }
+                            : null,
+                        child: Builder(builder: (_) {
+                          String? replySender;
+                          String? replyText;
+                          if (msg.replyToMid != null) {
+                            final idx = messages.indexWhere(
+                                (m) => m.messageId == msg.replyToMid);
+                            if (idx != -1) {
+                              final original = messages[idx];
+                              replyText = original.text;
+                              replySender = serverDisplayNameFor(
+                                profiles,
+                                original.senderId,
+                                nickname: nicknames[original.senderId] ?? '',
+                              );
+                            }
+                          }
+                          return ChannelMessageBubble(
+                            message: msg,
+                            serverId: widget.serverId,
+                            showHeader: showHeader,
+                            replyToSenderName: replySender,
+                            replyToText: replyText,
+                          );
+                        }),
                       );
                       if (showHeader) {
                         return Padding(
@@ -270,6 +317,63 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
           ),
         ),
 
+        // Reply preview bar
+        if (_replyToMessageId != null)
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: HavenSpacing.md,
+              vertical: HavenSpacing.xs + 2,
+            ),
+            decoration: BoxDecoration(
+              color: haven.surface,
+              border: Border(
+                top: BorderSide(color: haven.border),
+                left: BorderSide(color: haven.accent, width: 3),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(LucideIcons.reply, size: 14, color: haven.accent),
+                const SizedBox(width: HavenSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Replying to ${_replyToSenderName ?? ''}',
+                        style: HavenTypography.caption.copyWith(
+                          color: haven.accent,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 11,
+                        ),
+                      ),
+                      Text(
+                        _replyToText ?? '',
+                        style: HavenTypography.body.copyWith(
+                          color: haven.textSecondary,
+                          fontSize: 12,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                HavenPressable(
+                  onTap: () => setState(() {
+                    _replyToMessageId = null;
+                    _replyToText = null;
+                    _replyToSenderName = null;
+                  }),
+                  padding: const EdgeInsets.all(HavenSpacing.xs),
+                  child: Icon(LucideIcons.x,
+                      size: 16, color: haven.textSecondary),
+                ),
+              ],
+            ),
+          ),
+
         // Input bar
         Container(
           padding: const EdgeInsets.symmetric(
@@ -278,7 +382,11 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
           ),
           decoration: BoxDecoration(
             color: haven.surface,
-            border: Border(top: BorderSide(color: haven.border)),
+            border: Border(
+              top: _replyToMessageId != null
+                  ? BorderSide.none
+                  : BorderSide(color: haven.border),
+            ),
           ),
           child: Row(
             children: [

@@ -15,8 +15,8 @@ class ChannelChatNotifier
   String _key(String serverId, String channelId) => '$serverId:$channelId';
 
   /// Send a message to a channel.
-  Future<void> sendMessage(
-      String serverId, String channelId, String text) async {
+  Future<void> sendMessage(String serverId, String channelId, String text,
+      {String? replyToMid}) async {
     final networkService = ref.read(networkServiceProvider);
     final localPeerId = ref.read(identityProvider).peerId ?? 'unknown';
     final messageId = generateMessageId();
@@ -27,6 +27,7 @@ class ChannelChatNotifier
       channelId: channelId,
       text: text,
       messageId: messageId,
+      replyToMid: replyToMid,
     );
 
     // Add to in-memory state for instant UI feedback.
@@ -37,6 +38,7 @@ class ChannelChatNotifier
       isMe: true,
       timestamp: now,
       messageId: messageId,
+      replyToMid: replyToMid,
     );
     _addMessage(serverId, channelId, msg);
   }
@@ -45,7 +47,7 @@ class ChannelChatNotifier
   /// Called only for genuinely new messages (Rust deduplicates before emitting).
   /// [timestampMs] is the sender's original timestamp in milliseconds.
   void receiveMessage(String serverId, String channelId, String fromPeer,
-      String text, int timestampMs, String messageId) {
+      String text, int timestampMs, String messageId, String replyToMid) {
     final key = _key(serverId, channelId);
     final existing = state[key] ?? [];
 
@@ -61,6 +63,7 @@ class ChannelChatNotifier
       isMe: false,
       timestamp: ts,
       messageId: messageId.isNotEmpty ? messageId : null,
+      replyToMid: replyToMid.isNotEmpty ? replyToMid : null,
     );
     _addMessage(serverId, channelId, msg);
     // No DB save here — Rust already persisted before emitting the event.
@@ -155,6 +158,7 @@ class ChannelChatNotifier
                   editedAt: m.editedAt != null
                       ? DateTime.fromMillisecondsSinceEpoch(m.editedAt!)
                       : null,
+                  replyToMid: m.replyToMid,
                 ))
             .toList();
 

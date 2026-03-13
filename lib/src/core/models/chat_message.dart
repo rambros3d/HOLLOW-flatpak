@@ -8,6 +8,7 @@ class ChatMessage {
   final String? messageId;
   final DateTime? editedAt;
   final DateTime? hiddenAt;
+  final String? replyToMid;
 
   ChatMessage({
     required this.text,
@@ -18,6 +19,7 @@ class ChatMessage {
     this.messageId,
     this.editedAt,
     this.hiddenAt,
+    this.replyToMid,
   }) : timestamp = timestamp ?? DateTime.now();
 
   /// Create a copy with updated fields (for editing/deletion).
@@ -31,6 +33,7 @@ class ChatMessage {
       messageId: messageId,
       editedAt: editedAt ?? this.editedAt,
       hiddenAt: hiddenAt ?? this.hiddenAt,
+      replyToMid: replyToMid,
     );
   }
 }

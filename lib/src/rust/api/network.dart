@@ -40,10 +40,12 @@ Future<void> sendMessage({
   required String peerId,
   required String text,
   required String messageId,
+  String? replyToMid,
 }) => RustLib.instance.api.crateApiNetworkSendMessage(
   peerId: peerId,
   text: text,
   messageId: messageId,
+  replyToMid: replyToMid,
 );
 
 /// Send a text message to a server channel.
@@ -53,11 +55,13 @@ Future<void> sendChannelMessage({
   required String channelId,
   required String text,
   required String messageId,
+  String? replyToMid,
 }) => RustLib.instance.api.crateApiNetworkSendChannelMessage(
   serverId: serverId,
   channelId: channelId,
   text: text,
   messageId: messageId,
+  replyToMid: replyToMid,
 );
 
 /// Edit a channel message. Broadcasts the edit to all server members.
@@ -176,6 +180,7 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String text,
     required PlatformInt64 timestamp,
     required String messageId,
+    required String replyToMid,
   }) = NetworkEvent_MessageReceived;
   const factory NetworkEvent.channelMessageReceived({
     required String serverId,
@@ -184,6 +189,7 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String text,
     required PlatformInt64 timestamp,
     required String messageId,
+    required String replyToMid,
   }) = NetworkEvent_ChannelMessageReceived;
   const factory NetworkEvent.messageSent({required String toPeer}) =
       NetworkEvent_MessageSent;

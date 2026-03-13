@@ -73,14 +73,14 @@ class EventStreamNotifier extends Notifier<bool> {
       case NetworkEvent_Listening(:final address):
         debugPrint('[HAVEN] Listening: $address');
 
-      case NetworkEvent_MessageReceived(:final fromPeer, :final text, :final timestamp, :final messageId):
-        ref.read(chatProvider.notifier).receiveMessage(fromPeer, text, timestamp, messageId);
+      case NetworkEvent_MessageReceived(:final fromPeer, :final text, :final timestamp, :final messageId, :final replyToMid):
+        ref.read(chatProvider.notifier).receiveMessage(fromPeer, text, timestamp, messageId, replyToMid);
 
       case NetworkEvent_ChannelMessageReceived(
-            :final serverId, :final channelId, :final fromPeer, :final text, :final timestamp, :final messageId):
+            :final serverId, :final channelId, :final fromPeer, :final text, :final timestamp, :final messageId, :final replyToMid):
         ref
             .read(channelChatProvider.notifier)
-            .receiveMessage(serverId, channelId, fromPeer, text, timestamp, messageId);
+            .receiveMessage(serverId, channelId, fromPeer, text, timestamp, messageId, replyToMid);
 
       case NetworkEvent_SessionEstablished(:final peerId):
         ref.read(peersProvider.notifier).markEncrypted(peerId);

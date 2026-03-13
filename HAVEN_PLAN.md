@@ -954,8 +954,8 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [X] Chat Redesign — flat stacked layout.
 - [X] Message editing — CRDT op (EditMessage with original message ID + new text), broadcast to server members, update in local DB + UI. Edited messages show "(edited)" indicator. 🎞️ Animate: edit highlight flash
 - [X] Multi-Peer Fan-out Sync — SyncCoordinator collects connected peers for 500ms, assigns channels round-robin across all available peers (primary + backup), sends lightweight ChannelSyncProbe (timestamp comparison) before full sync. Channels with no new messages are skipped entirely. Equal load distribution: the more peers online, the lighter the load per peer. On-demand RequestChannelSync (user opens channel) still fans out to all peers for immediacy
-- [ ] Message deletion — Channel: soft-delete (deleted_at timestamp, row stays in DB for Rat Files evidence preservation). DM: hard delete from local DB only (other peer keeps their copy). UI shows "Message deleted" placeholder. 🎞️ Animate: delete shrink+fade-out
-- [ ] Reply chains — reference parent message ID in envelope, render with quoted preview above reply. Clicking quote scrolls to original. 🎞️ Animate: reply chain indent slide
+- [X] Message deletion — Channel: soft-delete (deleted_at timestamp, row stays in DB for Rat Files evidence preservation). DM: hard delete from local DB only (other peer keeps their copy). UI shows "Message deleted" placeholder. 🎞️ Animate: delete shrink+fade-out
+- [X] Reply chains — reference parent message ID in envelope, render with quoted preview above reply. Clicking quote scrolls to original. 🎞️ Animate: reply chain indent slide
 - [ ] Emoji reactions — PN-Counter CRDT per emoji per message, broadcast to server members. 🎞️ Animate: reaction pop-in with spring bounce, count increment/decrement
 - [ ] Typing indicators — lightweight ephemeral signal (no persistence, no encryption needed). Broadcast to channel members, auto-expire after 5s. 🎞️ Animate: classic bouncing dots, smooth fade in/out
 - [ ] Rich text / markdown rendering in messages (bold, italic, code, code blocks, links). Link previews deferred to Phase 6

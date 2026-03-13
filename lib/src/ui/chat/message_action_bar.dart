@@ -73,6 +73,7 @@ class MessageHoverWrapper extends StatefulWidget {
   final void Function(String newText)? onEditSubmit;
   final VoidCallback? onEditCancel;
   final VoidCallback? onDelete;
+  final VoidCallback? onReply;
 
   const MessageHoverWrapper({
     super.key,
@@ -85,6 +86,7 @@ class MessageHoverWrapper extends StatefulWidget {
     this.onEditSubmit,
     this.onEditCancel,
     this.onDelete,
+    this.onReply,
   });
 
   @override
@@ -177,7 +179,9 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
     );
 
     // --- Action bar overlay (top-right of message) ---
-    if (widget.messageId != null && widget.isMe) {
+    final hasAnyAction = (widget.isMe && widget.messageId != null) ||
+        widget.onReply != null;
+    if (hasAnyAction) {
       final double barTop = offset.dy - 14;
       final double barRight =
           screenWidth - (offset.dx + size.width) + HavenSpacing.md;
@@ -191,6 +195,12 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
             onExit: (_) => _onBarExit(),
             child: _ActionBarContent(
               haven: haven,
+              onReply: widget.onReply != null
+                  ? () {
+                      _dismissNow();
+                      widget.onReply?.call();
+                    }
+                  : null,
               onEdit: widget.onEditStart != null
                   ? () {
                       _dismissNow();
@@ -350,14 +360,16 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
   }
 }
 
-/// The action bar content — edit + delete buttons.
+/// The action bar content — reply + edit + delete buttons.
 class _ActionBarContent extends StatelessWidget {
   final HavenTheme haven;
+  final VoidCallback? onReply;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
   const _ActionBarContent({
     required this.haven,
+    this.onReply,
     this.onEdit,
     this.onDelete,
   });
@@ -380,6 +392,17 @@ class _ActionBarContent extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (onReply != null)
+            HavenPressable(
+              onTap: onReply,
+              borderRadius: BorderRadius.circular(haven.radiusSm),
+              padding: const EdgeInsets.all(6),
+              child: Icon(
+                LucideIcons.reply,
+                size: 14,
+                color: haven.textSecondary,
+              ),
+            ),
           if (onEdit != null)
             HavenPressable(
               onTap: onEdit,

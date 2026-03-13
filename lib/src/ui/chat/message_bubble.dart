@@ -23,12 +23,16 @@ class MessageBubble extends ConsumerWidget {
   final ChatMessage message;
   final String peerId;
   final bool showHeader;
+  final String? replyToSenderName;
+  final String? replyToText;
 
   const MessageBubble({
     super.key,
     required this.message,
     required this.peerId,
     required this.showHeader,
+    this.replyToSenderName,
+    this.replyToText,
   });
 
   @override
@@ -47,6 +51,52 @@ class MessageBubble extends ConsumerWidget {
     const avatarSize = 32.0;
     const avatarGap = HavenSpacing.sm + 2; // 10px
     const indent = avatarSize + avatarGap;
+
+    final hasReply = message.replyToMid != null && replyToText != null;
+
+    final replyWidget = hasReply
+        ? Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(
+              children: [
+                Container(
+                  width: 2,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: haven.textSecondary.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(1),
+                  ),
+                ),
+                const SizedBox(width: HavenSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        replyToSenderName ?? '',
+                        style: HavenTypography.caption.copyWith(
+                          color: haven.accent,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 10,
+                        ),
+                      ),
+                      Text(
+                        replyToText!,
+                        style: HavenTypography.caption.copyWith(
+                          color: haven.textSecondary,
+                          fontSize: 11,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          )
+        : null;
 
     final messageTextWidget = Text.rich(
       TextSpan(
@@ -114,6 +164,7 @@ class MessageBubble extends ConsumerWidget {
                       ],
                     ),
                     const SizedBox(height: 3),
+                    ?replyWidget,
                     messageTextWidget,
                   ],
                 ),
@@ -133,7 +184,14 @@ class MessageBubble extends ConsumerWidget {
         right: HavenSpacing.md,
       ),
       decoration: isMe ? meDecoration : null,
-      child: messageTextWidget,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ?replyWidget,
+          messageTextWidget,
+        ],
+      ),
     );
   }
 }

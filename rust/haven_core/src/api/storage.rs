@@ -17,6 +17,7 @@ pub struct StoredMessage {
     pub message_id: Option<String>,
     pub edited_at: Option<i64>,
     pub hidden_at: Option<i64>,
+    pub reply_to_mid: Option<String>,
 }
 
 // Global message store: None = not opened, Some = ready.
@@ -79,7 +80,7 @@ pub fn save_message(
     let store = get_store();
     let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
     let ms = guard.as_ref().ok_or("Message store is not open")?;
-    ms.insert(&peer_id, &text, is_mine, timestamp, signature.as_deref(), public_key.as_deref(), None)
+    ms.insert(&peer_id, &text, is_mine, timestamp, signature.as_deref(), public_key.as_deref(), None, None)
 }
 
 /// Load recent messages for a peer from the local database.
@@ -104,6 +105,7 @@ pub fn load_messages(peer_id: String, limit: i32) -> Result<Vec<StoredMessage>, 
             message_id: r.message_id,
             edited_at: r.edited_at,
             hidden_at: r.hidden_at,
+            reply_to_mid: r.reply_to_mid,
         })
         .collect())
 }
@@ -190,6 +192,7 @@ pub struct StoredChannelMessage {
     pub message_id: Option<String>,
     pub edited_at: Option<i64>,
     pub hidden_at: Option<i64>,
+    pub reply_to_mid: Option<String>,
 }
 
 /// Save a channel message to the local database.
@@ -207,7 +210,7 @@ pub fn save_channel_message(
     let store = get_store();
     let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
     let ms = guard.as_ref().ok_or("Message store is not open")?;
-    ms.insert_channel_message(&server_id, &channel_id, &sender_id, &text, is_mine, timestamp, signature.as_deref(), public_key.as_deref(), None)
+    ms.insert_channel_message(&server_id, &channel_id, &sender_id, &text, is_mine, timestamp, signature.as_deref(), public_key.as_deref(), None, None)
         .map(|n| n as i64)
 }
 
@@ -239,6 +242,7 @@ pub fn load_channel_messages(
             message_id: r.message_id,
             edited_at: r.edited_at,
             hidden_at: r.hidden_at,
+            reply_to_mid: r.reply_to_mid,
         })
         .collect())
 }
