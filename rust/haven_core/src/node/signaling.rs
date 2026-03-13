@@ -6,6 +6,14 @@ use tokio::time::{self, Duration};
 const SIGNALING_URL: &str = "http://141.227.186.209:8080";
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(120); // 2 minutes (must be < stale threshold of 3 min)
 
+fn effective_signaling_url(proxy_enabled: bool) -> &'static str {
+    if proxy_enabled {
+        super::tunnel::PROXY_SIGNALING_URL
+    } else {
+        SIGNALING_URL
+    }
+}
+
 // -- Commands & Events --
 
 pub(crate) enum SignalingCmd {
@@ -78,11 +86,12 @@ struct BootstrapPeerWire {
 pub(crate) fn spawn_signaling_task(
     keypair: identity::Keypair,
     peer_id_str: String,
+    proxy_enabled: bool,
 ) -> (mpsc::Sender<SignalingCmd>, mpsc::Receiver<SignalingEvent>) {
     let (cmd_tx, cmd_rx) = mpsc::channel::<SignalingCmd>(32);
     let (event_tx, event_rx) = mpsc::channel::<SignalingEvent>(32);
 
-    tokio::spawn(signaling_loop(keypair, peer_id_str, cmd_rx, event_tx));
+    tokio::spawn(signaling_loop(keypair, peer_id_str, proxy_enabled, cmd_rx, event_tx));
 
     (cmd_tx, event_rx)
 }
@@ -90,10 +99,12 @@ pub(crate) fn spawn_signaling_task(
 async fn signaling_loop(
     keypair: identity::Keypair,
     peer_id_str: String,
+    proxy_enabled: bool,
     mut cmd_rx: mpsc::Receiver<SignalingCmd>,
     event_tx: mpsc::Sender<SignalingEvent>,
 ) {
     let client = reqwest::Client::new();
+    let signaling_url = effective_signaling_url(proxy_enabled);
 
     // Encode the public key as base64 protobuf (36 bytes for Ed25519).
     let pub_key_proto = keypair.public().encode_protobuf();
@@ -116,7 +127,7 @@ async fn signaling_loop(
                         active_room = Some(room_code.clone());
                         active_addrs = addresses.clone();
                         if let Err(e) = do_register(
-                            &client, &keypair, &peer_id_str, &pub_key_b64,
+                            &client, signaling_url, &keypair, &peer_id_str, &pub_key_b64,
                             &room_code, &addresses,
                         ).await {
                             let _ = event_tx.send(SignalingEvent::Error {
@@ -125,7 +136,7 @@ async fn signaling_loop(
                         }
                     }
                     SignalingCmd::Bootstrap { room_code } => {
-                        match do_bootstrap(&client, &room_code).await {
+                        match do_bootstrap(&client, signaling_url, &room_code).await {
                             Ok(peers) => {
                                 let _ = event_tx.send(SignalingEvent::BootstrapPeers { peers }).await;
                             }
@@ -143,7 +154,7 @@ async fn signaling_loop(
                         if let Some(room) = &active_room {
                             if !active_addrs.is_empty() {
                                 if let Err(e) = do_register(
-                                    &client, &keypair, &peer_id_str, &pub_key_b64,
+                                    &client, signaling_url, &keypair, &peer_id_str, &pub_key_b64,
                                     room, &active_addrs,
                                 ).await {
                                     let _ = event_tx.send(SignalingEvent::Error {
@@ -158,7 +169,7 @@ async fn signaling_loop(
                     }
                     SignalingCmd::Unregister { room_code } => {
                         if let Err(e) = do_unregister(
-                            &client, &keypair, &peer_id_str, &pub_key_b64,
+                            &client, signaling_url, &keypair, &peer_id_str, &pub_key_b64,
                             &room_code,
                         ).await {
                             let _ = event_tx.send(SignalingEvent::Error {
@@ -173,7 +184,7 @@ async fn signaling_loop(
                 // Re-register with the signaling service to stay fresh.
                 if let Some(room) = &active_room
                     && let Err(e) = do_register(
-                        &client, &keypair, &peer_id_str, &pub_key_b64,
+                        &client, signaling_url, &keypair, &peer_id_str, &pub_key_b64,
                         room, &active_addrs,
                     ).await
                 {
@@ -188,6 +199,7 @@ async fn signaling_loop(
 
 async fn do_register(
     client: &reqwest::Client,
+    signaling_url: &str,
     keypair: &identity::Keypair,
     peer_id_str: &str,
     pub_key_b64: &str,
@@ -223,7 +235,7 @@ async fn do_register(
     };
 
     let resp = client
-        .post(format!("{SIGNALING_URL}/register"))
+        .post(format!("{signaling_url}/register"))
         .json(&payload)
         .timeout(Duration::from_secs(10))
         .send()
@@ -241,6 +253,7 @@ async fn do_register(
 
 async fn do_unregister(
     client: &reqwest::Client,
+    signaling_url: &str,
     keypair: &identity::Keypair,
     peer_id_str: &str,
     pub_key_b64: &str,
@@ -270,7 +283,7 @@ async fn do_unregister(
     };
 
     let resp = client
-        .post(format!("{SIGNALING_URL}/unregister"))
+        .post(format!("{signaling_url}/unregister"))
         .json(&payload)
         .timeout(Duration::from_secs(10))
         .send()
@@ -288,9 +301,10 @@ async fn do_unregister(
 
 async fn do_bootstrap(
     client: &reqwest::Client,
+    signaling_url: &str,
     room_code: &str,
 ) -> Result<Vec<BootstrapPeer>, String> {
-    let url = format!("{SIGNALING_URL}/bootstrap/{}", urlencoding_encode(room_code));
+    let url = format!("{signaling_url}/bootstrap/{}", urlencoding_encode(room_code));
 
     let resp = client
         .get(&url)

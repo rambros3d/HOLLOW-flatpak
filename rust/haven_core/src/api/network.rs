@@ -319,6 +319,15 @@ pub fn start_node() -> Result<String, String> {
     // Extract fingerprint before moving OlmManager into the swarm task.
     let olm_fingerprint = olm.identity_key_base64();
 
+    // Load proxy setting from DB before opening CryptoStore.
+    let proxy_enabled = {
+        let store = MessageStore::open(&db_path, &passphrase)?;
+        store.load_setting("proxy_enabled").unwrap_or(None) == Some("true".to_string())
+    };
+    if proxy_enabled {
+        haven_log!("[HAVEN] Proxy mode ENABLED — will start Shadowsocks tunnels");
+    }
+
     // Open the CryptoStore persistence actor (runs in its own blocking thread).
     let rt = get_runtime();
     let crypto_store = rt.block_on(async {
@@ -329,7 +338,7 @@ pub fn start_node() -> Result<String, String> {
     let (cmd_tx, cmd_rx) = mpsc::channel::<node::NodeCommand>(100);
 
     let (peer_id_str, handle) = rt
-        .block_on(node::spawn_node(id.keypair, event_tx, cmd_rx, olm, crypto_store))
+        .block_on(node::spawn_node(id.keypair, event_tx, cmd_rx, olm, crypto_store, proxy_enabled))
         .map_err(|e| format!("Failed to start node: {e}"))?;
 
     // Store event receiver separately so watch_network_events() can take it.

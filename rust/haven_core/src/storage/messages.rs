@@ -264,6 +264,16 @@ impl MessageStore {
         )
         .map_err(|e| format!("Failed to create message_edits index: {e}"))?;
 
+        // -- App settings (key-value, general purpose) --
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS app_settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create app_settings table: {e}"))?;
+
         // -- MLS identity (singleton row, id=1) --
         conn.execute(
             "CREATE TABLE IF NOT EXISTS mls_identity (
@@ -1174,5 +1184,35 @@ impl MessageStore {
             .map_err(|e| format!("Failed to update DM message: {e}"))?;
 
         Ok(rows > 0)
+    }
+
+    // ── App Settings ──────────────────────────────────────────────
+
+    /// Save a key-value setting (insert or update).
+    pub fn save_setting(&self, key: &str, value: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT INTO app_settings (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![key, value],
+            )
+            .map_err(|e| format!("Failed to save setting: {e}"))?;
+        Ok(())
+    }
+
+    /// Load a setting by key. Returns None if not set.
+    pub fn load_setting(&self, key: &str) -> Result<Option<String>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT value FROM app_settings WHERE key = ?1")
+            .map_err(|e| format!("Failed to prepare setting query: {e}"))?;
+        let mut rows = stmt
+            .query_map(params![key], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("Failed to query setting: {e}"))?;
+        match rows.next() {
+            Some(Ok(val)) => Ok(Some(val)),
+            Some(Err(e)) => Err(format!("Failed to read setting: {e}")),
+            None => Ok(None),
+        }
     }
 }

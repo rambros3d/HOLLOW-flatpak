@@ -962,6 +962,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] Pinned messages — CRDT OR-Set of pinned message IDs per channel, pin/unpin broadcast
 
 **Quality of Life:**
+- [ ] System Tray — App working in the background)
 - [ ] Friends system & DM overhaul — Rust: `friends` SQLCipher table (peer_id, display_name, added_at, status). Friend request flow: `FriendRequest` → `FriendAccepted`/`FriendDeclined` wire messages over Olm. Friends list persists offline (not just "who's online"). DM sidebar shows all friends (online/offline) with status dots, sorted online-first. DM history persists and loads from DB regardless of connection status. Unfriend removes from list but keeps DM history. No mutual server required — friends are independent of servers.
 - [ ] Notifications — system-level (Windows toast / macOS notification center), configurable per server and per channel (all / mentions only / none)
 - [ ] Search — local full-text search over decrypted messages in SQLCipher. 🎞️ Animate: search bar expand, results list staggered fade-in
@@ -1066,11 +1067,66 @@ Russia's TSPU (DPI system) is one of the most advanced censorship systems in the
 2. **Relay-side proxy** — Run XRay/Shadowsocks on our VPS alongside the relay. Censored users connect to the obfuscated proxy, which tunnels to the Haven relay internally. Minimal Haven code changes.
 3. **Built-in transport** — Integrate a Shadowsocks or VLESS client directly into Haven's Rust backend. Auto-detect censorship (connection failures on WSS) and fall back to obfuscated tunnel. Best UX, most work.
 
+**Research findings:**
+- WSS on port 443 — TSPU detects libp2p fingerprint inside TLS, kills connections in ~10-20 seconds
+- VLESS+Reality over TCP — blocked by TSPU since Feb 2026 (~15-20KB payload threshold)
+- VLESS+Reality over XHTTP — proxy worked for HTTP traffic but libp2p bypasses system proxy (raw sockets), TUN mode still killed by TSPU
+- External proxy (SOCKS5/TUN mode) — doesn't work because libp2p opens raw TCP/UDP sockets, bypassing system proxies
+- Regular VPN — works, confirming the issue is protocol fingerprinting, not IP blocking
+- **Shadowsocks-2022 (AEAD) — works on many ISPs, but TSPU on some ISPs detects it via encapsulated traffic fingerprinting (packet size/timing patterns) and kills connections after ~20 seconds**
+- Hysteria V2 — QUIC/UDP-based, Russia throttles UDP periodically, unreliable
+- WireGuard/OpenVPN/IKEv2 — all dead in Russia
+- AmneziaWG — UDP-based (same throttling issue), no embeddable Rust library
+- Russian VPS — domestic traffic fine, but outbound international traffic still inspected by TSPU
+
+**Solution implemented: Option 3 — Embedded Shadowsocks tunnel**
+
+Architecture:
+```
+[Proxy OFF — normal users]
+Haven app → TCP/QUIC direct → relay:4001
+
+[Proxy ON — censored users]
+Haven app → local TCP tunnel (127.0.0.1:14001) → SS encrypt → VPS:443 → ssserver decrypt → relay localhost:4001
+Haven app → local TCP tunnel (127.0.0.1:18080) → SS encrypt → VPS:443 → ssserver decrypt → signaling localhost:8080
+```
+
 **Checklist:**
-- [ ] Research: test VLESS+Reality from Russian network to confirm it works
-- [ ] Option 1: Write user-facing guide for external proxy setup
-- [ ] Option 2: Deploy XRay/Shadowsocks proxy on relay VPS, add Haven config for proxy endpoint
-- [ ] Option 3: Integrate obfuscated transport into Rust backend (long-term)
+- [x] Research: test VLESS+Reality from Russian network — BLOCKED by TSPU (TCP killed at ~15-20KB)
+- [x] Research: test VLESS+Reality XHTTP — proxy works for HTTP but libp2p bypasses it, TUN mode still killed
+- [x] Research: confirm external proxy won't work — libp2p bypasses SOCKS5/HTTP proxies
+- [x] Research: test Shadowsocks-2022 from Russia — PARTIALLY BLOCKED (ISP-dependent, TSPU uses encapsulated traffic fingerprinting on some ISPs)
+- [x] Research: evaluate Hysteria V2 — UDP-based, Russia throttles UDP, unreliable
+- [x] Research: evaluate embedded VPN (WireGuard/OpenVPN) — requires OS-level TUN/TAP drivers + admin privileges, not suitable for a chat app
+- [x] Research: evaluate Russian VPS — outbound international traffic still inspected by TSPU, doesn't solve the problem
+- [ ] Option 1: Write user-facing guide for external proxy setup — SKIPPED (external proxy doesn't work with libp2p)
+- [ ] Option 2: Deploy XRay/Shadowsocks proxy on relay VPS only — SKIPPED (went straight to Option 3)
+- [x] Option 3: Integrate obfuscated transport into Rust backend
+  - [x] Add `app_settings` key-value table to SQLCipher (`storage/messages.rs`)
+  - [x] Add `save_setting()`/`load_setting()` FFI functions (`api/storage.rs`)
+  - [x] Add `shadowsocks-service` crate dependency (`Cargo.toml`)
+  - [x] Create tunnel module with dual-port local tunnels (`node/tunnel.rs`)
+  - [x] Wire `proxy_enabled` through swarm startup — proxy-aware relay addresses, circuit building (`node/swarm.rs`)
+  - [x] Wire `proxy_enabled` through signaling — tunneled signaling URL (`node/signaling.rs`)
+  - [x] Load proxy setting in `start_node()` (`api/network.rs`)
+  - [x] Regenerate FFI bindings (`flutter_rust_bridge_codegen generate`)
+  - [x] Create Dart settings provider (`settings_provider.dart`)
+  - [x] Add "Use Proxy" toggle to User Settings dialog with restart prompt
+  - [x] Deploy ssserver on VPS (port 443, 2022-blake3-aes-256-gcm)
+  - [x] Hardcode generated key in `tunnel.rs`
+  - [x] Verify tunnels start and relay connects through localhost
+  - [x] Test from Russia with friend — SS connections killed by TSPU after ~20s on friend's ISP (encapsulated traffic fingerprinting + active probing)
+
+**UI changes:**
+- [x] Toggles (Dark Mode, Proxy) now use local state — only applied on Save, reverted on Cancel
+- [x] "Restart Required" prompt after saving proxy change (Restart Later / Restart Now)
+- [x] Restart Now does graceful shutdown (notifyShutdown + 200ms) then relaunches haven.exe
+
+**Status: Shadowsocks tunnel IMPLEMENTED and FUNCTIONAL, but defeated by TSPU on some Russian ISPs.**
+The proxy toggle remains in the app — Shadowsocks-2022 still works on many ISPs and in other censored countries. The toggle is not useless, it just doesn't beat the most aggressive DPI configurations.
+
+**Next step: TLS camouflage tunnel (REALITY-style)**
+DIY TLS camouflage using rustls — make tunnel traffic look like a real HTTPS connection to a popular domain (e.g., www.google.com). This is the approach that consistently beats TSPU with <5% detection rate. Requires implementing a custom TLS wrapper in Rust that generates browser-like ClientHello fingerprints. The existing proxy toggle UI and architecture (local tunnel → VPS → relay) would be reused — only the tunnel protocol changes from Shadowsocks to TLS camouflage.
 
 ---
 

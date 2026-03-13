@@ -48,6 +48,14 @@ Future<UserProfile?> getProfile({required String peerId}) =>
 Future<List<UserProfile>> getAllProfiles() =>
     RustLib.instance.api.crateApiStorageGetAllProfiles();
 
+/// Save a key-value setting to the local database.
+Future<void> saveSetting({required String key, required String value}) =>
+    RustLib.instance.api.crateApiStorageSaveSetting(key: key, value: value);
+
+/// Load a setting by key. Returns None if not set.
+Future<String?> loadSetting({required String key}) =>
+    RustLib.instance.api.crateApiStorageLoadSetting(key: key);
+
 /// Save a channel message to the local database.
 Future<PlatformInt64> saveChannelMessage({
   required String serverId,

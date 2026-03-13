@@ -44,6 +44,21 @@ fn relay_addrs() -> Vec<Multiaddr> {
         .collect()
 }
 
+/// Like `relay_addrs()`, but when proxy is enabled returns only the local
+/// tunnel address (TCP through Shadowsocks). QUIC/WSS can't be tunneled.
+fn proxy_aware_relay_addrs(proxy_enabled: bool) -> Vec<Multiaddr> {
+    if proxy_enabled {
+        if RELAY_PEER_ID.is_empty() {
+            return vec![];
+        }
+        vec![format!("{}/p2p/{RELAY_PEER_ID}", super::tunnel::PROXY_RELAY_ADDR)
+            .parse()
+            .unwrap()]
+    } else {
+        relay_addrs()
+    }
+}
+
 /// Filter addresses for signaling registration.
 /// Removes loopback, link-local, and private LAN addresses.
 /// Keeps relay circuit addresses and public IPs.
@@ -889,6 +904,7 @@ pub(crate) async fn spawn_node(
     cmd_rx: mpsc::Receiver<NodeCommand>,
     olm: OlmManager,
     crypto_store: CryptoStore,
+    proxy_enabled: bool,
 ) -> Result<(String, tokio::task::JoinHandle<()>), String> {
     // Clone keypair for signaling task (it needs to sign register requests).
     let sig_keypair = keypair.clone();
@@ -983,13 +999,24 @@ pub(crate) async fn spawn_node(
 
     let peer_id_str = swarm.local_peer_id().to_string();
 
+    // Start Shadowsocks tunnels if proxy mode is enabled.
+    let tunnel_handles = if proxy_enabled {
+        haven_log!("[HAVEN] [PROXY] Proxy mode enabled, starting Shadowsocks tunnels...");
+        let handles = super::tunnel::start_tunnels().await?;
+        // Brief delay to ensure tunnels are listening before libp2p dials.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        Some(handles)
+    } else {
+        None
+    };
+
     // Spawn the signaling background task.
     let (sig_cmd_tx, sig_event_rx) =
-        signaling::spawn_signaling_task(sig_keypair, peer_id_str.clone());
+        signaling::spawn_signaling_task(sig_keypair, peer_id_str.clone(), proxy_enabled);
 
     let handle = tokio::spawn(run_swarm(
         swarm, event_tx, cmd_rx, olm, crypto_store, sig_cmd_tx, sig_event_rx,
-        bundle_keypair,
+        bundle_keypair, proxy_enabled, tunnel_handles,
     ));
 
     Ok((peer_id_str, handle))
@@ -1005,6 +1032,8 @@ async fn run_swarm(
     sig_cmd_tx: mpsc::Sender<SignalingCmd>,
     mut sig_event_rx: mpsc::Receiver<SignalingEvent>,
     bundle_keypair: identity::Keypair,
+    proxy_enabled: bool,
+    tunnel_handles: Option<Vec<tokio::task::JoinHandle<()>>>,
 ) {
     // Precompute public key base64 for prekey bundle signing.
     let pub_key_proto = bundle_keypair.public().encode_protobuf();
@@ -1038,7 +1067,7 @@ async fn run_swarm(
                 message: format!("[DEBUG] Dialing relay {relay_pid}..."),
             })
             .await;
-        for addr in relay_addrs() {
+        for addr in proxy_aware_relay_addrs(proxy_enabled) {
             let _ = event_tx
                 .send(NetworkEvent::Error {
                     message: format!("[DEBUG] Relay addr: {addr}"),
@@ -2894,13 +2923,14 @@ async fn run_swarm(
                                 // Emit PeerDiscovered + SessionEstablished (dedup: only once per session).
                                 if discovered_peers.insert(src_peer_id) {
                                     let src_peer_str = src_peer_id.to_string();
+                                    let circuit_base = if proxy_enabled { RELAY_ADDR_TCP } else { RELAY_ADDR_QUIC };
                                     let _ = event_tx
                                         .send(NetworkEvent::PeerDiscovered {
                                             peer: DiscoveredPeer {
                                                 peer_id: src_peer_str.clone(),
                                                 addresses: vec![format!(
                                                     "{}/p2p/{}/p2p-circuit/p2p/{}",
-                                                    RELAY_ADDR_QUIC, RELAY_PEER_ID, src_peer_id
+                                                    circuit_base, RELAY_PEER_ID, src_peer_id
                                                 )],
                                             },
                                         })
@@ -3152,14 +3182,19 @@ async fn run_swarm(
 
                         // Once connected to the relay, request a circuit reservation.
                         // Use the transport that actually connected (check endpoint).
+                        // When proxy is enabled, always use real TCP addr (tunnel is transparent).
                         if relay_peer_id() == Some(peer_id) {
-                            let ep_str = format!("{endpoint:?}");
-                            let base = if ep_str.contains("quic") {
-                                RELAY_ADDR_QUIC
-                            } else if ep_str.contains("ws") || ep_str.contains("443") {
-                                RELAY_ADDR_WSS
-                            } else {
+                            let base = if proxy_enabled {
                                 RELAY_ADDR_TCP
+                            } else {
+                                let ep_str = format!("{endpoint:?}");
+                                if ep_str.contains("quic") {
+                                    RELAY_ADDR_QUIC
+                                } else if ep_str.contains("ws") || ep_str.contains("443") {
+                                    RELAY_ADDR_WSS
+                                } else {
+                                    RELAY_ADDR_TCP
+                                }
                             };
                             let relay_circuit: Multiaddr = format!(
                                 "{base}/p2p/{RELAY_PEER_ID}/p2p-circuit"
@@ -3267,11 +3302,23 @@ async fn run_swarm(
                             // Brief delay before re-dial to avoid tight reconnect loops.
                             let relay_pid = peer_id;
                             tokio::time::sleep(Duration::from_secs(5)).await;
-                            for addr in relay_addrs() {
+                            let addrs = proxy_aware_relay_addrs(proxy_enabled);
+                            for addr in &addrs {
                                 swarm.add_peer_address(relay_pid, addr.clone());
-                                swarm.behaviour_mut().kademlia.add_address(&relay_pid, addr);
+                                swarm.behaviour_mut().kademlia.add_address(&relay_pid, addr.clone());
                             }
-                            if let Err(e) = swarm.dial(relay_pid) {
+                            // When proxy is on, dial the specific tunnel address to avoid
+                            // libp2p trying cached direct QUIC/WSS/TCP addresses.
+                            let dial_result = if proxy_enabled {
+                                if let Some(addr) = addrs.into_iter().next() {
+                                    swarm.dial(addr)
+                                } else {
+                                    Err(libp2p::swarm::DialError::NoAddresses.into())
+                                }
+                            } else {
+                                swarm.dial(relay_pid)
+                            };
+                            if let Err(e) = dial_result {
                                 let _ = event_tx.send(NetworkEvent::Error {
                                     message: format!("[RELAY] Re-dial failed: {e}"),
                                 }).await;
@@ -3318,7 +3365,12 @@ async fn run_swarm(
 
                             // Build relay circuit addresses (fast, reliable path).
                             if let Some(relay_pid) = relay_peer_id() {
-                                for base in [RELAY_ADDR_TCP, RELAY_ADDR_WSS] {
+                                let bases: Vec<&str> = if proxy_enabled {
+                                    vec![RELAY_ADDR_TCP]
+                                } else {
+                                    vec![RELAY_ADDR_TCP, RELAY_ADDR_WSS]
+                                };
+                                for base in bases {
                                     if let Ok(circuit_addr) = format!(
                                         "{}/p2p/{}/p2p-circuit/p2p/{}",
                                         base, relay_pid, peer_id
@@ -3502,11 +3554,19 @@ async fn run_swarm(
                         // Remove stale relay circuit addresses.
                         known_addresses.retain(|a| !a.contains("p2p-circuit"));
                         // Re-add relay addresses and dial.
-                        for addr in relay_addrs() {
+                        let addrs = proxy_aware_relay_addrs(proxy_enabled);
+                        for addr in &addrs {
                             swarm.add_peer_address(relay_pid, addr.clone());
-                            swarm.behaviour_mut().kademlia.add_address(&relay_pid, addr);
+                            swarm.behaviour_mut().kademlia.add_address(&relay_pid, addr.clone());
                         }
-                        let _ = swarm.dial(relay_pid);
+                        // When proxy is on, dial specific tunnel address.
+                        if proxy_enabled {
+                            if let Some(addr) = addrs.into_iter().next() {
+                                let _ = swarm.dial(addr);
+                            }
+                        } else {
+                            let _ = swarm.dial(relay_pid);
+                        }
                     } else {
                         // Connected to relay but check if we have a circuit address.
                         let has_circuit = known_addresses.iter().any(|a| a.contains("p2p-circuit"));
@@ -3515,9 +3575,10 @@ async fn run_swarm(
                                 message: "[RELAY] Connected but no circuit address, re-requesting...".to_string(),
                             }).await;
                             // Re-request circuit reservation.
+                            let circuit_base = if proxy_enabled { RELAY_ADDR_TCP } else { RELAY_ADDR_QUIC };
                             let relay_circuit: Multiaddr = format!(
                                 "{}/p2p/{}/p2p-circuit",
-                                RELAY_ADDR_QUIC, RELAY_PEER_ID
+                                circuit_base, RELAY_PEER_ID
                             ).parse().unwrap();
                             let _ = swarm.listen_on(relay_circuit);
                         }
@@ -3525,6 +3586,14 @@ async fn run_swarm(
                 }
             }
         }
+    }
+
+    // Abort tunnel tasks on shutdown.
+    if let Some(handles) = tunnel_handles {
+        for h in handles {
+            h.abort();
+        }
+        haven_log!("[HAVEN] [PROXY] Shadowsocks tunnels stopped");
     }
 }
 

@@ -1,8 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/providers/identity_provider.dart';
 import 'package:haven/src/core/providers/profile_provider.dart';
+import 'package:haven/src/core/providers/settings_provider.dart';
 import 'package:haven/src/core/providers/theme_provider.dart';
+import 'package:haven/src/rust/api/network.dart' as network_api;
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
@@ -74,6 +78,12 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
   String _liveDisplayName = '';
   String _liveStatus = '';
 
+  // Pending toggle states (applied only on Save).
+  late bool _pendingDarkMode;
+  bool _pendingProxy = false;
+  bool _initialProxy = false;
+  bool _proxyInitialized = false;
+
   @override
   void initState() {
     super.initState();
@@ -81,6 +91,17 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
     _liveStatus = widget.statusController.text;
     widget.displayNameController.addListener(_onFieldChanged);
     widget.statusController.addListener(_onFieldChanged);
+
+    _pendingDarkMode =
+        ref.read(themeModeProvider) == ThemeMode.dark;
+
+    // If already loaded, use the value directly.
+    final proxyAsync = ref.read(proxyEnabledProvider);
+    if (proxyAsync.hasValue) {
+      _pendingProxy = proxyAsync.value!;
+      _initialProxy = _pendingProxy;
+      _proxyInitialized = true;
+    }
   }
 
   void _onFieldChanged() {
@@ -97,10 +118,62 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
     super.dispose();
   }
 
+  Future<void> _onSave() async {
+    final displayName = widget.displayNameController.text.trim();
+    final status = widget.statusController.text.trim();
+    final aboutMe = widget.aboutMeController.text.trim();
+
+    // Apply theme change.
+    ref.read(themeModeProvider.notifier).state =
+        _pendingDarkMode ? ThemeMode.dark : ThemeMode.light;
+
+    // Apply proxy change.
+    final proxyChanged = _pendingProxy != _initialProxy;
+    if (proxyChanged) {
+      await ref
+          .read(proxyEnabledProvider.notifier)
+          .setEnabled(_pendingProxy);
+    }
+
+    // Save profile.
+    await ref.read(profileProvider.notifier).updateMyProfile(
+          displayName: displayName,
+          status: status,
+          aboutMe: aboutMe,
+        );
+
+    if (!mounted) return;
+    Navigator.of(context).pop();
+
+    // Show restart prompt if proxy setting changed.
+    if (proxyChanged && mounted) {
+      _showRestartDialog(context);
+    }
+  }
+
+  void _showRestartDialog(BuildContext parentContext) {
+    showHavenDialog(
+      context: parentContext,
+      builder: (ctx) => _RestartPrompt(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Update pending proxy once the async value resolves.
+    if (!_proxyInitialized) {
+      ref.listen(proxyEnabledProvider, (prev, next) {
+        if (next.hasValue && !_proxyInitialized) {
+          setState(() {
+            _pendingProxy = next.value!;
+            _initialProxy = _pendingProxy;
+            _proxyInitialized = true;
+          });
+        }
+      });
+    }
+
     final haven = HavenTheme.of(context);
-    final isDark = ref.watch(themeModeProvider) == ThemeMode.dark;
     final bannerColor = _bannerColorFromId(widget.localPeerId);
     final radius = BorderRadius.circular(haven.radiusLg);
 
@@ -388,7 +461,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                               Row(
                                 children: [
                                   Icon(
-                                    isDark
+                                    _pendingDarkMode
                                         ? LucideIcons.moon
                                         : LucideIcons.sun,
                                     size: 16,
@@ -405,14 +478,56 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                                     ),
                                   ),
                                   HavenToggle(
-                                    value: isDark,
+                                    value: _pendingDarkMode,
                                     onChanged: (value) {
-                                      ref
-                                          .read(
-                                              themeModeProvider.notifier)
-                                          .state = value
-                                          ? ThemeMode.dark
-                                          : ThemeMode.light;
+                                      setState(() {
+                                        _pendingDarkMode = value;
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
+
+                              const SizedBox(height: HavenSpacing.md),
+
+                              // Proxy toggle
+                              Row(
+                                children: [
+                                  Icon(
+                                    LucideIcons.shield,
+                                    size: 16,
+                                    color: haven.textSecondary,
+                                  ),
+                                  const SizedBox(width: HavenSpacing.sm),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Use Proxy',
+                                          style:
+                                              HavenTypography.body.copyWith(
+                                            color: haven.textPrimary,
+                                          ),
+                                        ),
+                                        Text(
+                                          'For restricted networks',
+                                          style: HavenTypography.caption
+                                              .copyWith(
+                                            color: haven.textSecondary,
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  HavenToggle(
+                                    value: _pendingProxy,
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _pendingProxy = value;
+                                      });
                                     },
                                   ),
                                 ],
@@ -436,24 +551,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                         ),
                         const SizedBox(width: HavenSpacing.sm),
                         HavenButton.filled(
-                          onPressed: () async {
-                            final displayName =
-                                widget.displayNameController.text.trim();
-                            final status =
-                                widget.statusController.text.trim();
-                            final aboutMe =
-                                widget.aboutMeController.text.trim();
-
-                            Navigator.of(context).pop();
-
-                            await ref
-                                .read(profileProvider.notifier)
-                                .updateMyProfile(
-                                  displayName: displayName,
-                                  status: status,
-                                  aboutMe: aboutMe,
-                                );
-                          },
+                          onPressed: _onSave,
                           child: const Text('Save'),
                         ),
                       ],
@@ -461,6 +559,101 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                   ),
                 ],
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Restart prompt dialog shown after proxy setting changes.
+class _RestartPrompt extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final haven = HavenTheme.of(context);
+    final radius = BorderRadius.circular(haven.radiusMd);
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 340),
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            decoration: BoxDecoration(
+              color: haven.elevated.withValues(alpha: 0.95),
+              borderRadius: radius,
+              border: Border.all(
+                color: haven.accent.withValues(alpha: 0.15),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25),
+                  blurRadius: 20,
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(HavenSpacing.xl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  LucideIcons.rotateCcw,
+                  size: 32,
+                  color: haven.accent,
+                ),
+                const SizedBox(height: HavenSpacing.md),
+                Text(
+                  'Restart Required',
+                  style: HavenTypography.subheading.copyWith(
+                    color: haven.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: HavenSpacing.sm),
+                Text(
+                  'The proxy setting requires a restart to take effect.',
+                  style: HavenTypography.body.copyWith(
+                    color: haven.textSecondary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: HavenSpacing.xl),
+                Row(
+                  children: [
+                    Expanded(
+                      child: HavenButton.ghost(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Restart Later'),
+                      ),
+                    ),
+                    const SizedBox(width: HavenSpacing.sm),
+                    Expanded(
+                      child: HavenButton.filled(
+                        onPressed: () async {
+                          // Graceful shutdown: notify peers, stop node.
+                          try {
+                            await network_api.notifyShutdown();
+                            await Future.delayed(
+                                const Duration(milliseconds: 200));
+                          } catch (_) {}
+
+                          // Spawn new instance before exiting.
+                          final exe = Platform.resolvedExecutable;
+                          await Process.start(exe, [],
+                              mode: ProcessStartMode.detached);
+
+                          // Small delay to let the OS fully detach the child.
+                          await Future.delayed(
+                              const Duration(milliseconds: 100));
+                          exit(0);
+                        },
+                        child: const Text('Restart Now'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         ),

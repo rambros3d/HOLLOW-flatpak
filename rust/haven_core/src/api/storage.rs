@@ -154,6 +154,26 @@ pub fn get_all_profiles() -> Result<Vec<UserProfile>, String> {
         .collect())
 }
 
+// ── App Settings ──────────────────────────────────────────────
+
+/// Save a key-value setting to the local database.
+#[frb]
+pub fn save_setting(key: String, value: String) -> Result<(), String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+    ms.save_setting(&key, &value)
+}
+
+/// Load a setting by key. Returns None if not set.
+#[frb]
+pub fn load_setting(key: String) -> Result<Option<String>, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+    ms.load_setting(&key)
+}
+
 /// A channel message returned to Dart from the local database.
 pub struct StoredChannelMessage {
     pub id: i64,
