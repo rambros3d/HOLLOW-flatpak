@@ -70,7 +70,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => -705670245;
+  int get rustContentHash => -1203312084;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -81,6 +81,19 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
+  Future<void> crateApiNetworkAddChannelReaction({
+    required String serverId,
+    required String channelId,
+    required String messageId,
+    required String emoji,
+  });
+
+  Future<void> crateApiNetworkAddDmReaction({
+    required String peerId,
+    required String messageId,
+    required String emoji,
+  });
+
   Future<void> crateApiCrdtChangeMemberRole({
     required String serverId,
     required String peerId,
@@ -176,6 +189,10 @@ abstract class RustLibApi extends BaseApi {
 
   Future<IdentityInfo> crateApiIdentityLoadOrCreateIdentity();
 
+  Future<List<StoredReaction>> crateApiStorageLoadReactions({
+    required List<String> messageIds,
+  });
+
   Future<String?> crateApiStorageLoadSetting({required String key});
 
   Future<void> crateApiNetworkNotifyShutdown();
@@ -187,6 +204,19 @@ abstract class RustLibApi extends BaseApi {
   Future<void> crateApiCrdtRemoveChannel({
     required String serverId,
     required String channelId,
+  });
+
+  Future<void> crateApiNetworkRemoveChannelReaction({
+    required String serverId,
+    required String channelId,
+    required String messageId,
+    required String emoji,
+  });
+
+  Future<void> crateApiNetworkRemoveDmReaction({
+    required String peerId,
+    required String messageId,
+    required String emoji,
   });
 
   Future<void> crateApiCrdtRenameChannel({
@@ -283,6 +313,82 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
+  Future<void> crateApiNetworkAddChannelReaction({
+    required String serverId,
+    required String channelId,
+    required String messageId,
+    required String emoji,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(serverId, serializer);
+          sse_encode_String(channelId, serializer);
+          sse_encode_String(messageId, serializer);
+          sse_encode_String(emoji, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 1,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiNetworkAddChannelReactionConstMeta,
+        argValues: [serverId, channelId, messageId, emoji],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiNetworkAddChannelReactionConstMeta =>
+      const TaskConstMeta(
+        debugName: "add_channel_reaction",
+        argNames: ["serverId", "channelId", "messageId", "emoji"],
+      );
+
+  @override
+  Future<void> crateApiNetworkAddDmReaction({
+    required String peerId,
+    required String messageId,
+    required String emoji,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(peerId, serializer);
+          sse_encode_String(messageId, serializer);
+          sse_encode_String(emoji, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 2,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiNetworkAddDmReactionConstMeta,
+        argValues: [peerId, messageId, emoji],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiNetworkAddDmReactionConstMeta =>
+      const TaskConstMeta(
+        debugName: "add_dm_reaction",
+        argNames: ["peerId", "messageId", "emoji"],
+      );
+
+  @override
   Future<void> crateApiCrdtChangeMemberRole({
     required String serverId,
     required String peerId,
@@ -298,7 +404,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 1,
+            funcId: 3,
             port: port_,
           );
         },
@@ -335,7 +441,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 2,
+            funcId: 4,
             port: port_,
           );
         },
@@ -365,7 +471,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 5,
             port: port_,
           );
         },
@@ -399,7 +505,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 6,
             port: port_,
           );
         },
@@ -434,7 +540,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 7,
             port: port_,
           );
         },
@@ -465,7 +571,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 8,
             port: port_,
           );
         },
@@ -501,7 +607,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 9,
             port: port_,
           );
         },
@@ -538,7 +644,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 10,
             port: port_,
           );
         },
@@ -568,7 +674,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 11,
             port: port_,
           );
         },
@@ -595,7 +701,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 12,
             port: port_,
           );
         },
@@ -622,7 +728,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 13,
             port: port_,
           );
         },
@@ -649,7 +755,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 14,
             port: port_,
           );
         },
@@ -677,7 +783,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 15,
             port: port_,
           );
         },
@@ -708,7 +814,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 16,
             port: port_,
           );
         },
@@ -735,7 +841,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 17,
             port: port_,
           );
         },
@@ -763,7 +869,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 18,
             port: port_,
           );
         },
@@ -793,7 +899,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 19,
             port: port_,
           );
         },
@@ -826,7 +932,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 20,
             port: port_,
           );
         },
@@ -861,7 +967,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 21,
             port: port_,
           );
         },
@@ -889,7 +995,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(name, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 20)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 22)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -914,7 +1020,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 23,
             port: port_,
           );
         },
@@ -942,7 +1048,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 24,
             port: port_,
           );
         },
@@ -970,7 +1076,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 25,
             port: port_,
           );
         },
@@ -1002,7 +1108,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 26,
             port: port_,
           );
         },
@@ -1038,7 +1144,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 27,
             port: port_,
           );
         },
@@ -1073,7 +1179,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 26,
+            funcId: 28,
             port: port_,
           );
         },
@@ -1103,7 +1209,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 29,
             port: port_,
           );
         },
@@ -1122,6 +1228,39 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "load_or_create_identity", argNames: []);
 
   @override
+  Future<List<StoredReaction>> crateApiStorageLoadReactions({
+    required List<String> messageIds,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_String(messageIds, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 30,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_stored_reaction,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiStorageLoadReactionsConstMeta,
+        argValues: [messageIds],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiStorageLoadReactionsConstMeta =>
+      const TaskConstMeta(
+        debugName: "load_reactions",
+        argNames: ["messageIds"],
+      );
+
+  @override
   Future<String?> crateApiStorageLoadSetting({required String key}) {
     return handler.executeNormal(
       NormalTask(
@@ -1131,7 +1270,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 31,
             port: port_,
           );
         },
@@ -1158,7 +1297,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 32,
             port: port_,
           );
         },
@@ -1185,7 +1324,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 30,
+            funcId: 33,
             port: port_,
           );
         },
@@ -1212,7 +1351,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 34,
             port: port_,
           );
         },
@@ -1244,7 +1383,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 32,
+            funcId: 35,
             port: port_,
           );
         },
@@ -1265,6 +1404,82 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<void> crateApiNetworkRemoveChannelReaction({
+    required String serverId,
+    required String channelId,
+    required String messageId,
+    required String emoji,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(serverId, serializer);
+          sse_encode_String(channelId, serializer);
+          sse_encode_String(messageId, serializer);
+          sse_encode_String(emoji, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 36,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiNetworkRemoveChannelReactionConstMeta,
+        argValues: [serverId, channelId, messageId, emoji],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiNetworkRemoveChannelReactionConstMeta =>
+      const TaskConstMeta(
+        debugName: "remove_channel_reaction",
+        argNames: ["serverId", "channelId", "messageId", "emoji"],
+      );
+
+  @override
+  Future<void> crateApiNetworkRemoveDmReaction({
+    required String peerId,
+    required String messageId,
+    required String emoji,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(peerId, serializer);
+          sse_encode_String(messageId, serializer);
+          sse_encode_String(emoji, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 37,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiNetworkRemoveDmReactionConstMeta,
+        argValues: [peerId, messageId, emoji],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiNetworkRemoveDmReactionConstMeta =>
+      const TaskConstMeta(
+        debugName: "remove_dm_reaction",
+        argNames: ["peerId", "messageId", "emoji"],
+      );
+
+  @override
   Future<void> crateApiCrdtRenameChannel({
     required String serverId,
     required String channelId,
@@ -1280,7 +1495,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 33,
+            funcId: 38,
             port: port_,
           );
         },
@@ -1314,7 +1529,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 34,
+            funcId: 39,
             port: port_,
           );
         },
@@ -1348,7 +1563,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 35,
+            funcId: 40,
             port: port_,
           );
         },
@@ -1381,7 +1596,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 36,
+            funcId: 41,
             port: port_,
           );
         },
@@ -1428,7 +1643,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 37,
+            funcId: 42,
             port: port_,
           );
         },
@@ -1489,7 +1704,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 38,
+            funcId: 43,
             port: port_,
           );
         },
@@ -1530,7 +1745,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 39,
+            funcId: 44,
             port: port_,
           );
         },
@@ -1570,7 +1785,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 40,
+            funcId: 45,
             port: port_,
           );
         },
@@ -1609,7 +1824,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 41,
+            funcId: 46,
             port: port_,
           );
         },
@@ -1645,7 +1860,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 42,
+            funcId: 47,
             port: port_,
           );
         },
@@ -1674,7 +1889,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 43,
+            funcId: 48,
             port: port_,
           );
         },
@@ -1701,7 +1916,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 44,
+            funcId: 49,
             port: port_,
           );
         },
@@ -1735,7 +1950,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 45,
+            funcId: 50,
             port: port_,
           );
         },
@@ -1772,7 +1987,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 46,
+            funcId: 51,
             port: port_,
           );
         },
@@ -1805,7 +2020,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 47,
+              funcId: 52,
               port: port_,
             );
           },
@@ -1971,6 +2186,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<StoredMessage> dco_decode_list_stored_message(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_stored_message).toList();
+  }
+
+  @protected
+  List<StoredReaction> dco_decode_list_stored_reaction(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_stored_reaction).toList();
   }
 
   @protected
@@ -2149,6 +2370,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           messageId: dco_decode_String(raw[2]),
           deletedAt: dco_decode_i_64(raw[3]),
         );
+      case 32:
+        return NetworkEvent_ChannelReactionAdded(
+          serverId: dco_decode_String(raw[1]),
+          channelId: dco_decode_String(raw[2]),
+          messageId: dco_decode_String(raw[3]),
+          emoji: dco_decode_String(raw[4]),
+          reactor: dco_decode_String(raw[5]),
+          addedAt: dco_decode_i_64(raw[6]),
+        );
+      case 33:
+        return NetworkEvent_DmReactionAdded(
+          peerId: dco_decode_String(raw[1]),
+          messageId: dco_decode_String(raw[2]),
+          emoji: dco_decode_String(raw[3]),
+          reactor: dco_decode_String(raw[4]),
+          addedAt: dco_decode_i_64(raw[5]),
+        );
+      case 34:
+        return NetworkEvent_ChannelReactionRemoved(
+          serverId: dco_decode_String(raw[1]),
+          channelId: dco_decode_String(raw[2]),
+          messageId: dco_decode_String(raw[3]),
+          emoji: dco_decode_String(raw[4]),
+          reactor: dco_decode_String(raw[5]),
+          removedAt: dco_decode_i_64(raw[6]),
+        );
+      case 35:
+        return NetworkEvent_DmReactionRemoved(
+          peerId: dco_decode_String(raw[1]),
+          messageId: dco_decode_String(raw[2]),
+          emoji: dco_decode_String(raw[3]),
+          reactor: dco_decode_String(raw[4]),
+          removedAt: dco_decode_i_64(raw[5]),
+        );
       default:
         throw Exception("unreachable");
     }
@@ -2233,6 +2488,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       editedAt: dco_decode_opt_box_autoadd_i_64(arr[8]),
       hiddenAt: dco_decode_opt_box_autoadd_i_64(arr[9]),
       replyToMid: dco_decode_opt_String(arr[10]),
+    );
+  }
+
+  @protected
+  StoredReaction dco_decode_stored_reaction(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return StoredReaction(
+      messageId: dco_decode_String(arr[0]),
+      emoji: dco_decode_String(arr[1]),
+      peerId: dco_decode_String(arr[2]),
+      addedAt: dco_decode_i_64(arr[3]),
     );
   }
 
@@ -2447,6 +2716,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <StoredMessage>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_stored_message(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<StoredReaction> sse_decode_list_stored_reaction(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <StoredReaction>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_stored_reaction(deserializer));
     }
     return ans_;
   }
@@ -2705,6 +2988,62 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           messageId: var_messageId,
           deletedAt: var_deletedAt,
         );
+      case 32:
+        var var_serverId = sse_decode_String(deserializer);
+        var var_channelId = sse_decode_String(deserializer);
+        var var_messageId = sse_decode_String(deserializer);
+        var var_emoji = sse_decode_String(deserializer);
+        var var_reactor = sse_decode_String(deserializer);
+        var var_addedAt = sse_decode_i_64(deserializer);
+        return NetworkEvent_ChannelReactionAdded(
+          serverId: var_serverId,
+          channelId: var_channelId,
+          messageId: var_messageId,
+          emoji: var_emoji,
+          reactor: var_reactor,
+          addedAt: var_addedAt,
+        );
+      case 33:
+        var var_peerId = sse_decode_String(deserializer);
+        var var_messageId = sse_decode_String(deserializer);
+        var var_emoji = sse_decode_String(deserializer);
+        var var_reactor = sse_decode_String(deserializer);
+        var var_addedAt = sse_decode_i_64(deserializer);
+        return NetworkEvent_DmReactionAdded(
+          peerId: var_peerId,
+          messageId: var_messageId,
+          emoji: var_emoji,
+          reactor: var_reactor,
+          addedAt: var_addedAt,
+        );
+      case 34:
+        var var_serverId = sse_decode_String(deserializer);
+        var var_channelId = sse_decode_String(deserializer);
+        var var_messageId = sse_decode_String(deserializer);
+        var var_emoji = sse_decode_String(deserializer);
+        var var_reactor = sse_decode_String(deserializer);
+        var var_removedAt = sse_decode_i_64(deserializer);
+        return NetworkEvent_ChannelReactionRemoved(
+          serverId: var_serverId,
+          channelId: var_channelId,
+          messageId: var_messageId,
+          emoji: var_emoji,
+          reactor: var_reactor,
+          removedAt: var_removedAt,
+        );
+      case 35:
+        var var_peerId = sse_decode_String(deserializer);
+        var var_messageId = sse_decode_String(deserializer);
+        var var_emoji = sse_decode_String(deserializer);
+        var var_reactor = sse_decode_String(deserializer);
+        var var_removedAt = sse_decode_i_64(deserializer);
+        return NetworkEvent_DmReactionRemoved(
+          peerId: var_peerId,
+          messageId: var_messageId,
+          emoji: var_emoji,
+          reactor: var_reactor,
+          removedAt: var_removedAt,
+        );
       default:
         throw UnimplementedError('');
     }
@@ -2834,6 +3173,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       editedAt: var_editedAt,
       hiddenAt: var_hiddenAt,
       replyToMid: var_replyToMid,
+    );
+  }
+
+  @protected
+  StoredReaction sse_decode_stored_reaction(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_messageId = sse_decode_String(deserializer);
+    var var_emoji = sse_decode_String(deserializer);
+    var var_peerId = sse_decode_String(deserializer);
+    var var_addedAt = sse_decode_i_64(deserializer);
+    return StoredReaction(
+      messageId: var_messageId,
+      emoji: var_emoji,
+      peerId: var_peerId,
+      addedAt: var_addedAt,
     );
   }
 
@@ -3058,6 +3412,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_stored_message(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_stored_reaction(
+    List<StoredReaction> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_stored_reaction(item, serializer);
     }
   }
 
@@ -3307,6 +3673,62 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(peerId, serializer);
         sse_encode_String(messageId, serializer);
         sse_encode_i_64(deletedAt, serializer);
+      case NetworkEvent_ChannelReactionAdded(
+        serverId: final serverId,
+        channelId: final channelId,
+        messageId: final messageId,
+        emoji: final emoji,
+        reactor: final reactor,
+        addedAt: final addedAt,
+      ):
+        sse_encode_i_32(32, serializer);
+        sse_encode_String(serverId, serializer);
+        sse_encode_String(channelId, serializer);
+        sse_encode_String(messageId, serializer);
+        sse_encode_String(emoji, serializer);
+        sse_encode_String(reactor, serializer);
+        sse_encode_i_64(addedAt, serializer);
+      case NetworkEvent_DmReactionAdded(
+        peerId: final peerId,
+        messageId: final messageId,
+        emoji: final emoji,
+        reactor: final reactor,
+        addedAt: final addedAt,
+      ):
+        sse_encode_i_32(33, serializer);
+        sse_encode_String(peerId, serializer);
+        sse_encode_String(messageId, serializer);
+        sse_encode_String(emoji, serializer);
+        sse_encode_String(reactor, serializer);
+        sse_encode_i_64(addedAt, serializer);
+      case NetworkEvent_ChannelReactionRemoved(
+        serverId: final serverId,
+        channelId: final channelId,
+        messageId: final messageId,
+        emoji: final emoji,
+        reactor: final reactor,
+        removedAt: final removedAt,
+      ):
+        sse_encode_i_32(34, serializer);
+        sse_encode_String(serverId, serializer);
+        sse_encode_String(channelId, serializer);
+        sse_encode_String(messageId, serializer);
+        sse_encode_String(emoji, serializer);
+        sse_encode_String(reactor, serializer);
+        sse_encode_i_64(removedAt, serializer);
+      case NetworkEvent_DmReactionRemoved(
+        peerId: final peerId,
+        messageId: final messageId,
+        emoji: final emoji,
+        reactor: final reactor,
+        removedAt: final removedAt,
+      ):
+        sse_encode_i_32(35, serializer);
+        sse_encode_String(peerId, serializer);
+        sse_encode_String(messageId, serializer);
+        sse_encode_String(emoji, serializer);
+        sse_encode_String(reactor, serializer);
+        sse_encode_i_64(removedAt, serializer);
     }
   }
 
@@ -3403,6 +3825,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_box_autoadd_i_64(self.editedAt, serializer);
     sse_encode_opt_box_autoadd_i_64(self.hiddenAt, serializer);
     sse_encode_opt_String(self.replyToMid, serializer);
+  }
+
+  @protected
+  void sse_encode_stored_reaction(
+    StoredReaction self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.messageId, serializer);
+    sse_encode_String(self.emoji, serializer);
+    sse_encode_String(self.peerId, serializer);
+    sse_encode_i_64(self.addedAt, serializer);
   }
 
   @protected

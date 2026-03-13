@@ -278,7 +278,25 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                                 _focusNode.requestFocus();
                               }
                             : null,
+                        onReaction: msg.messageId != null
+                            ? (emoji) {
+                                final localPeerId =
+                                    ref.read(identityProvider).peerId ?? '';
+                                final hasReacted =
+                                    msg.reactions[emoji]?.contains(localPeerId) ?? false;
+                                final notifier = ref.read(channelChatProvider.notifier);
+                                if (hasReacted) {
+                                  notifier.removeReaction(widget.serverId,
+                                      widget.channelId, msg.messageId!, emoji);
+                                } else {
+                                  notifier.addReaction(widget.serverId,
+                                      widget.channelId, msg.messageId!, emoji);
+                                }
+                              }
+                            : null,
                         child: Builder(builder: (_) {
+                          final localPeerId =
+                              ref.watch(identityProvider).peerId ?? '';
                           String? replySender;
                           String? replyText;
                           if (msg.replyToMid != null) {
@@ -300,6 +318,20 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                             showHeader: showHeader,
                             replyToSenderName: replySender,
                             replyToText: replyText,
+                            onToggleReaction: msg.messageId != null
+                                ? (emoji) {
+                                    final hasReacted =
+                                        msg.reactions[emoji]?.contains(localPeerId) ?? false;
+                                    final notifier = ref.read(channelChatProvider.notifier);
+                                    if (hasReacted) {
+                                      notifier.removeReaction(widget.serverId,
+                                          widget.channelId, msg.messageId!, emoji);
+                                    } else {
+                                      notifier.addReaction(widget.serverId,
+                                          widget.channelId, msg.messageId!, emoji);
+                                    }
+                                  }
+                                : null,
                           );
                         }),
                       );

@@ -5,6 +5,7 @@ import 'package:haven/src/core/providers/chat_provider.dart' show generateMessag
 import 'package:haven/src/core/providers/identity_provider.dart';
 import 'package:haven/src/core/providers/service_providers.dart';
 import 'package:haven/src/rust/api/network.dart' as network_api;
+import 'package:haven/src/rust/api/storage.dart' as storage_api;
 
 /// Manages channel message state, keyed by "serverId:channelId".
 class ChannelChatNotifier
@@ -127,6 +128,95 @@ class ChannelChatNotifier
     state = updated;
   }
 
+  /// Add an emoji reaction to a channel message.
+  /// Enforces 3 distinct emoji limit per user per message.
+  Future<void> addReaction(String serverId, String channelId,
+      String messageId, String emoji) async {
+    final key = _key(serverId, channelId);
+    final current = state[key];
+    if (current != null) {
+      final localPeerId = ref.read(identityProvider).peerId ?? '';
+      final idx = current.indexWhere((m) => m.messageId == messageId);
+      if (idx != -1) {
+        final msg = current[idx];
+        final myDistinct = msg.reactions.entries
+            .where((e) => e.value.contains(localPeerId) && e.key != emoji)
+            .length;
+        if (myDistinct >= 3) return;
+      }
+    }
+    await network_api.addChannelReaction(
+      serverId: serverId,
+      channelId: channelId,
+      messageId: messageId,
+      emoji: emoji,
+    );
+  }
+
+  /// Remove an emoji reaction from a channel message.
+  Future<void> removeReaction(String serverId, String channelId,
+      String messageId, String emoji) async {
+    await network_api.removeChannelReaction(
+      serverId: serverId,
+      channelId: channelId,
+      messageId: messageId,
+      emoji: emoji,
+    );
+  }
+
+  /// Apply an incoming reaction add to in-memory state.
+  void applyAddReaction(String serverId, String channelId,
+      String messageId, String emoji, String reactorPeerId) {
+    final key = _key(serverId, channelId);
+    final current = state[key];
+    if (current == null) return;
+
+    final idx = current.indexWhere((m) => m.messageId == messageId);
+    if (idx == -1) return;
+
+    final msg = current[idx];
+    final reactions = Map<String, List<String>>.from(
+        msg.reactions.map((k, v) => MapEntry(k, List<String>.from(v))));
+    final reactors = reactions[emoji] ?? [];
+    if (reactors.contains(reactorPeerId)) return;
+    reactions[emoji] = [...reactors, reactorPeerId];
+
+    final updatedList = List<ChannelChatMessage>.from(current);
+    updatedList[idx] = msg.copyWith(reactions: reactions);
+    final updated = Map.of(state);
+    updated[key] = updatedList;
+    state = updated;
+  }
+
+  /// Apply an incoming reaction removal to in-memory state.
+  void applyRemoveReaction(String serverId, String channelId,
+      String messageId, String emoji, String reactorPeerId) {
+    final key = _key(serverId, channelId);
+    final current = state[key];
+    if (current == null) return;
+
+    final idx = current.indexWhere((m) => m.messageId == messageId);
+    if (idx == -1) return;
+
+    final msg = current[idx];
+    final reactions = Map<String, List<String>>.from(
+        msg.reactions.map((k, v) => MapEntry(k, List<String>.from(v))));
+    final reactors = reactions[emoji];
+    if (reactors == null) return;
+    reactors.remove(reactorPeerId);
+    if (reactors.isEmpty) {
+      reactions.remove(emoji);
+    } else {
+      reactions[emoji] = reactors;
+    }
+
+    final updatedList = List<ChannelChatMessage>.from(current);
+    updatedList[idx] = msg.copyWith(reactions: reactions);
+    final updated = Map.of(state);
+    updated[key] = updatedList;
+    state = updated;
+  }
+
   /// Load history for a channel from SQLCipher.
   /// Also requests a background sync from connected peers.
   Future<void> loadHistory(String serverId, String channelId) async {
@@ -145,6 +235,26 @@ class ChannelChatNotifier
                 limit: 200,
               );
       if (stored.isNotEmpty) {
+        // Collect message IDs for bulk reaction loading.
+        final messageIds = stored
+            .where((m) => m.messageId != null)
+            .map((m) => m.messageId!)
+            .toList();
+
+        Map<String, Map<String, List<String>>> reactionsMap = {};
+        if (messageIds.isNotEmpty) {
+          try {
+            final storedReactions =
+                await storage_api.loadReactions(messageIds: messageIds);
+            for (final r in storedReactions) {
+              reactionsMap
+                  .putIfAbsent(r.messageId, () => {})
+                  .putIfAbsent(r.emoji, () => [])
+                  .add(r.peerId);
+            }
+          } catch (_) {}
+        }
+
         final messages = stored
             .map((m) => ChannelChatMessage(
                   senderId: m.senderId,
@@ -159,6 +269,9 @@ class ChannelChatNotifier
                       ? DateTime.fromMillisecondsSinceEpoch(m.editedAt!)
                       : null,
                   replyToMid: m.replyToMid,
+                  reactions: m.messageId != null
+                      ? reactionsMap[m.messageId]
+                      : null,
                 ))
             .toList();
 

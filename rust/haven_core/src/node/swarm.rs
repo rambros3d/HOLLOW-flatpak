@@ -137,6 +137,11 @@ pub(crate) enum NetworkEvent {
     // -- Message deletion events (Phase 3.5) --
     ChannelMessageDeleted { server_id: String, channel_id: String, message_id: String, deleted_at: i64 },
     DmMessageDeleted { peer_id: String, message_id: String, deleted_at: i64 },
+    // -- Emoji reaction events (Phase 3.5) --
+    ChannelReactionAdded { server_id: String, channel_id: String, message_id: String, emoji: String, reactor: String, added_at: i64 },
+    DmReactionAdded { peer_id: String, message_id: String, emoji: String, reactor: String, added_at: i64 },
+    ChannelReactionRemoved { server_id: String, channel_id: String, message_id: String, emoji: String, reactor: String, removed_at: i64 },
+    DmReactionRemoved { peer_id: String, message_id: String, emoji: String, reactor: String, removed_at: i64 },
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
@@ -166,6 +171,11 @@ pub(crate) enum NodeCommand {
     // -- Message deletion/hiding (Phase 3.5) --
     DeleteChannelMessage { server_id: String, channel_id: String, message_id: String },
     DeleteDmMessage { peer_id: PeerId, message_id: String },
+    // -- Emoji reactions (Phase 3.5) --
+    AddChannelReaction { server_id: String, channel_id: String, message_id: String, emoji: String },
+    AddDmReaction { peer_id: PeerId, message_id: String, emoji: String },
+    RemoveChannelReaction { server_id: String, channel_id: String, message_id: String, emoji: String },
+    RemoveDmReaction { peer_id: PeerId, message_id: String, emoji: String },
 }
 
 // -- Wire protocol types (v2: encrypted) --
@@ -426,6 +436,41 @@ enum MessageEnvelope {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sid: Option<String>,
         /// Channel ID (present for channel deletions, absent for DM).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cid: Option<String>,
+    },
+    /// Add an emoji reaction to a message.
+    #[serde(rename = "reaction")]
+    AddReaction {
+        /// The message_id being reacted to.
+        mid: String,
+        /// Unicode emoji string.
+        emoji: String,
+        /// Timestamp (millis since epoch).
+        ts: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sig: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pk: Option<String>,
+        /// Server ID (present for channel reactions, absent for DM).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sid: Option<String>,
+        /// Channel ID (present for channel reactions, absent for DM).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cid: Option<String>,
+    },
+    /// Remove an emoji reaction from a message.
+    #[serde(rename = "unreaction")]
+    RemoveReaction {
+        mid: String,
+        emoji: String,
+        ts: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sig: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pk: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sid: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cid: Option<String>,
     },
@@ -2663,6 +2708,346 @@ async fn run_swarm(
                         }).await;
                     }
 
+                    NodeCommand::AddChannelReaction { server_id, channel_id, message_id, emoji } => {
+                        haven_log!("[HAVEN-SWARM] AddChannelReaction {emoji} on {message_id} in {server_id}/{channel_id}");
+
+                        let server = match server_states.get(&server_id) {
+                            Some(s) => s,
+                            None => {
+                                let _ = event_tx.send(NetworkEvent::Error {
+                                    message: format!("Unknown server {server_id}"),
+                                }).await;
+                                continue;
+                            }
+                        };
+
+                        let local_peer = swarm.local_peer_id().to_string();
+                        let reaction_ts = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64;
+
+                        let signing_payload = format!("reaction:{}:{}:{}", message_id, emoji, reaction_ts);
+                        let (sig, pk) = sign_message(&bundle_keypair, &pub_key_b64, &signing_payload);
+
+                        // Save to local DB.
+                        {
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                let _ = store.add_reaction(
+                                    &message_id, &emoji, &local_peer, reaction_ts,
+                                    sig.as_deref(), pk.as_deref(),
+                                );
+                            }
+                        }
+
+                        // Broadcast to all server members.
+                        let envelope = MessageEnvelope::AddReaction {
+                            mid: message_id.clone(),
+                            emoji: emoji.clone(),
+                            ts: reaction_ts,
+                            sig: sig.clone(),
+                            pk: pk.clone(),
+                            sid: Some(server_id.clone()),
+                            cid: Some(channel_id.clone()),
+                        };
+                        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+
+                        let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+                        if use_mls {
+                            let mls_mgr = mls.as_mut().unwrap();
+                            match mls_mgr.encrypt(&server_id, envelope_json.as_bytes()) {
+                                Ok(ciphertext) => {
+                                    let body_b64 = base64::engine::general_purpose::STANDARD.encode(&ciphertext);
+                                    persist_mls_state(mls_mgr, &bundle_keypair);
+                                    for member_peer_str in server.members.keys() {
+                                        if member_peer_str == &local_peer { continue; }
+                                        if let Ok(member_pid) = member_peer_str.parse::<PeerId>() {
+                                            if connected_peers.contains(&member_pid) {
+                                                swarm.behaviour_mut().messaging.send_request(
+                                                    &member_pid,
+                                                    HavenMessage::MlsChannelMessage {
+                                                        server_id: server_id.clone(),
+                                                        body: body_b64.clone(),
+                                                    },
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    haven_log!("[HAVEN-MLS] Reaction encrypt failed, falling back to Olm: {e}");
+                                    for member_peer_str in server.members.keys() {
+                                        if member_peer_str == &local_peer { continue; }
+                                        if let Ok(member_pid) = member_peer_str.parse::<PeerId>() {
+                                            if connected_peers.contains(&member_pid) {
+                                                send_encrypted_message(
+                                                    &mut swarm, &mut olm, &crypto_store,
+                                                    &mut pending_requests, &mut outbound_message_text,
+                                                    &member_pid, member_peer_str, &envelope_json,
+                                                    &event_tx,
+                                                ).await;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            for member_peer_str in server.members.keys() {
+                                if member_peer_str == &local_peer { continue; }
+                                if let Ok(member_pid) = member_peer_str.parse::<PeerId>() {
+                                    if connected_peers.contains(&member_pid) {
+                                        send_encrypted_message(
+                                            &mut swarm, &mut olm, &crypto_store,
+                                            &mut pending_requests, &mut outbound_message_text,
+                                            &member_pid, member_peer_str, &envelope_json,
+                                            &event_tx,
+                                        ).await;
+                                    }
+                                }
+                            }
+                        }
+
+                        let _ = event_tx.send(NetworkEvent::ChannelReactionAdded {
+                            server_id,
+                            channel_id,
+                            message_id,
+                            emoji,
+                            reactor: local_peer,
+                            added_at: reaction_ts,
+                        }).await;
+                    }
+
+                    NodeCommand::AddDmReaction { peer_id, message_id, emoji } => {
+                        let peer_id_str = peer_id.to_string();
+                        haven_log!("[HAVEN-SWARM] AddDmReaction {emoji} on {message_id} for {peer_id_str}");
+
+                        let local_peer = swarm.local_peer_id().to_string();
+                        let reaction_ts = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64;
+
+                        let signing_payload = format!("reaction:{}:{}:{}", message_id, emoji, reaction_ts);
+                        let (sig, pk) = sign_message(&bundle_keypair, &pub_key_b64, &signing_payload);
+
+                        // Save to local DB.
+                        {
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                let _ = store.add_reaction(
+                                    &message_id, &emoji, &local_peer, reaction_ts,
+                                    sig.as_deref(), pk.as_deref(),
+                                );
+                            }
+                        }
+
+                        // Send to DM peer.
+                        let envelope = MessageEnvelope::AddReaction {
+                            mid: message_id.clone(),
+                            emoji: emoji.clone(),
+                            ts: reaction_ts,
+                            sig: sig.clone(),
+                            pk: pk.clone(),
+                            sid: None,
+                            cid: None,
+                        };
+                        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+
+                        if olm.has_session(&peer_id_str) {
+                            send_encrypted_message(
+                                &mut swarm, &mut olm, &crypto_store,
+                                &mut pending_requests, &mut outbound_message_text,
+                                &peer_id, &peer_id_str, &envelope_json,
+                                &event_tx,
+                            ).await;
+                        }
+
+                        let _ = event_tx.send(NetworkEvent::DmReactionAdded {
+                            peer_id: peer_id_str,
+                            message_id,
+                            emoji,
+                            reactor: local_peer,
+                            added_at: reaction_ts,
+                        }).await;
+                    }
+
+                    NodeCommand::RemoveChannelReaction { server_id, channel_id, message_id, emoji } => {
+                        haven_log!("[HAVEN-SWARM] RemoveChannelReaction {emoji} on {message_id} in {server_id}/{channel_id}");
+
+                        let server = match server_states.get(&server_id) {
+                            Some(s) => s,
+                            None => {
+                                let _ = event_tx.send(NetworkEvent::Error {
+                                    message: format!("Unknown server {server_id}"),
+                                }).await;
+                                continue;
+                            }
+                        };
+
+                        let local_peer = swarm.local_peer_id().to_string();
+                        let remove_ts = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64;
+
+                        let signing_payload = format!("unreaction:{}:{}:{}", message_id, emoji, remove_ts);
+                        let (sig, pk) = sign_message(&bundle_keypair, &pub_key_b64, &signing_payload);
+
+                        // Remove from local DB.
+                        {
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                let _ = store.remove_reaction(
+                                    &message_id, &emoji, &local_peer, remove_ts,
+                                    sig.as_deref(), pk.as_deref(),
+                                );
+                            }
+                        }
+
+                        // Broadcast to all server members.
+                        let envelope = MessageEnvelope::RemoveReaction {
+                            mid: message_id.clone(),
+                            emoji: emoji.clone(),
+                            ts: remove_ts,
+                            sig: sig.clone(),
+                            pk: pk.clone(),
+                            sid: Some(server_id.clone()),
+                            cid: Some(channel_id.clone()),
+                        };
+                        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+
+                        let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+                        if use_mls {
+                            let mls_mgr = mls.as_mut().unwrap();
+                            match mls_mgr.encrypt(&server_id, envelope_json.as_bytes()) {
+                                Ok(ciphertext) => {
+                                    let body_b64 = base64::engine::general_purpose::STANDARD.encode(&ciphertext);
+                                    persist_mls_state(mls_mgr, &bundle_keypair);
+                                    for member_peer_str in server.members.keys() {
+                                        if member_peer_str == &local_peer { continue; }
+                                        if let Ok(member_pid) = member_peer_str.parse::<PeerId>() {
+                                            if connected_peers.contains(&member_pid) {
+                                                swarm.behaviour_mut().messaging.send_request(
+                                                    &member_pid,
+                                                    HavenMessage::MlsChannelMessage {
+                                                        server_id: server_id.clone(),
+                                                        body: body_b64.clone(),
+                                                    },
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    haven_log!("[HAVEN-MLS] Remove reaction encrypt failed, Olm fallback: {e}");
+                                    for member_peer_str in server.members.keys() {
+                                        if member_peer_str == &local_peer { continue; }
+                                        if let Ok(member_pid) = member_peer_str.parse::<PeerId>() {
+                                            if connected_peers.contains(&member_pid) {
+                                                send_encrypted_message(
+                                                    &mut swarm, &mut olm, &crypto_store,
+                                                    &mut pending_requests, &mut outbound_message_text,
+                                                    &member_pid, member_peer_str, &envelope_json,
+                                                    &event_tx,
+                                                ).await;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            for member_peer_str in server.members.keys() {
+                                if member_peer_str == &local_peer { continue; }
+                                if let Ok(member_pid) = member_peer_str.parse::<PeerId>() {
+                                    if connected_peers.contains(&member_pid) {
+                                        send_encrypted_message(
+                                            &mut swarm, &mut olm, &crypto_store,
+                                            &mut pending_requests, &mut outbound_message_text,
+                                            &member_pid, member_peer_str, &envelope_json,
+                                            &event_tx,
+                                        ).await;
+                                    }
+                                }
+                            }
+                        }
+
+                        let _ = event_tx.send(NetworkEvent::ChannelReactionRemoved {
+                            server_id,
+                            channel_id,
+                            message_id,
+                            emoji,
+                            reactor: local_peer,
+                            removed_at: remove_ts,
+                        }).await;
+                    }
+
+                    NodeCommand::RemoveDmReaction { peer_id, message_id, emoji } => {
+                        let peer_id_str = peer_id.to_string();
+                        haven_log!("[HAVEN-SWARM] RemoveDmReaction {emoji} on {message_id} for {peer_id_str}");
+
+                        let local_peer = swarm.local_peer_id().to_string();
+                        let remove_ts = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64;
+
+                        let signing_payload = format!("unreaction:{}:{}:{}", message_id, emoji, remove_ts);
+                        let (sig, pk) = sign_message(&bundle_keypair, &pub_key_b64, &signing_payload);
+
+                        // Remove from local DB.
+                        {
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                let _ = store.remove_reaction(
+                                    &message_id, &emoji, &local_peer, remove_ts,
+                                    sig.as_deref(), pk.as_deref(),
+                                );
+                            }
+                        }
+
+                        // Send to DM peer.
+                        let envelope = MessageEnvelope::RemoveReaction {
+                            mid: message_id.clone(),
+                            emoji: emoji.clone(),
+                            ts: remove_ts,
+                            sig: sig.clone(),
+                            pk: pk.clone(),
+                            sid: None,
+                            cid: None,
+                        };
+                        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+
+                        if olm.has_session(&peer_id_str) {
+                            send_encrypted_message(
+                                &mut swarm, &mut olm, &crypto_store,
+                                &mut pending_requests, &mut outbound_message_text,
+                                &peer_id, &peer_id_str, &envelope_json,
+                                &event_tx,
+                            ).await;
+                        }
+
+                        let _ = event_tx.send(NetworkEvent::DmReactionRemoved {
+                            peer_id: peer_id_str,
+                            message_id,
+                            emoji,
+                            reactor: local_peer,
+                            removed_at: remove_ts,
+                        }).await;
+                    }
+
                     NodeCommand::NotifyShutdown => {
                         // Broadcast graceful disconnect to all connected peers.
                         haven_log!("[HAVEN-SWARM] Notifying {} peers of shutdown", connected_peers.len());
@@ -4436,6 +4821,74 @@ async fn handle_incoming_request(
                         }).await;
                     }
                 }
+                Ok(MessageEnvelope::AddReaction { mid, emoji, ts, sig, pk, sid, cid }) => {
+                    haven_log!("[HAVEN-REACTION] Received reaction {emoji} on {mid} from {peer_str}");
+
+                    let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                    if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                            let _ = store.add_reaction(
+                                &mid, &emoji, &peer_str, ts,
+                                sig.as_deref(), pk.as_deref(),
+                            );
+                        }
+                    }
+
+                    if let (Some(server_id), Some(channel_id)) = (sid, cid) {
+                        let _ = event_tx.send(NetworkEvent::ChannelReactionAdded {
+                            server_id,
+                            channel_id,
+                            message_id: mid,
+                            emoji,
+                            reactor: peer_str,
+                            added_at: ts,
+                        }).await;
+                    } else {
+                        let _ = event_tx.send(NetworkEvent::DmReactionAdded {
+                            peer_id: peer_str.clone(),
+                            message_id: mid,
+                            emoji,
+                            reactor: peer_str,
+                            added_at: ts,
+                        }).await;
+                    }
+                }
+                Ok(MessageEnvelope::RemoveReaction { mid, emoji, ts, sig, pk, sid, cid }) => {
+                    haven_log!("[HAVEN-REACTION] Received remove reaction {emoji} on {mid} from {peer_str}");
+
+                    let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                    if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                            let _ = store.remove_reaction(
+                                &mid, &emoji, &peer_str, ts,
+                                sig.as_deref(), pk.as_deref(),
+                            );
+                        }
+                    }
+
+                    if let (Some(server_id), Some(channel_id)) = (sid, cid) {
+                        let _ = event_tx.send(NetworkEvent::ChannelReactionRemoved {
+                            server_id,
+                            channel_id,
+                            message_id: mid,
+                            emoji,
+                            reactor: peer_str,
+                            removed_at: ts,
+                        }).await;
+                    } else {
+                        let _ = event_tx.send(NetworkEvent::DmReactionRemoved {
+                            peer_id: peer_str.clone(),
+                            message_id: mid,
+                            emoji,
+                            reactor: peer_str,
+                            removed_at: ts,
+                        }).await;
+                    }
+                }
                 Err(_) => {
                     // Legacy raw-text DM (backward compatible).
                     let legacy_ts = std::time::SystemTime::now()
@@ -5230,6 +5683,50 @@ async fn handle_incoming_request(
                                         channel_id: c_id,
                                         message_id: mid,
                                         deleted_at: ts,
+                                    }).await;
+                                }
+                            } else if let MessageEnvelope::AddReaction { mid, emoji, ts, sig, pk, sid, cid } = envelope {
+                                // Handle reaction received via MLS.
+                                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                    let _ = store.add_reaction(
+                                        &mid, &emoji, &peer_str, ts,
+                                        sig.as_deref(), pk.as_deref(),
+                                    );
+                                }
+                                if let (Some(s_id), Some(c_id)) = (sid, cid) {
+                                    let _ = event_tx.send(NetworkEvent::ChannelReactionAdded {
+                                        server_id: s_id,
+                                        channel_id: c_id,
+                                        message_id: mid,
+                                        emoji,
+                                        reactor: peer_str,
+                                        added_at: ts,
+                                    }).await;
+                                }
+                            } else if let MessageEnvelope::RemoveReaction { mid, emoji, ts, sig, pk, sid, cid } = envelope {
+                                // Handle remove reaction received via MLS.
+                                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                    let _ = store.remove_reaction(
+                                        &mid, &emoji, &peer_str, ts,
+                                        sig.as_deref(), pk.as_deref(),
+                                    );
+                                }
+                                if let (Some(s_id), Some(c_id)) = (sid, cid) {
+                                    let _ = event_tx.send(NetworkEvent::ChannelReactionRemoved {
+                                        server_id: s_id,
+                                        channel_id: c_id,
+                                        message_id: mid,
+                                        emoji,
+                                        reactor: peer_str,
+                                        removed_at: ts,
                                     }).await;
                                 }
                             }

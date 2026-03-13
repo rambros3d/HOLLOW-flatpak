@@ -56,6 +56,12 @@ Future<void> saveSetting({required String key, required String value}) =>
 Future<String?> loadSetting({required String key}) =>
     RustLib.instance.api.crateApiStorageLoadSetting(key: key);
 
+/// Load all reactions for a list of message IDs.
+/// Returns reactions grouped by message_id for efficient bulk loading.
+Future<List<StoredReaction>> loadReactions({
+  required List<String> messageIds,
+}) => RustLib.instance.api.crateApiStorageLoadReactions(messageIds: messageIds);
+
 /// Save a channel message to the local database.
 Future<PlatformInt64> saveChannelMessage({
   required String serverId,
@@ -215,6 +221,35 @@ class StoredMessage {
           editedAt == other.editedAt &&
           hiddenAt == other.hiddenAt &&
           replyToMid == other.replyToMid;
+}
+
+/// A single reaction on a message, returned to Dart.
+class StoredReaction {
+  final String messageId;
+  final String emoji;
+  final String peerId;
+  final PlatformInt64 addedAt;
+
+  const StoredReaction({
+    required this.messageId,
+    required this.emoji,
+    required this.peerId,
+    required this.addedAt,
+  });
+
+  @override
+  int get hashCode =>
+      messageId.hashCode ^ emoji.hashCode ^ peerId.hashCode ^ addedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is StoredReaction &&
+          runtimeType == other.runtimeType &&
+          messageId == other.messageId &&
+          emoji == other.emoji &&
+          peerId == other.peerId &&
+          addedAt == other.addedAt;
 }
 
 /// A user profile returned to Dart.

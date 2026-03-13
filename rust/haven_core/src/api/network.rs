@@ -54,6 +54,11 @@ pub enum NetworkEvent {
     // -- Message deletion events (Phase 3.5) --
     ChannelMessageDeleted { server_id: String, channel_id: String, message_id: String, deleted_at: i64 },
     DmMessageDeleted { peer_id: String, message_id: String, deleted_at: i64 },
+    // -- Emoji reaction events (Phase 3.5) --
+    ChannelReactionAdded { server_id: String, channel_id: String, message_id: String, emoji: String, reactor: String, added_at: i64 },
+    DmReactionAdded { peer_id: String, message_id: String, emoji: String, reactor: String, added_at: i64 },
+    ChannelReactionRemoved { server_id: String, channel_id: String, message_id: String, emoji: String, reactor: String, removed_at: i64 },
+    DmReactionRemoved { peer_id: String, message_id: String, emoji: String, reactor: String, removed_at: i64 },
 }
 
 /// Holds all mutable state for the running node.
@@ -180,6 +185,18 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::DmMessageDeleted { peer_id, message_id, .. } => {
             haven_log!("[HAVEN] DM message {message_id} deleted for {peer_id}");
         }
+        node::NetworkEvent::ChannelReactionAdded { server_id, channel_id, message_id, emoji, reactor, .. } => {
+            haven_log!("[HAVEN] Reaction {emoji} added on {message_id} by {reactor} in {server_id}/{channel_id}");
+        }
+        node::NetworkEvent::DmReactionAdded { peer_id, message_id, emoji, reactor, .. } => {
+            haven_log!("[HAVEN] Reaction {emoji} added on DM {message_id} by {reactor} for {peer_id}");
+        }
+        node::NetworkEvent::ChannelReactionRemoved { server_id, channel_id, message_id, emoji, reactor, .. } => {
+            haven_log!("[HAVEN] Reaction {emoji} removed on {message_id} by {reactor} in {server_id}/{channel_id}");
+        }
+        node::NetworkEvent::DmReactionRemoved { peer_id, message_id, emoji, reactor, .. } => {
+            haven_log!("[HAVEN] Reaction {emoji} removed on DM {message_id} by {reactor} for {peer_id}");
+        }
         _ => {}
     }
     match event {
@@ -271,6 +288,18 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::DmMessageDeleted { peer_id, message_id, deleted_at } => {
             NetworkEvent::DmMessageDeleted { peer_id, message_id, deleted_at }
+        }
+        node::NetworkEvent::ChannelReactionAdded { server_id, channel_id, message_id, emoji, reactor, added_at } => {
+            NetworkEvent::ChannelReactionAdded { server_id, channel_id, message_id, emoji, reactor, added_at }
+        }
+        node::NetworkEvent::DmReactionAdded { peer_id, message_id, emoji, reactor, added_at } => {
+            NetworkEvent::DmReactionAdded { peer_id, message_id, emoji, reactor, added_at }
+        }
+        node::NetworkEvent::ChannelReactionRemoved { server_id, channel_id, message_id, emoji, reactor, removed_at } => {
+            NetworkEvent::ChannelReactionRemoved { server_id, channel_id, message_id, emoji, reactor, removed_at }
+        }
+        node::NetworkEvent::DmReactionRemoved { peer_id, message_id, emoji, reactor, removed_at } => {
+            NetworkEvent::DmReactionRemoved { peer_id, message_id, emoji, reactor, removed_at }
         }
     }
 }
@@ -578,6 +607,114 @@ pub fn delete_dm_message(
         state.cmd_tx.send(node::NodeCommand::DeleteDmMessage {
             peer_id: peer,
             message_id,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Add an emoji reaction to a channel message.
+#[frb]
+pub fn add_channel_reaction(
+    server_id: String,
+    channel_id: String,
+    message_id: String,
+    emoji: String,
+) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::AddChannelReaction {
+            server_id,
+            channel_id,
+            message_id,
+            emoji,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Remove an emoji reaction from a channel message.
+#[frb]
+pub fn remove_channel_reaction(
+    server_id: String,
+    channel_id: String,
+    message_id: String,
+    emoji: String,
+) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::RemoveChannelReaction {
+            server_id,
+            channel_id,
+            message_id,
+            emoji,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Add an emoji reaction to a DM message.
+#[frb]
+pub fn add_dm_reaction(
+    peer_id: String,
+    message_id: String,
+    emoji: String,
+) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let peer: PeerId = peer_id
+        .parse()
+        .map_err(|e| format!("Invalid peer ID: {e}"))?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::AddDmReaction {
+            peer_id: peer,
+            message_id,
+            emoji,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Remove an emoji reaction from a DM message.
+#[frb]
+pub fn remove_dm_reaction(
+    peer_id: String,
+    message_id: String,
+    emoji: String,
+) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let peer: PeerId = peer_id
+        .parse()
+        .map_err(|e| format!("Invalid peer ID: {e}"))?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::RemoveDmReaction {
+            peer_id: peer,
+            message_id,
+            emoji,
         }),
     )
     .map_err(|e| format!("Failed to send command: {e}"))?;

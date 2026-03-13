@@ -259,6 +259,31 @@ class EventStreamNotifier extends Notifier<bool> {
         debugPrint('[HAVEN] DM message deleted: $messageId from $peerId');
         ref.read(chatProvider.notifier).applyDelete(
             peerId, messageId, deletedAt);
+
+      // -- Emoji reaction events (Phase 3.5) --
+      case NetworkEvent_ChannelReactionAdded(
+            :final serverId, :final channelId, :final messageId, :final emoji, :final reactor):
+        debugPrint('[HAVEN] Reaction $emoji on $messageId by $reactor in $serverId/$channelId');
+        ref.read(channelChatProvider.notifier).applyAddReaction(
+            serverId, channelId, messageId, emoji, reactor);
+
+      case NetworkEvent_DmReactionAdded(
+            :final peerId, :final messageId, :final emoji, :final reactor):
+        debugPrint('[HAVEN] DM reaction $emoji on $messageId by $reactor for $peerId');
+        ref.read(chatProvider.notifier).applyAddReaction(
+            peerId, messageId, emoji, reactor);
+
+      case NetworkEvent_ChannelReactionRemoved(
+            :final serverId, :final channelId, :final messageId, :final emoji, :final reactor):
+        debugPrint('[HAVEN] Reaction $emoji removed on $messageId by $reactor in $serverId/$channelId');
+        ref.read(channelChatProvider.notifier).applyRemoveReaction(
+            serverId, channelId, messageId, emoji, reactor);
+
+      case NetworkEvent_DmReactionRemoved(
+            :final peerId, :final messageId, :final emoji, :final reactor):
+        debugPrint('[HAVEN] DM reaction $emoji removed on $messageId by $reactor for $peerId');
+        ref.read(chatProvider.notifier).applyRemoveReaction(
+            peerId, messageId, emoji, reactor);
     }
   }
 

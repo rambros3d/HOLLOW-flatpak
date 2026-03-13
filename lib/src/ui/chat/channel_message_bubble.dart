@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/models/channel_chat_message.dart';
+import 'package:haven/src/core/providers/identity_provider.dart';
 import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/server_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
 import 'package:haven/src/ui/chat/message_bubble.dart';
+import 'package:haven/src/ui/chat/reaction_bar.dart';
 import 'package:haven/src/ui/components/haven_avatar.dart';
 
 /// Flat message row for channel messages — no bubbles.
@@ -19,6 +21,7 @@ class ChannelMessageBubble extends ConsumerWidget {
   final bool showHeader;
   final String? replyToSenderName;
   final String? replyToText;
+  final void Function(String emoji)? onToggleReaction;
 
   const ChannelMessageBubble({
     super.key,
@@ -27,6 +30,7 @@ class ChannelMessageBubble extends ConsumerWidget {
     required this.showHeader,
     this.replyToSenderName,
     this.replyToText,
+    this.onToggleReaction,
   });
 
   @override
@@ -94,6 +98,8 @@ class ChannelMessageBubble extends ConsumerWidget {
           )
         : null;
 
+    final localPeerId = ref.watch(identityProvider).peerId ?? '';
+
     final messageTextWidget = Text.rich(
       TextSpan(
         text: message.text,
@@ -111,6 +117,14 @@ class ChannelMessageBubble extends ConsumerWidget {
             : null,
       ),
     );
+
+    final reactionBarWidget = message.reactions.isNotEmpty && onToggleReaction != null
+        ? ReactionBar(
+            reactions: message.reactions,
+            localPeerId: localPeerId,
+            onToggleReaction: onToggleReaction!,
+          )
+        : null;
 
     final meDecoration = BoxDecoration(
       border: Border(
@@ -162,6 +176,7 @@ class ChannelMessageBubble extends ConsumerWidget {
                   const SizedBox(height: 3),
                   ?replyWidget,
                   messageTextWidget,
+                  ?reactionBarWidget,
                 ],
               ),
             ),
@@ -185,6 +200,7 @@ class ChannelMessageBubble extends ConsumerWidget {
         children: [
           ?replyWidget,
           messageTextWidget,
+          ?reactionBarWidget,
         ],
       ),
     );

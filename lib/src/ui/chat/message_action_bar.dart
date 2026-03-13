@@ -6,6 +6,7 @@ import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
 import 'package:haven/src/ui/components/haven_pressable.dart';
+import 'package:haven/src/ui/chat/emoji_picker.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Coordinates action bar visibility across all messages in a list.
@@ -74,6 +75,7 @@ class MessageHoverWrapper extends StatefulWidget {
   final VoidCallback? onEditCancel;
   final VoidCallback? onDelete;
   final VoidCallback? onReply;
+  final void Function(String emoji)? onReaction;
 
   const MessageHoverWrapper({
     super.key,
@@ -87,6 +89,7 @@ class MessageHoverWrapper extends StatefulWidget {
     this.onEditCancel,
     this.onDelete,
     this.onReply,
+    this.onReaction,
   });
 
   @override
@@ -180,7 +183,8 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
 
     // --- Action bar overlay (top-right of message) ---
     final hasAnyAction = (widget.isMe && widget.messageId != null) ||
-        widget.onReply != null;
+        widget.onReply != null ||
+        widget.onReaction != null;
     if (hasAnyAction) {
       final double barTop = offset.dy - 14;
       final double barRight =
@@ -195,6 +199,16 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
             onExit: (_) => _onBarExit(),
             child: _ActionBarContent(
               haven: haven,
+              onReaction: widget.onReaction != null
+                  ? (globalPosition) {
+                      _dismissNow();
+                      showEmojiPicker(
+                        context: context,
+                        anchorPosition: globalPosition,
+                        onSelect: (emoji) => widget.onReaction?.call(emoji),
+                      );
+                    }
+                  : null,
               onReply: widget.onReply != null
                   ? () {
                       _dismissNow();
@@ -360,15 +374,17 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
   }
 }
 
-/// The action bar content — reply + edit + delete buttons.
+/// The action bar content — emoji + reply + edit + delete buttons.
 class _ActionBarContent extends StatelessWidget {
   final HavenTheme haven;
+  final void Function(Offset globalPosition)? onReaction;
   final VoidCallback? onReply;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
   const _ActionBarContent({
     required this.haven,
+    this.onReaction,
     this.onReply,
     this.onEdit,
     this.onDelete,
@@ -392,6 +408,8 @@ class _ActionBarContent extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (onReaction != null)
+            _EmojiButton(haven: haven, onReaction: onReaction!),
           if (onReply != null)
             HavenPressable(
               onTap: onReply,
@@ -426,6 +444,35 @@ class _ActionBarContent extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Emoji button that captures its global position for the picker anchor.
+class _EmojiButton extends StatelessWidget {
+  final HavenTheme haven;
+  final void Function(Offset globalPosition) onReaction;
+
+  const _EmojiButton({
+    required this.haven,
+    required this.onReaction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return HavenPressable(
+      onTap: () {
+        final box = context.findRenderObject() as RenderBox?;
+        final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
+        onReaction(position);
+      },
+      borderRadius: BorderRadius.circular(haven.radiusSm),
+      padding: const EdgeInsets.all(6),
+      child: Icon(
+        LucideIcons.smile,
+        size: 14,
+        color: haven.textSecondary,
       ),
     );
   }

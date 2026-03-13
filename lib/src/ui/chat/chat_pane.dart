@@ -327,6 +327,20 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                                 _focusNode.requestFocus();
                               }
                             : null,
+                        onReaction: msg.messageId != null
+                            ? (emoji) {
+                                final hasReacted =
+                                    msg.reactions[emoji]?.contains(localPeerId) ?? false;
+                                final notifier = ref.read(chatProvider.notifier);
+                                if (hasReacted) {
+                                  notifier.removeReaction(
+                                      widget.peerId, msg.messageId!, emoji);
+                                } else {
+                                  notifier.addReaction(
+                                      widget.peerId, msg.messageId!, emoji);
+                                }
+                              }
+                            : null,
                         child: Builder(builder: (_) {
                           String? replySender;
                           String? replyText;
@@ -349,6 +363,20 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                             showHeader: showHeader,
                             replyToSenderName: replySender,
                             replyToText: replyText,
+                            onToggleReaction: msg.messageId != null
+                                ? (emoji) {
+                                    final hasReacted =
+                                        msg.reactions[emoji]?.contains(localPeerId) ?? false;
+                                    final notifier = ref.read(chatProvider.notifier);
+                                    if (hasReacted) {
+                                      notifier.removeReaction(
+                                          widget.peerId, msg.messageId!, emoji);
+                                    } else {
+                                      notifier.addReaction(
+                                          widget.peerId, msg.messageId!, emoji);
+                                    }
+                                  }
+                                : null,
                           );
                         }),
                       );

@@ -55,7 +55,7 @@ extension NetworkEventPatterns on NetworkEvent {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult Function( NetworkEvent_Listening value)?  listening,TResult Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult Function( NetworkEvent_ChannelMessageReceived value)?  channelMessageReceived,TResult Function( NetworkEvent_MessageSent value)?  messageSent,TResult Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult Function( NetworkEvent_Error value)?  error,TResult Function( NetworkEvent_ServerCreated value)?  serverCreated,TResult Function( NetworkEvent_ServerUpdated value)?  serverUpdated,TResult Function( NetworkEvent_ChannelAdded value)?  channelAdded,TResult Function( NetworkEvent_ChannelRemoved value)?  channelRemoved,TResult Function( NetworkEvent_ChannelRenamed value)?  channelRenamed,TResult Function( NetworkEvent_ServerDeleted value)?  serverDeleted,TResult Function( NetworkEvent_MemberJoined value)?  memberJoined,TResult Function( NetworkEvent_MemberLeft value)?  memberLeft,TResult Function( NetworkEvent_SyncCompleted value)?  syncCompleted,TResult Function( NetworkEvent_ServerJoined value)?  serverJoined,TResult Function( NetworkEvent_MessageSyncStarted value)?  messageSyncStarted,TResult Function( NetworkEvent_MessageSyncCompleted value)?  messageSyncCompleted,TResult Function( NetworkEvent_MessageSyncFailed value)?  messageSyncFailed,TResult Function( NetworkEvent_MessageSyncProgress value)?  messageSyncProgress,TResult Function( NetworkEvent_RoleChanged value)?  roleChanged,TResult Function( NetworkEvent_DmSyncCompleted value)?  dmSyncCompleted,TResult Function( NetworkEvent_ProfileUpdated value)?  profileUpdated,TResult Function( NetworkEvent_ChannelMessageEdited value)?  channelMessageEdited,TResult Function( NetworkEvent_DmMessageEdited value)?  dmMessageEdited,TResult Function( NetworkEvent_ChannelMessageDeleted value)?  channelMessageDeleted,TResult Function( NetworkEvent_DmMessageDeleted value)?  dmMessageDeleted,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult Function( NetworkEvent_Listening value)?  listening,TResult Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult Function( NetworkEvent_ChannelMessageReceived value)?  channelMessageReceived,TResult Function( NetworkEvent_MessageSent value)?  messageSent,TResult Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult Function( NetworkEvent_Error value)?  error,TResult Function( NetworkEvent_ServerCreated value)?  serverCreated,TResult Function( NetworkEvent_ServerUpdated value)?  serverUpdated,TResult Function( NetworkEvent_ChannelAdded value)?  channelAdded,TResult Function( NetworkEvent_ChannelRemoved value)?  channelRemoved,TResult Function( NetworkEvent_ChannelRenamed value)?  channelRenamed,TResult Function( NetworkEvent_ServerDeleted value)?  serverDeleted,TResult Function( NetworkEvent_MemberJoined value)?  memberJoined,TResult Function( NetworkEvent_MemberLeft value)?  memberLeft,TResult Function( NetworkEvent_SyncCompleted value)?  syncCompleted,TResult Function( NetworkEvent_ServerJoined value)?  serverJoined,TResult Function( NetworkEvent_MessageSyncStarted value)?  messageSyncStarted,TResult Function( NetworkEvent_MessageSyncCompleted value)?  messageSyncCompleted,TResult Function( NetworkEvent_MessageSyncFailed value)?  messageSyncFailed,TResult Function( NetworkEvent_MessageSyncProgress value)?  messageSyncProgress,TResult Function( NetworkEvent_RoleChanged value)?  roleChanged,TResult Function( NetworkEvent_DmSyncCompleted value)?  dmSyncCompleted,TResult Function( NetworkEvent_ProfileUpdated value)?  profileUpdated,TResult Function( NetworkEvent_ChannelMessageEdited value)?  channelMessageEdited,TResult Function( NetworkEvent_DmMessageEdited value)?  dmMessageEdited,TResult Function( NetworkEvent_ChannelMessageDeleted value)?  channelMessageDeleted,TResult Function( NetworkEvent_DmMessageDeleted value)?  dmMessageDeleted,TResult Function( NetworkEvent_ChannelReactionAdded value)?  channelReactionAdded,TResult Function( NetworkEvent_DmReactionAdded value)?  dmReactionAdded,TResult Function( NetworkEvent_ChannelReactionRemoved value)?  channelReactionRemoved,TResult Function( NetworkEvent_DmReactionRemoved value)?  dmReactionRemoved,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
@@ -90,7 +90,11 @@ return profileUpdated(_that);case NetworkEvent_ChannelMessageEdited() when chann
 return channelMessageEdited(_that);case NetworkEvent_DmMessageEdited() when dmMessageEdited != null:
 return dmMessageEdited(_that);case NetworkEvent_ChannelMessageDeleted() when channelMessageDeleted != null:
 return channelMessageDeleted(_that);case NetworkEvent_DmMessageDeleted() when dmMessageDeleted != null:
-return dmMessageDeleted(_that);case _:
+return dmMessageDeleted(_that);case NetworkEvent_ChannelReactionAdded() when channelReactionAdded != null:
+return channelReactionAdded(_that);case NetworkEvent_DmReactionAdded() when dmReactionAdded != null:
+return dmReactionAdded(_that);case NetworkEvent_ChannelReactionRemoved() when channelReactionRemoved != null:
+return channelReactionRemoved(_that);case NetworkEvent_DmReactionRemoved() when dmReactionRemoved != null:
+return dmReactionRemoved(_that);case _:
   return orElse();
 
 }
@@ -108,7 +112,7 @@ return dmMessageDeleted(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( NetworkEvent_PeerDiscovered value)  peerDiscovered,required TResult Function( NetworkEvent_PeerExpired value)  peerExpired,required TResult Function( NetworkEvent_PeerDisconnected value)  peerDisconnected,required TResult Function( NetworkEvent_RoomCleared value)  roomCleared,required TResult Function( NetworkEvent_Listening value)  listening,required TResult Function( NetworkEvent_MessageReceived value)  messageReceived,required TResult Function( NetworkEvent_ChannelMessageReceived value)  channelMessageReceived,required TResult Function( NetworkEvent_MessageSent value)  messageSent,required TResult Function( NetworkEvent_MessageSendFailed value)  messageSendFailed,required TResult Function( NetworkEvent_SessionEstablished value)  sessionEstablished,required TResult Function( NetworkEvent_Error value)  error,required TResult Function( NetworkEvent_ServerCreated value)  serverCreated,required TResult Function( NetworkEvent_ServerUpdated value)  serverUpdated,required TResult Function( NetworkEvent_ChannelAdded value)  channelAdded,required TResult Function( NetworkEvent_ChannelRemoved value)  channelRemoved,required TResult Function( NetworkEvent_ChannelRenamed value)  channelRenamed,required TResult Function( NetworkEvent_ServerDeleted value)  serverDeleted,required TResult Function( NetworkEvent_MemberJoined value)  memberJoined,required TResult Function( NetworkEvent_MemberLeft value)  memberLeft,required TResult Function( NetworkEvent_SyncCompleted value)  syncCompleted,required TResult Function( NetworkEvent_ServerJoined value)  serverJoined,required TResult Function( NetworkEvent_MessageSyncStarted value)  messageSyncStarted,required TResult Function( NetworkEvent_MessageSyncCompleted value)  messageSyncCompleted,required TResult Function( NetworkEvent_MessageSyncFailed value)  messageSyncFailed,required TResult Function( NetworkEvent_MessageSyncProgress value)  messageSyncProgress,required TResult Function( NetworkEvent_RoleChanged value)  roleChanged,required TResult Function( NetworkEvent_DmSyncCompleted value)  dmSyncCompleted,required TResult Function( NetworkEvent_ProfileUpdated value)  profileUpdated,required TResult Function( NetworkEvent_ChannelMessageEdited value)  channelMessageEdited,required TResult Function( NetworkEvent_DmMessageEdited value)  dmMessageEdited,required TResult Function( NetworkEvent_ChannelMessageDeleted value)  channelMessageDeleted,required TResult Function( NetworkEvent_DmMessageDeleted value)  dmMessageDeleted,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( NetworkEvent_PeerDiscovered value)  peerDiscovered,required TResult Function( NetworkEvent_PeerExpired value)  peerExpired,required TResult Function( NetworkEvent_PeerDisconnected value)  peerDisconnected,required TResult Function( NetworkEvent_RoomCleared value)  roomCleared,required TResult Function( NetworkEvent_Listening value)  listening,required TResult Function( NetworkEvent_MessageReceived value)  messageReceived,required TResult Function( NetworkEvent_ChannelMessageReceived value)  channelMessageReceived,required TResult Function( NetworkEvent_MessageSent value)  messageSent,required TResult Function( NetworkEvent_MessageSendFailed value)  messageSendFailed,required TResult Function( NetworkEvent_SessionEstablished value)  sessionEstablished,required TResult Function( NetworkEvent_Error value)  error,required TResult Function( NetworkEvent_ServerCreated value)  serverCreated,required TResult Function( NetworkEvent_ServerUpdated value)  serverUpdated,required TResult Function( NetworkEvent_ChannelAdded value)  channelAdded,required TResult Function( NetworkEvent_ChannelRemoved value)  channelRemoved,required TResult Function( NetworkEvent_ChannelRenamed value)  channelRenamed,required TResult Function( NetworkEvent_ServerDeleted value)  serverDeleted,required TResult Function( NetworkEvent_MemberJoined value)  memberJoined,required TResult Function( NetworkEvent_MemberLeft value)  memberLeft,required TResult Function( NetworkEvent_SyncCompleted value)  syncCompleted,required TResult Function( NetworkEvent_ServerJoined value)  serverJoined,required TResult Function( NetworkEvent_MessageSyncStarted value)  messageSyncStarted,required TResult Function( NetworkEvent_MessageSyncCompleted value)  messageSyncCompleted,required TResult Function( NetworkEvent_MessageSyncFailed value)  messageSyncFailed,required TResult Function( NetworkEvent_MessageSyncProgress value)  messageSyncProgress,required TResult Function( NetworkEvent_RoleChanged value)  roleChanged,required TResult Function( NetworkEvent_DmSyncCompleted value)  dmSyncCompleted,required TResult Function( NetworkEvent_ProfileUpdated value)  profileUpdated,required TResult Function( NetworkEvent_ChannelMessageEdited value)  channelMessageEdited,required TResult Function( NetworkEvent_DmMessageEdited value)  dmMessageEdited,required TResult Function( NetworkEvent_ChannelMessageDeleted value)  channelMessageDeleted,required TResult Function( NetworkEvent_DmMessageDeleted value)  dmMessageDeleted,required TResult Function( NetworkEvent_ChannelReactionAdded value)  channelReactionAdded,required TResult Function( NetworkEvent_DmReactionAdded value)  dmReactionAdded,required TResult Function( NetworkEvent_ChannelReactionRemoved value)  channelReactionRemoved,required TResult Function( NetworkEvent_DmReactionRemoved value)  dmReactionRemoved,}){
 final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered():
@@ -143,7 +147,11 @@ return profileUpdated(_that);case NetworkEvent_ChannelMessageEdited():
 return channelMessageEdited(_that);case NetworkEvent_DmMessageEdited():
 return dmMessageEdited(_that);case NetworkEvent_ChannelMessageDeleted():
 return channelMessageDeleted(_that);case NetworkEvent_DmMessageDeleted():
-return dmMessageDeleted(_that);}
+return dmMessageDeleted(_that);case NetworkEvent_ChannelReactionAdded():
+return channelReactionAdded(_that);case NetworkEvent_DmReactionAdded():
+return dmReactionAdded(_that);case NetworkEvent_ChannelReactionRemoved():
+return channelReactionRemoved(_that);case NetworkEvent_DmReactionRemoved():
+return dmReactionRemoved(_that);}
 }
 /// A variant of `map` that fallback to returning `null`.
 ///
@@ -157,7 +165,7 @@ return dmMessageDeleted(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult? Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult? Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult? Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult? Function( NetworkEvent_Listening value)?  listening,TResult? Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult? Function( NetworkEvent_ChannelMessageReceived value)?  channelMessageReceived,TResult? Function( NetworkEvent_MessageSent value)?  messageSent,TResult? Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult? Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult? Function( NetworkEvent_Error value)?  error,TResult? Function( NetworkEvent_ServerCreated value)?  serverCreated,TResult? Function( NetworkEvent_ServerUpdated value)?  serverUpdated,TResult? Function( NetworkEvent_ChannelAdded value)?  channelAdded,TResult? Function( NetworkEvent_ChannelRemoved value)?  channelRemoved,TResult? Function( NetworkEvent_ChannelRenamed value)?  channelRenamed,TResult? Function( NetworkEvent_ServerDeleted value)?  serverDeleted,TResult? Function( NetworkEvent_MemberJoined value)?  memberJoined,TResult? Function( NetworkEvent_MemberLeft value)?  memberLeft,TResult? Function( NetworkEvent_SyncCompleted value)?  syncCompleted,TResult? Function( NetworkEvent_ServerJoined value)?  serverJoined,TResult? Function( NetworkEvent_MessageSyncStarted value)?  messageSyncStarted,TResult? Function( NetworkEvent_MessageSyncCompleted value)?  messageSyncCompleted,TResult? Function( NetworkEvent_MessageSyncFailed value)?  messageSyncFailed,TResult? Function( NetworkEvent_MessageSyncProgress value)?  messageSyncProgress,TResult? Function( NetworkEvent_RoleChanged value)?  roleChanged,TResult? Function( NetworkEvent_DmSyncCompleted value)?  dmSyncCompleted,TResult? Function( NetworkEvent_ProfileUpdated value)?  profileUpdated,TResult? Function( NetworkEvent_ChannelMessageEdited value)?  channelMessageEdited,TResult? Function( NetworkEvent_DmMessageEdited value)?  dmMessageEdited,TResult? Function( NetworkEvent_ChannelMessageDeleted value)?  channelMessageDeleted,TResult? Function( NetworkEvent_DmMessageDeleted value)?  dmMessageDeleted,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult? Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult? Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult? Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult? Function( NetworkEvent_Listening value)?  listening,TResult? Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult? Function( NetworkEvent_ChannelMessageReceived value)?  channelMessageReceived,TResult? Function( NetworkEvent_MessageSent value)?  messageSent,TResult? Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult? Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult? Function( NetworkEvent_Error value)?  error,TResult? Function( NetworkEvent_ServerCreated value)?  serverCreated,TResult? Function( NetworkEvent_ServerUpdated value)?  serverUpdated,TResult? Function( NetworkEvent_ChannelAdded value)?  channelAdded,TResult? Function( NetworkEvent_ChannelRemoved value)?  channelRemoved,TResult? Function( NetworkEvent_ChannelRenamed value)?  channelRenamed,TResult? Function( NetworkEvent_ServerDeleted value)?  serverDeleted,TResult? Function( NetworkEvent_MemberJoined value)?  memberJoined,TResult? Function( NetworkEvent_MemberLeft value)?  memberLeft,TResult? Function( NetworkEvent_SyncCompleted value)?  syncCompleted,TResult? Function( NetworkEvent_ServerJoined value)?  serverJoined,TResult? Function( NetworkEvent_MessageSyncStarted value)?  messageSyncStarted,TResult? Function( NetworkEvent_MessageSyncCompleted value)?  messageSyncCompleted,TResult? Function( NetworkEvent_MessageSyncFailed value)?  messageSyncFailed,TResult? Function( NetworkEvent_MessageSyncProgress value)?  messageSyncProgress,TResult? Function( NetworkEvent_RoleChanged value)?  roleChanged,TResult? Function( NetworkEvent_DmSyncCompleted value)?  dmSyncCompleted,TResult? Function( NetworkEvent_ProfileUpdated value)?  profileUpdated,TResult? Function( NetworkEvent_ChannelMessageEdited value)?  channelMessageEdited,TResult? Function( NetworkEvent_DmMessageEdited value)?  dmMessageEdited,TResult? Function( NetworkEvent_ChannelMessageDeleted value)?  channelMessageDeleted,TResult? Function( NetworkEvent_DmMessageDeleted value)?  dmMessageDeleted,TResult? Function( NetworkEvent_ChannelReactionAdded value)?  channelReactionAdded,TResult? Function( NetworkEvent_DmReactionAdded value)?  dmReactionAdded,TResult? Function( NetworkEvent_ChannelReactionRemoved value)?  channelReactionRemoved,TResult? Function( NetworkEvent_DmReactionRemoved value)?  dmReactionRemoved,}){
 final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
@@ -192,7 +200,11 @@ return profileUpdated(_that);case NetworkEvent_ChannelMessageEdited() when chann
 return channelMessageEdited(_that);case NetworkEvent_DmMessageEdited() when dmMessageEdited != null:
 return dmMessageEdited(_that);case NetworkEvent_ChannelMessageDeleted() when channelMessageDeleted != null:
 return channelMessageDeleted(_that);case NetworkEvent_DmMessageDeleted() when dmMessageDeleted != null:
-return dmMessageDeleted(_that);case _:
+return dmMessageDeleted(_that);case NetworkEvent_ChannelReactionAdded() when channelReactionAdded != null:
+return channelReactionAdded(_that);case NetworkEvent_DmReactionAdded() when dmReactionAdded != null:
+return dmReactionAdded(_that);case NetworkEvent_ChannelReactionRemoved() when channelReactionRemoved != null:
+return channelReactionRemoved(_that);case NetworkEvent_DmReactionRemoved() when dmReactionRemoved != null:
+return dmReactionRemoved(_that);case _:
   return null;
 
 }
@@ -209,7 +221,7 @@ return dmMessageDeleted(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( DiscoveredPeer peer)?  peerDiscovered,TResult Function( String peerId)?  peerExpired,TResult Function( String peerId)?  peerDisconnected,TResult Function()?  roomCleared,TResult Function( String address)?  listening,TResult Function( String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid)?  messageReceived,TResult Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid)?  channelMessageReceived,TResult Function( String toPeer)?  messageSent,TResult Function( String toPeer,  String error)?  messageSendFailed,TResult Function( String peerId)?  sessionEstablished,TResult Function( String message)?  error,TResult Function( String serverId,  String name)?  serverCreated,TResult Function( String serverId)?  serverUpdated,TResult Function( String serverId,  String channelId,  String name)?  channelAdded,TResult Function( String serverId,  String channelId)?  channelRemoved,TResult Function( String serverId,  String channelId,  String newName)?  channelRenamed,TResult Function( String serverId)?  serverDeleted,TResult Function( String serverId,  String peerId)?  memberJoined,TResult Function( String serverId,  String peerId)?  memberLeft,TResult Function( String serverId,  int opsApplied)?  syncCompleted,TResult Function( String serverId,  String name)?  serverJoined,TResult Function( String serverId,  String peerId)?  messageSyncStarted,TResult Function( String serverId,  int newMessageCount)?  messageSyncCompleted,TResult Function( String serverId,  String error)?  messageSyncFailed,TResult Function( String serverId,  String channelId,  int receivedCount,  int totalCount)?  messageSyncProgress,TResult Function( String serverId,  String peerId,  String newRole)?  roleChanged,TResult Function( String peerId,  int newMessageCount)?  dmSyncCompleted,TResult Function( String peerId)?  profileUpdated,TResult Function( String serverId,  String channelId,  String messageId,  String newText,  PlatformInt64 editedAt)?  channelMessageEdited,TResult Function( String peerId,  String messageId,  String newText,  PlatformInt64 editedAt)?  dmMessageEdited,TResult Function( String serverId,  String channelId,  String messageId,  PlatformInt64 deletedAt)?  channelMessageDeleted,TResult Function( String peerId,  String messageId,  PlatformInt64 deletedAt)?  dmMessageDeleted,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( DiscoveredPeer peer)?  peerDiscovered,TResult Function( String peerId)?  peerExpired,TResult Function( String peerId)?  peerDisconnected,TResult Function()?  roomCleared,TResult Function( String address)?  listening,TResult Function( String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid)?  messageReceived,TResult Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid)?  channelMessageReceived,TResult Function( String toPeer)?  messageSent,TResult Function( String toPeer,  String error)?  messageSendFailed,TResult Function( String peerId)?  sessionEstablished,TResult Function( String message)?  error,TResult Function( String serverId,  String name)?  serverCreated,TResult Function( String serverId)?  serverUpdated,TResult Function( String serverId,  String channelId,  String name)?  channelAdded,TResult Function( String serverId,  String channelId)?  channelRemoved,TResult Function( String serverId,  String channelId,  String newName)?  channelRenamed,TResult Function( String serverId)?  serverDeleted,TResult Function( String serverId,  String peerId)?  memberJoined,TResult Function( String serverId,  String peerId)?  memberLeft,TResult Function( String serverId,  int opsApplied)?  syncCompleted,TResult Function( String serverId,  String name)?  serverJoined,TResult Function( String serverId,  String peerId)?  messageSyncStarted,TResult Function( String serverId,  int newMessageCount)?  messageSyncCompleted,TResult Function( String serverId,  String error)?  messageSyncFailed,TResult Function( String serverId,  String channelId,  int receivedCount,  int totalCount)?  messageSyncProgress,TResult Function( String serverId,  String peerId,  String newRole)?  roleChanged,TResult Function( String peerId,  int newMessageCount)?  dmSyncCompleted,TResult Function( String peerId)?  profileUpdated,TResult Function( String serverId,  String channelId,  String messageId,  String newText,  PlatformInt64 editedAt)?  channelMessageEdited,TResult Function( String peerId,  String messageId,  String newText,  PlatformInt64 editedAt)?  dmMessageEdited,TResult Function( String serverId,  String channelId,  String messageId,  PlatformInt64 deletedAt)?  channelMessageDeleted,TResult Function( String peerId,  String messageId,  PlatformInt64 deletedAt)?  dmMessageDeleted,TResult Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)?  channelReactionAdded,TResult Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)?  dmReactionAdded,TResult Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)?  channelReactionRemoved,TResult Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)?  dmReactionRemoved,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
 return peerDiscovered(_that.peer);case NetworkEvent_PeerExpired() when peerExpired != null:
@@ -243,7 +255,11 @@ return profileUpdated(_that.peerId);case NetworkEvent_ChannelMessageEdited() whe
 return channelMessageEdited(_that.serverId,_that.channelId,_that.messageId,_that.newText,_that.editedAt);case NetworkEvent_DmMessageEdited() when dmMessageEdited != null:
 return dmMessageEdited(_that.peerId,_that.messageId,_that.newText,_that.editedAt);case NetworkEvent_ChannelMessageDeleted() when channelMessageDeleted != null:
 return channelMessageDeleted(_that.serverId,_that.channelId,_that.messageId,_that.deletedAt);case NetworkEvent_DmMessageDeleted() when dmMessageDeleted != null:
-return dmMessageDeleted(_that.peerId,_that.messageId,_that.deletedAt);case _:
+return dmMessageDeleted(_that.peerId,_that.messageId,_that.deletedAt);case NetworkEvent_ChannelReactionAdded() when channelReactionAdded != null:
+return channelReactionAdded(_that.serverId,_that.channelId,_that.messageId,_that.emoji,_that.reactor,_that.addedAt);case NetworkEvent_DmReactionAdded() when dmReactionAdded != null:
+return dmReactionAdded(_that.peerId,_that.messageId,_that.emoji,_that.reactor,_that.addedAt);case NetworkEvent_ChannelReactionRemoved() when channelReactionRemoved != null:
+return channelReactionRemoved(_that.serverId,_that.channelId,_that.messageId,_that.emoji,_that.reactor,_that.removedAt);case NetworkEvent_DmReactionRemoved() when dmReactionRemoved != null:
+return dmReactionRemoved(_that.peerId,_that.messageId,_that.emoji,_that.reactor,_that.removedAt);case _:
   return orElse();
 
 }
@@ -261,7 +277,7 @@ return dmMessageDeleted(_that.peerId,_that.messageId,_that.deletedAt);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( DiscoveredPeer peer)  peerDiscovered,required TResult Function( String peerId)  peerExpired,required TResult Function( String peerId)  peerDisconnected,required TResult Function()  roomCleared,required TResult Function( String address)  listening,required TResult Function( String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid)  messageReceived,required TResult Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid)  channelMessageReceived,required TResult Function( String toPeer)  messageSent,required TResult Function( String toPeer,  String error)  messageSendFailed,required TResult Function( String peerId)  sessionEstablished,required TResult Function( String message)  error,required TResult Function( String serverId,  String name)  serverCreated,required TResult Function( String serverId)  serverUpdated,required TResult Function( String serverId,  String channelId,  String name)  channelAdded,required TResult Function( String serverId,  String channelId)  channelRemoved,required TResult Function( String serverId,  String channelId,  String newName)  channelRenamed,required TResult Function( String serverId)  serverDeleted,required TResult Function( String serverId,  String peerId)  memberJoined,required TResult Function( String serverId,  String peerId)  memberLeft,required TResult Function( String serverId,  int opsApplied)  syncCompleted,required TResult Function( String serverId,  String name)  serverJoined,required TResult Function( String serverId,  String peerId)  messageSyncStarted,required TResult Function( String serverId,  int newMessageCount)  messageSyncCompleted,required TResult Function( String serverId,  String error)  messageSyncFailed,required TResult Function( String serverId,  String channelId,  int receivedCount,  int totalCount)  messageSyncProgress,required TResult Function( String serverId,  String peerId,  String newRole)  roleChanged,required TResult Function( String peerId,  int newMessageCount)  dmSyncCompleted,required TResult Function( String peerId)  profileUpdated,required TResult Function( String serverId,  String channelId,  String messageId,  String newText,  PlatformInt64 editedAt)  channelMessageEdited,required TResult Function( String peerId,  String messageId,  String newText,  PlatformInt64 editedAt)  dmMessageEdited,required TResult Function( String serverId,  String channelId,  String messageId,  PlatformInt64 deletedAt)  channelMessageDeleted,required TResult Function( String peerId,  String messageId,  PlatformInt64 deletedAt)  dmMessageDeleted,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( DiscoveredPeer peer)  peerDiscovered,required TResult Function( String peerId)  peerExpired,required TResult Function( String peerId)  peerDisconnected,required TResult Function()  roomCleared,required TResult Function( String address)  listening,required TResult Function( String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid)  messageReceived,required TResult Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid)  channelMessageReceived,required TResult Function( String toPeer)  messageSent,required TResult Function( String toPeer,  String error)  messageSendFailed,required TResult Function( String peerId)  sessionEstablished,required TResult Function( String message)  error,required TResult Function( String serverId,  String name)  serverCreated,required TResult Function( String serverId)  serverUpdated,required TResult Function( String serverId,  String channelId,  String name)  channelAdded,required TResult Function( String serverId,  String channelId)  channelRemoved,required TResult Function( String serverId,  String channelId,  String newName)  channelRenamed,required TResult Function( String serverId)  serverDeleted,required TResult Function( String serverId,  String peerId)  memberJoined,required TResult Function( String serverId,  String peerId)  memberLeft,required TResult Function( String serverId,  int opsApplied)  syncCompleted,required TResult Function( String serverId,  String name)  serverJoined,required TResult Function( String serverId,  String peerId)  messageSyncStarted,required TResult Function( String serverId,  int newMessageCount)  messageSyncCompleted,required TResult Function( String serverId,  String error)  messageSyncFailed,required TResult Function( String serverId,  String channelId,  int receivedCount,  int totalCount)  messageSyncProgress,required TResult Function( String serverId,  String peerId,  String newRole)  roleChanged,required TResult Function( String peerId,  int newMessageCount)  dmSyncCompleted,required TResult Function( String peerId)  profileUpdated,required TResult Function( String serverId,  String channelId,  String messageId,  String newText,  PlatformInt64 editedAt)  channelMessageEdited,required TResult Function( String peerId,  String messageId,  String newText,  PlatformInt64 editedAt)  dmMessageEdited,required TResult Function( String serverId,  String channelId,  String messageId,  PlatformInt64 deletedAt)  channelMessageDeleted,required TResult Function( String peerId,  String messageId,  PlatformInt64 deletedAt)  dmMessageDeleted,required TResult Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)  channelReactionAdded,required TResult Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)  dmReactionAdded,required TResult Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)  channelReactionRemoved,required TResult Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)  dmReactionRemoved,}) {final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered():
 return peerDiscovered(_that.peer);case NetworkEvent_PeerExpired():
@@ -295,7 +311,11 @@ return profileUpdated(_that.peerId);case NetworkEvent_ChannelMessageEdited():
 return channelMessageEdited(_that.serverId,_that.channelId,_that.messageId,_that.newText,_that.editedAt);case NetworkEvent_DmMessageEdited():
 return dmMessageEdited(_that.peerId,_that.messageId,_that.newText,_that.editedAt);case NetworkEvent_ChannelMessageDeleted():
 return channelMessageDeleted(_that.serverId,_that.channelId,_that.messageId,_that.deletedAt);case NetworkEvent_DmMessageDeleted():
-return dmMessageDeleted(_that.peerId,_that.messageId,_that.deletedAt);}
+return dmMessageDeleted(_that.peerId,_that.messageId,_that.deletedAt);case NetworkEvent_ChannelReactionAdded():
+return channelReactionAdded(_that.serverId,_that.channelId,_that.messageId,_that.emoji,_that.reactor,_that.addedAt);case NetworkEvent_DmReactionAdded():
+return dmReactionAdded(_that.peerId,_that.messageId,_that.emoji,_that.reactor,_that.addedAt);case NetworkEvent_ChannelReactionRemoved():
+return channelReactionRemoved(_that.serverId,_that.channelId,_that.messageId,_that.emoji,_that.reactor,_that.removedAt);case NetworkEvent_DmReactionRemoved():
+return dmReactionRemoved(_that.peerId,_that.messageId,_that.emoji,_that.reactor,_that.removedAt);}
 }
 /// A variant of `when` that fallback to returning `null`
 ///
@@ -309,7 +329,7 @@ return dmMessageDeleted(_that.peerId,_that.messageId,_that.deletedAt);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( DiscoveredPeer peer)?  peerDiscovered,TResult? Function( String peerId)?  peerExpired,TResult? Function( String peerId)?  peerDisconnected,TResult? Function()?  roomCleared,TResult? Function( String address)?  listening,TResult? Function( String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid)?  messageReceived,TResult? Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid)?  channelMessageReceived,TResult? Function( String toPeer)?  messageSent,TResult? Function( String toPeer,  String error)?  messageSendFailed,TResult? Function( String peerId)?  sessionEstablished,TResult? Function( String message)?  error,TResult? Function( String serverId,  String name)?  serverCreated,TResult? Function( String serverId)?  serverUpdated,TResult? Function( String serverId,  String channelId,  String name)?  channelAdded,TResult? Function( String serverId,  String channelId)?  channelRemoved,TResult? Function( String serverId,  String channelId,  String newName)?  channelRenamed,TResult? Function( String serverId)?  serverDeleted,TResult? Function( String serverId,  String peerId)?  memberJoined,TResult? Function( String serverId,  String peerId)?  memberLeft,TResult? Function( String serverId,  int opsApplied)?  syncCompleted,TResult? Function( String serverId,  String name)?  serverJoined,TResult? Function( String serverId,  String peerId)?  messageSyncStarted,TResult? Function( String serverId,  int newMessageCount)?  messageSyncCompleted,TResult? Function( String serverId,  String error)?  messageSyncFailed,TResult? Function( String serverId,  String channelId,  int receivedCount,  int totalCount)?  messageSyncProgress,TResult? Function( String serverId,  String peerId,  String newRole)?  roleChanged,TResult? Function( String peerId,  int newMessageCount)?  dmSyncCompleted,TResult? Function( String peerId)?  profileUpdated,TResult? Function( String serverId,  String channelId,  String messageId,  String newText,  PlatformInt64 editedAt)?  channelMessageEdited,TResult? Function( String peerId,  String messageId,  String newText,  PlatformInt64 editedAt)?  dmMessageEdited,TResult? Function( String serverId,  String channelId,  String messageId,  PlatformInt64 deletedAt)?  channelMessageDeleted,TResult? Function( String peerId,  String messageId,  PlatformInt64 deletedAt)?  dmMessageDeleted,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( DiscoveredPeer peer)?  peerDiscovered,TResult? Function( String peerId)?  peerExpired,TResult? Function( String peerId)?  peerDisconnected,TResult? Function()?  roomCleared,TResult? Function( String address)?  listening,TResult? Function( String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid)?  messageReceived,TResult? Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid)?  channelMessageReceived,TResult? Function( String toPeer)?  messageSent,TResult? Function( String toPeer,  String error)?  messageSendFailed,TResult? Function( String peerId)?  sessionEstablished,TResult? Function( String message)?  error,TResult? Function( String serverId,  String name)?  serverCreated,TResult? Function( String serverId)?  serverUpdated,TResult? Function( String serverId,  String channelId,  String name)?  channelAdded,TResult? Function( String serverId,  String channelId)?  channelRemoved,TResult? Function( String serverId,  String channelId,  String newName)?  channelRenamed,TResult? Function( String serverId)?  serverDeleted,TResult? Function( String serverId,  String peerId)?  memberJoined,TResult? Function( String serverId,  String peerId)?  memberLeft,TResult? Function( String serverId,  int opsApplied)?  syncCompleted,TResult? Function( String serverId,  String name)?  serverJoined,TResult? Function( String serverId,  String peerId)?  messageSyncStarted,TResult? Function( String serverId,  int newMessageCount)?  messageSyncCompleted,TResult? Function( String serverId,  String error)?  messageSyncFailed,TResult? Function( String serverId,  String channelId,  int receivedCount,  int totalCount)?  messageSyncProgress,TResult? Function( String serverId,  String peerId,  String newRole)?  roleChanged,TResult? Function( String peerId,  int newMessageCount)?  dmSyncCompleted,TResult? Function( String peerId)?  profileUpdated,TResult? Function( String serverId,  String channelId,  String messageId,  String newText,  PlatformInt64 editedAt)?  channelMessageEdited,TResult? Function( String peerId,  String messageId,  String newText,  PlatformInt64 editedAt)?  dmMessageEdited,TResult? Function( String serverId,  String channelId,  String messageId,  PlatformInt64 deletedAt)?  channelMessageDeleted,TResult? Function( String peerId,  String messageId,  PlatformInt64 deletedAt)?  dmMessageDeleted,TResult? Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)?  channelReactionAdded,TResult? Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)?  dmReactionAdded,TResult? Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)?  channelReactionRemoved,TResult? Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)?  dmReactionRemoved,}) {final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
 return peerDiscovered(_that.peer);case NetworkEvent_PeerExpired() when peerExpired != null:
@@ -343,7 +363,11 @@ return profileUpdated(_that.peerId);case NetworkEvent_ChannelMessageEdited() whe
 return channelMessageEdited(_that.serverId,_that.channelId,_that.messageId,_that.newText,_that.editedAt);case NetworkEvent_DmMessageEdited() when dmMessageEdited != null:
 return dmMessageEdited(_that.peerId,_that.messageId,_that.newText,_that.editedAt);case NetworkEvent_ChannelMessageDeleted() when channelMessageDeleted != null:
 return channelMessageDeleted(_that.serverId,_that.channelId,_that.messageId,_that.deletedAt);case NetworkEvent_DmMessageDeleted() when dmMessageDeleted != null:
-return dmMessageDeleted(_that.peerId,_that.messageId,_that.deletedAt);case _:
+return dmMessageDeleted(_that.peerId,_that.messageId,_that.deletedAt);case NetworkEvent_ChannelReactionAdded() when channelReactionAdded != null:
+return channelReactionAdded(_that.serverId,_that.channelId,_that.messageId,_that.emoji,_that.reactor,_that.addedAt);case NetworkEvent_DmReactionAdded() when dmReactionAdded != null:
+return dmReactionAdded(_that.peerId,_that.messageId,_that.emoji,_that.reactor,_that.addedAt);case NetworkEvent_ChannelReactionRemoved() when channelReactionRemoved != null:
+return channelReactionRemoved(_that.serverId,_that.channelId,_that.messageId,_that.emoji,_that.reactor,_that.removedAt);case NetworkEvent_DmReactionRemoved() when dmReactionRemoved != null:
+return dmReactionRemoved(_that.peerId,_that.messageId,_that.emoji,_that.reactor,_that.removedAt);case _:
   return null;
 
 }
@@ -2506,6 +2530,306 @@ class _$NetworkEvent_DmMessageDeletedCopyWithImpl<$Res>
 peerId: null == peerId ? _self.peerId : peerId // ignore: cast_nullable_to_non_nullable
 as String,messageId: null == messageId ? _self.messageId : messageId // ignore: cast_nullable_to_non_nullable
 as String,deletedAt: null == deletedAt ? _self.deletedAt : deletedAt // ignore: cast_nullable_to_non_nullable
+as PlatformInt64,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_ChannelReactionAdded extends NetworkEvent {
+  const NetworkEvent_ChannelReactionAdded({required this.serverId, required this.channelId, required this.messageId, required this.emoji, required this.reactor, required this.addedAt}): super._();
+  
+
+ final  String serverId;
+ final  String channelId;
+ final  String messageId;
+ final  String emoji;
+ final  String reactor;
+ final  PlatformInt64 addedAt;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_ChannelReactionAddedCopyWith<NetworkEvent_ChannelReactionAdded> get copyWith => _$NetworkEvent_ChannelReactionAddedCopyWithImpl<NetworkEvent_ChannelReactionAdded>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_ChannelReactionAdded&&(identical(other.serverId, serverId) || other.serverId == serverId)&&(identical(other.channelId, channelId) || other.channelId == channelId)&&(identical(other.messageId, messageId) || other.messageId == messageId)&&(identical(other.emoji, emoji) || other.emoji == emoji)&&(identical(other.reactor, reactor) || other.reactor == reactor)&&(identical(other.addedAt, addedAt) || other.addedAt == addedAt));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,serverId,channelId,messageId,emoji,reactor,addedAt);
+
+@override
+String toString() {
+  return 'NetworkEvent.channelReactionAdded(serverId: $serverId, channelId: $channelId, messageId: $messageId, emoji: $emoji, reactor: $reactor, addedAt: $addedAt)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_ChannelReactionAddedCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_ChannelReactionAddedCopyWith(NetworkEvent_ChannelReactionAdded value, $Res Function(NetworkEvent_ChannelReactionAdded) _then) = _$NetworkEvent_ChannelReactionAddedCopyWithImpl;
+@useResult
+$Res call({
+ String serverId, String channelId, String messageId, String emoji, String reactor, PlatformInt64 addedAt
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_ChannelReactionAddedCopyWithImpl<$Res>
+    implements $NetworkEvent_ChannelReactionAddedCopyWith<$Res> {
+  _$NetworkEvent_ChannelReactionAddedCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_ChannelReactionAdded _self;
+  final $Res Function(NetworkEvent_ChannelReactionAdded) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? serverId = null,Object? channelId = null,Object? messageId = null,Object? emoji = null,Object? reactor = null,Object? addedAt = null,}) {
+  return _then(NetworkEvent_ChannelReactionAdded(
+serverId: null == serverId ? _self.serverId : serverId // ignore: cast_nullable_to_non_nullable
+as String,channelId: null == channelId ? _self.channelId : channelId // ignore: cast_nullable_to_non_nullable
+as String,messageId: null == messageId ? _self.messageId : messageId // ignore: cast_nullable_to_non_nullable
+as String,emoji: null == emoji ? _self.emoji : emoji // ignore: cast_nullable_to_non_nullable
+as String,reactor: null == reactor ? _self.reactor : reactor // ignore: cast_nullable_to_non_nullable
+as String,addedAt: null == addedAt ? _self.addedAt : addedAt // ignore: cast_nullable_to_non_nullable
+as PlatformInt64,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_DmReactionAdded extends NetworkEvent {
+  const NetworkEvent_DmReactionAdded({required this.peerId, required this.messageId, required this.emoji, required this.reactor, required this.addedAt}): super._();
+  
+
+ final  String peerId;
+ final  String messageId;
+ final  String emoji;
+ final  String reactor;
+ final  PlatformInt64 addedAt;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_DmReactionAddedCopyWith<NetworkEvent_DmReactionAdded> get copyWith => _$NetworkEvent_DmReactionAddedCopyWithImpl<NetworkEvent_DmReactionAdded>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_DmReactionAdded&&(identical(other.peerId, peerId) || other.peerId == peerId)&&(identical(other.messageId, messageId) || other.messageId == messageId)&&(identical(other.emoji, emoji) || other.emoji == emoji)&&(identical(other.reactor, reactor) || other.reactor == reactor)&&(identical(other.addedAt, addedAt) || other.addedAt == addedAt));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,peerId,messageId,emoji,reactor,addedAt);
+
+@override
+String toString() {
+  return 'NetworkEvent.dmReactionAdded(peerId: $peerId, messageId: $messageId, emoji: $emoji, reactor: $reactor, addedAt: $addedAt)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_DmReactionAddedCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_DmReactionAddedCopyWith(NetworkEvent_DmReactionAdded value, $Res Function(NetworkEvent_DmReactionAdded) _then) = _$NetworkEvent_DmReactionAddedCopyWithImpl;
+@useResult
+$Res call({
+ String peerId, String messageId, String emoji, String reactor, PlatformInt64 addedAt
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_DmReactionAddedCopyWithImpl<$Res>
+    implements $NetworkEvent_DmReactionAddedCopyWith<$Res> {
+  _$NetworkEvent_DmReactionAddedCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_DmReactionAdded _self;
+  final $Res Function(NetworkEvent_DmReactionAdded) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? peerId = null,Object? messageId = null,Object? emoji = null,Object? reactor = null,Object? addedAt = null,}) {
+  return _then(NetworkEvent_DmReactionAdded(
+peerId: null == peerId ? _self.peerId : peerId // ignore: cast_nullable_to_non_nullable
+as String,messageId: null == messageId ? _self.messageId : messageId // ignore: cast_nullable_to_non_nullable
+as String,emoji: null == emoji ? _self.emoji : emoji // ignore: cast_nullable_to_non_nullable
+as String,reactor: null == reactor ? _self.reactor : reactor // ignore: cast_nullable_to_non_nullable
+as String,addedAt: null == addedAt ? _self.addedAt : addedAt // ignore: cast_nullable_to_non_nullable
+as PlatformInt64,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_ChannelReactionRemoved extends NetworkEvent {
+  const NetworkEvent_ChannelReactionRemoved({required this.serverId, required this.channelId, required this.messageId, required this.emoji, required this.reactor, required this.removedAt}): super._();
+  
+
+ final  String serverId;
+ final  String channelId;
+ final  String messageId;
+ final  String emoji;
+ final  String reactor;
+ final  PlatformInt64 removedAt;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_ChannelReactionRemovedCopyWith<NetworkEvent_ChannelReactionRemoved> get copyWith => _$NetworkEvent_ChannelReactionRemovedCopyWithImpl<NetworkEvent_ChannelReactionRemoved>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_ChannelReactionRemoved&&(identical(other.serverId, serverId) || other.serverId == serverId)&&(identical(other.channelId, channelId) || other.channelId == channelId)&&(identical(other.messageId, messageId) || other.messageId == messageId)&&(identical(other.emoji, emoji) || other.emoji == emoji)&&(identical(other.reactor, reactor) || other.reactor == reactor)&&(identical(other.removedAt, removedAt) || other.removedAt == removedAt));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,serverId,channelId,messageId,emoji,reactor,removedAt);
+
+@override
+String toString() {
+  return 'NetworkEvent.channelReactionRemoved(serverId: $serverId, channelId: $channelId, messageId: $messageId, emoji: $emoji, reactor: $reactor, removedAt: $removedAt)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_ChannelReactionRemovedCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_ChannelReactionRemovedCopyWith(NetworkEvent_ChannelReactionRemoved value, $Res Function(NetworkEvent_ChannelReactionRemoved) _then) = _$NetworkEvent_ChannelReactionRemovedCopyWithImpl;
+@useResult
+$Res call({
+ String serverId, String channelId, String messageId, String emoji, String reactor, PlatformInt64 removedAt
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_ChannelReactionRemovedCopyWithImpl<$Res>
+    implements $NetworkEvent_ChannelReactionRemovedCopyWith<$Res> {
+  _$NetworkEvent_ChannelReactionRemovedCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_ChannelReactionRemoved _self;
+  final $Res Function(NetworkEvent_ChannelReactionRemoved) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? serverId = null,Object? channelId = null,Object? messageId = null,Object? emoji = null,Object? reactor = null,Object? removedAt = null,}) {
+  return _then(NetworkEvent_ChannelReactionRemoved(
+serverId: null == serverId ? _self.serverId : serverId // ignore: cast_nullable_to_non_nullable
+as String,channelId: null == channelId ? _self.channelId : channelId // ignore: cast_nullable_to_non_nullable
+as String,messageId: null == messageId ? _self.messageId : messageId // ignore: cast_nullable_to_non_nullable
+as String,emoji: null == emoji ? _self.emoji : emoji // ignore: cast_nullable_to_non_nullable
+as String,reactor: null == reactor ? _self.reactor : reactor // ignore: cast_nullable_to_non_nullable
+as String,removedAt: null == removedAt ? _self.removedAt : removedAt // ignore: cast_nullable_to_non_nullable
+as PlatformInt64,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_DmReactionRemoved extends NetworkEvent {
+  const NetworkEvent_DmReactionRemoved({required this.peerId, required this.messageId, required this.emoji, required this.reactor, required this.removedAt}): super._();
+  
+
+ final  String peerId;
+ final  String messageId;
+ final  String emoji;
+ final  String reactor;
+ final  PlatformInt64 removedAt;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_DmReactionRemovedCopyWith<NetworkEvent_DmReactionRemoved> get copyWith => _$NetworkEvent_DmReactionRemovedCopyWithImpl<NetworkEvent_DmReactionRemoved>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_DmReactionRemoved&&(identical(other.peerId, peerId) || other.peerId == peerId)&&(identical(other.messageId, messageId) || other.messageId == messageId)&&(identical(other.emoji, emoji) || other.emoji == emoji)&&(identical(other.reactor, reactor) || other.reactor == reactor)&&(identical(other.removedAt, removedAt) || other.removedAt == removedAt));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,peerId,messageId,emoji,reactor,removedAt);
+
+@override
+String toString() {
+  return 'NetworkEvent.dmReactionRemoved(peerId: $peerId, messageId: $messageId, emoji: $emoji, reactor: $reactor, removedAt: $removedAt)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_DmReactionRemovedCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_DmReactionRemovedCopyWith(NetworkEvent_DmReactionRemoved value, $Res Function(NetworkEvent_DmReactionRemoved) _then) = _$NetworkEvent_DmReactionRemovedCopyWithImpl;
+@useResult
+$Res call({
+ String peerId, String messageId, String emoji, String reactor, PlatformInt64 removedAt
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_DmReactionRemovedCopyWithImpl<$Res>
+    implements $NetworkEvent_DmReactionRemovedCopyWith<$Res> {
+  _$NetworkEvent_DmReactionRemovedCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_DmReactionRemoved _self;
+  final $Res Function(NetworkEvent_DmReactionRemoved) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? peerId = null,Object? messageId = null,Object? emoji = null,Object? reactor = null,Object? removedAt = null,}) {
+  return _then(NetworkEvent_DmReactionRemoved(
+peerId: null == peerId ? _self.peerId : peerId // ignore: cast_nullable_to_non_nullable
+as String,messageId: null == messageId ? _self.messageId : messageId // ignore: cast_nullable_to_non_nullable
+as String,emoji: null == emoji ? _self.emoji : emoji // ignore: cast_nullable_to_non_nullable
+as String,reactor: null == reactor ? _self.reactor : reactor // ignore: cast_nullable_to_non_nullable
+as String,removedAt: null == removedAt ? _self.removedAt : removedAt // ignore: cast_nullable_to_non_nullable
 as PlatformInt64,
   ));
 }

@@ -304,6 +304,43 @@ impl MessageStore {
             "ALTER TABLE channel_messages ADD COLUMN reply_to_mid TEXT;"
         ).unwrap_or(());
 
+        // -- Emoji reactions (Phase 3.5) --
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS message_reactions (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id TEXT    NOT NULL,
+                emoji      TEXT    NOT NULL,
+                peer_id    TEXT    NOT NULL,
+                added_at   INTEGER NOT NULL,
+                signature  TEXT,
+                public_key TEXT,
+                UNIQUE(message_id, emoji, peer_id)
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create message_reactions table: {e}"))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_reactions_msg_id ON message_reactions (message_id)",
+            [],
+        )
+        .map_err(|e| format!("Failed to create reactions index: {e}"))?;
+
+        // Reaction removal history (Rat Files evidence).
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS reaction_removals (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id TEXT    NOT NULL,
+                emoji      TEXT    NOT NULL,
+                peer_id    TEXT    NOT NULL,
+                removed_at INTEGER NOT NULL,
+                signature  TEXT,
+                public_key TEXT
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create reaction_removals table: {e}"))?;
+
         // -- App settings (key-value, general purpose) --
         conn.execute(
             "CREATE TABLE IF NOT EXISTS app_settings (
@@ -1353,6 +1390,117 @@ impl MessageStore {
             .map_err(|e| format!("Failed to hide DM message: {e}"))?;
 
         Ok(rows > 0)
+    }
+
+    // ── Emoji Reactions (Phase 3.5) ──────────────────────────────
+
+    /// Add a reaction to a message. INSERT OR IGNORE handles duplicates via UNIQUE constraint.
+    /// Enforces a limit of 3 distinct emojis per user per message.
+    /// Returns true if a new reaction was inserted (false if already exists or limit reached).
+    pub fn add_reaction(
+        &self,
+        message_id: &str,
+        emoji: &str,
+        peer_id: &str,
+        added_at: i64,
+        signature: Option<&str>,
+        public_key: Option<&str>,
+    ) -> Result<bool, String> {
+        // Check how many distinct emojis this peer already has on this message.
+        let count: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(DISTINCT emoji) FROM message_reactions WHERE message_id = ?1 AND peer_id = ?2 AND emoji != ?3",
+                params![message_id, peer_id, emoji],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        if count >= 3 {
+            return Ok(false); // Limit reached.
+        }
+
+        let rows = self
+            .conn
+            .execute(
+                "INSERT OR IGNORE INTO message_reactions (message_id, emoji, peer_id, added_at, signature, public_key)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![message_id, emoji, peer_id, added_at, signature, public_key],
+            )
+            .map_err(|e| format!("Failed to add reaction: {e}"))?;
+        Ok(rows > 0)
+    }
+
+    /// Remove a reaction. Records evidence in reaction_removals (Rat Files).
+    /// Returns true if the reaction existed and was removed.
+    pub fn remove_reaction(
+        &self,
+        message_id: &str,
+        emoji: &str,
+        peer_id: &str,
+        removed_at: i64,
+        signature: Option<&str>,
+        public_key: Option<&str>,
+    ) -> Result<bool, String> {
+        let rows = self
+            .conn
+            .execute(
+                "DELETE FROM message_reactions WHERE message_id = ?1 AND emoji = ?2 AND peer_id = ?3",
+                params![message_id, emoji, peer_id],
+            )
+            .map_err(|e| format!("Failed to remove reaction: {e}"))?;
+
+        if rows > 0 {
+            // Record removal evidence (Rat Files).
+            self.conn
+                .execute(
+                    "INSERT INTO reaction_removals (message_id, emoji, peer_id, removed_at, signature, public_key)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![message_id, emoji, peer_id, removed_at, signature, public_key],
+                )
+                .map_err(|e| format!("Failed to insert reaction removal record: {e}"))?;
+        }
+
+        Ok(rows > 0)
+    }
+
+    /// Load all reactions for a set of message IDs.
+    /// Returns a map: message_id → Vec<(emoji, peer_id, added_at)>.
+    pub fn load_reactions_for_messages(
+        &self,
+        message_ids: &[String],
+    ) -> Result<HashMap<String, Vec<(String, String, i64)>>, String> {
+        if message_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // Build placeholder list for IN clause.
+        let placeholders: Vec<String> = message_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+        let sql = format!(
+            "SELECT message_id, emoji, peer_id, added_at FROM message_reactions WHERE message_id IN ({}) ORDER BY added_at ASC",
+            placeholders.join(", ")
+        );
+
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| format!("Failed to prepare reactions query: {e}"))?;
+
+        let params_vec: Vec<&dyn rusqlite::types::ToSql> = message_ids.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+        let rows = stmt
+            .query_map(params_vec.as_slice(), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .map_err(|e| format!("Failed to query reactions: {e}"))?;
+
+        let mut result: HashMap<String, Vec<(String, String, i64)>> = HashMap::new();
+        for row in rows {
+            let (mid, emoji, peer_id, added_at) = row.map_err(|e| format!("Failed to read reaction row: {e}"))?;
+            result.entry(mid).or_default().push((emoji, peer_id, added_at));
+        }
+        Ok(result)
     }
 
     // ── App Settings ──────────────────────────────────────────────

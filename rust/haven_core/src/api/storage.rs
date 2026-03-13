@@ -178,6 +178,37 @@ pub fn load_setting(key: String) -> Result<Option<String>, String> {
     ms.load_setting(&key)
 }
 
+/// A single reaction on a message, returned to Dart.
+pub struct StoredReaction {
+    pub message_id: String,
+    pub emoji: String,
+    pub peer_id: String,
+    pub added_at: i64,
+}
+
+/// Load all reactions for a list of message IDs.
+/// Returns reactions grouped by message_id for efficient bulk loading.
+#[frb]
+pub fn load_reactions(message_ids: Vec<String>) -> Result<Vec<StoredReaction>, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+
+    let reactions_map = ms.load_reactions_for_messages(&message_ids)?;
+    let mut result = Vec::new();
+    for (mid, reactions) in reactions_map {
+        for (emoji, peer_id, added_at) in reactions {
+            result.push(StoredReaction {
+                message_id: mid.clone(),
+                emoji,
+                peer_id,
+                added_at,
+            });
+        }
+    }
+    Ok(result)
+}
+
 /// A channel message returned to Dart from the local database.
 pub struct StoredChannelMessage {
     pub id: i64,

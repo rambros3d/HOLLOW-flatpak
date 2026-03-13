@@ -109,6 +109,54 @@ Future<void> deleteDmMessage({
   messageId: messageId,
 );
 
+/// Add an emoji reaction to a channel message.
+Future<void> addChannelReaction({
+  required String serverId,
+  required String channelId,
+  required String messageId,
+  required String emoji,
+}) => RustLib.instance.api.crateApiNetworkAddChannelReaction(
+  serverId: serverId,
+  channelId: channelId,
+  messageId: messageId,
+  emoji: emoji,
+);
+
+/// Remove an emoji reaction from a channel message.
+Future<void> removeChannelReaction({
+  required String serverId,
+  required String channelId,
+  required String messageId,
+  required String emoji,
+}) => RustLib.instance.api.crateApiNetworkRemoveChannelReaction(
+  serverId: serverId,
+  channelId: channelId,
+  messageId: messageId,
+  emoji: emoji,
+);
+
+/// Add an emoji reaction to a DM message.
+Future<void> addDmReaction({
+  required String peerId,
+  required String messageId,
+  required String emoji,
+}) => RustLib.instance.api.crateApiNetworkAddDmReaction(
+  peerId: peerId,
+  messageId: messageId,
+  emoji: emoji,
+);
+
+/// Remove an emoji reaction from a DM message.
+Future<void> removeDmReaction({
+  required String peerId,
+  required String messageId,
+  required String emoji,
+}) => RustLib.instance.api.crateApiNetworkRemoveDmReaction(
+  peerId: peerId,
+  messageId: messageId,
+  emoji: emoji,
+);
+
 /// Request message sync for a specific channel from all connected server members.
 /// Called when the user opens a channel to catch up on missed messages.
 Future<void> requestChannelSync({
@@ -292,4 +340,34 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String messageId,
     required PlatformInt64 deletedAt,
   }) = NetworkEvent_DmMessageDeleted;
+  const factory NetworkEvent.channelReactionAdded({
+    required String serverId,
+    required String channelId,
+    required String messageId,
+    required String emoji,
+    required String reactor,
+    required PlatformInt64 addedAt,
+  }) = NetworkEvent_ChannelReactionAdded;
+  const factory NetworkEvent.dmReactionAdded({
+    required String peerId,
+    required String messageId,
+    required String emoji,
+    required String reactor,
+    required PlatformInt64 addedAt,
+  }) = NetworkEvent_DmReactionAdded;
+  const factory NetworkEvent.channelReactionRemoved({
+    required String serverId,
+    required String channelId,
+    required String messageId,
+    required String emoji,
+    required String reactor,
+    required PlatformInt64 removedAt,
+  }) = NetworkEvent_ChannelReactionRemoved;
+  const factory NetworkEvent.dmReactionRemoved({
+    required String peerId,
+    required String messageId,
+    required String emoji,
+    required String reactor,
+    required PlatformInt64 removedAt,
+  }) = NetworkEvent_DmReactionRemoved;
 }

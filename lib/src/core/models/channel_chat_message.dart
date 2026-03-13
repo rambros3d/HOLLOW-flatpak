@@ -10,6 +10,8 @@ class ChannelChatMessage {
   final DateTime? editedAt;
   final DateTime? hiddenAt;
   final String? replyToMid;
+  /// Emoji reactions: emoji → list of peer IDs who reacted.
+  final Map<String, List<String>> reactions;
 
   ChannelChatMessage({
     required this.senderId,
@@ -22,10 +24,17 @@ class ChannelChatMessage {
     this.editedAt,
     this.hiddenAt,
     this.replyToMid,
-  }) : timestamp = timestamp ?? DateTime.now();
+    Map<String, List<String>>? reactions,
+  })  : timestamp = timestamp ?? DateTime.now(),
+        reactions = reactions ?? const {};
 
-  /// Create a copy with updated fields (for editing/deletion).
-  ChannelChatMessage copyWith({String? text, DateTime? editedAt, DateTime? hiddenAt}) {
+  /// Create a copy with updated fields (for editing/deletion/reactions).
+  ChannelChatMessage copyWith({
+    String? text,
+    DateTime? editedAt,
+    DateTime? hiddenAt,
+    Map<String, List<String>>? reactions,
+  }) {
     return ChannelChatMessage(
       senderId: senderId,
       text: text ?? this.text,
@@ -37,6 +46,7 @@ class ChannelChatMessage {
       editedAt: editedAt ?? this.editedAt,
       hiddenAt: hiddenAt ?? this.hiddenAt,
       replyToMid: replyToMid,
+      reactions: reactions ?? this.reactions,
     );
   }
 }

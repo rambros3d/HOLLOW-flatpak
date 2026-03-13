@@ -6,6 +6,7 @@ import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
+import 'package:haven/src/ui/chat/reaction_bar.dart';
 import 'package:haven/src/ui/components/haven_avatar.dart';
 
 /// Deterministic name color from peer ID (same hue as avatar, lighter for readability).
@@ -25,6 +26,7 @@ class MessageBubble extends ConsumerWidget {
   final bool showHeader;
   final String? replyToSenderName;
   final String? replyToText;
+  final void Function(String emoji)? onToggleReaction;
 
   const MessageBubble({
     super.key,
@@ -33,6 +35,7 @@ class MessageBubble extends ConsumerWidget {
     required this.showHeader,
     this.replyToSenderName,
     this.replyToText,
+    this.onToggleReaction,
   });
 
   @override
@@ -116,6 +119,14 @@ class MessageBubble extends ConsumerWidget {
       ),
     );
 
+    final reactionBarWidget = message.reactions.isNotEmpty && onToggleReaction != null
+        ? ReactionBar(
+            reactions: message.reactions,
+            localPeerId: localPeerId,
+            onToggleReaction: onToggleReaction!,
+          )
+        : null;
+
     final meDecoration = BoxDecoration(
       border: Border(
         right: BorderSide(color: haven.accent, width: 2),
@@ -166,6 +177,7 @@ class MessageBubble extends ConsumerWidget {
                     const SizedBox(height: 3),
                     ?replyWidget,
                     messageTextWidget,
+                    ?reactionBarWidget,
                   ],
                 ),
               ),
@@ -190,6 +202,7 @@ class MessageBubble extends ConsumerWidget {
         children: [
           ?replyWidget,
           messageTextWidget,
+          ?reactionBarWidget,
         ],
       ),
     );

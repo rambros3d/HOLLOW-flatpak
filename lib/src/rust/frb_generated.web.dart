@@ -89,6 +89,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<StoredMessage> dco_decode_list_stored_message(dynamic raw);
 
   @protected
+  List<StoredReaction> dco_decode_list_stored_reaction(dynamic raw);
+
+  @protected
   List<UserProfile> dco_decode_list_user_profile(dynamic raw);
 
   @protected
@@ -117,6 +120,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   StoredMessage dco_decode_stored_message(dynamic raw);
+
+  @protected
+  StoredReaction dco_decode_stored_reaction(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -201,6 +207,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<StoredReaction> sse_decode_list_stored_reaction(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<UserProfile> sse_decode_list_user_profile(SseDeserializer deserializer);
 
   @protected
@@ -235,6 +246,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   StoredMessage sse_decode_stored_message(SseDeserializer deserializer);
+
+  @protected
+  StoredReaction sse_decode_stored_reaction(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -348,6 +362,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_stored_reaction(
+    List<StoredReaction> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_user_profile(
     List<UserProfile> self,
     SseSerializer serializer,
@@ -391,6 +411,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_stored_message(StoredMessage self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_stored_reaction(
+    StoredReaction self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);
