@@ -247,6 +247,18 @@ class EventStreamNotifier extends Notifier<bool> {
         debugPrint('[HAVEN] DM message edited: $messageId from $peerId');
         ref.read(chatProvider.notifier).applyEdit(
             peerId, messageId, newText, editedAt);
+
+      case NetworkEvent_ChannelMessageDeleted(
+            :final serverId, :final channelId, :final messageId, :final deletedAt):
+        debugPrint('[HAVEN] Channel message deleted: $messageId in $serverId/$channelId');
+        ref.read(channelChatProvider.notifier).applyDelete(
+            serverId, channelId, messageId, deletedAt);
+
+      case NetworkEvent_DmMessageDeleted(
+            :final peerId, :final messageId, :final deletedAt):
+        debugPrint('[HAVEN] DM message deleted: $messageId from $peerId');
+        ref.read(chatProvider.notifier).applyDelete(
+            peerId, messageId, deletedAt);
     }
   }
 

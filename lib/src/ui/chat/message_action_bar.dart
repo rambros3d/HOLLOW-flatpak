@@ -72,6 +72,7 @@ class MessageHoverWrapper extends StatefulWidget {
   final VoidCallback? onEditStart;
   final void Function(String newText)? onEditSubmit;
   final VoidCallback? onEditCancel;
+  final VoidCallback? onDelete;
 
   const MessageHoverWrapper({
     super.key,
@@ -83,6 +84,7 @@ class MessageHoverWrapper extends StatefulWidget {
     this.onEditStart,
     this.onEditSubmit,
     this.onEditCancel,
+    this.onDelete,
   });
 
   @override
@@ -104,7 +106,16 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
   void initState() {
     super.initState();
     _editController = TextEditingController(text: widget.currentText);
-    _editFocusNode = FocusNode();
+    _editFocusNode = FocusNode(
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.escape) {
+          widget.onEditCancel?.call();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+    );
   }
 
   @override
@@ -180,10 +191,18 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
             onExit: (_) => _onBarExit(),
             child: _ActionBarContent(
               haven: haven,
-              onEdit: () {
-                _dismissNow();
-                widget.onEditStart?.call();
-              },
+              onEdit: widget.onEditStart != null
+                  ? () {
+                      _dismissNow();
+                      widget.onEditStart?.call();
+                    }
+                  : null,
+              onDelete: widget.onDelete != null
+                  ? () {
+                      _dismissNow();
+                      widget.onDelete?.call();
+                    }
+                  : null,
             ),
           ),
         ),
@@ -256,14 +275,6 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
     _scheduleDismiss();
   }
 
-  void _handleEditKeyEvent(KeyEvent event) {
-    if (event is KeyDownEvent) {
-      if (event.logicalKey == LogicalKeyboardKey.escape) {
-        widget.onEditCancel?.call();
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     if (widget.isEditing) {
@@ -290,43 +301,40 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          KeyboardListener(
-            focusNode: FocusNode(),
-            onKeyEvent: _handleEditKeyEvent,
-            child: TextField(
-              controller: _editController,
-              focusNode: _editFocusNode,
-              style: HavenTypography.body.copyWith(color: haven.textPrimary),
-              maxLines: 1,
-              decoration: InputDecoration(
-                filled: true,
-                fillColor: haven.elevated,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: HavenSpacing.sm,
-                  vertical: HavenSpacing.sm,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(haven.radiusMd),
-                  borderSide: BorderSide(color: haven.accent),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(haven.radiusMd),
-                  borderSide: BorderSide(color: haven.accent),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(haven.radiusMd),
-                  borderSide: BorderSide(color: haven.accent, width: 1.5),
-                ),
+          TextField(
+            controller: _editController,
+            focusNode: _editFocusNode,
+            style: HavenTypography.body.copyWith(color: haven.textPrimary),
+            maxLines: 1,
+            decoration: InputDecoration(
+              filled: true,
+              fillColor: haven.elevated,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: HavenSpacing.sm,
+                vertical: HavenSpacing.sm,
               ),
-              onSubmitted: (text) {
-                final trimmed = text.trim();
-                if (trimmed.isNotEmpty && trimmed != widget.currentText) {
-                  widget.onEditSubmit?.call(trimmed);
-                } else {
-                  widget.onEditCancel?.call();
-                }
-              },
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(haven.radiusMd),
+                borderSide: BorderSide(color: haven.accent),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(haven.radiusMd),
+                borderSide: BorderSide(color: haven.accent),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(haven.radiusMd),
+                borderSide: BorderSide(color: haven.accent, width: 1.5),
+              ),
             ),
+            onTapOutside: (_) => widget.onEditCancel?.call(),
+            onSubmitted: (text) {
+              final trimmed = text.trim();
+              if (trimmed.isNotEmpty && trimmed != widget.currentText) {
+                widget.onEditSubmit?.call(trimmed);
+              } else {
+                widget.onEditCancel?.call();
+              }
+            },
           ),
           const SizedBox(height: 4),
           Text(
@@ -342,14 +350,16 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
   }
 }
 
-/// The action bar content — edit button.
+/// The action bar content — edit + delete buttons.
 class _ActionBarContent extends StatelessWidget {
   final HavenTheme haven;
   final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   const _ActionBarContent({
     required this.haven,
     this.onEdit,
+    this.onDelete,
   });
 
   @override
@@ -367,15 +377,32 @@ class _ActionBarContent extends StatelessWidget {
           ),
         ],
       ),
-      child: HavenPressable(
-        onTap: onEdit,
-        borderRadius: BorderRadius.circular(haven.radiusSm),
-        padding: const EdgeInsets.all(6),
-        child: Icon(
-          LucideIcons.pencil,
-          size: 14,
-          color: haven.textSecondary,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (onEdit != null)
+            HavenPressable(
+              onTap: onEdit,
+              borderRadius: BorderRadius.circular(haven.radiusSm),
+              padding: const EdgeInsets.all(6),
+              child: Icon(
+                LucideIcons.pencil,
+                size: 14,
+                color: haven.textSecondary,
+              ),
+            ),
+          if (onDelete != null)
+            HavenPressable(
+              onTap: onDelete,
+              borderRadius: BorderRadius.circular(haven.radiusSm),
+              padding: const EdgeInsets.all(6),
+              child: Icon(
+                LucideIcons.trash2,
+                size: 14,
+                color: haven.error,
+              ),
+            ),
+        ],
       ),
     );
   }

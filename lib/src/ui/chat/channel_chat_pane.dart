@@ -244,6 +244,12 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                         },
                         onEditCancel: () =>
                             setState(() => _editingMessageId = null),
+                        onDelete: msg.messageId != null && msg.isMe
+                            ? () => ref
+                                .read(channelChatProvider.notifier)
+                                .deleteMessage(widget.serverId,
+                                    widget.channelId, msg.messageId!)
+                            : null,
                         child: ChannelMessageBubble(
                           message: msg,
                           serverId: widget.serverId,

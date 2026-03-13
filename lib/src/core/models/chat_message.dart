@@ -7,6 +7,7 @@ class ChatMessage {
   final String? publicKey;
   final String? messageId;
   final DateTime? editedAt;
+  final DateTime? hiddenAt;
 
   ChatMessage({
     required this.text,
@@ -16,10 +17,11 @@ class ChatMessage {
     this.publicKey,
     this.messageId,
     this.editedAt,
+    this.hiddenAt,
   }) : timestamp = timestamp ?? DateTime.now();
 
-  /// Create a copy with updated fields (for editing).
-  ChatMessage copyWith({String? text, DateTime? editedAt}) {
+  /// Create a copy with updated fields (for editing/deletion).
+  ChatMessage copyWith({String? text, DateTime? editedAt, DateTime? hiddenAt}) {
     return ChatMessage(
       text: text ?? this.text,
       isMe: isMe,
@@ -28,6 +30,7 @@ class ChatMessage {
       publicKey: publicKey,
       messageId: messageId,
       editedAt: editedAt ?? this.editedAt,
+      hiddenAt: hiddenAt ?? this.hiddenAt,
     );
   }
 }

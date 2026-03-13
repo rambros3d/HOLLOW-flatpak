@@ -102,6 +102,7 @@ class StoredChannelMessage {
   final String? publicKey;
   final String? messageId;
   final PlatformInt64? editedAt;
+  final PlatformInt64? hiddenAt;
 
   const StoredChannelMessage({
     required this.id,
@@ -115,6 +116,7 @@ class StoredChannelMessage {
     this.publicKey,
     this.messageId,
     this.editedAt,
+    this.hiddenAt,
   });
 
   @override
@@ -129,7 +131,8 @@ class StoredChannelMessage {
       signature.hashCode ^
       publicKey.hashCode ^
       messageId.hashCode ^
-      editedAt.hashCode;
+      editedAt.hashCode ^
+      hiddenAt.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -146,7 +149,8 @@ class StoredChannelMessage {
           signature == other.signature &&
           publicKey == other.publicKey &&
           messageId == other.messageId &&
-          editedAt == other.editedAt;
+          editedAt == other.editedAt &&
+          hiddenAt == other.hiddenAt;
 }
 
 /// A message returned to Dart from the local database.
@@ -160,6 +164,7 @@ class StoredMessage {
   final String? publicKey;
   final String? messageId;
   final PlatformInt64? editedAt;
+  final PlatformInt64? hiddenAt;
 
   const StoredMessage({
     required this.id,
@@ -171,6 +176,7 @@ class StoredMessage {
     this.publicKey,
     this.messageId,
     this.editedAt,
+    this.hiddenAt,
   });
 
   @override
@@ -183,7 +189,8 @@ class StoredMessage {
       signature.hashCode ^
       publicKey.hashCode ^
       messageId.hashCode ^
-      editedAt.hashCode;
+      editedAt.hashCode ^
+      hiddenAt.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -198,7 +205,8 @@ class StoredMessage {
           signature == other.signature &&
           publicKey == other.publicKey &&
           messageId == other.messageId &&
-          editedAt == other.editedAt;
+          editedAt == other.editedAt &&
+          hiddenAt == other.hiddenAt;
 }
 
 /// A user profile returned to Dart.

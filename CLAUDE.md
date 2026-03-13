@@ -78,9 +78,10 @@ Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection mana
 - Message IDs: Generated in Dart (`generateMessageId()` in `chat_provider.dart`, Random.secure 32-char hex), passed to Rust via FFI. Both `MessageReceived`/`ChannelMessageReceived` events include `message_id`. Messages editable immediately after send.
 - Hover action bar: Overlay-based system (`message_action_bar.dart`). `MessageActionBarScope` + `MessageActionBarController` ensure one active bar at a time. `MessageHoverWrapper` uses `RenderBox.localToGlobal` + `OverlayEntry` with `Positioned` (same pattern as profile_card_popup). Highlight overlay (3% white, IgnorePointer) + action bar (edit pencil). 60ms dismiss timer for message↔bar mouse travel. Teal right border stays in bubble widgets permanently. Group spacing padding lives outside the hover wrapper in ListView builders for exact alignment.
 - Multi-peer fan-out sync: `SyncCoordinator` in swarm.rs collects connected peers for 500ms, assigns channels round-robin across ALL peers (primary + backup). Lightweight `ChannelSyncProbe`/`ChannelSyncProbeResponse` wire messages compare timestamps before full sync — channels with no new data are skipped entirely. Equal load distribution: more peers = lighter per-peer load. On-demand `RequestChannelSync` still fans out to all peers for immediacy. CRDT state sync and DM sync unchanged.
+- Message deletion (hiding): Rat Files philosophy — messages never truly deleted, just hidden from UI. `hidden_at` column on messages/channel_messages, `message_deletions` evidence table. `DeleteMessage` envelope broadcast via MLS/Olm. UI queries filter `WHERE hidden_at IS NULL`; sync queries include hidden messages so all peers get full evidence in their DBs. Hover action bar shows trash icon (red) next to edit pencil for own messages. FFI: `delete_channel_message()`/`delete_dm_message()`. Dart `applyDelete()` removes from in-memory list entirely.
 
 **Phase 3.5 remaining:**
-1. Chat Essentials: message deletion, reply chains, emoji reactions, typing indicators, markdown rendering, pinned messages
+1. Chat Essentials: reply chains, emoji reactions, typing indicators, markdown rendering, pinned messages
 2. QoL: notifications, search, keyboard shortcuts, basic P2P file sharing (WebP internal format)
 
 ## Haven Design System (Phase 2.75)

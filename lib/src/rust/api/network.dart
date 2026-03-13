@@ -84,6 +84,27 @@ Future<void> editDmMessage({
   newText: newText,
 );
 
+/// Delete (hide) a channel message. Broadcasts the deletion to all server members.
+/// The message stays in the DB (Rat Files evidence) but is hidden from UI.
+Future<void> deleteChannelMessage({
+  required String serverId,
+  required String channelId,
+  required String messageId,
+}) => RustLib.instance.api.crateApiNetworkDeleteChannelMessage(
+  serverId: serverId,
+  channelId: channelId,
+  messageId: messageId,
+);
+
+/// Delete (hide) a DM message. Sends the deletion to the DM peer.
+Future<void> deleteDmMessage({
+  required String peerId,
+  required String messageId,
+}) => RustLib.instance.api.crateApiNetworkDeleteDmMessage(
+  peerId: peerId,
+  messageId: messageId,
+);
+
 /// Request message sync for a specific channel from all connected server members.
 /// Called when the user opens a channel to catch up on missed messages.
 Future<void> requestChannelSync({
@@ -254,4 +275,15 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String newText,
     required PlatformInt64 editedAt,
   }) = NetworkEvent_DmMessageEdited;
+  const factory NetworkEvent.channelMessageDeleted({
+    required String serverId,
+    required String channelId,
+    required String messageId,
+    required PlatformInt64 deletedAt,
+  }) = NetworkEvent_ChannelMessageDeleted;
+  const factory NetworkEvent.dmMessageDeleted({
+    required String peerId,
+    required String messageId,
+    required PlatformInt64 deletedAt,
+  }) = NetworkEvent_DmMessageDeleted;
 }

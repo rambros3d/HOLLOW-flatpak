@@ -16,6 +16,7 @@ pub struct StoredMessage {
     pub public_key: Option<String>,
     pub message_id: Option<String>,
     pub edited_at: Option<i64>,
+    pub hidden_at: Option<i64>,
 }
 
 // Global message store: None = not opened, Some = ready.
@@ -102,6 +103,7 @@ pub fn load_messages(peer_id: String, limit: i32) -> Result<Vec<StoredMessage>, 
             public_key: r.public_key,
             message_id: r.message_id,
             edited_at: r.edited_at,
+            hidden_at: r.hidden_at,
         })
         .collect())
 }
@@ -187,6 +189,7 @@ pub struct StoredChannelMessage {
     pub public_key: Option<String>,
     pub message_id: Option<String>,
     pub edited_at: Option<i64>,
+    pub hidden_at: Option<i64>,
 }
 
 /// Save a channel message to the local database.
@@ -235,6 +238,7 @@ pub fn load_channel_messages(
             public_key: r.public_key,
             message_id: r.message_id,
             edited_at: r.edited_at,
+            hidden_at: r.hidden_at,
         })
         .collect())
 }

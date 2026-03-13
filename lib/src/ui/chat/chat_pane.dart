@@ -293,6 +293,12 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                         },
                         onEditCancel: () =>
                             setState(() => _editingMessageId = null),
+                        onDelete: msg.messageId != null && msg.isMe
+                            ? () => ref
+                                .read(chatProvider.notifier)
+                                .deleteMessage(
+                                    widget.peerId, msg.messageId!)
+                            : null,
                         child: MessageBubble(
                           message: msg,
                           peerId: widget.peerId,

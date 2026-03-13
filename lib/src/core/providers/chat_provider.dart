@@ -83,6 +83,29 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
     state = updated;
   }
 
+  /// Delete (hide) a message we sent.
+  Future<void> deleteMessage(String peerId, String messageId) async {
+    await network_api.deleteDmMessage(
+      peerId: peerId,
+      messageId: messageId,
+    );
+    // UI update happens via the DmMessageDeleted event.
+  }
+
+  /// Remove a message from in-memory state (from network event or own deletion).
+  void applyDelete(String peerId, String messageId, int deletedAtMs) {
+    final current = state[peerId];
+    if (current == null) return;
+
+    final updatedList =
+        current.where((m) => m.messageId != messageId).toList();
+    if (updatedList.length == current.length) return; // Not found.
+
+    final updated = Map.of(state);
+    updated[peerId] = updatedList;
+    state = updated;
+  }
+
   /// Add a send-failure message (shown as a local system message).
   void addSendFailure(String toPeer, String error) {
     _addMessage(

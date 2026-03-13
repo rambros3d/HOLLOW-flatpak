@@ -24,6 +24,7 @@ pub(crate) struct StoredMessage {
     pub public_key: Option<String>,
     pub message_id: Option<String>,
     pub edited_at: Option<i64>,
+    pub hidden_at: Option<i64>,
 }
 
 /// A stored channel message.
@@ -39,6 +40,7 @@ pub(crate) struct StoredChannelMessage {
     pub public_key: Option<String>,
     pub message_id: Option<String>,
     pub edited_at: Option<i64>,
+    pub hidden_at: Option<i64>,
 }
 
 /// Encrypted SQLite message store.
@@ -264,6 +266,34 @@ impl MessageStore {
         )
         .map_err(|e| format!("Failed to create message_edits index: {e}"))?;
 
+        // -- Migration: hidden_at column for message deletion/hiding (Phase 3.5) --
+        conn.execute_batch(
+            "ALTER TABLE messages ADD COLUMN hidden_at INTEGER;"
+        ).unwrap_or(());
+        conn.execute_batch(
+            "ALTER TABLE channel_messages ADD COLUMN hidden_at INTEGER;"
+        ).unwrap_or(());
+
+        // Deletion evidence table — preserves text at time of deletion for Rat Files.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS message_deletions (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id  TEXT    NOT NULL,
+                deleted_text TEXT   NOT NULL,
+                deleted_at  INTEGER NOT NULL,
+                signature   TEXT,
+                public_key  TEXT
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create message_deletions table: {e}"))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_deletions_msg_id ON message_deletions (message_id)",
+            [],
+        )
+        .map_err(|e| format!("Failed to create message_deletions index: {e}"))?;
+
         // -- App settings (key-value, general purpose) --
         conn.execute(
             "CREATE TABLE IF NOT EXISTS app_settings (
@@ -389,6 +419,7 @@ impl MessageStore {
     }
 
     /// Load recent messages for a peer, ordered oldest-first.
+    /// Hidden (deleted) messages are excluded.
     pub fn load_for_peer(
         &self,
         peer_id: &str,
@@ -397,9 +428,9 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at
+                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at
                  FROM messages
-                 WHERE peer_id = ?1
+                 WHERE peer_id = ?1 AND hidden_at IS NULL
                  ORDER BY timestamp DESC
                  LIMIT ?2",
             )
@@ -417,6 +448,7 @@ impl MessageStore {
                     public_key: row.get(6)?,
                     message_id: row.get(7)?,
                     edited_at: row.get(8)?,
+                    hidden_at: row.get(9)?,
                 })
             })
             .map_err(|e| format!("Failed to query messages: {e}"))?;
@@ -453,6 +485,7 @@ impl MessageStore {
     /// Get DM messages **we sent** newer than or equal to a given timestamp (for DM sync responses).
     /// Only returns `is_mine = 1` — the requesting peer already has messages they sent.
     /// Uses `>=` (inclusive) — INSERT OR IGNORE dedup handles overlap.
+    /// Includes hidden (deleted) messages — evidence must sync to all peers (Rat Files).
     pub fn get_dm_messages_since(
         &self,
         peer_id: &str,
@@ -462,7 +495,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at
+                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at
                  FROM messages
                  WHERE peer_id = ?1 AND timestamp >= ?2 AND is_mine = 1
                  ORDER BY timestamp ASC
@@ -482,6 +515,7 @@ impl MessageStore {
                     public_key: row.get(6)?,
                     message_id: row.get(7)?,
                     edited_at: row.get(8)?,
+                    hidden_at: row.get(9)?,
                 })
             })
             .map_err(|e| format!("Failed to query dm_messages_since: {e}"))?;
@@ -638,6 +672,7 @@ impl MessageStore {
     }
 
     /// Load recent messages for a channel, ordered oldest-first.
+    /// Hidden (deleted) messages are excluded.
     pub fn load_channel_messages(
         &self,
         server_id: &str,
@@ -647,9 +682,9 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at
+                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at
                  FROM channel_messages
-                 WHERE server_id = ?1 AND channel_id = ?2
+                 WHERE server_id = ?1 AND channel_id = ?2 AND hidden_at IS NULL
                  ORDER BY timestamp DESC
                  LIMIT ?3",
             )
@@ -669,6 +704,7 @@ impl MessageStore {
                     public_key: row.get(8)?,
                     message_id: row.get(9)?,
                     edited_at: row.get(10)?,
+                    hidden_at: row.get(11)?,
                 })
             })
             .map_err(|e| format!("Failed to query channel_messages: {e}"))?;
@@ -707,6 +743,7 @@ impl MessageStore {
     }
 
     /// Get channel messages newer than a given timestamp (for sync responses).
+    /// Includes hidden (deleted) messages — evidence must sync to all peers (Rat Files).
     pub fn get_channel_messages_since(
         &self,
         server_id: &str,
@@ -717,7 +754,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at
+                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at
                  FROM channel_messages
                  WHERE server_id = ?1 AND channel_id = ?2 AND timestamp > ?3
                  ORDER BY timestamp ASC
@@ -741,6 +778,7 @@ impl MessageStore {
                         public_key: row.get(8)?,
                         message_id: row.get(9)?,
                         edited_at: row.get(10)?,
+                        hidden_at: row.get(11)?,
                     })
                 },
             )
@@ -850,7 +888,7 @@ impl MessageStore {
 
         let where_clause = conditions.join(" OR ");
         let sql = format!(
-            "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at
+            "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at
              FROM channel_messages
              WHERE server_id = ?1 AND channel_id = ?2 AND ({where_clause})
              ORDER BY timestamp ASC
@@ -877,6 +915,7 @@ impl MessageStore {
                     public_key: row.get(8)?,
                     message_id: row.get(9)?,
                     edited_at: row.get(10)?,
+                    hidden_at: row.get(11)?,
                 })
             })
             .map_err(|e| format!("Failed to query per_sender_since: {e}"))?;
@@ -1182,6 +1221,97 @@ impl MessageStore {
                 params![new_text, edited_at, message_id],
             )
             .map_err(|e| format!("Failed to update DM message: {e}"))?;
+
+        Ok(rows > 0)
+    }
+
+    // ── Message Deletion / Hiding (Phase 3.5) ──
+
+    /// Hide a channel message by message_id. Preserves text in message_deletions table.
+    /// The message stays in the DB (Rat Files evidence) but is hidden from UI queries.
+    /// Returns true if the message was found and hidden.
+    pub fn hide_channel_message(
+        &self,
+        message_id: &str,
+        deleted_at: i64,
+        signature: Option<&str>,
+        public_key: Option<&str>,
+    ) -> Result<bool, String> {
+        // 1. Read the current text for evidence preservation.
+        let text: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT text FROM channel_messages WHERE message_id = ?1",
+                params![message_id],
+                |row| row.get(0),
+            )
+            .ok();
+
+        let Some(text) = text else {
+            return Ok(false); // Message not found.
+        };
+
+        // 2. Preserve the text in message_deletions (Rat Files evidence).
+        self.conn
+            .execute(
+                "INSERT INTO message_deletions (message_id, deleted_text, deleted_at, signature, public_key)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![message_id, text, deleted_at, signature, public_key],
+            )
+            .map_err(|e| format!("Failed to insert deletion record: {e}"))?;
+
+        // 3. Set hidden_at — message stays in DB but is filtered out of queries.
+        let rows = self
+            .conn
+            .execute(
+                "UPDATE channel_messages SET hidden_at = ?1 WHERE message_id = ?2",
+                params![deleted_at, message_id],
+            )
+            .map_err(|e| format!("Failed to hide channel message: {e}"))?;
+
+        Ok(rows > 0)
+    }
+
+    /// Hide a DM message by message_id. Preserves text in message_deletions table.
+    /// Returns true if the message was found and hidden.
+    pub fn hide_dm_message(
+        &self,
+        message_id: &str,
+        deleted_at: i64,
+        signature: Option<&str>,
+        public_key: Option<&str>,
+    ) -> Result<bool, String> {
+        // 1. Read the current text.
+        let text: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT text FROM messages WHERE message_id = ?1",
+                params![message_id],
+                |row| row.get(0),
+            )
+            .ok();
+
+        let Some(text) = text else {
+            return Ok(false);
+        };
+
+        // 2. Preserve evidence.
+        self.conn
+            .execute(
+                "INSERT INTO message_deletions (message_id, deleted_text, deleted_at, signature, public_key)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![message_id, text, deleted_at, signature, public_key],
+            )
+            .map_err(|e| format!("Failed to insert deletion record: {e}"))?;
+
+        // 3. Hide it.
+        let rows = self
+            .conn
+            .execute(
+                "UPDATE messages SET hidden_at = ?1 WHERE message_id = ?2",
+                params![deleted_at, message_id],
+            )
+            .map_err(|e| format!("Failed to hide DM message: {e}"))?;
 
         Ok(rows > 0)
     }

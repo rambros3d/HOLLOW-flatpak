@@ -97,6 +97,33 @@ class ChannelChatNotifier
     state = updated;
   }
 
+  /// Delete (hide) a channel message.
+  Future<void> deleteMessage(String serverId, String channelId,
+      String messageId) async {
+    await network_api.deleteChannelMessage(
+      serverId: serverId,
+      channelId: channelId,
+      messageId: messageId,
+    );
+    // UI update happens via the ChannelMessageDeleted event.
+  }
+
+  /// Remove a message from in-memory state (from network event or own deletion).
+  void applyDelete(String serverId, String channelId, String messageId,
+      int deletedAtMs) {
+    final key = _key(serverId, channelId);
+    final current = state[key];
+    if (current == null) return;
+
+    final updatedList =
+        current.where((m) => m.messageId != messageId).toList();
+    if (updatedList.length == current.length) return; // Not found.
+
+    final updated = Map.of(state);
+    updated[key] = updatedList;
+    state = updated;
+  }
+
   /// Load history for a channel from SQLCipher.
   /// Also requests a background sync from connected peers.
   Future<void> loadHistory(String serverId, String channelId) async {

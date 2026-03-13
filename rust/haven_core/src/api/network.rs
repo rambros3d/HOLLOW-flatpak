@@ -51,6 +51,9 @@ pub enum NetworkEvent {
     // -- Message editing events (Phase 3.5) --
     ChannelMessageEdited { server_id: String, channel_id: String, message_id: String, new_text: String, edited_at: i64 },
     DmMessageEdited { peer_id: String, message_id: String, new_text: String, edited_at: i64 },
+    // -- Message deletion events (Phase 3.5) --
+    ChannelMessageDeleted { server_id: String, channel_id: String, message_id: String, deleted_at: i64 },
+    DmMessageDeleted { peer_id: String, message_id: String, deleted_at: i64 },
 }
 
 /// Holds all mutable state for the running node.
@@ -171,6 +174,12 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::DmMessageEdited { peer_id, message_id, .. } => {
             haven_log!("[HAVEN] DM message {message_id} edited for {peer_id}");
         }
+        node::NetworkEvent::ChannelMessageDeleted { server_id, channel_id, message_id, .. } => {
+            haven_log!("[HAVEN] Channel message {message_id} deleted in {server_id}/{channel_id}");
+        }
+        node::NetworkEvent::DmMessageDeleted { peer_id, message_id, .. } => {
+            haven_log!("[HAVEN] DM message {message_id} deleted for {peer_id}");
+        }
         _ => {}
     }
     match event {
@@ -256,6 +265,12 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::DmMessageEdited { peer_id, message_id, new_text, edited_at } => {
             NetworkEvent::DmMessageEdited { peer_id, message_id, new_text, edited_at }
+        }
+        node::NetworkEvent::ChannelMessageDeleted { server_id, channel_id, message_id, deleted_at } => {
+            NetworkEvent::ChannelMessageDeleted { server_id, channel_id, message_id, deleted_at }
+        }
+        node::NetworkEvent::DmMessageDeleted { peer_id, message_id, deleted_at } => {
+            NetworkEvent::DmMessageDeleted { peer_id, message_id, deleted_at }
         }
     }
 }
@@ -510,6 +525,57 @@ pub fn edit_dm_message(
             peer_id: peer,
             message_id,
             new_text,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Delete (hide) a channel message. Broadcasts the deletion to all server members.
+/// The message stays in the DB (Rat Files evidence) but is hidden from UI.
+#[frb]
+pub fn delete_channel_message(
+    server_id: String,
+    channel_id: String,
+    message_id: String,
+) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::DeleteChannelMessage {
+            server_id,
+            channel_id,
+            message_id,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Delete (hide) a DM message. Sends the deletion to the DM peer.
+#[frb]
+pub fn delete_dm_message(
+    peer_id: String,
+    message_id: String,
+) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let peer: PeerId = peer_id
+        .parse()
+        .map_err(|e| format!("Invalid peer ID: {e}"))?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::DeleteDmMessage {
+            peer_id: peer,
+            message_id,
         }),
     )
     .map_err(|e| format!("Failed to send command: {e}"))?;
