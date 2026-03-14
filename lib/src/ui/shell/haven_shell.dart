@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/models/channel_info.dart';
 import 'package:haven/src/core/models/chat_message.dart';
@@ -28,6 +29,7 @@ import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/haven_tooltip.dart';
 import 'package:haven/src/ui/dialogs/create_channel_dialog.dart';
 import 'package:haven/src/ui/dialogs/mnemonic_dialog.dart';
+import 'package:haven/src/ui/dialogs/user_settings_dialog.dart';
 import 'package:haven/src/ui/settings/server_settings_panel.dart';
 import 'package:haven/src/ui/shell/channel_sidebar.dart';
 import 'package:haven/src/ui/shell/member_panel.dart';
@@ -84,6 +86,9 @@ class _HavenShellState extends ConsumerState<HavenShell>
       }
     });
 
+    // Register global keyboard shortcut handler.
+    HardwareKeyboard.instance.addHandler(_handleGlobalKey);
+
     // Delay reveal until after the first frame so the window is visible.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _revealController.forward();
@@ -118,8 +123,46 @@ class _HavenShellState extends ConsumerState<HavenShell>
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
     _revealController.dispose();
     super.dispose();
+  }
+
+  /// Global keyboard shortcut handler — registered on HardwareKeyboard
+  /// so it works regardless of which widget currently has focus.
+  bool _handleGlobalKey(KeyEvent event) {
+    if (event is! KeyDownEvent) return false;
+
+    final isCtrl = HardwareKeyboard.instance.isControlPressed;
+    final isShift = HardwareKeyboard.instance.isShiftPressed;
+
+    // Ctrl+, → Open settings dialog.
+    if (isCtrl &&
+        !isShift &&
+        event.logicalKey == LogicalKeyboardKey.comma) {
+      showUserSettingsDialog(context, ref);
+      return true;
+    }
+
+    // Ctrl+Shift+M → Toggle member panel.
+    if (isCtrl &&
+        isShift &&
+        event.logicalKey == LogicalKeyboardKey.keyM) {
+      final current = ref.read(memberPanelProvider);
+      ref.read(memberPanelProvider.notifier).state = !current;
+      return true;
+    }
+
+    // Ctrl+K → Toggle channel search.
+    if (isCtrl &&
+        !isShift &&
+        event.logicalKey == LogicalKeyboardKey.keyK) {
+      final current = ref.read(channelSearchOpenProvider);
+      ref.read(channelSearchOpenProvider.notifier).state = !current;
+      return true;
+    }
+
+    return false;
   }
 
   ChatMessage? _lastMessage(

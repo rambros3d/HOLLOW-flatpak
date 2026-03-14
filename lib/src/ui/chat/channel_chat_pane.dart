@@ -53,9 +53,9 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   String? _replyToText;
   String? _replyToSenderName;
   DateTime? _lastTypingSent;
-  bool _searchOpen = false;
   final _searchController = TextEditingController();
   List<dynamic> _searchResults = [];
+  final _searchFocusNode = FocusNode();
 
   String get _stateKey => '${widget.serverId}:${widget.channelId}';
 
@@ -81,6 +81,9 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     _scrollController.dispose();
     _focusNode.dispose();
     _searchController.dispose();
+    _searchFocusNode.dispose();
+    // Reset search state when leaving this pane.
+    ref.read(channelSearchOpenProvider.notifier).state = false;
     super.dispose();
   }
 
@@ -304,6 +307,20 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     }
     _previousMessageCount = messages.length;
 
+    // Focus search field when opened via global shortcut (Ctrl+K).
+    ref.listen(channelSearchOpenProvider, (prev, next) {
+      if (next && !(prev ?? false)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _searchFocusNode.requestFocus();
+        });
+      }
+      if (!next && (prev ?? false)) {
+        // Closing — clear search state.
+        _searchController.clear();
+        setState(() => _searchResults = []);
+      }
+    });
+
     final typingPeers = ref.watch(typingProvider)[_stateKey] ?? {};
 
     return Column(
@@ -364,13 +381,22 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
               HavenTooltip(
                 message: 'Search messages',
                 child: HavenPressable(
-                  onTap: () => setState(() => _searchOpen = !_searchOpen),
+                  onTap: () {
+                    final current = ref.read(channelSearchOpenProvider);
+                    ref.read(channelSearchOpenProvider.notifier).state = !current;
+                    if (!current) {
+                      // Opening — focus the search field after build.
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        _searchFocusNode.requestFocus();
+                      });
+                    }
+                  },
                   borderRadius: BorderRadius.circular(haven.radiusSm),
                   padding: const EdgeInsets.all(HavenSpacing.xs),
                   child: Icon(
                     LucideIcons.search,
                     size: 18,
-                    color: _searchOpen ? haven.accent : haven.textSecondary,
+                    color: ref.watch(channelSearchOpenProvider) ? haven.accent : haven.textSecondary,
                   ),
                 ),
               ),
@@ -396,7 +422,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
         ),
 
         // Search bar
-        if (_searchOpen)
+        if (ref.watch(channelSearchOpenProvider))
           Container(
             padding: const EdgeInsets.symmetric(
               horizontal: HavenSpacing.md,
@@ -411,6 +437,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
               children: [
                 HavenTextField(
                   controller: _searchController,
+                  focusNode: _searchFocusNode,
                   hintText: 'Search in #${widget.channelName}...',
                   autofocus: true,
                   isDense: true,
@@ -447,8 +474,8 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                           child: HavenPressable(
                             subtle: true,
                             onTap: () {
+                              ref.read(channelSearchOpenProvider.notifier).state = false;
                               setState(() {
-                                _searchOpen = false;
                                 _searchController.clear();
                                 _searchResults = [];
                               });

@@ -13,12 +13,22 @@ import 'package:haven/src/theme/haven_typography.dart';
 import 'package:haven/src/ui/components/haven_avatar.dart';
 import 'package:haven/src/ui/components/haven_button.dart';
 import 'package:haven/src/ui/components/haven_dialog.dart';
+import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/haven_text_field.dart';
 import 'package:haven/src/ui/components/haven_toggle.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
-/// Shows the user settings dialog for editing profile and preferences.
+/// Tracks whether the settings dialog is currently open.
+bool _settingsDialogOpen = false;
+
+/// Shows the user settings dialog, or closes it if already open (toggle).
 void showUserSettingsDialog(BuildContext context, WidgetRef ref) {
+  // Toggle: if already open, close it.
+  if (_settingsDialogOpen) {
+    Navigator.of(context, rootNavigator: true).pop();
+    return;
+  }
+
   final localPeerId = ref.read(identityProvider).peerId;
   if (localPeerId == null) return;
 
@@ -35,6 +45,8 @@ void showUserSettingsDialog(BuildContext context, WidgetRef ref) {
     text: currentProfile?.aboutMe ?? '',
   );
 
+  _settingsDialogOpen = true;
+
   showHavenDialog(
     context: context,
     builder: (dialogContext) {
@@ -45,7 +57,10 @@ void showUserSettingsDialog(BuildContext context, WidgetRef ref) {
         aboutMeController: aboutMeController,
       );
     },
-  );
+  ).then((_) {
+    // Reset flag when dialog closes (Cancel, Save, barrier tap, or toggle).
+    _settingsDialogOpen = false;
+  });
 }
 
 /// Deterministic banner color from peer ID (shifted hue from avatar).
@@ -54,6 +69,9 @@ Color _bannerColorFromId(String id) {
   final hue = ((hash % 360).abs() + 40) % 360; // Shift hue from avatar
   return HSLColor.fromAHSL(1.0, hue.toDouble(), 0.45, 0.35).toColor();
 }
+
+/// Settings tab enum.
+enum _SettingsTab { profile, system }
 
 class _UserSettingsContent extends ConsumerStatefulWidget {
   final String localPeerId;
@@ -77,6 +95,9 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
   // Track live fields for the preview card.
   String _liveDisplayName = '';
   String _liveStatus = '';
+
+  // Active tab.
+  _SettingsTab _activeTab = _SettingsTab.profile;
 
   // Pending toggle states (applied only on Save).
   late bool _pendingDarkMode;
@@ -204,20 +225,16 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
     }
 
     final haven = HavenTheme.of(context);
-    final bannerColor = _bannerColorFromId(widget.localPeerId);
     final radius = BorderRadius.circular(haven.radiusLg);
-
-    // Preview display name: live text or fallback.
-    final previewName = _liveDisplayName.trim().isNotEmpty
-        ? _liveDisplayName.trim()
-        : displayNameFor(ref.watch(profileProvider), widget.localPeerId);
 
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(HavenSpacing.xl),
         child: ConstrainedBox(
           constraints: const BoxConstraints(
-            maxWidth: 600,
+            maxWidth: 680,
+            maxHeight: 540,
+            minHeight: 540,
             minWidth: 400,
           ),
           child: Material(
@@ -237,7 +254,6 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                 ],
               ),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
                 children: [
                   // Header
                   Padding(
@@ -245,7 +261,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                       HavenSpacing.xl,
                       HavenSpacing.xl,
                       HavenSpacing.xl,
-                      HavenSpacing.lg,
+                      0,
                     ),
                     child: Row(
                       children: [
@@ -258,351 +274,62 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                     ),
                   ),
 
-                  // Two-column body
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: HavenSpacing.xl,
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Left: Profile preview card
-                        SizedBox(
-                          width: 220,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: haven.surface,
-                              borderRadius:
-                                  BorderRadius.circular(haven.radiusMd),
-                              border: Border.all(color: haven.border),
-                            ),
-                            clipBehavior: Clip.antiAlias,
+                  const SizedBox(height: HavenSpacing.lg),
+
+                  // Tab rail + content
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: HavenSpacing.xl,
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Left: tab rail
+                          SizedBox(
+                            width: 140,
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                // Banner
-                                Container(
-                                  height: 80,
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        bannerColor,
-                                        bannerColor.withValues(alpha: 0.7),
-                                      ],
-                                    ),
-                                  ),
+                                _TabItem(
+                                  icon: LucideIcons.user,
+                                  label: 'Profile',
+                                  isActive:
+                                      _activeTab == _SettingsTab.profile,
+                                  onTap: () => setState(() =>
+                                      _activeTab = _SettingsTab.profile),
                                 ),
-
-                                // Avatar overlapping banner
-                                Transform.translate(
-                                  offset: const Offset(0, -32),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: HavenSpacing.md,
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.center,
-                                      children: [
-                                        // Avatar with border
-                                        Container(
-                                          decoration: BoxDecoration(
-                                            borderRadius:
-                                                BorderRadius.circular(
-                                                    haven.radiusMd + 2),
-                                            border: Border.all(
-                                              color: haven.surface,
-                                              width: 3,
-                                            ),
-                                          ),
-                                          child: HavenAvatar(
-                                            peerId: widget.localPeerId,
-                                            size: 64,
-                                          ),
-                                        ),
-
-                                        const SizedBox(
-                                            height: HavenSpacing.xs + 2),
-
-                                        // Display name
-                                        Text(
-                                          previewName,
-                                          style: HavenTypography.subheading
-                                              .copyWith(
-                                            color: haven.textPrimary,
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 15,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          textAlign: TextAlign.center,
-                                        ),
-
-                                        // Status (before divider)
-                                        if (_liveStatus.trim().isNotEmpty) ...[
-                                          const SizedBox(
-                                              height: HavenSpacing.xs),
-                                          Text(
-                                            _liveStatus.trim(),
-                                            style: HavenTypography.caption
-                                                .copyWith(
-                                              color: haven.textSecondary,
-                                              fontSize: 11,
-                                              fontStyle: FontStyle.italic,
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            textAlign: TextAlign.center,
-                                          ),
-                                        ],
-
-                                        const SizedBox(
-                                            height: HavenSpacing.sm),
-                                        Container(
-                                          height: 1,
-                                          color: haven.border,
-                                        ),
-
-                                        // About Me preview
-                                        if (widget.aboutMeController.text
-                                            .trim()
-                                            .isNotEmpty) ...[
-                                          const SizedBox(
-                                              height: HavenSpacing.sm),
-                                          Text(
-                                            'ABOUT ME',
-                                            style: HavenTypography.caption
-                                                .copyWith(
-                                              color: haven.textSecondary,
-                                              fontWeight: FontWeight.w700,
-                                              letterSpacing: 0.5,
-                                              fontSize: 9,
-                                            ),
-                                          ),
-                                          const SizedBox(
-                                              height: HavenSpacing.xxs),
-                                          Text(
-                                            widget.aboutMeController.text
-                                                .trim(),
-                                            style: HavenTypography.caption
-                                                .copyWith(
-                                              color: haven.textSecondary,
-                                              fontSize: 11,
-                                            ),
-                                            maxLines: 4,
-                                            overflow: TextOverflow.ellipsis,
-                                            textAlign: TextAlign.center,
-                                          ),
-                                        ],
-
-                                        // Peer ID footer
-                                        const SizedBox(
-                                            height: HavenSpacing.sm),
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                            Icon(
-                                              LucideIcons.copy,
-                                              size: 8,
-                                              color: haven.textSecondary
-                                                  .withValues(alpha: 0.35),
-                                            ),
-                                            const SizedBox(width: 3),
-                                            Text(
-                                              widget.localPeerId.length > 16
-                                                  ? widget.localPeerId
-                                                      .substring(
-                                                          widget.localPeerId
-                                                                  .length -
-                                                              8)
-                                                  : widget.localPeerId,
-                                              style: HavenTypography.mono
-                                                  .copyWith(
-                                                color: haven.textSecondary
-                                                    .withValues(alpha: 0.35),
-                                                fontSize: 8,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                                const SizedBox(height: HavenSpacing.xxs),
+                                _TabItem(
+                                  icon: LucideIcons.monitor,
+                                  label: 'System',
+                                  isActive:
+                                      _activeTab == _SettingsTab.system,
+                                  onTap: () => setState(() =>
+                                      _activeTab = _SettingsTab.system),
                                 ),
                               ],
                             ),
                           ),
-                        ),
 
-                        const SizedBox(width: HavenSpacing.xl),
+                          const SizedBox(width: HavenSpacing.lg),
 
-                        // Right: Input fields
-                        Expanded(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _FieldLabel(label: 'DISPLAY NAME'),
-                              const SizedBox(height: HavenSpacing.xs),
-                              HavenTextField(
-                                controller:
-                                    widget.displayNameController,
-                                hintText: 'Enter a display name',
-                                autofocus: true,
-                                maxLength: 32,
-                              ),
-
-                              const SizedBox(height: HavenSpacing.lg),
-
-                              _FieldLabel(label: 'STATUS'),
-                              const SizedBox(height: HavenSpacing.xs),
-                              HavenTextField(
-                                controller: widget.statusController,
-                                hintText: 'What are you up to?',
-                                maxLength: 48,
-                              ),
-
-                              const SizedBox(height: HavenSpacing.lg),
-
-                              _FieldLabel(label: 'ABOUT ME'),
-                              const SizedBox(height: HavenSpacing.xs),
-                              HavenTextField(
-                                controller: widget.aboutMeController,
-                                hintText: 'Tell us about yourself',
-                                maxLines: 3,
-                                maxLength: 128,
-                                onChanged: (_) => setState(() {}),
-                              ),
-
-                              const SizedBox(height: HavenSpacing.xl),
-
-                              // Divider
-                              Container(
-                                height: 1,
-                                color: haven.border,
-                              ),
-
-                              const SizedBox(height: HavenSpacing.lg),
-
-                              // Theme toggle
-                              Row(
-                                children: [
-                                  Icon(
-                                    _pendingDarkMode
-                                        ? LucideIcons.moon
-                                        : LucideIcons.sun,
-                                    size: 16,
-                                    color: haven.textSecondary,
-                                  ),
-                                  const SizedBox(width: HavenSpacing.sm),
-                                  Expanded(
-                                    child: Text(
-                                      'Dark Mode',
-                                      style:
-                                          HavenTypography.body.copyWith(
-                                        color: haven.textPrimary,
-                                      ),
-                                    ),
-                                  ),
-                                  HavenToggle(
-                                    value: _pendingDarkMode,
-                                    onChanged: (value) {
-                                      setState(() {
-                                        _pendingDarkMode = value;
-                                      });
-                                    },
-                                  ),
-                                ],
-                              ),
-
-                              const SizedBox(height: HavenSpacing.md),
-
-                              // Minimize to tray toggle
-                              if (Platform.isWindows ||
-                                  Platform.isLinux ||
-                                  Platform.isMacOS)
-                                Row(
-                                  children: [
-                                    Icon(
-                                      LucideIcons.minimize2,
-                                      size: 16,
-                                      color: haven.textSecondary,
-                                    ),
-                                    const SizedBox(width: HavenSpacing.sm),
-                                    Expanded(
-                                      child: Text(
-                                        'Minimize to Tray',
-                                        style:
-                                            HavenTypography.body.copyWith(
-                                          color: haven.textPrimary,
-                                        ),
-                                      ),
-                                    ),
-                                    HavenToggle(
-                                      value: _pendingMinimizeToTray,
-                                      onChanged: (value) {
-                                        setState(() {
-                                          _pendingMinimizeToTray = value;
-                                        });
-                                      },
-                                    ),
-                                  ],
-                                ),
-
-                              if (Platform.isWindows ||
-                                  Platform.isLinux ||
-                                  Platform.isMacOS)
-                                const SizedBox(height: HavenSpacing.md),
-
-                              // Proxy toggle
-                              Row(
-                                children: [
-                                  Icon(
-                                    LucideIcons.shield,
-                                    size: 16,
-                                    color: haven.textSecondary,
-                                  ),
-                                  const SizedBox(width: HavenSpacing.sm),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Use Proxy',
-                                          style:
-                                              HavenTypography.body.copyWith(
-                                            color: haven.textPrimary,
-                                          ),
-                                        ),
-                                        Text(
-                                          'For restricted networks',
-                                          style: HavenTypography.caption
-                                              .copyWith(
-                                            color: haven.textSecondary,
-                                            fontSize: 10,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  HavenToggle(
-                                    value: _pendingProxy,
-                                    onChanged: (value) {
-                                      setState(() {
-                                        _pendingProxy = value;
-                                      });
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ],
+                          // Vertical divider
+                          Container(
+                            width: 1,
+                            color: haven.border,
                           ),
-                        ),
-                      ],
+
+                          const SizedBox(width: HavenSpacing.xl),
+
+                          // Right: content area
+                          Expanded(
+                            child: _activeTab == _SettingsTab.profile
+                                ? _buildProfileTab(haven)
+                                : _buildSystemTab(haven),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
 
@@ -628,6 +355,552 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  // ── Profile tab ──────────────────────────────────────────────────
+
+  Widget _buildProfileTab(HavenTheme haven) {
+    final bannerColor = _bannerColorFromId(widget.localPeerId);
+    final previewName = _liveDisplayName.trim().isNotEmpty
+        ? _liveDisplayName.trim()
+        : displayNameFor(ref.watch(profileProvider), widget.localPeerId);
+
+    return SingleChildScrollView(
+      key: const ValueKey('profile'),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Profile preview card
+          SizedBox(
+            width: 200,
+            child: Container(
+              decoration: BoxDecoration(
+                color: haven.surface,
+                borderRadius: BorderRadius.circular(haven.radiusMd),
+                border: Border.all(color: haven.border),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Banner
+                  Container(
+                    height: 70,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          bannerColor,
+                          bannerColor.withValues(alpha: 0.7),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Avatar overlapping banner
+                  Transform.translate(
+                    offset: const Offset(0, -28),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: HavenSpacing.md,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          // Avatar with border
+                          Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(
+                                  haven.radiusMd + 2),
+                              border: Border.all(
+                                color: haven.surface,
+                                width: 3,
+                              ),
+                            ),
+                            child: HavenAvatar(
+                              peerId: widget.localPeerId,
+                              size: 56,
+                            ),
+                          ),
+
+                          const SizedBox(height: HavenSpacing.xs),
+
+                          // Display name
+                          Text(
+                            previewName,
+                            style: HavenTypography.subheading.copyWith(
+                              color: haven.textPrimary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                          ),
+
+                          // Status
+                          if (_liveStatus.trim().isNotEmpty) ...[
+                            const SizedBox(height: HavenSpacing.xxs),
+                            Text(
+                              _liveStatus.trim(),
+                              style: HavenTypography.caption.copyWith(
+                                color: haven.textSecondary,
+                                fontSize: 10,
+                                fontStyle: FontStyle.italic,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+
+                          const SizedBox(height: HavenSpacing.sm),
+                          Container(height: 1, color: haven.border),
+
+                          // About Me preview
+                          if (widget.aboutMeController.text
+                              .trim()
+                              .isNotEmpty) ...[
+                            const SizedBox(height: HavenSpacing.sm),
+                            Text(
+                              'ABOUT ME',
+                              style: HavenTypography.caption.copyWith(
+                                color: haven.textSecondary,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.5,
+                                fontSize: 9,
+                              ),
+                            ),
+                            const SizedBox(height: HavenSpacing.xxs),
+                            Text(
+                              widget.aboutMeController.text.trim(),
+                              style: HavenTypography.caption.copyWith(
+                                color: haven.textSecondary,
+                                fontSize: 10,
+                              ),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+
+                          // Peer ID footer
+                          const SizedBox(height: HavenSpacing.sm),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                LucideIcons.copy,
+                                size: 8,
+                                color: haven.textSecondary
+                                    .withValues(alpha: 0.35),
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                widget.localPeerId.length > 16
+                                    ? widget.localPeerId.substring(
+                                        widget.localPeerId.length - 8)
+                                    : widget.localPeerId,
+                                style: HavenTypography.mono.copyWith(
+                                  color: haven.textSecondary
+                                      .withValues(alpha: 0.35),
+                                  fontSize: 8,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(width: HavenSpacing.lg),
+
+          // Edit fields
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _FieldLabel(label: 'DISPLAY NAME'),
+                const SizedBox(height: HavenSpacing.xs),
+                HavenTextField(
+                  controller: widget.displayNameController,
+                  hintText: 'Enter a display name',
+                  autofocus: true,
+                  maxLength: 32,
+                ),
+
+                const SizedBox(height: HavenSpacing.lg),
+
+                _FieldLabel(label: 'STATUS'),
+                const SizedBox(height: HavenSpacing.xs),
+                HavenTextField(
+                  controller: widget.statusController,
+                  hintText: 'What are you up to?',
+                  maxLength: 48,
+                ),
+
+                const SizedBox(height: HavenSpacing.lg),
+
+                _FieldLabel(label: 'ABOUT ME'),
+                const SizedBox(height: HavenSpacing.xs),
+                HavenTextField(
+                  controller: widget.aboutMeController,
+                  hintText: 'Tell us about yourself',
+                  maxLines: 3,
+                  maxLength: 128,
+                  onChanged: (_) => setState(() {}),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── System tab ───────────────────────────────────────────────────
+
+  Widget _buildSystemTab(HavenTheme haven) {
+    final isDesktop =
+        Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+
+    return SingleChildScrollView(
+      key: const ValueKey('system'),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Appearance ──
+          _SectionLabel(label: 'APPEARANCE'),
+          const SizedBox(height: HavenSpacing.sm),
+
+          // Theme toggle
+          _ToggleRow(
+            icon: _pendingDarkMode ? LucideIcons.moon : LucideIcons.sun,
+            label: 'Dark Mode',
+            value: _pendingDarkMode,
+            onChanged: (value) =>
+                setState(() => _pendingDarkMode = value),
+          ),
+
+          const SizedBox(height: HavenSpacing.xl),
+
+          // ── System ──
+          _SectionLabel(label: 'SYSTEM'),
+          const SizedBox(height: HavenSpacing.sm),
+
+          // Minimize to tray toggle
+          if (isDesktop) ...[
+            _ToggleRow(
+              icon: LucideIcons.minimize2,
+              label: 'Minimize to Tray',
+              value: _pendingMinimizeToTray,
+              onChanged: (value) =>
+                  setState(() => _pendingMinimizeToTray = value),
+            ),
+            const SizedBox(height: HavenSpacing.md),
+          ],
+
+          // Proxy toggle
+          _ToggleRow(
+            icon: LucideIcons.shield,
+            label: 'Use Proxy',
+            subtitle: 'For restricted networks',
+            value: _pendingProxy,
+            onChanged: (value) =>
+                setState(() => _pendingProxy = value),
+          ),
+
+          const SizedBox(height: HavenSpacing.xl),
+
+          // ── Keyboard Shortcuts ──
+          _SectionLabel(label: 'KEYBOARD SHORTCUTS'),
+          const SizedBox(height: HavenSpacing.sm),
+
+          _ShortcutRow(
+            label: 'Open Settings',
+            shortcut: 'Ctrl + ,',
+          ),
+          _ShortcutRow(
+            label: 'Toggle Member Panel',
+            shortcut: 'Ctrl + Shift + M',
+          ),
+          _ShortcutRow(
+            label: 'Quick Search',
+            shortcut: 'Ctrl + K',
+          ),
+
+          const SizedBox(height: HavenSpacing.lg),
+
+          // Sub-section: Chat Input
+          Padding(
+            padding: const EdgeInsets.only(left: HavenSpacing.xs),
+            child: Text(
+              'CHAT INPUT',
+              style: HavenTypography.caption.copyWith(
+                color: haven.textSecondary.withValues(alpha: 0.5),
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+                fontSize: 9,
+              ),
+            ),
+          ),
+          const SizedBox(height: HavenSpacing.sm),
+
+          _ShortcutRow(
+            label: 'Send Message',
+            shortcut: 'Enter',
+          ),
+          _ShortcutRow(
+            label: 'New Line',
+            shortcut: 'Shift + Enter',
+          ),
+          _ShortcutRow(
+            label: 'Bold',
+            shortcut: 'Ctrl + B',
+          ),
+          _ShortcutRow(
+            label: 'Italic',
+            shortcut: 'Ctrl + I',
+          ),
+          _ShortcutRow(
+            label: 'Code',
+            shortcut: 'Ctrl + E',
+          ),
+          _ShortcutRow(
+            label: 'Strikethrough',
+            shortcut: 'Ctrl + Shift + X',
+          ),
+          _ShortcutRow(
+            label: 'Spoiler',
+            shortcut: 'Ctrl + Shift + S',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Tab item in the settings rail.
+class _TabItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  const _TabItem({
+    required this.icon,
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final haven = HavenTheme.of(context);
+
+    return HavenPressable(
+      onTap: onTap,
+      subtle: true,
+      borderRadius: BorderRadius.circular(haven.radiusSm),
+      hoverColor: haven.surface,
+      padding: const EdgeInsets.symmetric(
+        horizontal: HavenSpacing.md,
+        vertical: HavenSpacing.sm + 2,
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 16,
+            color: isActive ? haven.accent : haven.textSecondary,
+          ),
+          const SizedBox(width: HavenSpacing.sm),
+          Text(
+            label,
+            style: HavenTypography.body.copyWith(
+              color: isActive ? haven.textPrimary : haven.textSecondary,
+              fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Reusable toggle row for System tab.
+class _ToggleRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String? subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _ToggleRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final haven = HavenTheme.of(context);
+
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: haven.textSecondary),
+        const SizedBox(width: HavenSpacing.sm),
+        Expanded(
+          child: subtitle != null
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: HavenTypography.body
+                          .copyWith(color: haven.textPrimary),
+                    ),
+                    Text(
+                      subtitle!,
+                      style: HavenTypography.caption.copyWith(
+                        color: haven.textSecondary,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                )
+              : Text(
+                  label,
+                  style: HavenTypography.body
+                      .copyWith(color: haven.textPrimary),
+                ),
+        ),
+        HavenToggle(value: value, onChanged: onChanged),
+      ],
+    );
+  }
+}
+
+/// Single shortcut row: label on left, key badge on right.
+class _ShortcutRow extends StatelessWidget {
+  final String label;
+  final String shortcut;
+
+  const _ShortcutRow({
+    required this.label,
+    required this.shortcut,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final haven = HavenTheme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: HavenSpacing.xxs + 1),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: HavenTypography.body.copyWith(
+                color: haven.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          _KeyBadge(shortcut: shortcut),
+        ],
+      ),
+    );
+  }
+}
+
+/// Styled keyboard shortcut badge (e.g. "Ctrl + B").
+class _KeyBadge extends StatelessWidget {
+  final String shortcut;
+
+  const _KeyBadge({required this.shortcut});
+
+  @override
+  Widget build(BuildContext context) {
+    final haven = HavenTheme.of(context);
+
+    // Split on " + " to render each key individually.
+    final keys = shortcut.split(' + ');
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (int i = 0; i < keys.length; i++) ...[
+          if (i > 0)
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: HavenSpacing.xxs),
+              child: Text(
+                '+',
+                style: HavenTypography.caption.copyWith(
+                  color: haven.textSecondary.withValues(alpha: 0.4),
+                  fontSize: 9,
+                ),
+              ),
+            ),
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: HavenSpacing.xs + 2,
+              vertical: HavenSpacing.xxs,
+            ),
+            decoration: BoxDecoration(
+              color: haven.surface,
+              borderRadius: BorderRadius.circular(haven.radiusSm - 2),
+              border: Border.all(
+                color: haven.border,
+              ),
+            ),
+            child: Text(
+              keys[i],
+              style: HavenTypography.mono.copyWith(
+                color: haven.textSecondary,
+                fontSize: 10,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Section label for the system tab.
+class _SectionLabel extends StatelessWidget {
+  final String label;
+  const _SectionLabel({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final haven = HavenTheme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(left: HavenSpacing.xs),
+      child: Text(
+        label,
+        style: HavenTypography.caption.copyWith(
+          color: haven.textSecondary,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.5,
+          fontSize: 10,
         ),
       ),
     );

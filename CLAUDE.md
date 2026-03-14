@@ -104,8 +104,11 @@ Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection mana
 - Search: local full-text search over SQLCipher (`LIKE` query). `search_channel_messages()` / `search_dm_messages()` in storage + FFI. Search button in channel header, expandable search bar with live results dropdown (max 20 results, sender name + time + text preview).
 - DM sync pagination fix: `get_latest_dm_timestamp()` now filters `is_mine = 0` (received messages only). Previous bug: included sent messages (higher timestamps) causing follow-up sync requests to skip remaining messages. Fixed 200-message cap on DM sync — now correctly paginates through all messages.
 
+- Keyboard shortcuts: Global shortcuts via `HardwareKeyboard.instance.addHandler()` in HavenShell (focus-independent, works even when text fields have focus). Ctrl+, (toggle settings dialog), Ctrl+Shift+M (toggle member panel), Ctrl+K (toggle channel search via `channelSearchOpenProvider`). Chat input shortcuts in `chat_input_shortcuts.dart`: Enter (send), Shift+Enter (newline), Ctrl+B/I/E, Ctrl+Shift+X/S (formatting). All shortcuts listed in Settings > System tab with styled key badges.
+- Settings dialog redesign: Left tab rail (Profile, System) + right content area. Profile tab: preview card + edit fields. System tab: Dark Mode, Minimize to Tray, Use Proxy toggles + keyboard shortcuts reference. Fixed height (540px) prevents layout shifts on tab switch. `_settingsDialogOpen` flag makes Ctrl+, a toggle (close if already open, prevents duplicate dialogs).
+
 **Phase 3.5 remaining:**
-1. QoL: notifications (system-level, configurable per server/channel), keyboard shortcuts, basic P2P file sharing (WebP internal format, direct transfer via libp2p)
+1. QoL: notifications (system-level, configurable per server/channel), basic P2P file sharing (WebP internal format, direct transfer via libp2p)
 2. Device linking deferred to Phase 6
 
 ## Haven Design System (Phase 2.75)
