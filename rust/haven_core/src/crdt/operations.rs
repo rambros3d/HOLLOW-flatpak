@@ -66,6 +66,16 @@ pub enum CrdtPayload {
         peer_id: String,
         nickname: String,
     },
+
+    // Pin operations
+    MessagePinned {
+        channel_id: String,
+        message_id: String,
+    },
+    MessageUnpinned {
+        channel_id: String,
+        message_id: String,
+    },
 }
 
 /// Member roles with hierarchical priority.

@@ -959,7 +959,8 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [X] Emoji reactions — PN-Counter CRDT per emoji per message, broadcast to server members. 🎞️ Animate: reaction pop-in with spring bounce, count increment/decrement
 - [X] Typing indicators — lightweight ephemeral signal (no persistence, no encryption needed). Broadcast to channel members, auto-expire after 5s. 🎞️ Animate: classic bouncing dots, smooth fade in/out
 - [X] Rich text / markdown rendering in messages (bold, italic, code, code blocks, links). Link previews deferred to Phase 6
-- [ ] Pinned messages — CRDT OR-Set of pinned message IDs per channel, pin/unpin broadcast
+- [X] Pinned messages — CRDT OR-Set of pinned message IDs per channel, pin/unpin broadcast
+- [ ] Folder/Category system for channels
 
 **Quality of Life:**
 - [ ] System Tray — App working in the background)

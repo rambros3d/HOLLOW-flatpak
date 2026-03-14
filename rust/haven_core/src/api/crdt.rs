@@ -442,6 +442,76 @@ pub fn set_nickname(server_id: String, peer_id: String, nickname: String) -> Res
     Ok(())
 }
 
+/// Pin a message in a channel. Requires MANAGE_CHANNELS permission.
+#[frb]
+pub fn pin_message(server_id: String, channel_id: String, message_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::PinMessage {
+            server_id,
+            channel_id,
+            message_id,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Unpin a message from a channel. Requires MANAGE_CHANNELS permission.
+#[frb]
+pub fn unpin_message(server_id: String, channel_id: String, message_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::UnpinMessage {
+            server_id,
+            channel_id,
+            message_id,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Get pinned message IDs for a channel.
+#[frb]
+pub fn get_pinned_messages(server_id: String, channel_id: String) -> Result<Vec<String>, String> {
+    let data_dir = dirs::data_dir().ok_or("Could not find app data directory")?;
+    let haven_dir = data_dir.join("haven");
+    let db_path = haven_dir
+        .join("messages.db")
+        .to_str()
+        .ok_or("Invalid path")?
+        .to_string();
+
+    let id = crate::identity::load_or_create_identity()?;
+    let proto = id
+        .keypair
+        .to_protobuf_encoding()
+        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+
+    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let state_json = store
+        .load_server_state(&server_id)?
+        .ok_or(format!("Server {server_id} not found"))?;
+
+    let state =
+        serde_json::from_str::<crate::crdt::server_state::ServerState>(&state_json)
+            .map_err(|e| format!("Failed to parse server state: {e}"))?;
+
+    Ok(state.get_pinned_messages(&channel_id))
+}
+
 /// Delete a server entirely (removes from local DB and memory).
 #[frb]
 pub fn delete_server(server_id: String) -> Result<(), String> {

@@ -8,6 +8,8 @@ import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/server_provider.dart';
 import 'package:haven/src/core/providers/sync_progress_provider.dart';
 import 'package:haven/src/core/providers/typing_provider.dart';
+import 'package:haven/src/core/providers/pinned_provider.dart';
+import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
@@ -65,6 +67,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     await ref
         .read(channelChatProvider.notifier)
         .loadHistory(widget.serverId, widget.channelId);
+    ref.read(pinnedProvider.notifier).loadPins(widget.serverId, widget.channelId);
     _jumpToBottom();
   }
 
@@ -102,6 +105,135 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
         );
       }
     });
+  }
+
+  void _showPinnedMessages(
+    BuildContext context,
+    HavenTheme haven,
+    List<String> pinnedIds,
+  ) {
+    final messages = ref.read(channelChatProvider)[_stateKey] ?? [];
+    final pinnedMessages = pinnedIds
+        .map((id) => messages.where((m) => m.messageId == id).firstOrNull)
+        .where((m) => m != null)
+        .toList();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: haven.elevated,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(haven.radiusLg),
+          side: BorderSide(color: haven.border),
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420, maxHeight: 400),
+          child: Padding(
+            padding: const EdgeInsets.all(HavenSpacing.lg),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(LucideIcons.pin, size: 18, color: haven.accent),
+                    const SizedBox(width: HavenSpacing.sm),
+                    Text(
+                      'Pinned Messages',
+                      style: HavenTypography.subheading.copyWith(
+                        color: haven.textPrimary,
+                      ),
+                    ),
+                    const Spacer(),
+                    HavenPressable(
+                      onTap: () => Navigator.pop(ctx),
+                      padding: const EdgeInsets.all(4),
+                      child: Icon(LucideIcons.x, size: 16, color: haven.textSecondary),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: HavenSpacing.md),
+                if (pinnedMessages.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: HavenSpacing.xl),
+                    child: Center(
+                      child: Text(
+                        'Pinned messages not loaded in current view.',
+                        style: HavenTypography.body.copyWith(
+                          color: haven.textSecondary,
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: pinnedMessages.length,
+                      separatorBuilder: (_, _) => Divider(
+                        color: haven.border,
+                        height: HavenSpacing.md,
+                      ),
+                      itemBuilder: (_, index) {
+                        final msg = pinnedMessages[index]!;
+                        final profiles = ref.read(profileProvider);
+                        final nicknames =
+                            ref.read(serverNicknamesProvider(widget.serverId));
+                        final name = serverDisplayNameFor(
+                          profiles,
+                          msg.senderId,
+                          nickname: nicknames[msg.senderId] ?? '',
+                        );
+                        final time =
+                            '${msg.timestamp.hour.toString().padLeft(2, '0')}:${msg.timestamp.minute.toString().padLeft(2, '0')}';
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: HavenSpacing.xs),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    name,
+                                    style: HavenTypography.body.copyWith(
+                                      color: haven.accent,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(width: HavenSpacing.sm),
+                                  Text(
+                                    time,
+                                    style: HavenTypography.caption.copyWith(
+                                      color: haven.textSecondary
+                                          .withValues(alpha: 0.5),
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                msg.text,
+                                style: HavenTypography.body.copyWith(
+                                  color: haven.textPrimary,
+                                ),
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _onTextChanged(String text) {
@@ -180,6 +312,34 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                 channelId: widget.channelId,
               ),
               const Spacer(),
+              Builder(builder: (context) {
+                final pinKey = '${widget.serverId}:${widget.channelId}';
+                final pinnedIds = ref.watch(pinnedProvider)[pinKey] ?? [];
+                if (pinnedIds.isEmpty) return const SizedBox.shrink();
+                return HavenTooltip(
+                  message: '${pinnedIds.length} pinned message${pinnedIds.length == 1 ? '' : 's'}',
+                  child: HavenPressable(
+                    onTap: () => _showPinnedMessages(context, haven, pinnedIds),
+                    borderRadius: BorderRadius.circular(haven.radiusSm),
+                    padding: const EdgeInsets.all(HavenSpacing.xs),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(LucideIcons.pin, size: 16, color: haven.accent),
+                        const SizedBox(width: 2),
+                        Text(
+                          '${pinnedIds.length}',
+                          style: HavenTypography.caption.copyWith(
+                            color: haven.accent,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+              const SizedBox(width: HavenSpacing.sm),
               HavenTooltip(
                 message: 'Toggle member panel',
                 child: HavenPressable(
@@ -306,6 +466,27 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                                 } else {
                                   notifier.addReaction(widget.serverId,
                                       widget.channelId, msg.messageId!, emoji);
+                                }
+                              }
+                            : null,
+                        onPin: msg.messageId != null &&
+                                (ref.watch(myPermissionsProvider(widget.serverId)).whenOrNull(
+                                    data: (perms) => (perms & Permission.manageChannels) != 0) ?? false)
+                            ? () {
+                                final pins = ref.read(pinnedProvider)[
+                                    '${widget.serverId}:${widget.channelId}'] ?? [];
+                                if (pins.contains(msg.messageId)) {
+                                  crdt_api.unpinMessage(
+                                    serverId: widget.serverId,
+                                    channelId: widget.channelId,
+                                    messageId: msg.messageId!,
+                                  );
+                                } else {
+                                  crdt_api.pinMessage(
+                                    serverId: widget.serverId,
+                                    channelId: widget.channelId,
+                                    messageId: msg.messageId!,
+                                  );
                                 }
                               }
                             : null,

@@ -127,6 +127,37 @@ Future<void> setNickname({
   nickname: nickname,
 );
 
+/// Pin a message in a channel. Requires MANAGE_CHANNELS permission.
+Future<void> pinMessage({
+  required String serverId,
+  required String channelId,
+  required String messageId,
+}) => RustLib.instance.api.crateApiCrdtPinMessage(
+  serverId: serverId,
+  channelId: channelId,
+  messageId: messageId,
+);
+
+/// Unpin a message from a channel. Requires MANAGE_CHANNELS permission.
+Future<void> unpinMessage({
+  required String serverId,
+  required String channelId,
+  required String messageId,
+}) => RustLib.instance.api.crateApiCrdtUnpinMessage(
+  serverId: serverId,
+  channelId: channelId,
+  messageId: messageId,
+);
+
+/// Get pinned message IDs for a channel.
+Future<List<String>> getPinnedMessages({
+  required String serverId,
+  required String channelId,
+}) => RustLib.instance.api.crateApiCrdtGetPinnedMessages(
+  serverId: serverId,
+  channelId: channelId,
+);
+
 /// Delete a server entirely (removes from local DB and memory).
 Future<void> deleteServer({required String serverId}) =>
     RustLib.instance.api.crateApiCrdtDeleteServer(serverId: serverId);

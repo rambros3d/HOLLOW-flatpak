@@ -76,6 +76,7 @@ class MessageHoverWrapper extends StatefulWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onReply;
   final void Function(String emoji)? onReaction;
+  final VoidCallback? onPin;
 
   const MessageHoverWrapper({
     super.key,
@@ -90,6 +91,7 @@ class MessageHoverWrapper extends StatefulWidget {
     this.onDelete,
     this.onReply,
     this.onReaction,
+    this.onPin,
   });
 
   @override
@@ -249,6 +251,12 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
                       widget.onDelete?.call();
                     }
                   : null,
+              onPin: widget.onPin != null
+                  ? () {
+                      _dismissNow();
+                      widget.onPin?.call();
+                    }
+                  : null,
             ),
           ),
         ),
@@ -396,6 +404,7 @@ class _ActionBarContent extends StatelessWidget {
   final VoidCallback? onReply;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
+  final VoidCallback? onPin;
 
   const _ActionBarContent({
     required this.haven,
@@ -403,6 +412,7 @@ class _ActionBarContent extends StatelessWidget {
     this.onReply,
     this.onEdit,
     this.onDelete,
+    this.onPin,
   });
 
   @override
@@ -432,6 +442,17 @@ class _ActionBarContent extends StatelessWidget {
               padding: const EdgeInsets.all(6),
               child: Icon(
                 LucideIcons.reply,
+                size: 14,
+                color: haven.textSecondary,
+              ),
+            ),
+          if (onPin != null)
+            HavenPressable(
+              onTap: onPin,
+              borderRadius: BorderRadius.circular(haven.radiusSm),
+              padding: const EdgeInsets.all(6),
+              child: Icon(
+                LucideIcons.pin,
                 size: 14,
                 color: haven.textSecondary,
               ),

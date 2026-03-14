@@ -286,6 +286,42 @@ class ChannelChatNotifier
     }
   }
 
+  /// Reload reactions from DB for the current in-memory messages.
+  /// Does NOT trigger a sync request — safe to call from sync completion.
+  Future<void> reloadReactions(String serverId, String channelId) async {
+    final key = _key(serverId, channelId);
+    final messages = state[key];
+    if (messages == null || messages.isEmpty) return;
+
+    final messageIds = messages
+        .where((m) => m.messageId != null)
+        .map((m) => m.messageId!)
+        .toList();
+    if (messageIds.isEmpty) return;
+
+    try {
+      final storedReactions =
+          await storage_api.loadReactions(messageIds: messageIds);
+      Map<String, Map<String, List<String>>> reactionsMap = {};
+      for (final r in storedReactions) {
+        reactionsMap
+            .putIfAbsent(r.messageId, () => {})
+            .putIfAbsent(r.emoji, () => [])
+            .add(r.peerId);
+      }
+
+      final updated = Map.of(state);
+      updated[key] = messages
+          .map((m) => m.copyWith(
+                reactions: m.messageId != null
+                    ? reactionsMap[m.messageId]
+                    : null,
+              ))
+          .toList();
+      state = updated;
+    } catch (_) {}
+  }
+
   /// Clear cached messages for a server (forces reload from DB on next view).
   void clearServerCache(String serverId) {
     final updated = Map.of(state);

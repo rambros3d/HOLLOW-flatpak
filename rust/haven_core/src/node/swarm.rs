@@ -144,6 +144,9 @@ pub(crate) enum NetworkEvent {
     DmReactionRemoved { peer_id: String, message_id: String, emoji: String, reactor: String, removed_at: i64 },
     // -- Typing indicator events (Phase 3.5) --
     TypingStarted { peer_id: String, server_id: String, channel_id: String },
+    // -- Pinned message events (Phase 3.5) --
+    MessagePinned { server_id: String, channel_id: String, message_id: String },
+    MessageUnpinned { server_id: String, channel_id: String, message_id: String },
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
@@ -180,6 +183,9 @@ pub(crate) enum NodeCommand {
     RemoveDmReaction { peer_id: PeerId, message_id: String, emoji: String },
     // -- Typing indicators (Phase 3.5) --
     SendTypingIndicator { server_id: String, channel_id: String },
+    // -- Pinned messages (Phase 3.5) --
+    PinMessage { server_id: String, channel_id: String, message_id: String },
+    UnpinMessage { server_id: String, channel_id: String, message_id: String },
 }
 
 // -- Wire protocol types (v2: encrypted) --
@@ -515,6 +521,21 @@ struct SyncMessageItem {
     /// Message ID this is replying to (optional).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     reply_to: Option<String>,
+    /// Reactions on this message (synced alongside the message).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    reactions: Vec<SyncReactionItem>,
+}
+
+/// A single reaction in a sync batch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SyncReactionItem {
+    e: String,  // emoji
+    p: String,  // peer_id
+    ts: i64,    // added_at
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sig: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pk: Option<String>,
 }
 
 /// A single DM in a DM sync batch.
@@ -541,6 +562,9 @@ struct DmSyncItem {
     /// Message ID this is replying to (optional).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     reply_to: Option<String>,
+    /// Reactions on this message (synced alongside the message).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    reactions: Vec<SyncReactionItem>,
 }
 
 // ---------------------------------------------------------------------------
@@ -3095,6 +3119,110 @@ async fn run_swarm(
                         }
                     }
 
+                    NodeCommand::PinMessage { server_id, channel_id, message_id } => {
+                        if let Some(state) = server_states.get_mut(&server_id) {
+                            let local_peer = swarm.local_peer_id().to_string();
+
+                            if !state.has_permission(&local_peer, crate::crdt::operations::Permission::MANAGE_CHANNELS) {
+                                haven_log!("[HAVEN-CRDT] Permission denied: cannot pin in {server_id}");
+                                continue;
+                            }
+
+                            haven_log!("[HAVEN-CRDT] Pinning message {message_id} in {server_id}/{channel_id}");
+                            let op = state.create_op(CrdtPayload::MessagePinned {
+                                channel_id: channel_id.clone(),
+                                message_id: message_id.clone(),
+                            });
+                            let _ = state.apply_op(&op);
+
+                            if let Ok(json) = serde_json::to_string(&state) {
+                                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                    let _ = store.save_server_state(&server_id, &json);
+                                    let _ = store.insert_crdt_op(&op);
+                                }
+                            }
+
+                            let _ = event_tx.send(NetworkEvent::MessagePinned {
+                                server_id: server_id.clone(),
+                                channel_id: channel_id.clone(),
+                                message_id: message_id.clone(),
+                            }).await;
+
+                            if let Ok(op_json) = serde_json::to_string(&op) {
+                                for member_peer_str in state.members.keys() {
+                                    if member_peer_str == &local_peer { continue; }
+                                    if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                        if connected_peers.contains(&pid) {
+                                            swarm.behaviour_mut().messaging.send_request(
+                                                &pid,
+                                                HavenMessage::CrdtOpBroadcast {
+                                                    server_id: server_id.clone(),
+                                                    op_json: op_json.clone(),
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    NodeCommand::UnpinMessage { server_id, channel_id, message_id } => {
+                        if let Some(state) = server_states.get_mut(&server_id) {
+                            let local_peer = swarm.local_peer_id().to_string();
+
+                            if !state.has_permission(&local_peer, crate::crdt::operations::Permission::MANAGE_CHANNELS) {
+                                haven_log!("[HAVEN-CRDT] Permission denied: cannot unpin in {server_id}");
+                                continue;
+                            }
+
+                            haven_log!("[HAVEN-CRDT] Unpinning message {message_id} in {server_id}/{channel_id}");
+                            let op = state.create_op(CrdtPayload::MessageUnpinned {
+                                channel_id: channel_id.clone(),
+                                message_id: message_id.clone(),
+                            });
+                            let _ = state.apply_op(&op);
+
+                            if let Ok(json) = serde_json::to_string(&state) {
+                                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                    let _ = store.save_server_state(&server_id, &json);
+                                    let _ = store.insert_crdt_op(&op);
+                                }
+                            }
+
+                            let _ = event_tx.send(NetworkEvent::MessageUnpinned {
+                                server_id: server_id.clone(),
+                                channel_id: channel_id.clone(),
+                                message_id: message_id.clone(),
+                            }).await;
+
+                            if let Ok(op_json) = serde_json::to_string(&op) {
+                                for member_peer_str in state.members.keys() {
+                                    if member_peer_str == &local_peer { continue; }
+                                    if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                        if connected_peers.contains(&pid) {
+                                            swarm.behaviour_mut().messaging.send_request(
+                                                &pid,
+                                                HavenMessage::CrdtOpBroadcast {
+                                                    server_id: server_id.clone(),
+                                                    op_json: op_json.clone(),
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     NodeCommand::NotifyShutdown => {
                         // Broadcast graceful disconnect to all connected peers.
                         haven_log!("[HAVEN-SWARM] Notifying {} peers of shutdown", connected_peers.len());
@@ -4615,6 +4743,16 @@ async fn handle_incoming_request(
                                     Ok(1) => { new_count += 1; }
                                     _ => {} // Duplicate or error — skip.
                                 }
+
+                                // Sync reactions for this message (INSERT OR IGNORE — idempotent).
+                                if let Some(mid) = &msg.mid {
+                                    for r in &msg.reactions {
+                                        let _ = store.add_reaction(
+                                            mid, &r.e, &r.p, r.ts,
+                                            r.sig.as_deref(), r.pk.as_deref(),
+                                        );
+                                    }
+                                }
                             }
 
                             // Pagination: if has_more, send a follow-up ChannelSyncRequest
@@ -4739,6 +4877,16 @@ async fn handle_incoming_request(
                                 ) {
                                     Ok(id) if id > 0 => { new_count += 1; }
                                     _ => {} // Duplicate or error — skip.
+                                }
+
+                                // Sync reactions for this message (INSERT OR IGNORE — idempotent).
+                                if let Some(mid) = &msg.mid {
+                                    for r in &msg.reactions {
+                                        let _ = store.add_reaction(
+                                            mid, &r.e, &r.p, r.ts,
+                                            r.sig.as_deref(), r.pk.as_deref(),
+                                        );
+                                    }
                                 }
                             }
 
@@ -5202,6 +5350,20 @@ async fn handle_incoming_request(
                                 peer_id: peer_id.clone(),
                             }).await;
                         }
+                        CrdtPayload::MessagePinned { channel_id, message_id } => {
+                            let _ = event_tx.send(NetworkEvent::MessagePinned {
+                                server_id: server_id.clone(),
+                                channel_id: channel_id.clone(),
+                                message_id: message_id.clone(),
+                            }).await;
+                        }
+                        CrdtPayload::MessageUnpinned { channel_id, message_id } => {
+                            let _ = event_tx.send(NetworkEvent::MessageUnpinned {
+                                server_id: server_id.clone(),
+                                channel_id: channel_id.clone(),
+                                message_id: message_id.clone(),
+                            }).await;
+                        }
                         _ => {
                             // ServerRenamed, ServerSettingChanged, etc.
                             let _ = event_tx.send(NetworkEvent::ServerUpdated {
@@ -5380,7 +5542,17 @@ async fn handle_incoming_request(
                     };
                     if let Ok(messages) = messages_result {
                         haven_log!("[HAVEN-SYNC] Sending {} sync messages for {channel_id}", messages.len());
+                        // Load reactions for all messages in the batch.
+                        let msg_ids: Vec<String> = messages.iter().filter_map(|m| m.message_id.clone()).collect();
+                        let reactions_map = store.load_reactions_for_sync(&msg_ids).unwrap_or_default();
+
                         let items: Vec<SyncMessageItem> = messages.iter().map(|m| {
+                            let reactions = m.message_id.as_ref()
+                                .and_then(|mid| reactions_map.get(mid))
+                                .map(|rs| rs.iter().map(|(e, p, ts, sig, pk)| SyncReactionItem {
+                                    e: e.clone(), p: p.clone(), ts: *ts, sig: sig.clone(), pk: pk.clone(),
+                                }).collect())
+                                .unwrap_or_default();
                             SyncMessageItem {
                                 s: m.sender_id.clone(),
                                 t: m.text.clone(),
@@ -5390,6 +5562,7 @@ async fn handle_incoming_request(
                                 mid: m.message_id.clone(),
                                 edited_at: m.edited_at,
                                 reply_to: m.reply_to_mid.clone(),
+                                reactions,
                             }
                         }).collect();
 
@@ -5532,7 +5705,16 @@ async fn handle_incoming_request(
                 if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
                     if let Ok(messages) = store.get_dm_messages_since(&peer_str, since_timestamp, 200) {
                         haven_log!("[HAVEN-SYNC] Sending {} DM sync messages to {peer_str}", messages.len());
+                        let msg_ids: Vec<String> = messages.iter().filter_map(|m| m.message_id.clone()).collect();
+                        let reactions_map = store.load_reactions_for_sync(&msg_ids).unwrap_or_default();
+
                         let items: Vec<DmSyncItem> = messages.iter().map(|m| {
+                            let reactions = m.message_id.as_ref()
+                                .and_then(|mid| reactions_map.get(mid))
+                                .map(|rs| rs.iter().map(|(e, p, ts, sig, pk)| SyncReactionItem {
+                                    e: e.clone(), p: p.clone(), ts: *ts, sig: sig.clone(), pk: pk.clone(),
+                                }).collect())
+                                .unwrap_or_default();
                             DmSyncItem {
                                 t: m.text.clone(),
                                 ts: m.timestamp,
@@ -5542,6 +5724,7 @@ async fn handle_incoming_request(
                                 mid: m.message_id.clone(),
                                 edited_at: m.edited_at,
                                 reply_to: m.reply_to_mid.clone(),
+                                reactions,
                             }
                         }).collect();
 
@@ -6097,7 +6280,16 @@ async fn flush_pending_sync_requests(
         match messages_result {
             Ok(messages) => {
                 haven_log!("[HAVEN-SYNC] Retry: sending {} messages for {channel_id} to {peer_str}", messages.len());
+                let msg_ids: Vec<String> = messages.iter().filter_map(|m| m.message_id.clone()).collect();
+                let reactions_map = store.load_reactions_for_sync(&msg_ids).unwrap_or_default();
+
                 let items: Vec<SyncMessageItem> = messages.iter().map(|m| {
+                    let reactions = m.message_id.as_ref()
+                        .and_then(|mid| reactions_map.get(mid))
+                        .map(|rs| rs.iter().map(|(e, p, ts, sig, pk)| SyncReactionItem {
+                            e: e.clone(), p: p.clone(), ts: *ts, sig: sig.clone(), pk: pk.clone(),
+                        }).collect())
+                        .unwrap_or_default();
                     SyncMessageItem {
                         s: m.sender_id.clone(),
                         t: m.text.clone(),
@@ -6107,6 +6299,7 @@ async fn flush_pending_sync_requests(
                         mid: m.message_id.clone(),
                         edited_at: m.edited_at,
                         reply_to: m.reply_to_mid.clone(),
+                        reactions,
                     }
                 }).collect();
 

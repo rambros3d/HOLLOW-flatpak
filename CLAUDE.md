@@ -91,9 +91,12 @@ Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection mana
 - Formatting shortcuts: Ctrl+B (bold), Ctrl+I (italic), Ctrl+E (code), Ctrl+Shift+X (strikethrough), Ctrl+Shift+S (spoiler). Wraps selection or inserts markers at cursor. Shared `handleChatInputKey()` in `chat_input_shortcuts.dart`.
 - Avatar alignment fix: 5px top padding on message avatars for proper vertical centering with name/text row.
 - Send button hover fix: `HavenPressable` with `backgroundColor` now lightens 15% toward white on hover instead of replacing with dark `elevated` color. Prevents dark-on-dark icon visibility issue.
+- Pinned messages: CRDT-based (`MessagePinned`/`MessageUnpinned` ops), `pinned_messages: HashMap<String, Vec<String>>` on ServerState (`#[serde(default)]`). Pin/unpin via NodeCommand, permission-gated (MANAGE_CHANNELS). FFI: `pin_message()`, `unpin_message()`, `get_pinned_messages()`. Dart: `PinnedNotifier` provider, pin button in hover action bar (admin only), pin count + popup in channel header. CrdtOpBroadcast handler emits `MessagePinned`/`MessageUnpinned` events for real-time UI updates on all peers.
+- Emoji reaction sync: Reactions now sync on reconnect alongside messages. `SyncReactionItem` struct added to `SyncMessageItem` and `DmSyncItem`. Sync batch builders load reactions from DB, receivers insert them (INSERT OR IGNORE). `reloadReactions()` method on `ChannelChatNotifier` refreshes reactions without triggering sync loop. Fixed infinite sync loop caused by `loadHistory()` always calling `requestChannelSync()`.
+- Channel "+" button permission: Only visible to members with MANAGE_CHANNELS permission (Owner, Admin). `canManageChannels` prop threaded through `ChannelSidebar` → `_ServerContent`.
 
 **Phase 3.5 remaining:**
-1. Chat Essentials: pinned messages
+1. QoL: channel organization (categories/folders with drag reorder), notifications, search, keyboard shortcuts, basic P2P file sharing (WebP internal format)
 2. QoL: notifications, search, keyboard shortcuts, basic P2P file sharing (WebP internal format)
 
 ## Haven Design System (Phase 2.75)

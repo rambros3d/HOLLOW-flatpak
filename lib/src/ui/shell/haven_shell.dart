@@ -211,6 +211,9 @@ class _HavenShellState extends ConsumerState<HavenShell>
         ref.read(serverSettingsOpenProvider.notifier).state =
             !ref.read(serverSettingsOpenProvider);
       },
+      canManageChannels: selectedServer != null &&
+          (ref.watch(myPermissionsProvider(selectedServer.serverId)).whenOrNull(
+              data: (perms) => (perms & Permission.manageChannels) != 0) ?? false),
     );
   }
 

@@ -13,6 +13,7 @@ import 'package:haven/src/core/providers/service_providers.dart';
 import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/sync_progress_provider.dart';
 import 'package:haven/src/core/providers/typing_provider.dart';
+import 'package:haven/src/core/providers/pinned_provider.dart';
 import 'package:haven/src/rust/api/network.dart';
 
 /// Listens to the Rust event stream and dispatches events
@@ -187,19 +188,30 @@ class EventStreamNotifier extends Notifier<bool> {
         ref.read(syncProgressProvider.notifier).clearServer(serverId);
         ref.read(syncStatusProvider.notifier).setStatus(
             serverId, ServerSyncStatus.synced);
+        final selectedServer = ref.read(selectedServerProvider);
+        final selectedChannel = ref.read(selectedChannelProvider);
         if (newMessageCount > 0) {
-          // Clear in-memory cache so loadHistory re-reads from DB.
+          // New messages arrived — clear cache and reload (includes reactions).
           ref
               .read(channelChatProvider.notifier)
               .clearServerCache(serverId);
-          // Reload the active channel if the user is viewing this server.
-          final selectedServer = ref.read(selectedServerProvider);
-          final selectedChannel = ref.read(selectedChannelProvider);
           if (selectedServer == serverId && selectedChannel != null) {
             ref
                 .read(channelChatProvider.notifier)
                 .loadHistory(serverId, selectedChannel);
           }
+        } else if (selectedServer == serverId && selectedChannel != null) {
+          // No new messages but reactions may have synced — just refresh
+          // reactions on existing in-memory messages (no sync trigger).
+          ref
+              .read(channelChatProvider.notifier)
+              .reloadReactions(serverId, selectedChannel);
+        }
+        // Always refresh pins (lightweight, no sync loop risk).
+        if (selectedServer == serverId && selectedChannel != null) {
+          ref
+              .read(pinnedProvider.notifier)
+              .loadPins(serverId, selectedChannel);
         }
 
       case NetworkEvent_MessageSyncFailed(:final serverId, :final error):
@@ -293,6 +305,17 @@ class EventStreamNotifier extends Notifier<bool> {
             :final peerId, :final serverId, :final channelId):
         final key = serverId.isEmpty ? peerId : '$serverId:$channelId';
         ref.read(typingProvider.notifier).setTyping(key, peerId);
+
+      // -- Pinned message events (Phase 3.5) --
+      case NetworkEvent_MessagePinned(
+            :final serverId, :final channelId, :final messageId):
+        debugPrint('[HAVEN] Message pinned: $messageId in $serverId/$channelId');
+        ref.read(pinnedProvider.notifier).applyPin(serverId, channelId, messageId);
+
+      case NetworkEvent_MessageUnpinned(
+            :final serverId, :final channelId, :final messageId):
+        debugPrint('[HAVEN] Message unpinned: $messageId in $serverId/$channelId');
+        ref.read(pinnedProvider.notifier).applyUnpin(serverId, channelId, messageId);
     }
   }
 

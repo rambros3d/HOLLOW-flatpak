@@ -1503,6 +1503,45 @@ impl MessageStore {
         Ok(result)
     }
 
+    /// Load all reactions with signatures for sync.
+    /// Returns: message_id → Vec<(emoji, peer_id, added_at, signature, public_key)>.
+    pub fn load_reactions_for_sync(
+        &self,
+        message_ids: &[String],
+    ) -> Result<HashMap<String, Vec<(String, String, i64, Option<String>, Option<String>)>>, String> {
+        if message_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let placeholders: Vec<String> = message_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+        let sql = format!(
+            "SELECT message_id, emoji, peer_id, added_at, signature, public_key FROM message_reactions WHERE message_id IN ({}) ORDER BY added_at ASC",
+            placeholders.join(", ")
+        );
+
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| format!("Failed to prepare reactions sync query: {e}"))?;
+        let params_vec: Vec<&dyn rusqlite::types::ToSql> = message_ids.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+        let rows = stmt
+            .query_map(params_vec.as_slice(), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                ))
+            })
+            .map_err(|e| format!("Failed to query reactions for sync: {e}"))?;
+
+        let mut result: HashMap<String, Vec<(String, String, i64, Option<String>, Option<String>)>> = HashMap::new();
+        for row in rows {
+            let (mid, emoji, peer_id, added_at, sig, pk) = row.map_err(|e| format!("Failed to read reaction sync row: {e}"))?;
+            result.entry(mid).or_default().push((emoji, peer_id, added_at, sig, pk));
+        }
+        Ok(result)
+    }
+
     // ── App Settings ──────────────────────────────────────────────
 
     /// Save a key-value setting (insert or update).

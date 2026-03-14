@@ -61,6 +61,9 @@ pub enum NetworkEvent {
     DmReactionRemoved { peer_id: String, message_id: String, emoji: String, reactor: String, removed_at: i64 },
     // -- Typing indicator events (Phase 3.5) --
     TypingStarted { peer_id: String, server_id: String, channel_id: String },
+    // -- Pinned message events (Phase 3.5) --
+    MessagePinned { server_id: String, channel_id: String, message_id: String },
+    MessageUnpinned { server_id: String, channel_id: String, message_id: String },
 }
 
 /// Holds all mutable state for the running node.
@@ -202,6 +205,12 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::TypingStarted { peer_id, server_id, .. } => {
             haven_log!("[HAVEN] Typing started: {peer_id} in {server_id}");
         }
+        node::NetworkEvent::MessagePinned { server_id, channel_id, message_id } => {
+            haven_log!("[HAVEN] Message {message_id} pinned in {server_id}/{channel_id}");
+        }
+        node::NetworkEvent::MessageUnpinned { server_id, channel_id, message_id } => {
+            haven_log!("[HAVEN] Message {message_id} unpinned in {server_id}/{channel_id}");
+        }
         _ => {}
     }
     match event {
@@ -308,6 +317,12 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::TypingStarted { peer_id, server_id, channel_id } => {
             NetworkEvent::TypingStarted { peer_id, server_id, channel_id }
+        }
+        node::NetworkEvent::MessagePinned { server_id, channel_id, message_id } => {
+            NetworkEvent::MessagePinned { server_id, channel_id, message_id }
+        }
+        node::NetworkEvent::MessageUnpinned { server_id, channel_id, message_id } => {
+            NetworkEvent::MessageUnpinned { server_id, channel_id, message_id }
         }
     }
 }

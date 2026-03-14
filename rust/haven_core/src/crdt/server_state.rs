@@ -34,6 +34,8 @@ pub struct ServerState {
     pub roles: HashMap<String, AdminLwwReg<MemberRole>>,
     #[serde(default)]
     pub nicknames: HashMap<String, AdminLwwReg<String>>,
+    #[serde(default)]
+    pub pinned_messages: HashMap<String, Vec<String>>,
     pub settings: HashMap<String, AdminLwwReg<String>>,
     pub op_log: Vec<CrdtOp>,
     #[serde(skip)]
@@ -80,6 +82,7 @@ impl ServerState {
             members,
             roles,
             nicknames: HashMap::new(),
+            pinned_messages: HashMap::new(),
             settings: HashMap::new(),
             op_log: Vec::new(),
             hlc: Some(hlc),
@@ -248,6 +251,22 @@ impl ServerState {
                 let remote = AdminLwwReg::new(nickname.clone(), op.hlc.clone(), priority);
                 entry.merge(&remote);
             }
+
+            CrdtPayload::MessagePinned { channel_id, message_id } => {
+                let pins = self.pinned_messages.entry(channel_id.clone()).or_default();
+                if !pins.contains(message_id) {
+                    pins.push(message_id.clone());
+                }
+            }
+
+            CrdtPayload::MessageUnpinned { channel_id, message_id } => {
+                if let Some(pins) = self.pinned_messages.get_mut(channel_id) {
+                    pins.retain(|id| id != message_id);
+                    if pins.is_empty() {
+                        self.pinned_messages.remove(channel_id);
+                    }
+                }
+            }
         }
 
         // Append to op log (sorted insert by HLC for deterministic ordering)
@@ -292,6 +311,14 @@ impl ServerState {
         self.nicknames
             .get(peer_id)
             .map(|reg| reg.read().clone())
+            .unwrap_or_default()
+    }
+
+    /// Get pinned message IDs for a channel.
+    pub fn get_pinned_messages(&self, channel_id: &str) -> Vec<String> {
+        self.pinned_messages
+            .get(channel_id)
+            .cloned()
             .unwrap_or_default()
     }
 

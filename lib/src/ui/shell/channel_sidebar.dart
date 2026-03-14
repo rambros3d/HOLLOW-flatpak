@@ -48,6 +48,7 @@ class ChannelSidebar extends StatelessWidget {
   final ValueChanged<String> onChannelSelected;
   final VoidCallback onCreateChannel;
   final VoidCallback onOpenSettings;
+  final bool canManageChannels;
 
   /// Fixed width for desktop/tablet. Pass null on mobile to fill available space.
   final double? width;
@@ -71,6 +72,7 @@ class ChannelSidebar extends StatelessWidget {
     this.onChannelSelected = _noop,
     this.onCreateChannel = _noopVoid,
     this.onOpenSettings = _noopVoid,
+    this.canManageChannels = false,
     this.width = 240,
   });
 
@@ -131,6 +133,7 @@ class ChannelSidebar extends StatelessWidget {
                       selectedChannelId: selectedChannelId,
                       onChannelSelected: onChannelSelected,
                       onCreateChannel: onCreateChannel,
+                      canManageChannels: canManageChannels,
                     )
                   : _HomeContent(
                       key: const ValueKey('home'),
@@ -234,6 +237,7 @@ class _ServerContent extends StatelessWidget {
   final String? selectedChannelId;
   final ValueChanged<String> onChannelSelected;
   final VoidCallback onCreateChannel;
+  final bool canManageChannels;
 
   const _ServerContent({
     super.key,
@@ -242,6 +246,7 @@ class _ServerContent extends StatelessWidget {
     required this.selectedChannelId,
     required this.onChannelSelected,
     required this.onCreateChannel,
+    this.canManageChannels = false,
   });
 
   @override
@@ -269,13 +274,14 @@ class _ServerContent extends StatelessWidget {
                   ),
                 ),
               ),
-              HavenPressable(
-                onTap: onCreateChannel,
-                borderRadius: BorderRadius.circular(haven.radiusSm),
-                padding: const EdgeInsets.all(HavenSpacing.xs),
-                child: Icon(LucideIcons.plus,
-                    size: 14, color: haven.textSecondary),
-              ),
+              if (canManageChannels)
+                HavenPressable(
+                  onTap: onCreateChannel,
+                  borderRadius: BorderRadius.circular(haven.radiusSm),
+                  padding: const EdgeInsets.all(HavenSpacing.xs),
+                  child: Icon(LucideIcons.plus,
+                      size: 14, color: haven.textSecondary),
+                ),
             ],
           ),
         ),

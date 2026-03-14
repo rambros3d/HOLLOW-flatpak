@@ -386,4 +386,14 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String serverId,
     required String channelId,
   }) = NetworkEvent_TypingStarted;
+  const factory NetworkEvent.messagePinned({
+    required String serverId,
+    required String channelId,
+    required String messageId,
+  }) = NetworkEvent_MessagePinned;
+  const factory NetworkEvent.messageUnpinned({
+    required String serverId,
+    required String channelId,
+    required String messageId,
+  }) = NetworkEvent_MessageUnpinned;
 }
