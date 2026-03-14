@@ -67,6 +67,11 @@ pub enum CrdtPayload {
         nickname: String,
     },
 
+    // Channel layout (ordering/categories)
+    ChannelLayoutUpdated {
+        layout_json: String,
+    },
+
     // Pin operations
     MessagePinned {
         channel_id: String,

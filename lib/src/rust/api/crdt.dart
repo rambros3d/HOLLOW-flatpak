@@ -127,6 +127,20 @@ Future<void> setNickname({
   nickname: nickname,
 );
 
+/// Update the channel layout (ordering/categories) for a server.
+/// layout_json is a JSON array of ChannelLayoutItem objects.
+Future<void> updateChannelLayout({
+  required String serverId,
+  required String layoutJson,
+}) => RustLib.instance.api.crateApiCrdtUpdateChannelLayout(
+  serverId: serverId,
+  layoutJson: layoutJson,
+);
+
+/// Get the channel layout for a server. Returns a JSON array of ChannelLayoutItem.
+Future<String> getChannelLayout({required String serverId}) =>
+    RustLib.instance.api.crateApiCrdtGetChannelLayout(serverId: serverId);
+
 /// Pin a message in a channel. Requires MANAGE_CHANNELS permission.
 Future<void> pinMessage({
   required String serverId,

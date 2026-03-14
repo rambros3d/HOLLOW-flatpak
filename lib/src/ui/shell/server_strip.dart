@@ -140,6 +140,9 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
                       await ref
                           .read(channelListProvider.notifier)
                           .loadForServer(server.serverId);
+                      ref
+                          .read(channelLayoutProvider.notifier)
+                          .loadForServer(server.serverId);
 
                       final channels = ref.read(channelListProvider);
                       String? channelToSelect;

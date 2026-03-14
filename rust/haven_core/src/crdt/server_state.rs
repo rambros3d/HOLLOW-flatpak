@@ -6,6 +6,18 @@ use super::admin_lww::AdminLwwReg;
 use super::hlc::Hlc;
 use super::operations::{CrdtOp, CrdtPayload, MemberRole, Permission};
 
+/// An item in the channel layout — category header, channel reference, or separator.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ChannelLayoutItem {
+    #[serde(rename = "category")]
+    Category { name: String },
+    #[serde(rename = "channel")]
+    Channel { channel_id: String },
+    #[serde(rename = "separator")]
+    Separator,
+}
+
 /// Metadata for a channel within a server.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ChannelInfo {
@@ -36,6 +48,8 @@ pub struct ServerState {
     pub nicknames: HashMap<String, AdminLwwReg<String>>,
     #[serde(default)]
     pub pinned_messages: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    pub channel_layout: Vec<ChannelLayoutItem>,
     pub settings: HashMap<String, AdminLwwReg<String>>,
     pub op_log: Vec<CrdtOp>,
     #[serde(skip)]
@@ -83,6 +97,7 @@ impl ServerState {
             roles,
             nicknames: HashMap::new(),
             pinned_messages: HashMap::new(),
+            channel_layout: Vec::new(),
             settings: HashMap::new(),
             op_log: Vec::new(),
             hlc: Some(hlc),
@@ -250,6 +265,12 @@ impl ServerState {
                 });
                 let remote = AdminLwwReg::new(nickname.clone(), op.hlc.clone(), priority);
                 entry.merge(&remote);
+            }
+
+            CrdtPayload::ChannelLayoutUpdated { layout_json } => {
+                if let Ok(layout) = serde_json::from_str::<Vec<ChannelLayoutItem>>(layout_json) {
+                    self.channel_layout = layout;
+                }
             }
 
             CrdtPayload::MessagePinned { channel_id, message_id } => {

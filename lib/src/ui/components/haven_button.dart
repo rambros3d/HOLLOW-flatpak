@@ -171,16 +171,21 @@ class _HavenButtonState extends State<HavenButton>
     Widget content = Row(
       mainAxisSize: widget.expand ? MainAxisSize.max : MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         if (widget.icon != null) ...[
-          IconTheme(
-            data: IconThemeData(color: fg, size: 16),
-            child: widget.icon!,
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: IconTheme(
+              data: IconThemeData(color: fg, size: 14),
+              child: widget.icon!,
+            ),
           ),
           const SizedBox(width: HavenSpacing.sm),
         ],
         DefaultTextStyle(
-          style: HavenTypography.label.copyWith(color: fg),
+          style: HavenTypography.label.copyWith(color: fg, height: 1.0),
           child: widget.child,
         ),
       ],

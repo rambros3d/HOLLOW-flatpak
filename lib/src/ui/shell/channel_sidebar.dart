@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:haven/src/core/models/channel_info.dart';
@@ -49,6 +51,7 @@ class ChannelSidebar extends StatelessWidget {
   final VoidCallback onCreateChannel;
   final VoidCallback onOpenSettings;
   final bool canManageChannels;
+  final String channelLayoutJson;
 
   /// Fixed width for desktop/tablet. Pass null on mobile to fill available space.
   final double? width;
@@ -73,6 +76,7 @@ class ChannelSidebar extends StatelessWidget {
     this.onCreateChannel = _noopVoid,
     this.onOpenSettings = _noopVoid,
     this.canManageChannels = false,
+    this.channelLayoutJson = '[]',
     this.width = 240,
   });
 
@@ -128,12 +132,12 @@ class ChannelSidebar extends StatelessWidget {
                   ? _ServerContent(
                       key: ValueKey('server-${selectedServer!.serverId}'),
                       haven: haven,
-                      channelList: channels.values.toList()
-                        ..sort((a, b) => a.name.compareTo(b.name)),
+                      channels: channels,
                       selectedChannelId: selectedChannelId,
                       onChannelSelected: onChannelSelected,
                       onCreateChannel: onCreateChannel,
                       canManageChannels: canManageChannels,
+                      channelLayoutJson: channelLayoutJson,
                     )
                   : _HomeContent(
                       key: const ValueKey('home'),
@@ -231,91 +235,239 @@ class ChannelSidebar extends StatelessWidget {
 }
 
 /// Server mode content — channel list with create button.
-class _ServerContent extends StatelessWidget {
+class _ServerContent extends StatefulWidget {
   final HavenTheme haven;
-  final List<ChannelInfo> channelList;
+  final Map<String, ChannelInfo> channels;
   final String? selectedChannelId;
   final ValueChanged<String> onChannelSelected;
   final VoidCallback onCreateChannel;
   final bool canManageChannels;
+  final String channelLayoutJson;
 
   const _ServerContent({
     super.key,
     required this.haven,
-    required this.channelList,
+    required this.channels,
     required this.selectedChannelId,
     required this.onChannelSelected,
     required this.onCreateChannel,
     this.canManageChannels = false,
+    this.channelLayoutJson = '[]',
+  });
+
+  @override
+  State<_ServerContent> createState() => _ServerContentState();
+}
+
+class _ServerContentState extends State<_ServerContent> {
+  List<Widget> _buildLayoutItems() {
+    final w = widget;
+    final widgets = <Widget>[];
+    final placedChannels = <String>{};
+
+    try {
+      final List<dynamic> layout = jsonDecode(w.channelLayoutJson);
+      String? currentCategory;
+      for (final item in layout) {
+        if (item['type'] == 'category') {
+          currentCategory = item['name'] as String;
+          widgets.add(_CategoryHeader(
+            haven: w.haven,
+            name: currentCategory,
+            onToggle: () => setState(() {}),
+          ));
+        } else if (item['type'] == 'separator') {
+          currentCategory = null;
+          // Add a small visual divider in the sidebar.
+          widgets.add(Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: HavenSpacing.lg,
+              vertical: HavenSpacing.sm,
+            ),
+            child: Divider(height: 1, color: w.haven.border),
+          ));
+        } else if (item['type'] == 'channel') {
+          final channelId = item['channel_id'] as String;
+          final channel = w.channels[channelId];
+          if (channel != null) {
+            placedChannels.add(channelId);
+            final collapsed = currentCategory != null &&
+                (_categoryCollapsedState[currentCategory] ?? false);
+            widgets.add(_AnimatedChannelTile(
+              key: ValueKey('ach-$channelId'),
+              visible: !collapsed,
+              child: _ChannelTile(
+                channel: channel,
+                isSelected: channel.channelId == w.selectedChannelId,
+                onTap: () => w.onChannelSelected(channel.channelId),
+              ),
+            ));
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Only show unplaced channels if no layout has been saved yet
+    // (empty layout = no admin organization). Once a layout exists,
+    // new channels only appear after the admin saves the layout.
+    final hasLayout = placedChannels.isNotEmpty;
+    if (!hasLayout) {
+      final unplaced = w.channels.values.toList()
+        ..sort((a, b) => a.name.compareTo(b.name));
+      for (final channel in unplaced) {
+        widgets.add(_ChannelTile(
+          channel: channel,
+          isSelected: channel.channelId == w.selectedChannelId,
+          onTap: () => w.onChannelSelected(channel.channelId),
+        ));
+      }
+    }
+
+    return widgets;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final w = widget;
+    final items = _buildLayoutItems();
+    final hasCategories = items.any((i) => i is _CategoryHeader);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (!hasCategories)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              HavenSpacing.lg, HavenSpacing.sm, HavenSpacing.sm, HavenSpacing.sm,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'TEXT CHANNELS',
+                    style: HavenTypography.caption.copyWith(
+                      color: w.haven.textSecondary,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+                if (w.canManageChannels)
+                  HavenPressable(
+                    onTap: w.onCreateChannel,
+                    borderRadius: BorderRadius.circular(w.haven.radiusSm),
+                    padding: const EdgeInsets.all(HavenSpacing.xs),
+                    child: Icon(LucideIcons.plus,
+                        size: 14, color: w.haven.textSecondary),
+                  ),
+              ],
+            ),
+          ),
+        if (!hasCategories) Divider(height: 1, color: w.haven.border),
+        Expanded(
+          child: items.isEmpty
+              ? Center(
+                  child: Text('No channels',
+                      style: HavenTypography.bodySmall
+                          .copyWith(color: w.haven.textSecondary)),
+                )
+              : ListView(
+                  padding: const EdgeInsets.symmetric(vertical: HavenSpacing.xs),
+                  children: items,
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Animates a channel tile in/out when its category is collapsed/expanded.
+class _AnimatedChannelTile extends StatelessWidget {
+  final bool visible;
+  final Widget child;
+
+  const _AnimatedChannelTile({
+    super.key,
+    required this.visible,
+    required this.child,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // "TEXT CHANNELS" section header with "+" button
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            HavenSpacing.lg,
-            HavenSpacing.sm,
-            HavenSpacing.sm,
-            HavenSpacing.sm,
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'TEXT CHANNELS',
-                  style: HavenTypography.caption.copyWith(
-                    color: haven.textSecondary,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.8,
-                  ),
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: SizedBox(
+        height: visible ? null : 0,
+        child: visible
+            ? child
+            : const SizedBox.shrink(),
+      ),
+    );
+  }
+}
+
+/// Tracks collapsed state of categories in the sidebar (persists across rebuilds).
+final Map<String, bool> _categoryCollapsedState = {};
+
+/// Category header in the sidebar — collapsible folder label.
+class _CategoryHeader extends StatefulWidget {
+  final HavenTheme haven;
+  final String name;
+  final VoidCallback? onToggle;
+
+  const _CategoryHeader({
+    required this.haven,
+    required this.name,
+    this.onToggle,
+  });
+
+  @override
+  State<_CategoryHeader> createState() => _CategoryHeaderState();
+}
+
+class _CategoryHeaderState extends State<_CategoryHeader> {
+  bool get _collapsed => _categoryCollapsedState[widget.name] ?? false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        HavenSpacing.sm + 2,
+        HavenSpacing.md,
+        HavenSpacing.sm,
+        HavenSpacing.xs,
+      ),
+      child: HavenPressable(
+        subtle: true,
+        onTap: () {
+          setState(() =>
+              _categoryCollapsedState[widget.name] = !_collapsed);
+          widget.onToggle?.call();
+        },
+        child: Row(
+          children: [
+            AnimatedRotation(
+              turns: _collapsed ? -0.25 : 0,
+              duration: const Duration(milliseconds: 150),
+              child: Icon(LucideIcons.chevronDown,
+                  size: 10, color: widget.haven.textSecondary),
+            ),
+            const SizedBox(width: HavenSpacing.xs),
+            Expanded(
+              child: Text(
+                widget.name.toUpperCase(),
+                style: HavenTypography.caption.copyWith(
+                  color: widget.haven.textSecondary,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.8,
                 ),
               ),
-              if (canManageChannels)
-                HavenPressable(
-                  onTap: onCreateChannel,
-                  borderRadius: BorderRadius.circular(haven.radiusSm),
-                  padding: const EdgeInsets.all(HavenSpacing.xs),
-                  child: Icon(LucideIcons.plus,
-                      size: 14, color: haven.textSecondary),
-                ),
-            ],
-          ),
+            ),
+          ],
         ),
-
-        Divider(height: 1, color: haven.border),
-
-        // Channel list
-        Expanded(
-          child: channelList.isEmpty
-              ? Center(
-                  child: Text(
-                    'No channels',
-                    style: HavenTypography.bodySmall
-                        .copyWith(color: haven.textSecondary),
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: channelList.length,
-                  padding: const EdgeInsets.symmetric(
-                      vertical: HavenSpacing.xs),
-                  itemBuilder: (context, index) {
-                    final channel = channelList[index];
-                    final isSelected =
-                        channel.channelId == selectedChannelId;
-                    return _ChannelTile(
-                      channel: channel,
-                      isSelected: isSelected,
-                      onTap: () =>
-                          onChannelSelected(channel.channelId),
-                    );
-                  },
-                ),
-        ),
-      ],
+      ),
     );
   }
 }

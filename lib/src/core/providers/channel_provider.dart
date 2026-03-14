@@ -78,3 +78,24 @@ final selectedChannelProvider = StateProvider<String?>((ref) => null);
 /// Remembers the last selected channel per server so switching back restores it.
 final lastChannelPerServerProvider =
     StateProvider<Map<String, String>>((ref) => {});
+
+/// Channel layout JSON for the currently selected server.
+/// Updated when channels load or server layout changes.
+class ChannelLayoutNotifier extends Notifier<String> {
+  @override
+  String build() => '[]';
+
+  Future<void> loadForServer(String serverId) async {
+    try {
+      final json = await crdt_api.getChannelLayout(serverId: serverId);
+      state = json;
+    } catch (_) {
+      state = '[]';
+    }
+  }
+
+  void clear() => state = '[]';
+}
+
+final channelLayoutProvider =
+    NotifierProvider<ChannelLayoutNotifier, String>(ChannelLayoutNotifier.new);

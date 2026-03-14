@@ -183,6 +183,8 @@ pub(crate) enum NodeCommand {
     RemoveDmReaction { peer_id: PeerId, message_id: String, emoji: String },
     // -- Typing indicators (Phase 3.5) --
     SendTypingIndicator { server_id: String, channel_id: String },
+    // -- Channel layout (Phase 3.5) --
+    UpdateChannelLayout { server_id: String, layout_json: String },
     // -- Pinned messages (Phase 3.5) --
     PinMessage { server_id: String, channel_id: String, message_id: String },
     UnpinMessage { server_id: String, channel_id: String, message_id: String },
@@ -3111,6 +3113,55 @@ async fn run_swarm(
                                             swarm.behaviour_mut().messaging.send_request(
                                                 &member_pid,
                                                 msg.clone(),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    NodeCommand::UpdateChannelLayout { server_id, layout_json } => {
+                        if let Some(state) = server_states.get_mut(&server_id) {
+                            let local_peer = swarm.local_peer_id().to_string();
+
+                            if !state.has_permission(&local_peer, crate::crdt::operations::Permission::MANAGE_CHANNELS) {
+                                haven_log!("[HAVEN-CRDT] Permission denied: cannot update channel layout in {server_id}");
+                                continue;
+                            }
+
+                            haven_log!("[HAVEN-CRDT] Updating channel layout in {server_id}");
+                            let op = state.create_op(CrdtPayload::ChannelLayoutUpdated {
+                                layout_json: layout_json.clone(),
+                            });
+                            let _ = state.apply_op(&op);
+
+                            if let Ok(json) = serde_json::to_string(&state) {
+                                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                    let _ = store.save_server_state(&server_id, &json);
+                                    let _ = store.insert_crdt_op(&op);
+                                }
+                            }
+
+                            let _ = event_tx.send(NetworkEvent::ServerUpdated {
+                                server_id: server_id.clone(),
+                            }).await;
+
+                            if let Ok(op_json) = serde_json::to_string(&op) {
+                                for member_peer_str in state.members.keys() {
+                                    if member_peer_str == &local_peer { continue; }
+                                    if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                        if connected_peers.contains(&pid) {
+                                            swarm.behaviour_mut().messaging.send_request(
+                                                &pid,
+                                                HavenMessage::CrdtOpBroadcast {
+                                                    server_id: server_id.clone(),
+                                                    op_json: op_json.clone(),
+                                                },
                                             );
                                         }
                                     }

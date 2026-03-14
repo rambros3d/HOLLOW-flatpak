@@ -111,6 +111,11 @@ class EventStreamNotifier extends Notifier<bool> {
       case NetworkEvent_ServerUpdated(:final serverId):
         debugPrint('[HAVEN] Server updated: $serverId');
         ref.read(serverListProvider.notifier).onServerUpdated(serverId);
+        // Reload channels and layout in case they changed.
+        if (ref.read(selectedServerProvider) == serverId) {
+          ref.read(channelListProvider.notifier).loadForServer(serverId);
+          ref.read(channelLayoutProvider.notifier).loadForServer(serverId);
+        }
 
       case NetworkEvent_ChannelAdded(
             :final serverId, :final channelId, :final name):

@@ -155,6 +155,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
     required ServerInfo? selectedServer,
     required Map<String, ChannelInfo> channels,
     required String? selectedChannelId,
+    required String channelLayoutJson,
     double? width = 240,
   }) {
     return ChannelSidebar(
@@ -214,6 +215,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
       canManageChannels: selectedServer != null &&
           (ref.watch(myPermissionsProvider(selectedServer.serverId)).whenOrNull(
               data: (perms) => (perms & Permission.manageChannels) != 0) ?? false),
+      channelLayoutJson: channelLayoutJson,
     );
   }
 
@@ -386,6 +388,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
     final selectedChannelId = ref.watch(selectedChannelProvider);
     final selectedServer =
         selectedServerId != null ? servers[selectedServerId] : null;
+    final channelLayout = ref.watch(channelLayoutProvider);
     final settingsOpen = ref.watch(serverSettingsOpenProvider);
 
     return LayoutBuilder(
@@ -405,6 +408,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
             selectedServer: selectedServer,
             channels: channels,
             selectedChannelId: selectedChannelId,
+            channelLayoutJson: channelLayout,
           );
         }
 
@@ -437,6 +441,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
                       selectedServer: selectedServer,
                       channels: channels,
                       selectedChannelId: selectedChannelId,
+                      channelLayoutJson: channelLayout,
                     ),
 
                     // Chat pane with crossfade
@@ -509,6 +514,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
     required ServerInfo? selectedServer,
     required Map<String, ChannelInfo> channels,
     required String? selectedChannelId,
+    required String channelLayoutJson,
   }) {
     final currentTab = ref.watch(mobileTabProvider);
 
@@ -524,6 +530,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
           selectedServer: selectedServer,
           channels: channels,
           selectedChannelId: selectedChannelId,
+          channelLayoutJson: channelLayoutJson,
           width: null,
         );
       case 1: // Chat

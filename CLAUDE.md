@@ -94,10 +94,10 @@ Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection mana
 - Pinned messages: CRDT-based (`MessagePinned`/`MessageUnpinned` ops), `pinned_messages: HashMap<String, Vec<String>>` on ServerState (`#[serde(default)]`). Pin/unpin via NodeCommand, permission-gated (MANAGE_CHANNELS). FFI: `pin_message()`, `unpin_message()`, `get_pinned_messages()`. Dart: `PinnedNotifier` provider, pin button in hover action bar (admin only), pin count + popup in channel header. CrdtOpBroadcast handler emits `MessagePinned`/`MessageUnpinned` events for real-time UI updates on all peers.
 - Emoji reaction sync: Reactions now sync on reconnect alongside messages. `SyncReactionItem` struct added to `SyncMessageItem` and `DmSyncItem`. Sync batch builders load reactions from DB, receivers insert them (INSERT OR IGNORE). `reloadReactions()` method on `ChannelChatNotifier` refreshes reactions without triggering sync loop. Fixed infinite sync loop caused by `loadHistory()` always calling `requestChannelSync()`.
 - Channel "+" button permission: Only visible to members with MANAGE_CHANNELS permission (Owner, Admin). `canManageChannels` prop threaded through `ChannelSidebar` → `_ServerContent`.
+- Channel organization: CRDT-based `ChannelLayoutUpdated` op with `channel_layout: Vec<ChannelLayoutItem>` on ServerState. Three item types: `Category` (collapsible folder), `Channel` (reference), `Separator` (break). Channels tab rewritten with drag-and-drop `ReorderableListView`, tree connectors for nested channels, Save/Discard buttons. Sidebar renders layout with collapsible categories (`AnimatedSize`), separators as dividers. Layout only updates for all members on Save. `channelLayoutProvider` loads from DB. Computed `_dirty` getter compares current vs saved layout. `HavenButton` icon/text alignment fixed (height: 1.0).
 
 **Phase 3.5 remaining:**
-1. QoL: channel organization (categories/folders with drag reorder), notifications, search, keyboard shortcuts, basic P2P file sharing (WebP internal format)
-2. QoL: notifications, search, keyboard shortcuts, basic P2P file sharing (WebP internal format)
+1. QoL: notifications, search, keyboard shortcuts, basic P2P file sharing (WebP internal format)
 
 ## Haven Design System (Phase 2.75)
 All UI interactions go through custom Haven widgets — no Material defaults anywhere. Change behavior in one place, applies everywhere.
