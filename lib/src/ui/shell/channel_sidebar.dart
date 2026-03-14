@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/models/channel_info.dart';
 import 'package:haven/src/core/models/chat_message.dart';
 import 'package:haven/src/core/models/node_status.dart';
@@ -14,14 +14,17 @@ import 'package:haven/src/ui/animations/haven_curves.dart';
 import 'package:haven/src/ui/animations/reveal_widgets.dart';
 import 'package:haven/src/ui/animations/selection_shimmer.dart';
 import 'package:haven/src/ui/animations/startup_reveal.dart';
+import 'package:haven/src/core/providers/friends_provider.dart';
+import 'package:haven/src/core/providers/profile_provider.dart';
+import 'package:haven/src/ui/components/haven_avatar.dart';
 import 'package:haven/src/ui/components/haven_button.dart';
+import 'package:haven/src/ui/components/haven_dialog.dart';
 import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/haven_text_field.dart';
 import 'package:haven/src/ui/components/haven_toast.dart';
 import 'package:haven/src/ui/components/haven_tooltip.dart';
 import 'package:haven/src/ui/dialogs/invite_dialog.dart';
 import 'package:haven/src/ui/shell/user_bar.dart';
-import 'package:haven/src/ui/sidebar/empty_peer_list.dart';
 import 'package:haven/src/ui/sidebar/peer_card.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
@@ -38,10 +41,6 @@ class ChannelSidebar extends StatelessWidget {
   final ValueChanged<String> onPeerSelected;
   final ChatMessage? Function(String) lastMessage;
   final String Function(DateTime) formatTime;
-  final String? activeRoom;
-  final TextEditingController roomController;
-  final Future<void> Function(String) onJoinRoom;
-  final VoidCallback onCreateInvite;
 
   // -- Server mode props --
   final ServerInfo? selectedServer;
@@ -65,10 +64,6 @@ class ChannelSidebar extends StatelessWidget {
     required this.onPeerSelected,
     required this.lastMessage,
     required this.formatTime,
-    required this.activeRoom,
-    required this.roomController,
-    required this.onJoinRoom,
-    required this.onCreateInvite,
     this.selectedServer,
     this.channels = const {},
     this.selectedChannelId,
@@ -142,17 +137,12 @@ class ChannelSidebar extends StatelessWidget {
                   : _HomeContent(
                       key: const ValueKey('home'),
                       haven: haven,
-                      context: context,
                       peers: peers,
                       selectedPeerId: selectedPeerId,
                       nodeStatus: nodeStatus,
                       onPeerSelected: onPeerSelected,
                       lastMessage: lastMessage,
                       formatTime: formatTime,
-                      activeRoom: activeRoom,
-                      roomController: roomController,
-                      onJoinRoom: onJoinRoom,
-                      onCreateInvite: onCreateInvite,
                     ),
             ),
           ),
@@ -472,48 +462,30 @@ class _CategoryHeaderState extends State<_CategoryHeader> {
   }
 }
 
-/// Home / DM mode content — room controls + peer list.
-class _HomeContent extends StatelessWidget {
+/// Home / DM mode content — friends list.
+class _HomeContent extends ConsumerWidget {
   final HavenTheme haven;
-  final BuildContext context;
   final Map<String, PeerInfo> peers;
   final String? selectedPeerId;
   final NodeStatus nodeStatus;
   final ValueChanged<String> onPeerSelected;
   final ChatMessage? Function(String) lastMessage;
   final String Function(DateTime) formatTime;
-  final String? activeRoom;
-  final TextEditingController roomController;
-  final Future<void> Function(String) onJoinRoom;
-  final VoidCallback onCreateInvite;
 
   const _HomeContent({
     super.key,
     required this.haven,
-    required this.context,
     required this.peers,
     required this.selectedPeerId,
     required this.nodeStatus,
     required this.onPeerSelected,
     required this.lastMessage,
     required this.formatTime,
-    required this.activeRoom,
-    required this.roomController,
-    required this.onJoinRoom,
-    required this.onCreateInvite,
   });
 
   @override
-  Widget build(BuildContext innerContext) {
-    final divider1Reveal =
-        StartupRevealScope.interval(innerContext, 0.35, 0.45);
-    final onlineLabelReveal =
-        StartupRevealScope.interval(innerContext, 0.38, 0.50);
-    final onlineLineReveal =
-        StartupRevealScope.interval(innerContext, 0.42, 0.55);
-    final peerListReveal =
-        StartupRevealScope.interval(innerContext, 0.45, 0.60);
-
+  Widget build(BuildContext innerContext, WidgetRef ref) {
+    final friends = ref.watch(friendsProvider);
     final dividerTextStyle = HavenTypography.caption.copyWith(
       color: haven.textSecondary,
       fontWeight: FontWeight.w600,
@@ -521,19 +493,81 @@ class _HomeContent extends StatelessWidget {
       fontSize: 11,
     );
 
+    // Split friends into accepted and pending.
+    final accepted = friends.values
+        .where((f) => f.status == 'accepted')
+        .toList();
+    final pendingIncoming = friends.values
+        .where((f) => f.status == 'pending' && f.direction == 'incoming')
+        .toList();
+    final pendingOutgoing = friends.values
+        .where((f) => f.status == 'pending' && f.direction == 'outgoing')
+        .toList();
+
+    // Sort accepted: online first, then by peer ID.
+    accepted.sort((a, b) {
+      final aOnline = peers.containsKey(a.peerId) ? 0 : 1;
+      final bOnline = peers.containsKey(b.peerId) ? 0 : 1;
+      if (aOnline != bOnline) return aOnline.compareTo(bOnline);
+      return a.peerId.compareTo(b.peerId);
+    });
+
+    final hasPending = pendingIncoming.isNotEmpty || pendingOutgoing.isNotEmpty;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Room controls
-        _buildRoomSection(innerContext),
-
-        LineDrawDivider(
-          animation: divider1Reveal,
-          height: 1,
-          color: haven.border,
+        // Add friend button
+        Padding(
+          padding: const EdgeInsets.all(HavenSpacing.sm + 2),
+          child: HavenButton.outline(
+            onPressed: () => _showAddFriendDialog(innerContext, ref),
+            expand: true,
+            icon: Icon(LucideIcons.userPlus, size: 14),
+            child: const Text('Add Friend'),
+          ),
         ),
 
-        // Peer count — ASOT-style divider with reveal animations
+        Divider(height: 1, color: haven.border),
+
+        // Pending requests section
+        if (hasPending) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: HavenSpacing.sm + 2,
+              vertical: HavenSpacing.sm,
+            ),
+            child: Row(
+              children: [
+                Text('PENDING', style: dividerTextStyle),
+                const SizedBox(width: HavenSpacing.sm),
+                Expanded(child: Divider(height: 1, color: haven.border)),
+                const SizedBox(width: HavenSpacing.sm),
+                Text('${pendingIncoming.length + pendingOutgoing.length}',
+                    style: dividerTextStyle),
+              ],
+            ),
+          ),
+          for (final req in pendingIncoming)
+            _PendingRequestTile(
+              haven: haven,
+              peerId: req.peerId,
+              direction: 'incoming',
+              onAccept: () =>
+                  ref.read(friendsProvider.notifier).acceptRequest(req.peerId),
+              onReject: () =>
+                  ref.read(friendsProvider.notifier).rejectRequest(req.peerId),
+            ),
+          for (final req in pendingOutgoing)
+            _PendingRequestTile(
+              haven: haven,
+              peerId: req.peerId,
+              direction: 'outgoing',
+            ),
+          Divider(height: 1, color: haven.border),
+        ],
+
+        // Friends section header
         Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: HavenSpacing.sm + 2,
@@ -541,59 +575,54 @@ class _HomeContent extends StatelessWidget {
           ),
           child: Row(
             children: [
-              TypewriterText(
-                text: 'Online',
-                animation: onlineLabelReveal,
-                style: dividerTextStyle,
-              ),
+              Text('FRIENDS', style: dividerTextStyle),
               const SizedBox(width: HavenSpacing.sm),
-              Expanded(
-                child: LineDrawDivider(
-                  animation: onlineLineReveal,
-                  height: 1,
-                  color: haven.border,
-                ),
-              ),
+              Expanded(child: Divider(height: 1, color: haven.border)),
               const SizedBox(width: HavenSpacing.sm),
-              onlineLabelReveal != null
-                  ? FadeTransition(
-                      opacity: onlineLabelReveal,
-                      child: Text('${peers.length}', style: dividerTextStyle),
-                    )
-                  : Text('${peers.length}', style: dividerTextStyle),
+              Text('${accepted.length}', style: dividerTextStyle),
             ],
           ),
         ),
 
-        // Peer list
+        // Friends list
         Expanded(
-          child: peers.isEmpty
-              ? EmptyPeerList(nodeStatus: nodeStatus)
+          child: accepted.isEmpty && !hasPending
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(LucideIcons.users, size: 48,
+                          color: haven.textSecondary.withValues(alpha: 0.3)),
+                      const SizedBox(height: HavenSpacing.md),
+                      Text('No friends yet',
+                          style: HavenTypography.body
+                              .copyWith(color: haven.textSecondary)),
+                      const SizedBox(height: HavenSpacing.xs),
+                      Text('Add a friend by their peer ID',
+                          style: HavenTypography.caption
+                              .copyWith(color: haven.textSecondary)),
+                    ],
+                  ),
+                )
               : ListView.builder(
-                  itemCount: peers.length,
+                  itemCount: accepted.length,
                   padding: const EdgeInsets.symmetric(
                       vertical: HavenSpacing.xs),
                   itemBuilder: (context, index) {
-                    final peerId = peers.keys.elementAt(index);
-                    final peer = peers[peerId];
-                    final isSelected = peerId == selectedPeerId;
-                    final last = lastMessage(peerId);
+                    final friend = accepted[index];
+                    final isOnline = peers.containsKey(friend.peerId);
+                    final peer = peers[friend.peerId];
+                    final isSelected = friend.peerId == selectedPeerId;
+                    final last = lastMessage(friend.peerId);
 
-                    Widget card = PeerCard(
-                      peerId: peerId,
+                    return PeerCard(
+                      peerId: friend.peerId,
                       isSelected: isSelected,
                       isEncrypted: peer?.isEncrypted ?? false,
+                      isOnline: isOnline,
                       lastMessage: last,
                       formatTime: formatTime,
-                      onTap: () => onPeerSelected(peerId),
-                    );
-
-                    return StaggeredListItem(
-                      parentAnimation: peerListReveal,
-                      index: index,
-                      totalItems: peers.length,
-                      slideFrom: const Offset(-0.3, 0),
-                      child: card,
+                      onTap: () => onPeerSelected(friend.peerId),
                     );
                   },
                 ),
@@ -602,145 +631,139 @@ class _HomeContent extends StatelessWidget {
     );
   }
 
-  Widget _buildRoomSection(BuildContext ctx) {
-    final roomReveal =
-        StartupRevealScope.interval(ctx, 0.30, 0.42);
-    final inviteBtnReveal =
-        StartupRevealScope.interval(ctx, 0.40, 0.50);
-
-    if (activeRoom != null) {
-      Widget badge = Padding(
-        padding: const EdgeInsets.all(HavenSpacing.sm + 2),
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: HavenSpacing.sm + 2,
-            vertical: HavenSpacing.sm,
+  void _showAddFriendDialog(BuildContext context, WidgetRef ref) {
+    final controller = TextEditingController();
+    showHavenDialog(
+      context: context,
+      builder: (ctx) => HavenDialog(
+        title: 'Add Friend',
+        content: HavenTextField(
+          controller: controller,
+          hintText: 'Paste peer ID...',
+          autofocus: true,
+          style: HavenTypography.mono.copyWith(
+            color: haven.textPrimary,
+            fontSize: 12,
           ),
-          decoration: BoxDecoration(
-            color: haven.accentMuted,
-            borderRadius: BorderRadius.circular(haven.radiusMd),
-            border: Border.all(
-              color: haven.accent.withValues(alpha: 0.3),
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(LucideIcons.cloud, size: 16, color: haven.accent),
-              const SizedBox(width: HavenSpacing.sm),
-              Expanded(
-                child: Text(
-                  'Room: $activeRoom',
-                  style: HavenTypography.bodySmall.copyWith(
-                    color: haven.accent,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              HavenPressable(
-                onTap: () {
-                  final link = 'haven://join?room=$activeRoom';
-                  Clipboard.setData(ClipboardData(text: link));
-                  HavenToast.show(
-                    ctx,
-                    'Invite link copied',
-                    type: HavenToastType.success,
-                  );
-                },
-                borderRadius: BorderRadius.circular(haven.radiusSm),
-                padding: const EdgeInsets.all(HavenSpacing.xs),
-                child: Icon(LucideIcons.copy,
-                    size: 14, color: haven.accent),
-              ),
-            ],
-          ),
+          onSubmitted: (_) {
+            final peerId = controller.text.trim();
+            if (peerId.isNotEmpty) {
+              ref.read(friendsProvider.notifier).sendRequest(peerId);
+              Navigator.pop(ctx);
+              HavenToast.show(
+                context,
+                'Friend request sent',
+                type: HavenToastType.success,
+              );
+            }
+          },
         ),
-      );
-
-      if (roomReveal != null) {
-        badge = FadeTransition(
-          opacity: roomReveal,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(-0.3, 0),
-              end: Offset.zero,
-            ).animate(roomReveal),
-            child: badge,
+        actions: [
+          HavenButton.ghost(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
           ),
-        );
-      }
-
-      return badge;
-    }
-
-    // Room input + Join button
-    Widget textFieldRow = Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Expanded(
-          child: HavenTextField(
-            controller: roomController,
-            hintText: 'Room code or invite...',
-            isDense: true,
-            style: HavenTypography.bodySmall.copyWith(
-              color: haven.textPrimary,
-            ),
-            onSubmitted: (v) => onJoinRoom(v.trim()),
+          HavenButton.filled(
+            onPressed: () {
+              final peerId = controller.text.trim();
+              if (peerId.isNotEmpty) {
+                ref.read(friendsProvider.notifier).sendRequest(peerId);
+                Navigator.pop(ctx);
+                HavenToast.show(
+                  context,
+                  'Friend request sent',
+                  type: HavenToastType.success,
+                );
+              }
+            },
+            child: const Text('Send Request'),
           ),
-        ),
-        const SizedBox(width: HavenSpacing.xs + 2),
-        HavenButton.filled(
-          onPressed: () =>
-              onJoinRoom(roomController.text.trim()),
-          compact: true,
-          child: const Text('Join'),
-        ),
-      ],
+        ],
+      ),
     );
+  }
+}
 
-    if (roomReveal != null) {
-      textFieldRow = FadeTransition(
-        opacity: roomReveal,
-        child: SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(-0.3, 0),
-            end: Offset.zero,
-          ).animate(roomReveal),
-          child: textFieldRow,
-        ),
-      );
-    }
+/// Pending friend request tile with accept/reject buttons.
+class _PendingRequestTile extends ConsumerWidget {
+  final HavenTheme haven;
+  final String peerId;
+  final String direction;
+  final VoidCallback? onAccept;
+  final VoidCallback? onReject;
 
-    // Create Invite button
-    Widget inviteBtn = HavenButton.outline(
-      onPressed: onCreateInvite,
-      expand: true,
-      icon: Icon(LucideIcons.link, size: 14),
-      child: const Text('Create Invite'),
-    );
+  const _PendingRequestTile({
+    required this.haven,
+    required this.peerId,
+    required this.direction,
+    this.onAccept,
+    this.onReject,
+  });
 
-    if (inviteBtnReveal != null) {
-      inviteBtn = FadeTransition(
-        opacity: inviteBtnReveal,
-        child: SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, 0.3),
-            end: Offset.zero,
-          ).animate(inviteBtnReveal),
-          child: inviteBtn,
-        ),
-      );
-    }
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final profiles = ref.watch(profileProvider);
+    final name = displayNameFor(profiles, peerId);
 
     return Padding(
-      padding: const EdgeInsets.all(HavenSpacing.sm + 2),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          textFieldRow,
-          const SizedBox(height: HavenSpacing.sm - 2),
-          inviteBtn,
-        ],
+      padding: const EdgeInsets.symmetric(
+        horizontal: HavenSpacing.sm,
+        vertical: HavenSpacing.xxs,
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: HavenSpacing.sm + 2,
+          vertical: HavenSpacing.sm,
+        ),
+        decoration: BoxDecoration(
+          color: haven.elevated,
+          borderRadius: BorderRadius.circular(haven.radiusMd),
+        ),
+        child: Row(
+          children: [
+            HavenAvatar(peerId: peerId, size: 28),
+            const SizedBox(width: HavenSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    style: HavenTypography.body.copyWith(
+                      color: haven.textPrimary,
+                      fontSize: 13,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    direction == 'incoming'
+                        ? 'Wants to be friends'
+                        : 'Request sent',
+                    style: HavenTypography.caption.copyWith(
+                      color: haven.textSecondary,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (direction == 'incoming') ...[
+              HavenPressable(
+                onTap: onAccept,
+                borderRadius: BorderRadius.circular(haven.radiusSm),
+                padding: const EdgeInsets.all(HavenSpacing.xs),
+                child: Icon(LucideIcons.check, size: 16, color: haven.success),
+              ),
+              HavenPressable(
+                onTap: onReject,
+                borderRadius: BorderRadius.circular(haven.radiusSm),
+                padding: const EdgeInsets.all(HavenSpacing.xs),
+                child: Icon(LucideIcons.x, size: 16, color: haven.error),
+              ),
+            ] else
+              Icon(LucideIcons.clock, size: 14, color: haven.textSecondary),
+          ],
+        ),
       ),
     );
   }

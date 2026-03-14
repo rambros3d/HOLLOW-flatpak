@@ -207,9 +207,6 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
 
   /// Load chat history from SQLCipher for a peer.
   Future<void> loadHistory(String peerId) async {
-    final existing = state[peerId];
-    if (existing != null && existing.isNotEmpty) return;
-
     try {
       final storageService = ref.read(storageServiceProvider);
       final stored = await storageService.loadMessages(

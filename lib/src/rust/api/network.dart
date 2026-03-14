@@ -157,6 +157,22 @@ Future<void> removeDmReaction({
   emoji: emoji,
 );
 
+/// Send a friend request to a peer.
+Future<void> sendFriendRequest({required String peerId}) =>
+    RustLib.instance.api.crateApiNetworkSendFriendRequest(peerId: peerId);
+
+/// Accept a friend request from a peer.
+Future<void> acceptFriendRequest({required String peerId}) =>
+    RustLib.instance.api.crateApiNetworkAcceptFriendRequest(peerId: peerId);
+
+/// Reject a friend request from a peer.
+Future<void> rejectFriendRequest({required String peerId}) =>
+    RustLib.instance.api.crateApiNetworkRejectFriendRequest(peerId: peerId);
+
+/// Remove a friend.
+Future<void> removeFriend({required String peerId}) =>
+    RustLib.instance.api.crateApiNetworkRemoveFriend(peerId: peerId);
+
 /// Send a typing indicator to peers. Ephemeral, not stored.
 /// For DMs: server_id = "", channel_id = peer ID.
 /// For channels: server_id and channel_id as normal.
@@ -381,6 +397,14 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String reactor,
     required PlatformInt64 removedAt,
   }) = NetworkEvent_DmReactionRemoved;
+  const factory NetworkEvent.friendRequestReceived({required String peerId}) =
+      NetworkEvent_FriendRequestReceived;
+  const factory NetworkEvent.friendRequestAccepted({required String peerId}) =
+      NetworkEvent_FriendRequestAccepted;
+  const factory NetworkEvent.friendRequestRejected({required String peerId}) =
+      NetworkEvent_FriendRequestRejected;
+  const factory NetworkEvent.friendRemoved({required String peerId}) =
+      NetworkEvent_FriendRemoved;
   const factory NetworkEvent.typingStarted({
     required String peerId,
     required String serverId,

@@ -96,8 +96,15 @@ Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection mana
 - Channel "+" button permission: Only visible to members with MANAGE_CHANNELS permission (Owner, Admin). `canManageChannels` prop threaded through `ChannelSidebar` → `_ServerContent`.
 - Channel organization: CRDT-based `ChannelLayoutUpdated` op with `channel_layout: Vec<ChannelLayoutItem>` on ServerState. Three item types: `Category` (collapsible folder), `Channel` (reference), `Separator` (break). Channels tab rewritten with drag-and-drop `ReorderableListView`, tree connectors for nested channels, Save/Discard buttons. Sidebar renders layout with collapsible categories (`AnimatedSize`), separators as dividers. Layout only updates for all members on Save. `channelLayoutProvider` loads from DB. Computed `_dirty` getter compares current vs saved layout. `HavenButton` icon/text alignment fixed (height: 1.0).
 
+**Phase 3.5 completed so far (continued):**
+- System tray: minimize to tray on close (configurable toggle, default ON), tray icon appears only when minimized, left-click restores, right-click menu (Show/Quit). `tray_manager` ^0.5.2. `minimizeToTrayProvider` persisted in app_settings.
+- Friends system & DM overhaul: `friends` SQLCipher table (peer_id, status, direction, requested_at, updated_at). Wire: `FriendRequest`/`FriendAccept`/`FriendReject`/`FriendRemove` (plaintext). DM room codes via SHA-256 hash for signaling discovery without shared servers. Room codes registered on friend request send, receive, accept, and on startup for all friends. Room system UI removed, replaced with "Add Friend" dialog (paste peer ID). Sidebar shows friends list (online-first sort) with pending section (accept/reject for incoming, clock for outgoing). `PeerCard` has `isOnline` prop. Chat stays open on peer disconnect. `loadHistory` always reloads from DB (removed stale guard). Message ordering uses `ORDER BY id` (insertion order) not timestamp (immune to clock skew).
+- Haven logo: custom SVG (H + integrated lock), ICO for Windows app/tray icon.
+- Server dialog: two-panel (Join by link/ID on left, Create on right).
+
 **Phase 3.5 remaining:**
-1. QoL: system tray (minimize to tray on close, maintain connection), friends system & DM overhaul (replace room system with peer ID friend requests, persistent friends list, offline/online status), notifications (system-level, configurable per server/channel), search (local full-text over SQLCipher), keyboard shortcuts, basic P2P file sharing (WebP internal format, direct transfer via libp2p)
+1. QoL: notifications (system-level, configurable per server/channel), search (local full-text over SQLCipher), keyboard shortcuts, basic P2P file sharing (WebP internal format, direct transfer via libp2p)
+2. Device linking deferred to Phase 6
 
 ## Haven Design System (Phase 2.75)
 All UI interactions go through custom Haven widgets — no Material defaults anywhere. Change behavior in one place, applies everywhere.

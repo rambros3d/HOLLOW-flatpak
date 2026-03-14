@@ -14,6 +14,7 @@ import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/sync_progress_provider.dart';
 import 'package:haven/src/core/providers/typing_provider.dart';
 import 'package:haven/src/core/providers/pinned_provider.dart';
+import 'package:haven/src/core/providers/friends_provider.dart';
 import 'package:haven/src/rust/api/network.dart';
 
 /// Listens to the Rust event stream and dispatches events
@@ -56,16 +57,12 @@ class EventStreamNotifier extends Notifier<bool> {
 
       case NetworkEvent_PeerExpired(:final peerId):
         ref.read(peersProvider.notifier).removePeer(peerId);
-        if (ref.read(selectedPeerProvider) == peerId) {
-          ref.read(selectedPeerProvider.notifier).state = null;
-        }
+        // Don't deselect — friends stay visible when offline.
 
       case NetworkEvent_PeerDisconnected(:final peerId):
         debugPrint('[HAVEN] Peer disconnected: $peerId');
         ref.read(peersProvider.notifier).removePeer(peerId);
-        if (ref.read(selectedPeerProvider) == peerId) {
-          ref.read(selectedPeerProvider.notifier).state = null;
-        }
+        // Don't deselect — friends stay visible when offline.
 
       case NetworkEvent_RoomCleared():
         debugPrint('[HAVEN] Room cleared');
@@ -304,6 +301,23 @@ class EventStreamNotifier extends Notifier<bool> {
         debugPrint('[HAVEN] DM reaction $emoji removed on $messageId by $reactor for $peerId');
         ref.read(chatProvider.notifier).applyRemoveReaction(
             peerId, messageId, emoji, reactor);
+
+      // -- Friend events (Phase 3.5) --
+      case NetworkEvent_FriendRequestReceived(:final peerId):
+        debugPrint('[HAVEN] Friend request received from $peerId');
+        ref.read(friendsProvider.notifier).loadAll();
+
+      case NetworkEvent_FriendRequestAccepted(:final peerId):
+        debugPrint('[HAVEN] Friend accepted by $peerId');
+        ref.read(friendsProvider.notifier).loadAll();
+
+      case NetworkEvent_FriendRequestRejected(:final peerId):
+        debugPrint('[HAVEN] Friend rejected by $peerId');
+        ref.read(friendsProvider.notifier).loadAll();
+
+      case NetworkEvent_FriendRemoved(:final peerId):
+        debugPrint('[HAVEN] Friend removed: $peerId');
+        ref.read(friendsProvider.notifier).loadAll();
 
       // -- Typing indicator events (Phase 3.5) --
       case NetworkEvent_TypingStarted(

@@ -182,7 +182,14 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
             children: [
               HavenAvatar(peerId: widget.peerId, size: 28),
               const SizedBox(width: HavenSpacing.sm),
-              StatusDot(color: haven.success, size: 8, pulse: true),
+              Builder(builder: (_) {
+                final isOnline = ref.watch(peersProvider).containsKey(widget.peerId);
+                return StatusDot(
+                  color: isOnline ? haven.success : haven.textSecondary,
+                  size: 8,
+                  pulse: isOnline,
+                );
+              }),
               const SizedBox(width: HavenSpacing.sm),
               Expanded(
                 child: Column(
@@ -210,12 +217,21 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                   ],
                 ),
               ),
-              ConnectionProgress(
-                key: ValueKey('dm-conn-${widget.peerId}'),
-                stage: (ref.watch(peersProvider)[widget.peerId]?.isEncrypted ?? false)
-                    ? ConnectionStage.encrypted
-                    : ConnectionStage.encrypting,
-              ),
+              Builder(builder: (_) {
+                final peer = ref.watch(peersProvider)[widget.peerId];
+                final ConnectionStage stage;
+                if (peer == null) {
+                  stage = ConnectionStage.connecting;
+                } else if (peer.isEncrypted) {
+                  stage = ConnectionStage.encrypted;
+                } else {
+                  stage = ConnectionStage.encrypting;
+                }
+                return ConnectionProgress(
+                  key: ValueKey('dm-conn-${widget.peerId}-${stage.index}'),
+                  stage: stage,
+                );
+              }),
               const SizedBox(width: HavenSpacing.sm),
               HavenTooltip(
                 message: 'Copy peer ID',

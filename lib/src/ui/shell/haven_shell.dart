@@ -12,9 +12,8 @@ import 'package:haven/src/core/providers/identity_provider.dart';
 import 'package:haven/src/core/providers/member_panel_provider.dart';
 import 'package:haven/src/core/providers/node_provider.dart';
 import 'package:haven/src/core/providers/peers_provider.dart';
+import 'package:haven/src/core/providers/friends_provider.dart';
 import 'package:haven/src/core/providers/profile_provider.dart';
-import 'package:haven/src/core/providers/room_provider.dart';
-import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
 import 'package:haven/src/core/providers/selected_peer_provider.dart';
 import 'package:haven/src/core/providers/server_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
@@ -28,7 +27,6 @@ import 'package:haven/src/ui/chat/chat_pane.dart';
 import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/haven_tooltip.dart';
 import 'package:haven/src/ui/dialogs/create_channel_dialog.dart';
-import 'package:haven/src/ui/dialogs/invite_dialog.dart';
 import 'package:haven/src/ui/dialogs/mnemonic_dialog.dart';
 import 'package:haven/src/ui/settings/server_settings_panel.dart';
 import 'package:haven/src/ui/shell/channel_sidebar.dart';
@@ -57,7 +55,6 @@ class HavenShell extends ConsumerStatefulWidget {
 
 class _HavenShellState extends ConsumerState<HavenShell>
     with TickerProviderStateMixin {
-  final _roomController = TextEditingController();
   bool _initialized = false;
 
   // Startup reveal animation — master controller shared via InheritedWidget.
@@ -114,19 +111,13 @@ class _HavenShellState extends ConsumerState<HavenShell>
 
     // Load cached user profiles into memory.
     await ref.read(profileProvider.notifier).loadAll();
-  }
 
-  Future<void> _createInvite() async {
-    final link = await ref.read(roomProvider.notifier).createInvite();
-    if (link != null && mounted) {
-      final roomCode = ref.read(roomProvider);
-      showInviteDialog(context, link, roomCode!);
-    }
+    // Load friends list from local DB.
+    await ref.read(friendsProvider.notifier).loadAll();
   }
 
   @override
   void dispose() {
-    _roomController.dispose();
     _revealController.dispose();
     super.dispose();
   }
@@ -151,7 +142,6 @@ class _HavenShellState extends ConsumerState<HavenShell>
     required Map<String, List<ChatMessage>> chatHistory,
     required String? selectedPeerId,
     required NodeStatus nodeStatus,
-    required String? activeRoom,
     required ServerInfo? selectedServer,
     required Map<String, ChannelInfo> channels,
     required String? selectedChannelId,
@@ -171,21 +161,6 @@ class _HavenShellState extends ConsumerState<HavenShell>
       },
       lastMessage: (peerId) => _lastMessage(peerId, chatHistory),
       formatTime: _formatTime,
-      activeRoom: activeRoom,
-      roomController: _roomController,
-      onJoinRoom: (input) async {
-        final uri = Uri.tryParse(input.trim());
-        if (uri != null &&
-            uri.scheme == 'haven' &&
-            uri.queryParameters.containsKey('server')) {
-          final serverId = uri.queryParameters['server']!;
-          crdt_api.joinServer(serverId: serverId);
-          _roomController.clear();
-        } else {
-          ref.read(roomProvider.notifier).join(input);
-        }
-      },
-      onCreateInvite: _createInvite,
       // Server mode props
       selectedServer: selectedServer,
       channels: channels,
@@ -378,7 +353,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
     final peers = ref.watch(peersProvider);
     final selectedPeerId = ref.watch(selectedPeerProvider);
     final chatHistory = ref.watch(chatProvider);
-    final activeRoom = ref.watch(roomProvider);
+
     final memberPanelOpen = ref.watch(memberPanelProvider);
 
     // Server/channel state
@@ -404,7 +379,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
             chatHistory: chatHistory,
             selectedPeerId: selectedPeerId,
             nodeStatus: nodeState.status,
-            activeRoom: activeRoom,
+
             selectedServer: selectedServer,
             channels: channels,
             selectedChannelId: selectedChannelId,
@@ -437,7 +412,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
                       chatHistory: chatHistory,
                       selectedPeerId: selectedPeerId,
                       nodeStatus: nodeState.status,
-                      activeRoom: activeRoom,
+          
                       selectedServer: selectedServer,
                       channels: channels,
                       selectedChannelId: selectedChannelId,
@@ -510,7 +485,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
     required Map<String, List<ChatMessage>> chatHistory,
     required String? selectedPeerId,
     required NodeStatus nodeStatus,
-    required String? activeRoom,
+
     required ServerInfo? selectedServer,
     required Map<String, ChannelInfo> channels,
     required String? selectedChannelId,
@@ -526,7 +501,7 @@ class _HavenShellState extends ConsumerState<HavenShell>
           chatHistory: chatHistory,
           selectedPeerId: selectedPeerId,
           nodeStatus: nodeStatus,
-          activeRoom: activeRoom,
+
           selectedServer: selectedServer,
           channels: channels,
           selectedChannelId: selectedChannelId,

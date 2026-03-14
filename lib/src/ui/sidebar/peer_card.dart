@@ -16,6 +16,7 @@ class PeerCard extends ConsumerWidget {
   final String peerId;
   final bool isSelected;
   final bool isEncrypted;
+  final bool isOnline;
   final ChatMessage? lastMessage;
   final String Function(DateTime) formatTime;
   final VoidCallback onTap;
@@ -25,6 +26,7 @@ class PeerCard extends ConsumerWidget {
     required this.peerId,
     required this.isSelected,
     required this.isEncrypted,
+    this.isOnline = true,
     required this.lastMessage,
     required this.formatTime,
     required this.onTap,
@@ -67,9 +69,9 @@ class PeerCard extends ConsumerWidget {
                       ),
                       padding: const EdgeInsets.all(1.5),
                       child: StatusDot(
-                        color: haven.success,
+                        color: isOnline ? haven.success : haven.textSecondary,
                         size: 8,
-                        pulse: true,
+                        pulse: isOnline,
                       ),
                     ),
                   ),

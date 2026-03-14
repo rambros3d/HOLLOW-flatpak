@@ -964,7 +964,8 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 **Quality of Life:**
 - [X] System Tray — App working in the background)
-- [ ] Friends system & DM overhaul — Rust: `friends` SQLCipher table (peer_id, display_name, added_at, status). Friend request flow: `FriendRequest` → `FriendAccepted`/`FriendDeclined` wire messages over Olm. Friends list persists offline (not just "who's online"). DM sidebar shows all friends (online/offline) with status dots, sorted online-first. DM history persists and loads from DB regardless of connection status. Unfriend removes from list but keeps DM history. No mutual server required — friends are independent of servers.
+- [X] Friends system & DM overhaul — Rust: `friends` SQLCipher table (peer_id, display_name, added_at, status). Friend request flow: `FriendRequest` → `FriendAccepted`/`FriendDeclined` wire messages over Olm. Friends list persists offline (not just "who's online"). DM sidebar shows all friends (online/offline) with status dots, sorted online-first. DM history persists and loads from DB regardless of connection status. Unfriend removes from list but keeps DM history. No mutual server required — friends are independent of servers.
+- [X] Friends plus other UI improvements
 - [ ] Notifications — system-level (Windows toast / macOS notification center), configurable per server and per channel (all / mentions only / none)
 - [ ] Search — local full-text search over decrypted messages in SQLCipher. 🎞️ Animate: search bar expand, results list staggered fade-in
 - [ ] Keyboard shortcuts (navigate channels, servers, quick-switch, mark as read)

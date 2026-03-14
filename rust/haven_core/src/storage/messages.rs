@@ -343,6 +343,18 @@ impl MessageStore {
 
         // -- App settings (key-value, general purpose) --
         conn.execute(
+            "CREATE TABLE IF NOT EXISTS friends (
+                peer_id      TEXT PRIMARY KEY,
+                status       TEXT NOT NULL,
+                direction    TEXT NOT NULL DEFAULT '',
+                requested_at INTEGER NOT NULL DEFAULT 0,
+                updated_at   INTEGER NOT NULL DEFAULT 0
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create friends table: {e}"))?;
+
+        conn.execute(
             "CREATE TABLE IF NOT EXISTS app_settings (
                 key   TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -479,7 +491,7 @@ impl MessageStore {
                 "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid
                  FROM messages
                  WHERE peer_id = ?1 AND hidden_at IS NULL
-                 ORDER BY timestamp DESC
+                 ORDER BY id DESC
                  LIMIT ?2",
             )
             .map_err(|e| format!("Failed to prepare query: {e}"))?;
@@ -736,7 +748,7 @@ impl MessageStore {
                 "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid
                  FROM channel_messages
                  WHERE server_id = ?1 AND channel_id = ?2 AND hidden_at IS NULL
-                 ORDER BY timestamp DESC
+                 ORDER BY id DESC
                  LIMIT ?3",
             )
             .map_err(|e| format!("Failed to prepare channel_messages query: {e}"))?;
@@ -1545,6 +1557,94 @@ impl MessageStore {
     // ── App Settings ──────────────────────────────────────────────
 
     /// Save a key-value setting (insert or update).
+    // ── Friends ───────────────────────────────────────────────────
+
+    /// Save or update a friend entry.
+    pub fn save_friend(
+        &self,
+        peer_id: &str,
+        status: &str,
+        direction: &str,
+        requested_at: i64,
+    ) -> Result<(), String> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        self.conn
+            .execute(
+                "INSERT INTO friends (peer_id, status, direction, requested_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(peer_id) DO UPDATE SET status = ?2, direction = ?3, updated_at = ?5",
+                params![peer_id, status, direction, requested_at, now],
+            )
+            .map_err(|e| format!("Failed to save friend: {e}"))?;
+        Ok(())
+    }
+
+    /// Remove a friend entry entirely.
+    pub fn remove_friend(&self, peer_id: &str) -> Result<(), String> {
+        self.conn
+            .execute("DELETE FROM friends WHERE peer_id = ?1", params![peer_id])
+            .map_err(|e| format!("Failed to remove friend: {e}"))?;
+        Ok(())
+    }
+
+    /// Load all friends, optionally filtered by status.
+    /// Returns Vec<(peer_id, status, direction, requested_at, updated_at)>.
+    pub fn load_friends(
+        &self,
+        status_filter: Option<&str>,
+    ) -> Result<Vec<(String, String, String, i64, i64)>, String> {
+        let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(s) = status_filter {
+            (
+                "SELECT peer_id, status, direction, requested_at, updated_at FROM friends WHERE status = ?1 ORDER BY updated_at DESC".into(),
+                vec![Box::new(s.to_string())],
+            )
+        } else {
+            (
+                "SELECT peer_id, status, direction, requested_at, updated_at FROM friends ORDER BY updated_at DESC".into(),
+                vec![],
+            )
+        };
+
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| format!("Failed to prepare friends query: {e}"))?;
+        let rows = stmt
+            .query_map(params_refs.as_slice(), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })
+            .map_err(|e| format!("Failed to query friends: {e}"))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|e| format!("Failed to read friend row: {e}"))?);
+        }
+        Ok(result)
+    }
+
+    /// Check if a peer is a friend (any status).
+    pub fn get_friend_status(&self, peer_id: &str) -> Result<Option<String>, String> {
+        let result = self.conn.query_row(
+            "SELECT status FROM friends WHERE peer_id = ?1",
+            params![peer_id],
+            |row| row.get(0),
+        );
+        match result {
+            Ok(s) => Ok(Some(s)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(format!("Failed to check friend status: {e}")),
+        }
+    }
+
+    // ── App Settings ──────────────────────────────────────────────
+
     pub fn save_setting(&self, key: &str, value: &str) -> Result<(), String> {
         self.conn
             .execute(

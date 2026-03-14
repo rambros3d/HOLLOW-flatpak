@@ -82,18 +82,25 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
           layout.add(const SeparatorItem());
         }
       }
-      if (mounted) setState(() { _layout = layout; _savedLayout = List.from(layout); _loaded = true; });
+      if (mounted) {
+        // Compute effective layout (includes newly created channels)
+        // and use it as both current and saved baseline.
+        final channels = ref.read(channelListProvider);
+        final effective = _effectiveLayoutFrom(layout, channels);
+        setState(() { _layout = effective; _savedLayout = List.from(effective); _loaded = true; });
+      }
     } catch (_) {
-      // No layout saved yet — build default from channels.
-      if (mounted) setState(() { _layout = []; _savedLayout = []; _loaded = true; });
+      if (mounted) {
+        final channels = ref.read(channelListProvider);
+        final effective = _effectiveLayoutFrom([], channels);
+        setState(() { _layout = effective; _savedLayout = List.from(effective); _loaded = true; });
+      }
     }
   }
 
-  /// Build the effective layout: saved layout + any channels not yet in it.
-  List<LayoutItem> _effectiveLayout(Map<String, ChannelInfo> channels) {
-    final layout = List<LayoutItem>.from(_layout);
-
-    // Find channels not in the layout.
+  /// Like _effectiveLayout but takes an explicit base layout.
+  List<LayoutItem> _effectiveLayoutFrom(List<LayoutItem> base, Map<String, ChannelInfo> channels) {
+    final layout = List<LayoutItem>.from(base);
     final layoutChannelIds = layout
         .whereType<ChannelItem>()
         .map((c) => c.channelId)
@@ -103,17 +110,17 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
         .toList()
       ..sort((a, b) =>
           (channels[a]?.name ?? '').compareTo(channels[b]?.name ?? ''));
-
-    // Append missing channels at the end.
     for (final id in missing) {
       layout.add(ChannelItem(id));
     }
-
-    // Remove channels that no longer exist.
     layout.removeWhere((item) =>
         item is ChannelItem && !channels.containsKey(item.channelId));
-
     return layout;
+  }
+
+  /// Build the effective layout: current layout + any channels not yet in it.
+  List<LayoutItem> _effectiveLayout(Map<String, ChannelInfo> channels) {
+    return _effectiveLayoutFrom(_layout, channels);
   }
 
   void _save() {
@@ -380,10 +387,29 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
 
     final effective = _effectiveLayout(channels);
     // Sync local state if effective differs (new channels added/removed externally).
-    // Don't mark dirty — this is auto-sync, not a user action.
+    // Auto-save so sidebar updates immediately without requiring manual Save.
     if (effective.length != _layout.length) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _layout = effective);
+        if (mounted) {
+          setState(() {
+            _layout = effective;
+            _savedLayout = List.from(effective);
+          });
+          // Auto-save the layout so sidebar reflects the change.
+          final jsonList = effective.map((item) {
+            if (item is CategoryItem) {
+              return {'type': 'category', 'name': item.name};
+            } else if (item is ChannelItem) {
+              return {'type': 'channel', 'channel_id': item.channelId};
+            } else if (item is SeparatorItem) {
+              return {'type': 'separator'};
+            }
+          }).toList();
+          crdt_api.updateChannelLayout(
+            serverId: widget.serverId,
+            layoutJson: jsonEncode(jsonList),
+          );
+        }
       });
     }
 
@@ -541,10 +567,12 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
                 Expanded(
                   child: HavenButton.ghost(
                     onPressed: () {
-                      // Restore to saved state.
+                      // Reload from DB to get current state
+                      // (channels created/deleted are CRDT ops, can't undo).
                       setState(() {
-                        _layout = List.from(_savedLayout);
-                                             });
+                        _loaded = false;
+                      });
+                      _loadLayout();
                     },
                     expand: true,
                     icon: Icon(LucideIcons.x, size: 16),

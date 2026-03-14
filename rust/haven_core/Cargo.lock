@@ -1380,6 +1380,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "shadowsocks-service",
  "tokio",
  "vodozemac",

@@ -142,7 +142,7 @@ class _ConnectionProgressState extends State<ConnectionProgress>
     final Color labelColor;
     switch (widget.stage) {
       case ConnectionStage.connecting:
-        label = 'Connecting...';
+        label = 'Offline';
         labelColor = haven.textSecondary;
       case ConnectionStage.encrypting:
         label = 'Encrypting...';

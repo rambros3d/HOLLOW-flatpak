@@ -93,6 +93,18 @@ fn is_registerable_address(addr: &str) -> bool {
     true
 }
 
+/// Compute a deterministic DM room code for two peers.
+/// Both peers compute the same code so signaling can match them.
+/// Uses SHA-256 truncated to 32 hex chars for collision resistance.
+fn dm_room_code(peer_a: &str, peer_b: &str) -> String {
+    use sha2::{Sha256, Digest};
+    let mut sorted = [peer_a, peer_b];
+    sorted.sort();
+    let combined = format!("dm-{}-{}", sorted[0], sorted[1]);
+    let hash = Sha256::digest(combined.as_bytes());
+    hex::encode(&hash[..16]) // 128-bit / 32 hex chars
+}
+
 /// A discovered peer on the local network.
 pub(crate) struct DiscoveredPeer {
     pub peer_id: String,
@@ -142,6 +154,11 @@ pub(crate) enum NetworkEvent {
     DmReactionAdded { peer_id: String, message_id: String, emoji: String, reactor: String, added_at: i64 },
     ChannelReactionRemoved { server_id: String, channel_id: String, message_id: String, emoji: String, reactor: String, removed_at: i64 },
     DmReactionRemoved { peer_id: String, message_id: String, emoji: String, reactor: String, removed_at: i64 },
+    // -- Friend events (Phase 3.5) --
+    FriendRequestReceived { peer_id: String },
+    FriendRequestAccepted { peer_id: String },
+    FriendRequestRejected { peer_id: String },
+    FriendRemoved { peer_id: String },
     // -- Typing indicator events (Phase 3.5) --
     TypingStarted { peer_id: String, server_id: String, channel_id: String },
     // -- Pinned message events (Phase 3.5) --
@@ -181,6 +198,11 @@ pub(crate) enum NodeCommand {
     AddDmReaction { peer_id: PeerId, message_id: String, emoji: String },
     RemoveChannelReaction { server_id: String, channel_id: String, message_id: String, emoji: String },
     RemoveDmReaction { peer_id: PeerId, message_id: String, emoji: String },
+    // -- Friends (Phase 3.5) --
+    SendFriendRequest { peer_id: PeerId },
+    AcceptFriendRequest { peer_id: PeerId },
+    RejectFriendRequest { peer_id: PeerId },
+    RemoveFriend { peer_id: PeerId },
     // -- Typing indicators (Phase 3.5) --
     SendTypingIndicator { server_id: String, channel_id: String },
     // -- Channel layout (Phase 3.5) --
@@ -332,6 +354,22 @@ enum HavenMessage {
         /// Our latest timestamp for this channel (so the peer can quickly compare).
         our_latest: i64,
     },
+
+    // -- Friends (Phase 3.5) --
+
+    #[serde(rename = "friend_request")]
+    FriendRequest {
+        requested_at: i64,
+    },
+
+    #[serde(rename = "friend_accept")]
+    FriendAccept,
+
+    #[serde(rename = "friend_reject")]
+    FriendReject,
+
+    #[serde(rename = "friend_remove")]
+    FriendRemove,
 
     // -- Typing indicators (Phase 3.5) --
 
@@ -3089,6 +3127,165 @@ async fn run_swarm(
                         }).await;
                     }
 
+                    NodeCommand::SendFriendRequest { peer_id } => {
+                        let peer_id_str = peer_id.to_string();
+                        haven_log!("[HAVEN-FRIENDS] Sending friend request to {peer_id_str}");
+
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64;
+
+                        // Save as pending outgoing.
+                        {
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                let _ = store.save_friend(&peer_id_str, "pending", "outgoing", now);
+                            }
+                        }
+
+                        // Register DM room code immediately so signaling can help
+                        // discover the peer even before they accept.
+                        let local_peer = swarm.local_peer_id().to_string();
+                        let room = dm_room_code(&local_peer, &peer_id_str);
+                        let addrs: Vec<String> = known_addresses.iter()
+                            .filter(|a| is_registerable_address(a))
+                            .cloned()
+                            .collect();
+                        if !addrs.is_empty() {
+                            let _ = sig_cmd_tx.send(SignalingCmd::Register {
+                                room_code: room.clone(),
+                                addresses: addrs,
+                            }).await;
+                        }
+                        let _ = sig_cmd_tx.send(SignalingCmd::SetRoom {
+                            room_code: room.clone(),
+                        }).await;
+                        let _ = sig_cmd_tx.send(SignalingCmd::Bootstrap {
+                            room_code: room,
+                        }).await;
+
+                        // Send to peer if connected.
+                        if connected_peers.contains(&peer_id) {
+                            swarm.behaviour_mut().messaging.send_request(
+                                &peer_id,
+                                HavenMessage::FriendRequest { requested_at: now },
+                            );
+                        }
+
+                        let _ = event_tx.send(NetworkEvent::FriendRequestReceived {
+                            peer_id: peer_id_str,
+                        }).await;
+                    }
+
+                    NodeCommand::AcceptFriendRequest { peer_id } => {
+                        let peer_id_str = peer_id.to_string();
+                        haven_log!("[HAVEN-FRIENDS] Accepting friend request from {peer_id_str}");
+
+                        // Update to accepted.
+                        {
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                let now = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as i64;
+                                let _ = store.save_friend(&peer_id_str, "accepted", "", now);
+                            }
+                        }
+
+                        // Send acceptance to peer.
+                        if connected_peers.contains(&peer_id) {
+                            swarm.behaviour_mut().messaging.send_request(
+                                &peer_id,
+                                HavenMessage::FriendAccept,
+                            );
+                        }
+
+                        // Register DM room code with signaling for internet discovery.
+                        let local_peer = swarm.local_peer_id().to_string();
+                        let room = dm_room_code(&local_peer, &peer_id_str);
+                        let addrs: Vec<String> = known_addresses.iter()
+                            .filter(|a| is_registerable_address(a))
+                            .cloned()
+                            .collect();
+                        if !addrs.is_empty() {
+                            let _ = sig_cmd_tx.send(SignalingCmd::Register {
+                                room_code: room.clone(),
+                                addresses: addrs,
+                            }).await;
+                        }
+                        let _ = sig_cmd_tx.send(SignalingCmd::SetRoom {
+                            room_code: room.clone(),
+                        }).await;
+                        let _ = sig_cmd_tx.send(SignalingCmd::Bootstrap {
+                            room_code: room,
+                        }).await;
+
+                        let _ = event_tx.send(NetworkEvent::FriendRequestAccepted {
+                            peer_id: peer_id_str,
+                        }).await;
+                    }
+
+                    NodeCommand::RejectFriendRequest { peer_id } => {
+                        let peer_id_str = peer_id.to_string();
+                        haven_log!("[HAVEN-FRIENDS] Rejecting friend request from {peer_id_str}");
+
+                        // Remove from friends table.
+                        {
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                let _ = store.remove_friend(&peer_id_str);
+                            }
+                        }
+
+                        if connected_peers.contains(&peer_id) {
+                            swarm.behaviour_mut().messaging.send_request(
+                                &peer_id,
+                                HavenMessage::FriendReject,
+                            );
+                        }
+
+                        let _ = event_tx.send(NetworkEvent::FriendRequestRejected {
+                            peer_id: peer_id_str,
+                        }).await;
+                    }
+
+                    NodeCommand::RemoveFriend { peer_id } => {
+                        let peer_id_str = peer_id.to_string();
+                        haven_log!("[HAVEN-FRIENDS] Removing friend {peer_id_str}");
+
+                        {
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                let _ = store.remove_friend(&peer_id_str);
+                            }
+                        }
+
+                        if connected_peers.contains(&peer_id) {
+                            swarm.behaviour_mut().messaging.send_request(
+                                &peer_id,
+                                HavenMessage::FriendRemove,
+                            );
+                        }
+
+                        let _ = event_tx.send(NetworkEvent::FriendRemoved {
+                            peer_id: peer_id_str,
+                        }).await;
+                    }
+
                     NodeCommand::SendTypingIndicator { server_id, channel_id } => {
                         let msg = HavenMessage::TypingIndicator {
                             server_id: server_id.clone(),
@@ -3348,6 +3545,34 @@ async fn run_swarm(
                                     }).await;
                                 }
 
+                                // Register + bootstrap DM room codes for all accepted friends.
+                                {
+                                    let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                    if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                            if let Ok(friends) = store.load_friends(None) {
+                                                let local_peer = swarm.local_peer_id().to_string();
+                                                haven_log!("[HAVEN-FRIENDS] Registering {} friend DM room codes", friends.len());
+                                                for (friend_pid, _, _, _, _) in &friends {
+                                                    let room = dm_room_code(&local_peer, friend_pid);
+                                                    let _ = sig_cmd_tx.send(SignalingCmd::Register {
+                                                        room_code: room.clone(),
+                                                        addresses: reg_addrs.clone(),
+                                                    }).await;
+                                                    let _ = sig_cmd_tx.send(SignalingCmd::SetRoom {
+                                                        room_code: room.clone(),
+                                                    }).await;
+                                                    let _ = sig_cmd_tx.send(SignalingCmd::Bootstrap {
+                                                        room_code: room,
+                                                    }).await;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 // Publish prekey bundle to DHT now that we're routable.
                                 let peer_id_str = swarm.local_peer_id().to_string();
                                 match publish_prekey_bundle(
@@ -3434,6 +3659,8 @@ async fn run_swarm(
                                             &mut disconnected_peers,
                                             &mut pending_disconnects,
                                             &mut mls_bootstrap_requested,
+                                            &sig_cmd_tx,
+                                            &known_addresses,
                                             peer,
                                             request,
                                             channel,
@@ -4510,6 +4737,8 @@ async fn handle_incoming_request(
     disconnected_peers: &mut HashMap<PeerId, std::time::Instant>,
     pending_disconnects: &mut HashMap<PeerId, std::time::Instant>,
     mls_bootstrap_requested: &mut std::collections::HashSet<String>,
+    sig_cmd_tx: &mpsc::Sender<SignalingCmd>,
+    known_addresses: &[String],
     peer: PeerId,
     request: HavenMessage,
     channel: request_response::ResponseChannel<HavenMessage>,
@@ -6163,6 +6392,133 @@ async fn handle_incoming_request(
         }
 
         // -- Profile sync (Phase 3.5) --
+
+        HavenMessage::FriendRequest { requested_at } => {
+            let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
+            haven_log!("[HAVEN-FRIENDS] Friend request from {peer_str}");
+
+            // Save as pending incoming.
+            {
+                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                        let _ = store.save_friend(&peer_str, "pending", "incoming", requested_at);
+                    }
+                }
+            }
+
+            // Register DM room code so we can rediscover this peer.
+            let local_peer = swarm.local_peer_id().to_string();
+            let room = dm_room_code(&local_peer, &peer_str);
+            let addrs: Vec<String> = known_addresses.iter()
+                .filter(|a| is_registerable_address(a))
+                .cloned()
+                .collect();
+            if !addrs.is_empty() {
+                let _ = sig_cmd_tx.send(SignalingCmd::Register {
+                    room_code: room.clone(),
+                    addresses: addrs,
+                }).await;
+            }
+            let _ = sig_cmd_tx.send(SignalingCmd::SetRoom {
+                room_code: room.clone(),
+            }).await;
+            let _ = sig_cmd_tx.send(SignalingCmd::Bootstrap {
+                room_code: room,
+            }).await;
+
+            let _ = event_tx.send(NetworkEvent::FriendRequestReceived {
+                peer_id: peer_str,
+            }).await;
+        }
+
+        HavenMessage::FriendAccept => {
+            let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
+            haven_log!("[HAVEN-FRIENDS] Friend accepted by {peer_str}");
+
+            // Update our outgoing request to accepted.
+            {
+                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64;
+                        let _ = store.save_friend(&peer_str, "accepted", "", now);
+                    }
+                }
+            }
+
+            // Register DM room code with signaling for internet discovery.
+            let local_peer = swarm.local_peer_id().to_string();
+            let room = dm_room_code(&local_peer, &peer_str);
+            let addrs: Vec<String> = known_addresses.iter()
+                .filter(|a| is_registerable_address(a))
+                .cloned()
+                .collect();
+            if !addrs.is_empty() {
+                let _ = sig_cmd_tx.send(SignalingCmd::Register {
+                    room_code: room.clone(),
+                    addresses: addrs,
+                }).await;
+            }
+            let _ = sig_cmd_tx.send(SignalingCmd::SetRoom {
+                room_code: room.clone(),
+            }).await;
+            let _ = sig_cmd_tx.send(SignalingCmd::Bootstrap {
+                room_code: room,
+            }).await;
+
+            let _ = event_tx.send(NetworkEvent::FriendRequestAccepted {
+                peer_id: peer_str,
+            }).await;
+        }
+
+        HavenMessage::FriendReject => {
+            let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
+            haven_log!("[HAVEN-FRIENDS] Friend rejected by {peer_str}");
+
+            // Remove our outgoing request.
+            {
+                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                        let _ = store.remove_friend(&peer_str);
+                    }
+                }
+            }
+
+            let _ = event_tx.send(NetworkEvent::FriendRequestRejected {
+                peer_id: peer_str,
+            }).await;
+        }
+
+        HavenMessage::FriendRemove => {
+            let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
+            haven_log!("[HAVEN-FRIENDS] Friend removed by {peer_str}");
+
+            {
+                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                        let _ = store.remove_friend(&peer_str);
+                    }
+                }
+            }
+
+            let _ = event_tx.send(NetworkEvent::FriendRemoved {
+                peer_id: peer_str,
+            }).await;
+        }
 
         HavenMessage::TypingIndicator { server_id, channel_id } => {
             let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);

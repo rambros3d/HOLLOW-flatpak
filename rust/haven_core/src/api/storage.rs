@@ -178,6 +178,34 @@ pub fn load_setting(key: String) -> Result<Option<String>, String> {
     ms.load_setting(&key)
 }
 
+/// A friend entry returned to Dart.
+pub struct FriendFfi {
+    pub peer_id: String,
+    pub status: String,
+    pub direction: String,
+    pub requested_at: i64,
+    pub updated_at: i64,
+}
+
+/// Load all friends, optionally filtered by status.
+#[frb]
+pub fn load_friends(status: Option<String>) -> Result<Vec<FriendFfi>, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+    let rows = ms.load_friends(status.as_deref())?;
+    Ok(rows
+        .into_iter()
+        .map(|(peer_id, status, direction, requested_at, updated_at)| FriendFfi {
+            peer_id,
+            status,
+            direction,
+            requested_at,
+            updated_at,
+        })
+        .collect())
+}
+
 /// A single reaction on a message, returned to Dart.
 pub struct StoredReaction {
     pub message_id: String,

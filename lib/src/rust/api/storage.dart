@@ -56,6 +56,10 @@ Future<void> saveSetting({required String key, required String value}) =>
 Future<String?> loadSetting({required String key}) =>
     RustLib.instance.api.crateApiStorageLoadSetting(key: key);
 
+/// Load all friends, optionally filtered by status.
+Future<List<FriendFfi>> loadFriends({String? status}) =>
+    RustLib.instance.api.crateApiStorageLoadFriends(status: status);
+
 /// Load all reactions for a list of message IDs.
 /// Returns reactions grouped by message_id for efficient bulk loading.
 Future<List<StoredReaction>> loadReactions({
@@ -94,6 +98,42 @@ Future<List<StoredChannelMessage>> loadChannelMessages({
   channelId: channelId,
   limit: limit,
 );
+
+/// A friend entry returned to Dart.
+class FriendFfi {
+  final String peerId;
+  final String status;
+  final String direction;
+  final PlatformInt64 requestedAt;
+  final PlatformInt64 updatedAt;
+
+  const FriendFfi({
+    required this.peerId,
+    required this.status,
+    required this.direction,
+    required this.requestedAt,
+    required this.updatedAt,
+  });
+
+  @override
+  int get hashCode =>
+      peerId.hashCode ^
+      status.hashCode ^
+      direction.hashCode ^
+      requestedAt.hashCode ^
+      updatedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is FriendFfi &&
+          runtimeType == other.runtimeType &&
+          peerId == other.peerId &&
+          status == other.status &&
+          direction == other.direction &&
+          requestedAt == other.requestedAt &&
+          updatedAt == other.updatedAt;
+}
 
 /// A channel message returned to Dart from the local database.
 class StoredChannelMessage {

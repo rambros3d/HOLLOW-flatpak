@@ -59,6 +59,11 @@ pub enum NetworkEvent {
     DmReactionAdded { peer_id: String, message_id: String, emoji: String, reactor: String, added_at: i64 },
     ChannelReactionRemoved { server_id: String, channel_id: String, message_id: String, emoji: String, reactor: String, removed_at: i64 },
     DmReactionRemoved { peer_id: String, message_id: String, emoji: String, reactor: String, removed_at: i64 },
+    // -- Friend events (Phase 3.5) --
+    FriendRequestReceived { peer_id: String },
+    FriendRequestAccepted { peer_id: String },
+    FriendRequestRejected { peer_id: String },
+    FriendRemoved { peer_id: String },
     // -- Typing indicator events (Phase 3.5) --
     TypingStarted { peer_id: String, server_id: String, channel_id: String },
     // -- Pinned message events (Phase 3.5) --
@@ -202,6 +207,18 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::DmReactionRemoved { peer_id, message_id, emoji, reactor, .. } => {
             haven_log!("[HAVEN] Reaction {emoji} removed on DM {message_id} by {reactor} for {peer_id}");
         }
+        node::NetworkEvent::FriendRequestReceived { peer_id } => {
+            haven_log!("[HAVEN] Friend request received from {peer_id}");
+        }
+        node::NetworkEvent::FriendRequestAccepted { peer_id } => {
+            haven_log!("[HAVEN] Friend request accepted by {peer_id}");
+        }
+        node::NetworkEvent::FriendRequestRejected { peer_id } => {
+            haven_log!("[HAVEN] Friend request rejected by {peer_id}");
+        }
+        node::NetworkEvent::FriendRemoved { peer_id } => {
+            haven_log!("[HAVEN] Friend removed: {peer_id}");
+        }
         node::NetworkEvent::TypingStarted { peer_id, server_id, .. } => {
             haven_log!("[HAVEN] Typing started: {peer_id} in {server_id}");
         }
@@ -314,6 +331,18 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::DmReactionRemoved { peer_id, message_id, emoji, reactor, removed_at } => {
             NetworkEvent::DmReactionRemoved { peer_id, message_id, emoji, reactor, removed_at }
+        }
+        node::NetworkEvent::FriendRequestReceived { peer_id } => {
+            NetworkEvent::FriendRequestReceived { peer_id }
+        }
+        node::NetworkEvent::FriendRequestAccepted { peer_id } => {
+            NetworkEvent::FriendRequestAccepted { peer_id }
+        }
+        node::NetworkEvent::FriendRequestRejected { peer_id } => {
+            NetworkEvent::FriendRequestRejected { peer_id }
+        }
+        node::NetworkEvent::FriendRemoved { peer_id } => {
+            NetworkEvent::FriendRemoved { peer_id }
         }
         node::NetworkEvent::TypingStarted { peer_id, server_id, channel_id } => {
             NetworkEvent::TypingStarted { peer_id, server_id, channel_id }
@@ -742,6 +771,74 @@ pub fn remove_dm_reaction(
     )
     .map_err(|e| format!("Failed to send command: {e}"))?;
 
+    Ok(())
+}
+
+/// Send a friend request to a peer.
+#[frb]
+pub fn send_friend_request(peer_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let peer: PeerId = peer_id
+        .parse()
+        .map_err(|e| format!("Invalid peer ID: {e}"))?;
+
+    let rt = get_runtime();
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::SendFriendRequest { peer_id: peer }))
+        .map_err(|e| format!("Failed to send command: {e}"))?;
+    Ok(())
+}
+
+/// Accept a friend request from a peer.
+#[frb]
+pub fn accept_friend_request(peer_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let peer: PeerId = peer_id
+        .parse()
+        .map_err(|e| format!("Invalid peer ID: {e}"))?;
+
+    let rt = get_runtime();
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::AcceptFriendRequest { peer_id: peer }))
+        .map_err(|e| format!("Failed to send command: {e}"))?;
+    Ok(())
+}
+
+/// Reject a friend request from a peer.
+#[frb]
+pub fn reject_friend_request(peer_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let peer: PeerId = peer_id
+        .parse()
+        .map_err(|e| format!("Invalid peer ID: {e}"))?;
+
+    let rt = get_runtime();
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::RejectFriendRequest { peer_id: peer }))
+        .map_err(|e| format!("Failed to send command: {e}"))?;
+    Ok(())
+}
+
+/// Remove a friend.
+#[frb]
+pub fn remove_friend(peer_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let peer: PeerId = peer_id
+        .parse()
+        .map_err(|e| format!("Invalid peer ID: {e}"))?;
+
+    let rt = get_runtime();
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::RemoveFriend { peer_id: peer }))
+        .map_err(|e| format!("Failed to send command: {e}"))?;
     Ok(())
 }
 
