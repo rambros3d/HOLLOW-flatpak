@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:haven/src/ui/chat/chat_input_shortcuts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/providers/chat_provider.dart';
 import 'package:haven/src/core/providers/identity_provider.dart';
+import 'package:haven/src/core/models/file_attachment.dart';
 import 'package:haven/src/core/providers/file_transfer_provider.dart';
 import 'package:haven/src/core/providers/notification_provider.dart';
 import 'package:haven/src/core/providers/peers_provider.dart';
@@ -63,6 +66,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
   final _scrollController = ScrollController();
   final _focusNode = FocusNode();
   bool _historyLoaded = false;
+  bool _isPicking = false;
   int _previousMessageCount = 0;
   String? _editingMessageId;
   String? _replyToMessageId;
@@ -115,7 +119,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
       if (!mounted || !_scrollController.hasClients) return;
       final extent = _scrollController.position.maxScrollExtent;
       _scrollController.jumpTo(extent);
-      if (_jumpRetries < 3) {
+      if (_jumpRetries < 5) {
         _jumpRetries++;
         _doJump();
       }
@@ -170,18 +174,92 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
   }
 
   Future<void> _pickAndSendFile(WidgetRef ref) async {
+    if (_isPicking) return;
+    _isPicking = true;
+    try {
     final result = await FilePicker.platform.pickFiles();
-    if (result == null || result.files.isEmpty) return;
+    if (result == null || result.files.isEmpty) { _isPicking = false; return; }
     final file = result.files.first;
-    if (file.path == null) return;
+    if (file.path == null) { _isPicking = false; return; }
 
     final messageId = generateMessageId();
+    final fileName = file.name;
+    final ext = fileName.contains('.')
+        ? fileName.split('.').last.toLowerCase()
+        : '';
+    final isImage = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'].contains(ext);
+
+    // Add optimistic message with file attachment placeholder.
+    ref.read(chatProvider.notifier).addFileMessage(
+          widget.peerId,
+          messageId,
+          fileName,
+          file.size,
+          ext,
+          isImage,
+          file.path!,
+        );
+    _jumpToBottom();
+
     await ref.read(fileTransferProvider.notifier).sendFile(
           peerId: widget.peerId,
           filePath: file.path!,
           messageId: messageId,
           messageText: '',
         );
+    } finally { _isPicking = false; }
+  }
+
+  Future<void> _saveFile(FileAttachment attachment) async {
+    if (_isPicking) return;
+    _isPicking = true;
+    try {
+      // Determine allowed extensions for save dialog.
+      final isImage = attachment.isImage;
+      final allowedExtensions = isImage
+          ? ['png', 'jpg', 'jpeg', 'webp']
+          : [attachment.fileExt];
+
+      // Strip extension from filename for the dialog.
+      final baseName = attachment.fileName.contains('.')
+          ? attachment.fileName.substring(0, attachment.fileName.lastIndexOf('.'))
+          : attachment.fileName;
+
+      final savePath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save file',
+        fileName: isImage ? '$baseName.png' : attachment.fileName,
+        type: FileType.custom,
+        allowedExtensions: allowedExtensions,
+      );
+      if (savePath == null || attachment.diskPath == null) return;
+
+      // Determine target format from chosen extension.
+      final targetExt = savePath.contains('.')
+          ? savePath.split('.').last.toLowerCase()
+          : attachment.fileExt;
+
+      if (isImage && targetExt != 'webp' && attachment.fileExt == 'webp') {
+        // Convert WebP to target format via Rust.
+        final converted = await network_api.convertImageFormat(
+          sourcePath: attachment.diskPath!,
+          targetFormat: targetExt,
+        );
+        await File(savePath).writeAsBytes(converted);
+      } else {
+        // Direct copy.
+        await File(attachment.diskPath!).copy(savePath);
+      }
+
+      if (mounted) {
+        HavenToast.show(context, 'File saved', type: HavenToastType.success);
+      }
+    } catch (e) {
+      if (mounted) {
+        HavenToast.show(context, 'Save failed: $e', type: HavenToastType.error);
+      }
+    } finally {
+      _isPicking = false;
+    }
   }
 
   @override
@@ -374,7 +452,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                         currentText: msg.text,
                         isEditing: _editingMessageId != null &&
                             _editingMessageId == msg.messageId,
-                        onEditStart: msg.messageId != null && msg.isMe
+                        onEditStart: msg.messageId != null && msg.isMe && msg.fileAttachment == null
                             ? () => setState(() =>
                                 _editingMessageId = msg.messageId)
                             : null,
@@ -399,7 +477,9 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                                     msg.isMe ? localPeerId : widget.peerId;
                                 setState(() {
                                   _replyToMessageId = msg.messageId;
-                                  _replyToText = msg.text;
+                                  _replyToText = msg.fileAttachment != null
+                                      ? (msg.fileAttachment!.isImage ? '📷 Image' : '📎 ${msg.fileAttachment!.fileName}')
+                                      : msg.text;
                                   _replyToSenderName =
                                       displayNameFor(profiles, senderId);
                                 });
@@ -420,6 +500,9 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                                 }
                               }
                             : null,
+                        onDownload: msg.fileAttachment != null && msg.fileAttachment!.diskPath != null
+                            ? () => _saveFile(msg.fileAttachment!)
+                            : null,
                         child: Builder(builder: (_) {
                           String? replySender;
                           String? replyText;
@@ -428,7 +511,9 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                                 (m) => m.messageId == msg.replyToMid);
                             if (idx != -1) {
                               final original = messages[idx];
-                              replyText = original.text;
+                              replyText = original.fileAttachment != null
+                                  ? (original.fileAttachment!.isImage ? '📷 Image' : '📎 ${original.fileAttachment!.fileName}')
+                                  : original.text;
                               final origSenderId = original.isMe
                                   ? localPeerId
                                   : widget.peerId;

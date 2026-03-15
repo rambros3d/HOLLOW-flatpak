@@ -361,6 +361,41 @@ class ChannelChatNotifier
     state = updated;
   }
 
+  /// Add a file message optimistically (sender side).
+  void addFileMessage(
+    String serverId,
+    String channelId,
+    String messageId,
+    String fileName,
+    int sizeBytes,
+    String ext,
+    bool isImage,
+    String localPath,
+  ) {
+    final localPeerId = ref.read(identityProvider).peerId ?? '';
+    _addMessage(
+      serverId,
+      channelId,
+      ChannelChatMessage(
+        senderId: localPeerId,
+        text: '',
+        isMe: true,
+        messageId: messageId,
+        fileAttachment: FileAttachment(
+          fileId: messageId,
+          fileName: fileName,
+          fileExt: ext,
+          mimeType: 'application/octet-stream',
+          sizeBytes: sizeBytes,
+          isImage: isImage,
+          totalChunks: 0,
+          isComplete: true,
+          diskPath: localPath,
+        ),
+      ),
+    );
+  }
+
   void _addMessage(
       String serverId, String channelId, ChannelChatMessage message) {
     final key = _key(serverId, channelId);

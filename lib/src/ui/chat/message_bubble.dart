@@ -103,21 +103,26 @@ class MessageBubble extends ConsumerWidget {
           )
         : null;
 
-    final messageTextWidget = buildMessageText(
-      message.text,
-      context,
-      suffixSpans: isEdited
-          ? [
-              TextSpan(
-                text: ' (edited)',
-                style: HavenTypography.caption.copyWith(
-                  color: haven.textSecondary.withValues(alpha: 0.5),
-                  fontSize: 10,
-                ),
-              ),
-            ]
-          : null,
-    );
+    // Hide text when it's a file placeholder or empty with file attachment.
+    final isFileOnly = message.fileAttachment != null &&
+        (message.text.isEmpty || message.text.startsWith('[file:'));
+    final messageTextWidget = isFileOnly
+        ? null
+        : buildMessageText(
+            message.text,
+            context,
+            suffixSpans: isEdited
+                ? [
+                    TextSpan(
+                      text: ' (edited)',
+                      style: HavenTypography.caption.copyWith(
+                        color: haven.textSecondary.withValues(alpha: 0.5),
+                        fontSize: 10,
+                      ),
+                    ),
+                  ]
+                : null,
+          );
 
     final fileWidget = message.fileAttachment != null
         ? Padding(
@@ -188,7 +193,7 @@ class MessageBubble extends ConsumerWidget {
                     ),
                     const SizedBox(height: 3),
                     ?replyWidget,
-                    messageTextWidget,
+                    ?messageTextWidget,
                     ?fileWidget,
                     ?reactionBarWidget,
                   ],
@@ -214,7 +219,7 @@ class MessageBubble extends ConsumerWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           ?replyWidget,
-          messageTextWidget,
+          ?messageTextWidget,
           ?fileWidget,
           ?reactionBarWidget,
         ],

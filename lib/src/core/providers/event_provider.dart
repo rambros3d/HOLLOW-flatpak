@@ -22,6 +22,7 @@ import 'package:haven/src/core/providers/notification_provider.dart';
 import 'package:haven/src/core/providers/system_notification_provider.dart';
 import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
 import 'package:haven/src/rust/api/network.dart';
+import 'package:haven/src/rust/api/storage.dart' as storage_api;
 
 /// Listens to the Rust event stream and dispatches events
 /// to the appropriate providers.
@@ -415,11 +416,35 @@ class EventStreamNotifier extends Notifier<bool> {
         debugPrint('[HAVEN] File completed: $fileId at $diskPath');
         ref.read(fileTransferProvider.notifier).onFileCompleted(
               fileId, diskPath);
+        // Reload the chat that contains this file to show the image.
+        _reloadChatForFile(fileId);
 
       case NetworkEvent_FileFailed(:final fileId, :final error):
         debugPrint('[HAVEN] File failed: $fileId — $error');
         ref.read(fileTransferProvider.notifier).onFileFailed(
               fileId, error);
+    }
+  }
+
+  /// When a file transfer completes, reload the chat that contains
+  /// the file message so the image preview renders.
+  Future<void> _reloadChatForFile(String fileId) async {
+    try {
+      final fileInfo = await storage_api.getFileMetadata(fileId: fileId);
+      if (fileInfo == null) return;
+      if (fileInfo.contextType == 'dm') {
+        // Reload the DM chat.
+        await ref.read(chatProvider.notifier).loadHistory(fileInfo.contextId);
+      } else if (fileInfo.contextType == 'channel') {
+        // contextId is "serverId:channelId"
+        final parts = fileInfo.contextId.split(':');
+        if (parts.length == 2) {
+          await ref.read(channelChatProvider.notifier)
+              .loadHistory(parts[0], parts[1]);
+        }
+      }
+    } catch (e) {
+      debugPrint('[HAVEN] Failed to reload chat for file $fileId: $e');
     }
   }
 

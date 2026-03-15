@@ -77,6 +77,7 @@ class MessageHoverWrapper extends StatefulWidget {
   final VoidCallback? onReply;
   final void Function(String emoji)? onReaction;
   final VoidCallback? onPin;
+  final VoidCallback? onDownload;
 
   const MessageHoverWrapper({
     super.key,
@@ -92,6 +93,7 @@ class MessageHoverWrapper extends StatefulWidget {
     this.onReply,
     this.onReaction,
     this.onPin,
+    this.onDownload,
   });
 
   @override
@@ -208,9 +210,11 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
     // --- Action bar overlay (top-right of message) ---
     final hasAnyAction = (widget.isMe && widget.messageId != null) ||
         widget.onReply != null ||
-        widget.onReaction != null;
+        widget.onReaction != null ||
+        widget.onDownload != null;
     if (hasAnyAction) {
-      final double barTop = offset.dy - 14;
+      // Vertically center the action bar on the right side of the message.
+      final double barTop = offset.dy + (size.height / 2) - 14;
       final double barRight =
           screenWidth - (offset.dx + size.width) + HavenSpacing.md;
 
@@ -255,6 +259,12 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
                   ? () {
                       _dismissNow();
                       widget.onPin?.call();
+                    }
+                  : null,
+              onDownload: widget.onDownload != null
+                  ? () {
+                      _dismissNow();
+                      widget.onDownload?.call();
                     }
                   : null,
             ),
@@ -405,6 +415,7 @@ class _ActionBarContent extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final VoidCallback? onPin;
+  final VoidCallback? onDownload;
 
   const _ActionBarContent({
     required this.haven,
@@ -413,6 +424,7 @@ class _ActionBarContent extends StatelessWidget {
     this.onEdit,
     this.onDelete,
     this.onPin,
+    this.onDownload,
   });
 
   @override
@@ -433,6 +445,17 @@ class _ActionBarContent extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (onDownload != null)
+            HavenPressable(
+              onTap: onDownload,
+              borderRadius: BorderRadius.circular(haven.radiusSm),
+              padding: const EdgeInsets.all(6),
+              child: Icon(
+                LucideIcons.download,
+                size: 14,
+                color: haven.accent,
+              ),
+            ),
           if (onReaction != null)
             _EmojiButton(haven: haven, onReaction: onReaction!),
           if (onReply != null)

@@ -294,6 +294,52 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
     }
   }
 
+  /// Add a file message optimistically (sender side).
+  void addFileMessage(
+    String peerId,
+    String messageId,
+    String fileName,
+    int sizeBytes,
+    String ext,
+    bool isImage,
+    String localPath,
+  ) {
+    _addMessage(
+      peerId,
+      ChatMessage(
+        text: '',
+        isMe: true,
+        messageId: messageId,
+        fileAttachment: FileAttachment(
+          fileId: messageId,
+          fileName: fileName,
+          fileExt: ext,
+          mimeType: 'application/octet-stream',
+          sizeBytes: sizeBytes,
+          isImage: isImage,
+          totalChunks: 0,
+          isComplete: true,
+          diskPath: localPath,
+        ),
+      ),
+    );
+  }
+
+  /// Update a message's file attachment (e.g., when file transfer completes).
+  void updateFileAttachment(String peerId, String fileId, FileAttachment attachment) {
+    final messages = state[peerId];
+    if (messages == null) return;
+    final updated = messages.map((m) {
+      if (m.fileAttachment?.fileId == fileId) {
+        return m.copyWith(fileAttachment: attachment);
+      }
+      return m;
+    }).toList();
+    final map = Map.of(state);
+    map[peerId] = updated;
+    state = map;
+  }
+
   /// Clear cached messages for a peer (forces reload from DB on next view).
   void clearPeerCache(String peerId) {
     final updated = Map.of(state);

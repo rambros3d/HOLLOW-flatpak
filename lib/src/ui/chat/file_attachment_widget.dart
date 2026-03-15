@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/models/file_attachment.dart';
 import 'package:haven/src/core/providers/file_transfer_provider.dart';
+import 'package:haven/src/ui/components/haven_dialog.dart';
+import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
@@ -30,18 +32,22 @@ class FileAttachmentWidget extends ConsumerWidget {
       fileTransferProvider.select((s) => s[attachment.fileId]),
     );
 
-    final isComplete = transfer?.isComplete ?? attachment.isComplete;
-    final diskPath = transfer?.diskPath ?? attachment.diskPath;
-    final progress = transfer?.progress ?? attachment.progress;
+    // Use attachment's own state if it's already complete (e.g., sender's optimistic message).
+    // Only override from transfer provider if it provides better info.
+    final isComplete = attachment.isComplete || (transfer?.isComplete ?? false);
+    final diskPath = attachment.diskPath ?? transfer?.diskPath;
+    final progress = (transfer != null && transfer.progress > 0)
+        ? transfer.progress
+        : attachment.progress;
 
     if (attachment.isImage) {
-      return _buildImagePreview(haven, isComplete, diskPath, progress);
+      return _buildImagePreview(context, haven, isComplete, diskPath, progress);
     }
     return _buildFileCard(haven, isComplete, progress);
   }
 
   Widget _buildImagePreview(
-      HavenTheme haven, bool isComplete, String? diskPath, double progress) {
+      BuildContext context, HavenTheme haven, bool isComplete, String? diskPath, double progress) {
     // Calculate display size maintaining aspect ratio.
     const maxWidth = 300.0;
     const maxHeight = 250.0;
@@ -60,16 +66,26 @@ class FileAttachmentWidget extends ConsumerWidget {
     }
 
     if (isComplete && diskPath != null && File(diskPath).existsSync()) {
-      // Show the actual image.
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(haven.radiusSm),
-        child: Image.file(
-          File(diskPath),
-          width: displayWidth,
-          height: displayHeight,
-          fit: BoxFit.cover,
-          errorBuilder: (_, e, st) => _buildPlaceholder(
-              haven, displayWidth, displayHeight, 1.0),
+      // Show the actual image — tap to open fullscreen.
+      return GestureDetector(
+        onTap: () => _showFullscreen(context, diskPath),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxWidth: maxWidth,
+              maxHeight: maxHeight,
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(haven.radiusSm),
+              child: Image.file(
+                File(diskPath),
+                fit: BoxFit.contain,
+                errorBuilder: (_, e, st) => _buildPlaceholder(
+                    haven, displayWidth, displayHeight, 1.0),
+              ),
+            ),
+          ),
         ),
       );
     }
@@ -193,5 +209,63 @@ class FileAttachmentWidget extends ConsumerWidget {
       'txt' || 'md' || 'log' => LucideIcons.fileText,
       _ => LucideIcons.file,
     };
+  }
+
+  /// Open image in fullscreen overlay with blur backdrop.
+  static void _showFullscreen(BuildContext context, String diskPath) {
+    showHavenDialog(
+      context: context,
+      builder: (ctx) => _FullscreenImageView(diskPath: diskPath),
+    );
+  }
+}
+
+/// Fullscreen image view with blur backdrop and close button.
+class _FullscreenImageView extends StatelessWidget {
+  final String diskPath;
+
+  const _FullscreenImageView({required this.diskPath});
+
+  @override
+  Widget build(BuildContext context) {
+    final haven = HavenTheme.of(context);
+
+    return GestureDetector(
+      onTap: () => Navigator.of(context).pop(),
+      child: Center(
+        child: Stack(
+          children: [
+            // Image
+            Padding(
+              padding: const EdgeInsets.all(HavenSpacing.xxl),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(haven.radiusMd),
+                child: Image.file(
+                  File(diskPath),
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+
+            // Close button (top-right)
+            Positioned(
+              top: HavenSpacing.lg,
+              right: HavenSpacing.lg,
+              child: HavenPressable(
+                onTap: () => Navigator.of(context).pop(),
+                borderRadius: BorderRadius.circular(haven.radiusMd),
+                backgroundColor: haven.elevated.withValues(alpha: 0.8),
+                padding: const EdgeInsets.all(HavenSpacing.sm),
+                child: Icon(
+                  LucideIcons.x,
+                  color: haven.textPrimary,
+                  size: 20,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

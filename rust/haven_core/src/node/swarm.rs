@@ -3846,32 +3846,10 @@ async fn run_swarm(
                                 }
                             }
 
-                            // Broadcast via MLS to all server members.
-                            if let Some(ref mut mls_mgr) = mls {
-                                if let Ok(ct) = mls_mgr.encrypt(&sid, envelope_json.as_bytes()) {
-                                    let mls_msg = HavenMessage::MlsChannelMessage {
-                                        server_id: sid.clone(),
-                                        body: base64::engine::general_purpose::STANDARD.encode(&ct),
-                                    };
-                                    if let Some(state) = server_states.get(&sid) {
-                                        for member_peer_str in state.members.keys() {
-                                            if member_peer_str == &local_peer { continue; }
-                                            if let Ok(pid) = member_peer_str.parse::<PeerId>() {
-                                                if connected_peers.contains(&pid) {
-                                                    swarm.behaviour_mut().messaging.send_request(
-                                                        &pid, mls_msg.clone(),
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Collect all envelopes to send via MLS: header + chunks.
-                            let mut file_envelopes: Vec<String> = Vec::new();
-
-                            // FileHeader.
+                            // Send text message + FileHeader + chunks via Olm to each member.
+                            // MLS is not used for file messages to avoid SecretReuseError
+                            // from rapid sequential encryptions.
+                            // Olm is peer-to-peer and handles rapid sequential messages fine.
                             let header = MessageEnvelope::FileHeader {
                                 fid: file_id.clone(),
                                 name: original_name.clone(),
@@ -3889,42 +3867,41 @@ async fn run_swarm(
                                 sig: None,
                                 pk: None,
                             };
-                            if let Ok(json) = serde_json::to_string(&header) {
-                                file_envelopes.push(json);
-                            }
+                            let header_json = serde_json::to_string(&header).unwrap_or_default();
 
-                            // File chunks.
-                            for (idx, chunk_data) in chunks.iter().enumerate() {
-                                let chunk_b64 = base64::engine::general_purpose::STANDARD.encode(chunk_data);
-                                let chunk_envelope = MessageEnvelope::FileChunk {
-                                    fid: file_id.clone(),
-                                    idx: idx as u32,
-                                    data: chunk_b64,
-                                };
-                                if let Ok(json) = serde_json::to_string(&chunk_envelope) {
-                                    file_envelopes.push(json);
-                                }
-                            }
+                            if let Some(state) = server_states.get(&sid) {
+                                for member_peer_str in state.members.keys() {
+                                    if member_peer_str == &local_peer { continue; }
+                                    if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                        if connected_peers.contains(&pid) && olm.has_session(member_peer_str) {
+                                            // Send text message (with file_id) via Olm.
+                                            send_encrypted_message(
+                                                &mut swarm, &mut olm, &crypto_store,
+                                                &mut pending_requests, &mut outbound_message_text,
+                                                &pid, member_peer_str, &envelope_json, &event_tx,
+                                            ).await;
 
-                            // Broadcast all via MLS.
-                            if let Some(ref mut mls_mgr) = mls {
-                                for envelope_json in &file_envelopes {
-                                    if let Ok(ct) = mls_mgr.encrypt(&sid, envelope_json.as_bytes()) {
-                                        let body_b64 = base64::engine::general_purpose::STANDARD.encode(&ct);
-                                        let mls_msg = HavenMessage::MlsChannelMessage {
-                                            server_id: sid.clone(),
-                                            body: body_b64,
-                                        };
-                                        if let Some(state) = server_states.get(&sid) {
-                                            for member_peer_str in state.members.keys() {
-                                                if member_peer_str == &local_peer { continue; }
-                                                if let Ok(pid) = member_peer_str.parse::<PeerId>() {
-                                                    if connected_peers.contains(&pid) {
-                                                        swarm.behaviour_mut().messaging.send_request(
-                                                            &pid, mls_msg.clone(),
-                                                        );
-                                                    }
-                                                }
+                                            // Send FileHeader via Olm.
+                                            send_encrypted_message(
+                                                &mut swarm, &mut olm, &crypto_store,
+                                                &mut pending_requests, &mut outbound_message_text,
+                                                &pid, member_peer_str, &header_json, &event_tx,
+                                            ).await;
+
+                                            // Send chunks via Olm.
+                                            for (idx, chunk_data) in chunks.iter().enumerate() {
+                                                let chunk_b64 = base64::engine::general_purpose::STANDARD.encode(chunk_data);
+                                                let chunk_envelope = MessageEnvelope::FileChunk {
+                                                    fid: file_id.clone(),
+                                                    idx: idx as u32,
+                                                    data: chunk_b64,
+                                                };
+                                                let chunk_json = serde_json::to_string(&chunk_envelope).unwrap_or_default();
+                                                send_encrypted_message(
+                                                    &mut swarm, &mut olm, &crypto_store,
+                                                    &mut pending_requests, &mut outbound_message_text,
+                                                    &pid, member_peer_str, &chunk_json, &event_tx,
+                                                ).await;
                                             }
                                         }
                                     }
@@ -5453,7 +5430,7 @@ async fn handle_incoming_request(
             // Detect message envelope and route accordingly.
             let text = String::from_utf8_lossy(&plaintext).to_string();
             match serde_json::from_str::<MessageEnvelope>(&text) {
-                Ok(MessageEnvelope::ChannelMessage { sid, cid, text: msg_text, ts, sig, pk, mid, reply_to, .. }) => {
+                Ok(MessageEnvelope::ChannelMessage { sid, cid, text: msg_text, ts, sig, pk, mid, reply_to, file_id }) => {
                     // Verify Ed25519 signature if present.
                     if sig.is_some() {
                         let payload = message_signing_payload(
@@ -5475,7 +5452,7 @@ async fn handle_incoming_request(
                             match store.insert_channel_message(
                                 &sid, &cid, &peer_str, &msg_text, false, ts,
                                 sig.as_deref(), pk.as_deref(), mid.as_deref(),
-                                reply_to.as_deref(), None,
+                                reply_to.as_deref(), file_id.as_deref(),
                             ) {
                                 Ok(0) => { is_new = false; } // INSERT OR IGNORE skipped — duplicate
                                 Ok(_) => {}
@@ -5584,7 +5561,7 @@ async fn handle_incoming_request(
                         }).await;
                     }
                 }
-                Ok(MessageEnvelope::DirectMessage { text: msg_text, ts, sig, pk, mid, reply_to, .. }) => {
+                Ok(MessageEnvelope::DirectMessage { text: msg_text, ts, sig, pk, mid, reply_to, file_id }) => {
                     // Verify DM signature if present.
                     if sig.is_some() {
                         let local_peer = swarm.local_peer_id().to_string();
@@ -5608,7 +5585,7 @@ async fn handle_incoming_request(
                                 match store.insert(
                                     &peer_str, &msg_text, false, ts,
                                     sig.as_deref(), pk.as_deref(), mid.as_deref(),
-                                    reply_to.as_deref(), None,
+                                    reply_to.as_deref(), file_id.as_deref(),
                                 ) {
                                     Ok(0) => { is_new = false; } // Duplicate
                                     Ok(_) => {}
@@ -6709,7 +6686,7 @@ async fn handle_incoming_request(
                         // Parse the plaintext as a MessageEnvelope.
                         let envelope_str = String::from_utf8_lossy(&plaintext);
                         if let Ok(envelope) = serde_json::from_str::<MessageEnvelope>(&envelope_str) {
-                            if let MessageEnvelope::ChannelMessage { sid, cid, text, ts, sig, pk, mid, reply_to, .. } = envelope {
+                            if let MessageEnvelope::ChannelMessage { sid, cid, text, ts, sig, pk, mid, reply_to, file_id } = envelope {
                                 // Verify Ed25519 signature.
                                 let signing_payload = message_signing_payload(
                                     "ch", &format!("{}:{}", sid, cid),
@@ -6734,7 +6711,7 @@ async fn handle_incoming_request(
                                     let rows = store.insert_channel_message(
                                         &sid, &cid, &sender_peer_id, &text, is_mine, ts,
                                         sig.as_deref(), pk.as_deref(), mid.as_deref(),
-                                        reply_to.as_deref(), None,
+                                        reply_to.as_deref(), file_id.as_deref(),
                                     );
                                     let is_new = rows.as_ref().map(|&r| r > 0).unwrap_or(false);
                                     if is_new {
@@ -6843,6 +6820,97 @@ async fn handle_incoming_request(
                                         reactor: peer_str,
                                         removed_at: ts,
                                     }).await;
+                                }
+                            } else if let MessageEnvelope::FileHeader { fid, name, ext, mime, size, chunks, img, w, h, mid, sid, cid, ts, .. } = envelope {
+                                // Handle FileHeader received via MLS.
+                                use crate::node::file_transfer;
+                                haven_log!("[HAVEN-FILE] MLS FileHeader: {fid} ({name}, {size} bytes, {chunks} chunks)");
+
+                                let ctx_type = "channel";
+                                let ctx_id = match (&sid, &cid) {
+                                    (Some(s), Some(c)) => format!("{s}:{c}"),
+                                    _ => server_id.clone(),
+                                };
+
+                                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                    let _ = store.insert_file_metadata(
+                                        &fid, &name, &ext, &mime,
+                                        size, chunks, img,
+                                        w, h,
+                                        mid.as_deref(), ctx_type, &ctx_id,
+                                        &sender_peer_id, false, ts,
+                                    );
+                                }
+
+                                let _ = event_tx.send(NetworkEvent::FileHeaderReceived {
+                                    file_id: fid,
+                                    file_name: name,
+                                    size_bytes: size,
+                                    is_image: img,
+                                    width: w,
+                                    height: h,
+                                    message_id: mid.unwrap_or_default(),
+                                    sender_id: sender_peer_id.clone(),
+                                    server_id: sid.unwrap_or(server_id.clone()),
+                                    channel_id: cid.unwrap_or_default(),
+                                }).await;
+
+                            } else if let MessageEnvelope::FileChunk { fid, idx, data } = envelope {
+                                // Handle FileChunk received via MLS.
+                                use crate::node::file_transfer;
+
+                                let chunk_bytes = match base64::engine::general_purpose::STANDARD.decode(&data) {
+                                    Ok(b) => b,
+                                    Err(e) => {
+                                        haven_log!("[HAVEN-FILE] MLS chunk decode failed: {e}");
+                                        return;
+                                    }
+                                };
+
+                                if let Err(e) = file_transfer::write_chunk(&fid, idx, &chunk_bytes) {
+                                    haven_log!("[HAVEN-FILE] {e}");
+                                } else {
+                                    let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                        if let Ok(received) = store.mark_chunk_received(&fid, idx) {
+                                            if let Ok(Some(file_meta)) = store.get_file_metadata(&fid) {
+                                                let _ = event_tx.send(NetworkEvent::FileProgress {
+                                                    file_id: fid.clone(),
+                                                    chunks_received: received,
+                                                    total_chunks: file_meta.chunk_count,
+                                                }).await;
+
+                                                if received >= file_meta.chunk_count {
+                                                    let final_path = file_transfer::final_file_path(&fid, &file_meta.file_ext);
+                                                    match file_transfer::assemble_file(&fid, file_meta.chunk_count, &final_path) {
+                                                        Ok(()) => {
+                                                            let disk_path = final_path.to_string_lossy().to_string();
+                                                            let _ = store.mark_file_complete(&fid, &disk_path);
+                                                            haven_log!("[HAVEN-FILE] MLS file {fid} complete: {disk_path}");
+                                                            let _ = event_tx.send(NetworkEvent::FileCompleted {
+                                                                file_id: fid,
+                                                                disk_path,
+                                                            }).await;
+                                                        }
+                                                        Err(e) => {
+                                                            haven_log!("[HAVEN-FILE] MLS assembly failed: {e}");
+                                                            let _ = event_tx.send(NetworkEvent::FileFailed {
+                                                                file_id: fid,
+                                                                error: e,
+                                                            }).await;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         } else {
