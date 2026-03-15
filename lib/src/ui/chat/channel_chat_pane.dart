@@ -101,11 +101,22 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     return pos.maxScrollExtent - pos.pixels < 150;
   }
 
-  /// Instant jump — no animation.
+  /// Instant jump — retries until maxScrollExtent stabilizes.
+  int _jumpRetries = 0;
   void _jumpToBottom() {
+    _jumpRetries = 0;
+    _doJump();
+  }
+
+  void _doJump() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      if (!mounted || !_scrollController.hasClients) return;
+      final extent = _scrollController.position.maxScrollExtent;
+      _scrollController.jumpTo(extent);
+      // Retry a few times — extent may change as items render.
+      if (_jumpRetries < 3) {
+        _jumpRetries++;
+        _doJump();
       }
     });
   }
@@ -113,13 +124,12 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   /// Smooth scroll for new incoming messages.
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
-      }
+      if (!mounted || !_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
     });
   }
 
@@ -310,7 +320,10 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     final messages = chatState[_stateKey] ?? [];
 
     // Auto-scroll when new messages arrive and user is near the bottom.
-    if (messages.length > _previousMessageCount && _isNearBottom) {
+    // Skip on initial load (handled by _jumpToBottom in _loadHistory).
+    if (_previousMessageCount > 0 &&
+        messages.length > _previousMessageCount &&
+        _isNearBottom) {
       _scrollToBottom();
     }
     _previousMessageCount = messages.length;

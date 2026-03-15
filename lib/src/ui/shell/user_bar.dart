@@ -128,15 +128,16 @@ class UserBar extends ConsumerWidget {
                   if (localPeerId != null) {
                     final box = context.findRenderObject() as RenderBox?;
                     final pos = box?.localToGlobal(Offset.zero) ?? Offset.zero;
-                    // Show card above the user bar, left-aligned with the bar
+                    // Show card with bottom edge just above the user bar
                     showProfileCardPopup(
                       context: context,
                       ref: ref,
                       peerId: localPeerId,
                       anchor: Offset(
                         pos.dx,
-                        pos.dy - 310, // well above the bar
+                        pos.dy - 8,
                       ),
+                      anchorBottom: true,
                     );
                   }
                 },

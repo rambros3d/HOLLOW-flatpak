@@ -15,6 +15,7 @@ import 'package:haven/src/core/providers/sync_progress_provider.dart';
 import 'package:haven/src/core/providers/typing_provider.dart';
 import 'package:haven/src/core/providers/pinned_provider.dart';
 import 'package:haven/src/core/providers/friends_provider.dart';
+import 'package:haven/src/core/providers/member_panel_provider.dart';
 import 'package:haven/src/core/providers/unread_provider.dart';
 import 'package:haven/src/core/providers/notification_provider.dart';
 import 'package:haven/src/core/providers/system_notification_provider.dart';
@@ -80,7 +81,10 @@ class EventStreamNotifier extends Notifier<bool> {
         ref.read(chatProvider.notifier).receiveMessage(fromPeer, text, timestamp, messageId, replyToMid);
         ref.read(typingProvider.notifier).clearTyping(fromPeer, fromPeer);
         // Track unread DM — only if not muted.
-        final isViewingDm = ref.read(selectedPeerProvider) == fromPeer &&
+        // Window must be visible AND viewing this DM to count as "viewing".
+        final windowVisible = ref.read(windowVisibleProvider);
+        final isViewingDm = windowVisible &&
+            ref.read(selectedPeerProvider) == fromPeer &&
             ref.read(selectedServerProvider) == null;
         final isDmMuted = !ref
             .read(notificationSettingsProvider.notifier)
@@ -105,9 +109,10 @@ class EventStreamNotifier extends Notifier<bool> {
             .receiveMessage(serverId, channelId, fromPeer, text, timestamp, messageId, replyToMid);
         ref.read(typingProvider.notifier).clearTyping('$serverId:$channelId', fromPeer);
         // Track unread channel message — only if not muted.
-        final isViewingChannel =
+        // Window must be visible AND viewing this channel to count as "viewing".
+        final isViewingChannel = ref.read(windowVisibleProvider) &&
             ref.read(selectedServerProvider) == serverId &&
-                ref.read(selectedChannelProvider) == channelId;
+            ref.read(selectedChannelProvider) == channelId;
         final channelNotifLevel = ref
             .read(notificationSettingsProvider.notifier)
             .effectiveChannelLevel(serverId, channelId);

@@ -6,6 +6,7 @@ import 'package:haven/src/theme/haven_typography.dart';
 /// Haven-styled tooltip — dark, compact, fast.
 ///
 /// Appears after 400ms hover delay. Fades in 100ms + slides from 4px offset.
+/// Edge-aware: automatically repositions to stay within window bounds.
 /// Replaces Material Tooltip everywhere.
 class HavenTooltip extends StatefulWidget {
   final String message;
@@ -70,41 +71,73 @@ class _HavenTooltipState extends State<HavenTooltip>
     _entry = OverlayEntry(
       builder: (context) {
         final haven = HavenTheme.of(context);
+        final screenSize = MediaQuery.of(context).size;
+        const padding = 8.0;
+        const gap = 6.0;
+
+        // Measure tooltip width estimate (rough: 7px per char + padding).
+        final tooltipWidth =
+            (widget.message.length * 7.0 + HavenSpacing.sm * 2 + 4)
+                .clamp(40.0, screenSize.width - padding * 2);
+
+        // Center horizontally on the widget.
+        double left = position.dx + size.width / 2 - tooltipWidth / 2;
+
+        // Clamp horizontal to stay within window.
+        if (left < padding) left = padding;
+        if (left + tooltipWidth > screenSize.width - padding) {
+          left = screenSize.width - tooltipWidth - padding;
+        }
+
+        // Vertical: prefer below, but flip above if it would overflow.
+        final belowY = position.dy + size.height + gap;
+        final aboveY = position.dy - gap;
+        // Estimate tooltip height ~28px.
+        const tooltipHeight = 28.0;
+
+        final bool showBelow;
+        if (widget.preferBelow) {
+          // Show below unless it would go off-screen.
+          showBelow = belowY + tooltipHeight <= screenSize.height - padding;
+        } else {
+          // Show above unless it would go off-screen.
+          showBelow = aboveY - tooltipHeight < padding;
+        }
+
+        final double top;
+        if (showBelow) {
+          top = belowY;
+        } else {
+          top = aboveY - tooltipHeight;
+        }
 
         return Positioned(
-          left: position.dx + size.width / 2,
-          top: widget.preferBelow
-              ? position.dy + size.height + 6
-              : null,
-          bottom: widget.preferBelow
-              ? null
-              : MediaQuery.of(context).size.height -
-                  position.dy +
-                  6,
-          child: FractionalTranslation(
-            translation: const Offset(-0.5, 0),
-            child: FadeTransition(
-              opacity: _opacity,
-              child: SlideTransition(
-                position: _offset,
-                child: Material(
-                  color: Colors.transparent,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: HavenSpacing.sm + 2,
-                      vertical: HavenSpacing.xs + 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: haven.elevated,
-                      borderRadius:
-                          BorderRadius.circular(haven.radiusSm),
-                      border: Border.all(color: haven.border),
-                    ),
-                    child: Text(
-                      widget.message,
-                      style: HavenTypography.caption.copyWith(
-                        color: haven.textPrimary,
-                      ),
+          left: left,
+          top: top,
+          child: FadeTransition(
+            opacity: _opacity,
+            child: SlideTransition(
+              position: _offset,
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  constraints: BoxConstraints(
+                    maxWidth: screenSize.width - padding * 2,
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: HavenSpacing.sm + 2,
+                    vertical: HavenSpacing.xs + 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: haven.elevated,
+                    borderRadius:
+                        BorderRadius.circular(haven.radiusSm),
+                    border: Border.all(color: haven.border),
+                  ),
+                  child: Text(
+                    widget.message,
+                    style: HavenTypography.caption.copyWith(
+                      color: haven.textPrimary,
                     ),
                   ),
                 ),
@@ -121,10 +154,15 @@ class _HavenTooltipState extends State<HavenTooltip>
 
   void _hideTooltip() {
     if (_entry == null) return;
-    _controller.reverse().then((_) {
-      _entry?.remove();
-      _entry = null;
-    });
+    final entryToRemove = _entry;
+    _entry = null;
+    if (_controller.isAnimating || _controller.isCompleted) {
+      _controller.reverse().then((_) {
+        entryToRemove?.remove();
+      });
+    } else {
+      entryToRemove?.remove();
+    }
   }
 
   void _onHoverStart() {

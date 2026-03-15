@@ -210,14 +210,17 @@ class ChannelSidebar extends StatelessWidget {
                 ),
               ),
             ),
-            HavenPressable(
-              onTap: onOpenSettings,
-              borderRadius: BorderRadius.circular(haven.radiusSm),
-              padding: const EdgeInsets.all(HavenSpacing.xs),
-              child: Icon(
-                LucideIcons.settings,
-                size: 16,
-                color: haven.textSecondary,
+            HavenTooltip(
+              message: 'Server settings',
+              child: HavenPressable(
+                onTap: onOpenSettings,
+                borderRadius: BorderRadius.circular(haven.radiusSm),
+                padding: const EdgeInsets.all(HavenSpacing.xs),
+                child: Icon(
+                  LucideIcons.settings,
+                  size: 16,
+                  color: haven.textSecondary,
+                ),
               ),
             ),
           ],

@@ -7,3 +7,7 @@ final memberPanelProvider = StateProvider<bool>((ref) => true);
 /// Whether the channel search bar is open.
 /// Toggled by Ctrl+K globally or the search icon in the channel header.
 final channelSearchOpenProvider = StateProvider<bool>((ref) => false);
+
+/// Whether the main window is currently visible (not hidden to tray).
+/// Updated by main.dart window/tray listeners.
+final windowVisibleProvider = StateProvider<bool>((ref) => true);

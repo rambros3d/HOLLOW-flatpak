@@ -101,11 +101,21 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     return pos.maxScrollExtent - pos.pixels < 150;
   }
 
-  /// Instant jump — no animation.
+  /// Instant jump — retries until maxScrollExtent stabilizes.
+  int _jumpRetries = 0;
   void _jumpToBottom() {
+    _jumpRetries = 0;
+    _doJump();
+  }
+
+  void _doJump() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      if (!mounted || !_scrollController.hasClients) return;
+      final extent = _scrollController.position.maxScrollExtent;
+      _scrollController.jumpTo(extent);
+      if (_jumpRetries < 3) {
+        _jumpRetries++;
+        _doJump();
       }
     });
   }
@@ -164,7 +174,10 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     final messages = chatHistory[widget.peerId] ?? [];
 
     // Auto-scroll when new messages arrive and user is near the bottom.
-    if (messages.length > _previousMessageCount && _isNearBottom) {
+    // Skip on initial load (handled by _jumpToBottom in _loadHistory).
+    if (_previousMessageCount > 0 &&
+        messages.length > _previousMessageCount &&
+        _isNearBottom) {
       _scrollToBottom();
     }
     _previousMessageCount = messages.length;

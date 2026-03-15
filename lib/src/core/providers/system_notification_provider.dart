@@ -1,10 +1,12 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/providers/channel_provider.dart';
 import 'package:haven/src/core/providers/notification_provider.dart';
 import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/server_provider.dart';
+import 'package:local_notifier/local_notifier.dart';
 import 'package:window_manager/window_manager.dart';
 
 /// A single message within a notification card.
@@ -23,30 +25,15 @@ class NotificationMessage {
 }
 
 /// A notification card — groups messages from the same source.
-/// Source key: peerId for DMs, "serverId:channelId" for channels.
 class NotificationCard {
   final String sourceKey;
-
-  /// For DMs: peer's display name. For channels: "Server > #channel".
   final String title;
-
-  /// For DMs: the peer ID (used for avatar). For channels: server ID.
   final String avatarId;
-
-  /// Whether this is a DM or channel notification.
   final bool isDm;
-
-  /// For channels: server and channel IDs for navigation.
   final String? serverId;
   final String? channelId;
-
-  /// For DMs: peer ID for navigation.
   final String? peerId;
-
-  /// Messages accumulated in this card (max 5).
   final List<NotificationMessage> messages;
-
-  /// When this card was first created.
   final DateTime createdAt;
 
   NotificationCard({
@@ -62,7 +49,6 @@ class NotificationCard {
   })  : messages = messages ?? [],
         createdAt = createdAt ?? DateTime.now();
 
-  /// Add a message, keeping max 5.
   NotificationCard withMessage(NotificationMessage msg) {
     final updated = List<NotificationMessage>.from(messages)..add(msg);
     if (updated.length > 5) {
@@ -82,14 +68,30 @@ class NotificationCard {
   }
 }
 
-/// Manages in-app notification overlay state.
-///
-/// Up to 3 cards from different sources. Each card accumulates
-/// up to 5 messages. Cards auto-dismiss after 5 seconds (handled by UI).
+/// Manages notifications — in-app overlay cards when window is visible,
+/// native OS notifications when window is hidden (tray mode).
 class SystemNotificationNotifier
     extends Notifier<List<NotificationCard>> {
+  bool _nativeInitialized = false;
+  LocalNotification? _activeNativeNotification;
+
   @override
   List<NotificationCard> build() => [];
+
+  /// Initialize native notifications. Call once at startup.
+  Future<void> init() async {
+    if (_nativeInitialized) return;
+    if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) return;
+    try {
+      await localNotifier.setup(
+        appName: 'Haven',
+        shortcutPolicy: ShortcutPolicy.requireCreate,
+      );
+      _nativeInitialized = true;
+    } catch (e) {
+      debugPrint('[HAVEN] Failed to init local_notifier: $e');
+    }
+  }
 
   /// Show a notification for a new DM message.
   Future<void> notifyDm({
@@ -97,30 +99,34 @@ class SystemNotificationNotifier
     required String text,
     required String? replyToMid,
   }) async {
-    // Check if DM is muted.
     final notifSettings = ref.read(notificationSettingsProvider.notifier);
     if (!notifSettings.isDmEnabled(fromPeerId)) return;
 
-    // Check if window is focused — don't notify if user is looking at the app.
-    if (await _isWindowFocused()) return;
-
-    // Resolve sender name.
     final profiles = ref.read(profileProvider);
     final senderName = displayNameFor(profiles, fromPeerId);
 
-    _addMessage(
-      sourceKey: fromPeerId,
-      title: senderName,
-      avatarId: fromPeerId,
-      isDm: true,
-      peerId: fromPeerId,
-      message: NotificationMessage(
-        senderPeerId: fromPeerId,
-        senderName: senderName,
-        text: text,
-        timestamp: DateTime.now(),
-      ),
-    );
+    final isHidden = await _isWindowHidden();
+    final isFocused = isHidden ? false : await _isWindowFocused();
+
+    if (isHidden) {
+      // Window is hidden (tray) — use native OS notification.
+      _showNativeNotification(title: senderName, body: text);
+    } else if (!isFocused) {
+      // Window is visible but unfocused — use in-app overlay.
+      _addMessage(
+        sourceKey: fromPeerId,
+        title: senderName,
+        avatarId: fromPeerId,
+        isDm: true,
+        peerId: fromPeerId,
+        message: NotificationMessage(
+          senderPeerId: fromPeerId,
+          senderName: senderName,
+          text: text,
+          timestamp: DateTime.now(),
+        ),
+      );
+    }
   }
 
   /// Show a notification for a new channel message.
@@ -137,37 +143,43 @@ class SystemNotificationNotifier
         notifSettings.effectiveChannelLevel(serverId, channelId);
 
     if (level == NotificationLevel.nothing) return;
-
-    // "Mentions only" — only notify on replies.
     if (level == NotificationLevel.mentions) {
       if (replyToMid == null) return;
     }
 
-    if (await _isWindowFocused()) return;
-
-    // Resolve names.
     final profiles = ref.read(profileProvider);
     final senderName = displayNameFor(profiles, fromPeerId);
     final servers = ref.read(serverListProvider);
     final serverName = servers[serverId]?.name ?? 'Server';
-
     final resolvedChannelName =
         channelName ?? _channelName(serverId, channelId);
 
-    _addMessage(
-      sourceKey: '$serverId:$channelId',
-      title: '$serverName > #$resolvedChannelName',
-      avatarId: serverId,
-      isDm: false,
-      serverId: serverId,
-      channelId: channelId,
-      message: NotificationMessage(
-        senderPeerId: fromPeerId,
-        senderName: senderName,
-        text: text,
-        timestamp: DateTime.now(),
-      ),
-    );
+    final isHidden = await _isWindowHidden();
+    final isFocused = isHidden ? false : await _isWindowFocused();
+
+    if (isHidden) {
+      // Window is hidden (tray) — use native OS notification.
+      _showNativeNotification(
+        title: '$senderName in $serverName',
+        body: text,
+      );
+    } else if (!isFocused) {
+      // Window is visible but unfocused — use in-app overlay.
+      _addMessage(
+        sourceKey: '$serverId:$channelId',
+        title: '$serverName > #$resolvedChannelName',
+        avatarId: serverId,
+        isDm: false,
+        serverId: serverId,
+        channelId: channelId,
+        message: NotificationMessage(
+          senderPeerId: fromPeerId,
+          senderName: senderName,
+          text: text,
+          timestamp: DateTime.now(),
+        ),
+      );
+    }
   }
 
   /// Dismiss a specific card by source key.
@@ -180,6 +192,8 @@ class SystemNotificationNotifier
     state = [];
   }
 
+  // ── In-app overlay cards ──────────────────────────────────────
+
   void _addMessage({
     required String sourceKey,
     required String title,
@@ -191,20 +205,13 @@ class SystemNotificationNotifier
     required NotificationMessage message,
   }) {
     final cards = List<NotificationCard>.from(state);
-
-    // Check if a card for this source already exists.
     final existingIndex =
         cards.indexWhere((c) => c.sourceKey == sourceKey);
 
     if (existingIndex >= 0) {
-      // Add message to existing card.
       cards[existingIndex] = cards[existingIndex].withMessage(message);
     } else {
-      // Create new card — max 3 cards.
-      if (cards.length >= 3) {
-        // Don't show a 4th card.
-        return;
-      }
+      if (cards.length >= 3) return;
       cards.add(NotificationCard(
         sourceKey: sourceKey,
         title: title,
@@ -216,24 +223,59 @@ class SystemNotificationNotifier
         messages: [message],
       ));
     }
-
     state = cards;
   }
+
+  // ── Native OS notifications (tray mode) ───────────────────────
+
+  void _showNativeNotification({
+    required String title,
+    required String body,
+  }) {
+    if (!_nativeInitialized) return;
+    try {
+      _activeNativeNotification?.close();
+    } catch (_) {}
+
+    final notification = LocalNotification(
+      title: title,
+      body: body,
+    );
+    notification.onClick = () {
+      _bringWindowToFront();
+    };
+    _activeNativeNotification = notification;
+    notification.show();
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────
 
   String _channelName(String serverId, String channelId) {
     final channels = ref.read(channelListProvider);
     return channels[channelId]?.name ?? 'channel';
   }
 
-  Future<bool> _isWindowFocused() async {
-    if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-      return true;
+  Future<bool> _isWindowHidden() async {
+    try {
+      return !(await windowManager.isVisible());
+    } catch (_) {
+      return false;
     }
+  }
+
+  Future<bool> _isWindowFocused() async {
     try {
       return await windowManager.isFocused();
     } catch (_) {
-      return true; // Assume focused if we can't check.
+      return true;
     }
+  }
+
+  Future<void> _bringWindowToFront() async {
+    try {
+      await windowManager.show();
+      await windowManager.focus();
+    } catch (_) {}
   }
 }
 

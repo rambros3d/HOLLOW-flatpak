@@ -27,6 +27,7 @@ void showProfileCardPopup({
   String? nickname,
   String? role,
   required Offset anchor,
+  bool anchorBottom = false,
 }) {
   final overlay = Overlay.of(context);
   late final OverlayEntry entry;
@@ -37,6 +38,7 @@ void showProfileCardPopup({
       nickname: nickname,
       role: role,
       anchor: anchor,
+      anchorBottom: anchorBottom,
       onDismiss: () => entry.remove(),
     ),
   );
@@ -49,6 +51,7 @@ class _ProfileCardOverlay extends ConsumerStatefulWidget {
   final String? nickname;
   final String? role;
   final Offset anchor;
+  final bool anchorBottom;
   final VoidCallback onDismiss;
 
   const _ProfileCardOverlay({
@@ -56,6 +59,7 @@ class _ProfileCardOverlay extends ConsumerStatefulWidget {
     required this.nickname,
     required this.role,
     required this.anchor,
+    this.anchorBottom = false,
     required this.onDismiss,
   });
 
@@ -117,17 +121,27 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
 
     const cardWidth = 280.0;
 
-    // Position: card appears above and to the left of anchor
+    // Position: card appears near the anchor
     final screenSize = MediaQuery.of(context).size;
     double left = widget.anchor.dx;
-    double top = widget.anchor.dy;
 
-    // Clamp
+    // Clamp horizontal
     if (left < 8) left = 8;
     if (left + cardWidth > screenSize.width - 8) {
       left = screenSize.width - cardWidth - 8;
     }
-    if (top < 8) top = 8;
+
+    // Vertical positioning
+    double? top;
+    double? bottom;
+    if (widget.anchorBottom) {
+      // anchor.dy is where the card's bottom should be
+      bottom = screenSize.height - widget.anchor.dy;
+      if (bottom < 8) bottom = 8;
+    } else {
+      top = widget.anchor.dy;
+      if (top < 8) top = 8;
+    }
 
     return Stack(
       children: [
@@ -144,6 +158,7 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
         Positioned(
           left: left,
           top: top,
+          bottom: bottom,
           child: FadeTransition(
             opacity: _fadeAnim,
             child: ScaleTransition(

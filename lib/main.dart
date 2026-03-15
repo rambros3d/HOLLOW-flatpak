@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:haven/src/core/providers/member_panel_provider.dart';
 import 'package:haven/src/rust/api/network.dart' as network_api;
 import 'package:haven/src/rust/api/storage.dart' as storage_api;
 import 'package:haven/src/rust/frb_generated.dart';
@@ -9,6 +10,9 @@ import 'package:haven/src/ui/app.dart';
 import 'package:haven/src/ui/shader_warmup.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
+
+/// Global provider container — used by window/tray listeners.
+late final ProviderContainer _container;
 
 /// Lock file path — prevents multiple instances.
 late final String _lockFilePath;
@@ -98,6 +102,7 @@ Future<void> main() async {
   await RustLib.init();
 
   final container = ProviderContainer();
+  _container = container;
 
   // Custom window chrome on desktop — hide native title bar.
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
@@ -189,6 +194,7 @@ class _HavenTrayListener extends TrayListener {
     await _hideTrayIcon();
     await windowManager.show();
     await windowManager.focus();
+    _container.read(windowVisibleProvider.notifier).state = true;
   }
 
   Future<void> _quitApp() async {
@@ -214,8 +220,9 @@ class _HavenWindowListener extends WindowListener {
     } catch (_) {}
 
     if (minimizeToTray) {
-      // Minimize to system tray — app keeps running.
+      // Minimize to system tray — app keeps running in background.
       await _showTrayIcon();
+      _container.read(windowVisibleProvider.notifier).state = false;
       await windowManager.hide();
     } else {
       // Quit the app.

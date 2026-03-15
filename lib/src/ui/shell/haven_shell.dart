@@ -18,6 +18,7 @@ import 'package:haven/src/core/providers/friends_provider.dart';
 import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/selected_peer_provider.dart';
 import 'package:haven/src/core/providers/server_provider.dart';
+import 'package:haven/src/core/providers/system_notification_provider.dart';
 import 'package:haven/src/core/providers/unread_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
@@ -122,6 +123,9 @@ class _HavenShellState extends ConsumerState<HavenShell>
 
     // Load friends list from local DB.
     await ref.read(friendsProvider.notifier).loadAll();
+
+    // Initialize native notifications (for tray mode).
+    await ref.read(systemNotificationProvider.notifier).init();
   }
 
   @override
@@ -490,6 +494,15 @@ class _HavenShellState extends ConsumerState<HavenShell>
                               duration: HavenDurations.normal,
                               switchInCurve: HavenCurves.enter,
                               switchOutCurve: HavenCurves.exit,
+                              layoutBuilder: (currentChild, previousChildren) {
+                                return Stack(
+                                  alignment: Alignment.topCenter,
+                                  children: [
+                                    ...previousChildren,
+                                    ?currentChild,
+                                  ],
+                                );
+                              },
                               child: Container(
                                 key: ValueKey(
                                     settingsOpen && selectedServer != null
