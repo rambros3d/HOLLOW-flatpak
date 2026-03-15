@@ -264,6 +264,12 @@ class EventStreamNotifier extends Notifier<bool> {
               .loadPins(serverId, selectedChannel);
         }
 
+        // After message sync, request any missing files (delayed to avoid
+        // interfering with the sync pipeline).
+        if (newMessageCount > 0) {
+          _requestMissingFiles(serverId);
+        }
+
       case NetworkEvent_MessageSyncFailed(:final serverId, :final error):
         debugPrint('[HAVEN] Message sync failed for $serverId: $error');
         ref.read(syncingPeersProvider.notifier).clearServer(serverId);
@@ -302,6 +308,11 @@ class EventStreamNotifier extends Notifier<bool> {
         final selectedPeer = ref.read(selectedPeerProvider);
         if (selectedPeer == peerId) {
           chatNotifier.loadHistory(peerId);
+        }
+
+        // Request missing DM files after sync.
+        if (newMessageCount > 0) {
+          _requestMissingFilesForDm(peerId);
         }
 
       case NetworkEvent_ProfileUpdated(:final peerId):
@@ -423,6 +434,57 @@ class EventStreamNotifier extends Notifier<bool> {
         debugPrint('[HAVEN] File failed: $fileId — $error');
         ref.read(fileTransferProvider.notifier).onFileFailed(
               fileId, error);
+    }
+  }
+
+  /// Request missing files after message sync completes.
+  /// Queries messages with file_id that have no completed file on disk.
+  /// Delayed by 2 seconds to let sync pipeline settle.
+  Future<void> _requestMissingFiles(String serverId) async {
+    await Future.delayed(const Duration(seconds: 2));
+    try {
+      final missingIds = await storage_api.getMissingFileIds();
+      if (missingIds.isEmpty) return;
+      debugPrint('[HAVEN] ${missingIds.length} missing files found, requesting...');
+      final peers = ref.read(peersProvider);
+      if (peers.isEmpty) return;
+      for (final fileId in missingIds) {
+        for (final peerId in peers.keys) {
+          try {
+            await requestFileFromPeer(
+              fileId: fileId,
+              peerId: peerId,
+              chunks: [],
+            );
+            break;
+          } catch (_) {}
+        }
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+    } catch (e) {
+      debugPrint('[HAVEN] Failed to request missing files: $e');
+    }
+  }
+
+  /// Request missing files after DM sync completes.
+  Future<void> _requestMissingFilesForDm(String peerId) async {
+    await Future.delayed(const Duration(seconds: 2));
+    try {
+      final missingIds = await storage_api.getMissingFileIds();
+      if (missingIds.isEmpty) return;
+      debugPrint('[HAVEN] ${missingIds.length} missing DM files, requesting from $peerId');
+      for (final fileId in missingIds) {
+        try {
+          await requestFileFromPeer(
+            fileId: fileId,
+            peerId: peerId,
+            chunks: [],
+          );
+        } catch (_) {}
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+    } catch (e) {
+      debugPrint('[HAVEN] Failed to request missing DM files: $e');
     }
   }
 

@@ -330,6 +330,29 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     final file = result.files.first;
     if (file.path == null) { _isPicking = false; return; }
 
+    // Check file size against server limit.
+    try {
+      final maxMbStr = await crdt_api.getServerSetting(
+        serverId: widget.serverId,
+        key: 'max_file_size_mb',
+      );
+      final maxMb = int.tryParse(maxMbStr) ?? 34;
+      final maxBytes = maxMb * 1024 * 1024;
+      if (file.size > maxBytes) {
+        if (mounted) {
+          final fileMb = (file.size / (1024 * 1024)).toStringAsFixed(1);
+          HavenToast.show(
+            context,
+            'File too large (${fileMb}MB). Server limit is ${maxMb}MB.',
+            type: HavenToastType.error,
+            duration: const Duration(seconds: 4),
+          );
+        }
+        _isPicking = false;
+        return;
+      }
+    } catch (_) {}
+
     final messageId = generateMessageId();
     final fileName = file.name;
     final ext = fileName.contains('.')

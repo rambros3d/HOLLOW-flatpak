@@ -572,7 +572,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id, file_id
+                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id
                  FROM messages
                  WHERE peer_id = ?1 AND hidden_at IS NULL
                  ORDER BY id DESC
@@ -643,7 +643,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id, file_id
+                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id
                  FROM messages
                  WHERE peer_id = ?1 AND timestamp >= ?2 AND is_mine = 1
                  ORDER BY timestamp ASC
@@ -1044,7 +1044,7 @@ impl MessageStore {
 
         let where_clause = conditions.join(" OR ");
         let sql = format!(
-            "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid
+            "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id
              FROM channel_messages
              WHERE server_id = ?1 AND channel_id = ?2 AND ({where_clause})
              ORDER BY timestamp ASC
@@ -2120,5 +2120,34 @@ impl MessageStore {
             .collect();
 
         Ok(missing)
+    }
+
+    /// Get file_ids from messages that have a file_id but no completed file entry.
+    /// Used to find files that need downloading after message sync.
+    pub fn get_missing_file_ids(&self) -> Result<Vec<String>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT DISTINCT cm.file_id FROM channel_messages cm
+                 WHERE cm.file_id IS NOT NULL
+                 AND cm.file_id NOT IN (SELECT file_id FROM files WHERE completed_at IS NOT NULL)
+                 UNION
+                 SELECT DISTINCT m.file_id FROM messages m
+                 WHERE m.file_id IS NOT NULL
+                 AND m.file_id NOT IN (SELECT file_id FROM files WHERE completed_at IS NOT NULL)",
+            )
+            .map_err(|e| format!("Failed to prepare missing files query: {e}"))?;
+
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("Failed to query missing files: {e}"))?;
+
+        let mut ids = Vec::new();
+        for row in rows {
+            if let Ok(id) = row {
+                ids.push(id);
+            }
+        }
+        Ok(ids)
     }
 }

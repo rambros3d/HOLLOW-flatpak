@@ -454,3 +454,13 @@ pub fn get_incomplete_files() -> Result<Vec<StoredFileInfo>, String> {
         .map(stored_file_to_ffi)
         .collect())
 }
+
+/// Get file_ids from messages that have no completed file on disk.
+/// Used to find files that need downloading after message sync.
+#[frb]
+pub fn get_missing_file_ids() -> Result<Vec<String>, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+    ms.get_missing_file_ids()
+}

@@ -109,9 +109,9 @@ Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection mana
 
 - Notifications system: `notification_provider.dart` (server-level All/Mentions/Nothing, per-channel override, per-DM toggle), `unread_provider.dart` (last-seen tracking, unread counts, marks seen on navigation + history load), `system_notification_provider.dart` (dual system: in-app overlay when visible+unfocused, native `local_notifier` ^0.1.6 when hidden/tray). UI: red pill badge with count on server strip, accent dots on channel tiles/DM cards, bold text on unread items. Muted sources hide all indicators. Custom overlay (`notification_overlay.dart`): up to 3 stacked mini-chat cards (bottom-right, `AnimatedPositioned` in `Stack`), each accumulates up to 5 messages from same source, slide-in/auto-dismiss/hover-pause/click-navigate. `windowVisibleProvider` tracks tray state — hidden window never counts as "viewing". Server Settings > Notifications tab with server-wide picker + per-channel `PopupMenuButton`. DM header bell icon for per-friend toggle. Single-instance lock (`%APPDATA%/Haven/haven.lock`).
 
-**Phase 3.5 remaining:**
-1. QoL: basic P2P file sharing (WebP internal format, direct transfer via libp2p)
-2. Device linking deferred to Phase 6
+- P2P file sharing: 256KB chunks via Olm encryption (DMs + channels). MLS for text message only (single encrypt), file data via Olm to each member (avoids SecretReuseError). `image` crate for WebP conversion. `files`/`file_chunks` tables, `file_id` on message envelopes. FileHeader/FileChunk/FileRequest wire protocol. Auto-sync: after MessageSyncCompleted, `getMissingFileIds()` finds messages with file_id but no completed file, requests from peers. `NodeCommand::RequestFile` sends `HavenMessage::FileRequest` to remote peer. Max file size CRDT setting (default 34MB) with UI in Server Settings. Image fullscreen overlay, download/save with WebP→PNG/JPEG conversion, `_isPicking` lock, edit disabled on file messages.
+
+**Phase 3.5: COMPLETE.** Device linking deferred to Phase 6.
 
 ## Haven Design System (Phase 2.75)
 All UI interactions go through custom Haven widgets — no Material defaults anywhere. Change behavior in one place, applies everywhere.

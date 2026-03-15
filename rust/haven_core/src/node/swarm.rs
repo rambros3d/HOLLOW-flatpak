@@ -3777,6 +3777,10 @@ async fn run_swarm(
                                     &target_peer, &peer_str, &envelope_json, &event_tx,
                                 ).await;
 
+                                // Only send file data if peer is connected right now.
+                                // If offline, the file_id is in the message — sync will request it later.
+                                if connected_peers.contains(&target_peer) {
+
                                 // Send FileHeader.
                                 let header = MessageEnvelope::FileHeader {
                                     fid: file_id.clone(),
@@ -3817,6 +3821,7 @@ async fn run_swarm(
                                         &target_peer, &peer_str, &chunk_json, &event_tx,
                                     ).await;
                                 }
+                                } // if connected_peers (file data only)
                             }
 
                             haven_log!("[HAVEN-FILE] Sent {total_chunks} chunks for {file_id} to DM {peer_str}");
@@ -3852,10 +3857,31 @@ async fn run_swarm(
                                 }
                             }
 
-                            // Send text message + FileHeader + chunks via Olm to each member.
-                            // MLS is not used for file messages to avoid SecretReuseError
-                            // from rapid sequential encryptions.
-                            // Olm is peer-to-peer and handles rapid sequential messages fine.
+                            // Send the TEXT MESSAGE via MLS (for proper sync/queue to offline peers).
+                            // Only one MLS encrypt call — no SecretReuseError risk.
+                            if let Some(ref mut mls_mgr) = mls {
+                                if let Ok(ct) = mls_mgr.encrypt(&sid, envelope_json.as_bytes()) {
+                                    let mls_msg = HavenMessage::MlsChannelMessage {
+                                        server_id: sid.clone(),
+                                        body: base64::engine::general_purpose::STANDARD.encode(&ct),
+                                    };
+                                    if let Some(state) = server_states.get(&sid) {
+                                        for member_peer_str in state.members.keys() {
+                                            if member_peer_str == &local_peer { continue; }
+                                            if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                                if connected_peers.contains(&pid) {
+                                                    swarm.behaviour_mut().messaging.send_request(
+                                                        &pid, mls_msg.clone(),
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Send FileHeader + chunks via Olm ONLY to connected peers.
+                            // File data is NOT queued for offline peers — they get it via sync.
                             let header = MessageEnvelope::FileHeader {
                                 fid: file_id.clone(),
                                 name: original_name.clone(),
@@ -3880,13 +3906,6 @@ async fn run_swarm(
                                     if member_peer_str == &local_peer { continue; }
                                     if let Ok(pid) = member_peer_str.parse::<PeerId>() {
                                         if connected_peers.contains(&pid) && olm.has_session(member_peer_str) {
-                                            // Send text message (with file_id) via Olm.
-                                            send_encrypted_message(
-                                                &mut swarm, &mut olm, &crypto_store,
-                                                &mut pending_requests, &mut outbound_message_text,
-                                                &pid, member_peer_str, &envelope_json, &event_tx,
-                                            ).await;
-
                                             // Send FileHeader via Olm.
                                             send_encrypted_message(
                                                 &mut swarm, &mut olm, &crypto_store,
@@ -3919,45 +3938,17 @@ async fn run_swarm(
                     }
 
                     NodeCommand::RequestFile { file_id, peer_id, chunks } => {
-                        use crate::node::file_transfer;
-                        haven_log!("[HAVEN-FILE] RequestFile: {file_id} from {peer_id}, {} chunks requested", chunks.len());
-                        let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
-                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                            if let Ok(Some(file_meta)) = store.get_file_metadata(&file_id) {
-                                if let Some(ref disk_path) = file_meta.disk_path {
-                                    if let Ok(file_data) = std::fs::read(disk_path) {
-                                        let all_chunks = file_transfer::chunk_file(&file_data);
-                                        let peer_str = peer_id.to_string();
-                                        let chunk_indices: Vec<u32> = if chunks.is_empty() {
-                                            (0..all_chunks.len() as u32).collect()
-                                        } else {
-                                            chunks
-                                        };
-                                        for idx in chunk_indices {
-                                            if let Some(chunk_data) = all_chunks.get(idx as usize) {
-                                                let chunk_b64 = base64::engine::general_purpose::STANDARD.encode(chunk_data);
-                                                let chunk_envelope = MessageEnvelope::FileChunk {
-                                                    fid: file_id.clone(),
-                                                    idx,
-                                                    data: chunk_b64,
-                                                };
-                                                let chunk_json = serde_json::to_string(&chunk_envelope).unwrap_or_default();
-                                                if olm.has_session(&peer_str) {
-                                                    send_encrypted_message(
-                                                        &mut swarm, &mut olm, &crypto_store,
-                                                        &mut pending_requests, &mut outbound_message_text,
-                                                        &peer_id, &peer_str, &chunk_json, &event_tx,
-                                                    ).await;
-                                                }
-                                            }
-                                        }
-                                        haven_log!("[HAVEN-FILE] Sent requested chunks for {file_id} to {peer_str}");
-                                    }
-                                }
-                            }
+                        // Send a FileRequest HavenMessage to the remote peer,
+                        // asking them to send us the file data.
+                        haven_log!("[HAVEN-FILE] Requesting file {file_id} from peer {peer_id}");
+                        if connected_peers.contains(&peer_id) {
+                            swarm.behaviour_mut().messaging.send_request(
+                                &peer_id,
+                                HavenMessage::FileRequest {
+                                    file_id,
+                                    chunks,
+                                },
+                            );
                         }
                     }
 
@@ -5566,31 +5557,8 @@ async fn handle_incoming_request(
                             new_message_count: new_count,
                         }).await;
 
-                        // Trigger file download for incomplete files from this sync.
-                        if new_count > 0 {
-                            use crate::node::file_transfer;
-                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
-                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                            if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
-                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                    if let Ok(incomplete) = store.get_incomplete_files() {
-                                        for file in incomplete {
-                                            haven_log!("[HAVEN-FILE] Requesting file {} from sync peer {}", file.file_id, peer_str);
-                                            if let Ok(pid) = peer_str.parse::<PeerId>() {
-                                                swarm.behaviour_mut().messaging.send_request(
-                                                    &pid,
-                                                    HavenMessage::FileRequest {
-                                                        file_id: file.file_id,
-                                                        chunks: vec![],
-                                                    },
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        // File sync happens from the Dart side after a delay
+                        // to avoid interfering with the message sync pipeline.
                     }
                 }
                 Ok(MessageEnvelope::DirectMessage { text: msg_text, ts, sig, pk, mid, reply_to, file_id }) => {

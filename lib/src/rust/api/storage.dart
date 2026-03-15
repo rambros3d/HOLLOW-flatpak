@@ -138,6 +138,11 @@ Future<List<StoredFileInfo>> getFilesForMessage({required String messageId}) =>
 Future<List<StoredFileInfo>> getIncompleteFiles() =>
     RustLib.instance.api.crateApiStorageGetIncompleteFiles();
 
+/// Get file_ids from messages that have no completed file on disk.
+/// Used to find files that need downloading after message sync.
+Future<List<String>> getMissingFileIds() =>
+    RustLib.instance.api.crateApiStorageGetMissingFileIds();
+
 /// A friend entry returned to Dart.
 class FriendFfi {
   final String peerId;
