@@ -686,6 +686,9 @@ struct SyncMessageItem {
     /// Message ID this is replying to (optional).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     reply_to: Option<String>,
+    /// File attachment ID (optional).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    file_id: Option<String>,
     /// Reactions on this message (synced alongside the message).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     reactions: Vec<SyncReactionItem>,
@@ -727,6 +730,9 @@ struct DmSyncItem {
     /// Message ID this is replying to (optional).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     reply_to: Option<String>,
+    /// File attachment ID (optional).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    file_id: Option<String>,
     /// Reactions on this message (synced alongside the message).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     reactions: Vec<SyncReactionItem>,
@@ -5502,7 +5508,7 @@ async fn handle_incoming_request(
                                 match store.insert_channel_message(
                                     &sid, &cid, &msg.s, &msg.t, is_mine, msg.ts,
                                     msg.sig.as_deref(), msg.pk.as_deref(), msg.mid.as_deref(),
-                                    msg.reply_to.as_deref(), None, // file_id: Phase C sync integration
+                                    msg.reply_to.as_deref(), msg.file_id.as_deref(),
                                 ) {
                                     Ok(1) => { new_count += 1; }
                                     _ => {} // Duplicate or error — skip.
@@ -5556,9 +5562,35 @@ async fn handle_incoming_request(
                     // Only emit completion when there are no more pages.
                     if has_more != Some(true) {
                         let _ = event_tx.send(NetworkEvent::MessageSyncCompleted {
-                            server_id: sid,
+                            server_id: sid.clone(),
                             new_message_count: new_count,
                         }).await;
+
+                        // Trigger file download for incomplete files from this sync.
+                        if new_count > 0 {
+                            use crate::node::file_transfer;
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                    if let Ok(incomplete) = store.get_incomplete_files() {
+                                        for file in incomplete {
+                                            haven_log!("[HAVEN-FILE] Requesting file {} from sync peer {}", file.file_id, peer_str);
+                                            if let Ok(pid) = peer_str.parse::<PeerId>() {
+                                                swarm.behaviour_mut().messaging.send_request(
+                                                    &pid,
+                                                    HavenMessage::FileRequest {
+                                                        file_id: file.file_id,
+                                                        chunks: vec![],
+                                                    },
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 Ok(MessageEnvelope::DirectMessage { text: msg_text, ts, sig, pk, mid, reply_to, file_id }) => {
@@ -5637,7 +5669,7 @@ async fn handle_incoming_request(
                                 match store.insert(
                                     &peer_str, &msg.t, false, msg.ts,
                                     msg.sig.as_deref(), msg.pk.as_deref(), msg.mid.as_deref(),
-                                    msg.reply_to.as_deref(), None, // file_id: Phase C sync integration
+                                    msg.reply_to.as_deref(), msg.file_id.as_deref(),
                                 ) {
                                     Ok(id) if id > 0 => { new_count += 1; }
                                     _ => {} // Duplicate or error — skip.
@@ -6424,6 +6456,7 @@ async fn handle_incoming_request(
                                 mid: m.message_id.clone(),
                                 edited_at: m.edited_at,
                                 reply_to: m.reply_to_mid.clone(),
+                                file_id: m.file_id.clone(),
                                 reactions,
                             }
                         }).collect();
@@ -6586,6 +6619,7 @@ async fn handle_incoming_request(
                                 mid: m.message_id.clone(),
                                 edited_at: m.edited_at,
                                 reply_to: m.reply_to_mid.clone(),
+                                file_id: m.file_id.clone(),
                                 reactions,
                             }
                         }).collect();
@@ -7228,6 +7262,80 @@ async fn handle_incoming_request(
             }).await;
         }
 
+        // File request — respond with file chunks via Olm.
+        HavenMessage::FileRequest { file_id, chunks } => {
+            let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
+            use crate::node::file_transfer;
+            haven_log!("[HAVEN-FILE] FileRequest from {peer_str} for {file_id}");
+
+            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+            if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                    if let Ok(Some(file_meta)) = store.get_file_metadata(&file_id) {
+                        if let Some(ref disk_path) = file_meta.disk_path {
+                            if let Ok(file_data) = std::fs::read(disk_path) {
+                                // Send FileHeader first.
+                                let header = MessageEnvelope::FileHeader {
+                                    fid: file_id.clone(),
+                                    name: file_meta.file_name.clone(),
+                                    ext: file_meta.file_ext.clone(),
+                                    mime: file_meta.mime_type.clone(),
+                                    size: file_meta.size_bytes,
+                                    chunks: file_meta.chunk_count,
+                                    img: file_meta.is_image,
+                                    w: file_meta.width,
+                                    h: file_meta.height,
+                                    mid: file_meta.message_id.clone(),
+                                    sid: None,
+                                    cid: None,
+                                    ts: file_meta.created_at,
+                                    sig: None,
+                                    pk: None,
+                                };
+                                let header_json = serde_json::to_string(&header).unwrap_or_default();
+                                if let Ok(pid) = peer_str.parse::<PeerId>() {
+                                    if olm.has_session(&peer_str) {
+                                        send_encrypted_message(
+                                            swarm, olm, crypto_store,
+                                            pending_requests, outbound_message_text,
+                                            &pid, &peer_str, &header_json, event_tx,
+                                        ).await;
+
+                                        // Send requested chunks (or all if empty).
+                                        let all_chunks = file_transfer::chunk_file(&file_data);
+                                        let indices: Vec<u32> = if chunks.is_empty() {
+                                            (0..all_chunks.len() as u32).collect()
+                                        } else {
+                                            chunks
+                                        };
+                                        for idx in indices {
+                                            if let Some(chunk_data) = all_chunks.get(idx as usize) {
+                                                let chunk_b64 = base64::engine::general_purpose::STANDARD.encode(chunk_data);
+                                                let chunk_envelope = MessageEnvelope::FileChunk {
+                                                    fid: file_id.clone(),
+                                                    idx,
+                                                    data: chunk_b64,
+                                                };
+                                                let chunk_json = serde_json::to_string(&chunk_envelope).unwrap_or_default();
+                                                send_encrypted_message(
+                                                    swarm, olm, crypto_store,
+                                                    pending_requests, outbound_message_text,
+                                                    &pid, &peer_str, &chunk_json, event_tx,
+                                                ).await;
+                                            }
+                                        }
+                                        haven_log!("[HAVEN-FILE] Sent file {} to {peer_str}", file_id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // KeyBundle and Ack shouldn't arrive as requests, but handle gracefully.
         _ => {
             let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
@@ -7379,6 +7487,7 @@ async fn flush_pending_sync_requests(
                         mid: m.message_id.clone(),
                         edited_at: m.edited_at,
                         reply_to: m.reply_to_mid.clone(),
+                        file_id: m.file_id.clone(),
                         reactions,
                     }
                 }).collect();
