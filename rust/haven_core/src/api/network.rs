@@ -69,6 +69,32 @@ pub enum NetworkEvent {
     // -- Pinned message events (Phase 3.5) --
     MessagePinned { server_id: String, channel_id: String, message_id: String },
     MessageUnpinned { server_id: String, channel_id: String, message_id: String },
+    // -- File transfer events (Phase 3.5) --
+    FileHeaderReceived {
+        file_id: String,
+        file_name: String,
+        size_bytes: u64,
+        is_image: bool,
+        width: Option<u32>,
+        height: Option<u32>,
+        message_id: String,
+        sender_id: String,
+        server_id: String,
+        channel_id: String,
+    },
+    FileProgress {
+        file_id: String,
+        chunks_received: u32,
+        total_chunks: u32,
+    },
+    FileCompleted {
+        file_id: String,
+        disk_path: String,
+    },
+    FileFailed {
+        file_id: String,
+        error: String,
+    },
 }
 
 /// Holds all mutable state for the running node.
@@ -352,6 +378,19 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::MessageUnpinned { server_id, channel_id, message_id } => {
             NetworkEvent::MessageUnpinned { server_id, channel_id, message_id }
+        }
+        // -- File transfer events --
+        node::NetworkEvent::FileHeaderReceived { file_id, file_name, size_bytes, is_image, width, height, message_id, sender_id, server_id, channel_id } => {
+            NetworkEvent::FileHeaderReceived { file_id, file_name, size_bytes, is_image, width, height, message_id, sender_id, server_id, channel_id }
+        }
+        node::NetworkEvent::FileProgress { file_id, chunks_received, total_chunks } => {
+            NetworkEvent::FileProgress { file_id, chunks_received, total_chunks }
+        }
+        node::NetworkEvent::FileCompleted { file_id, disk_path } => {
+            NetworkEvent::FileCompleted { file_id, disk_path }
+        }
+        node::NetworkEvent::FileFailed { file_id, error } => {
+            NetworkEvent::FileFailed { file_id, error }
         }
     }
 }
@@ -958,4 +997,98 @@ pub fn stop_node() -> Result<(), String> {
         }
         None => Err("Node is not running".to_string()),
     }
+}
+
+// ── File sharing FFI ────────────────────────────────────────────
+
+/// Send a file to a DM peer or server channel.
+/// `peer_id`: target peer (for DMs, empty for channels).
+/// `server_id` + `channel_id`: target channel (for servers, empty for DMs).
+#[frb]
+pub fn send_file(
+    peer_id: Option<String>,
+    server_id: Option<String>,
+    channel_id: Option<String>,
+    file_path: String,
+    message_id: String,
+    message_text: String,
+) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let peer: Option<libp2p::PeerId> = match &peer_id {
+        Some(id) if !id.is_empty() => Some(
+            id.parse()
+                .map_err(|e| format!("Invalid peer ID: {e}"))?,
+        ),
+        _ => None,
+    };
+
+    let rt = get_runtime();
+    rt.block_on(
+        state
+            .cmd_tx
+            .send(node::NodeCommand::SendFile {
+                peer_id: peer,
+                server_id,
+                channel_id,
+                file_path,
+                message_id,
+                message_text,
+            }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Request file chunks from a specific peer.
+#[frb]
+pub fn request_file_from_peer(
+    file_id: String,
+    peer_id: String,
+    chunks: Vec<u32>,
+) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let peer: libp2p::PeerId = peer_id
+        .parse()
+        .map_err(|e| format!("Invalid peer ID: {e}"))?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state
+            .cmd_tx
+            .send(node::NodeCommand::RequestFile {
+                file_id,
+                peer_id: peer,
+                chunks,
+            }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Convert a WebP image file to another format (PNG/JPEG).
+/// Used for "Save As" functionality.
+#[frb]
+pub fn convert_image_format(
+    source_path: String,
+    target_format: String,
+) -> Result<Vec<u8>, String> {
+    let data = std::fs::read(&source_path)
+        .map_err(|e| format!("Failed to read source file: {e}"))?;
+    crate::node::image_convert::convert_from_webp(&data, &target_format)
+}
+
+/// Get the files directory path.
+#[frb]
+pub fn get_files_dir() -> String {
+    crate::node::file_transfer::files_dir()
+        .to_string_lossy()
+        .to_string()
 }

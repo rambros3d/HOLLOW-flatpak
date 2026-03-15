@@ -218,6 +218,50 @@ Future<void> joinRoom({required String roomCode}) =>
 /// Stop the running node.
 Future<void> stopNode() => RustLib.instance.api.crateApiNetworkStopNode();
 
+/// Send a file to a DM peer or server channel.
+/// `peer_id`: target peer (for DMs, empty for channels).
+/// `server_id` + `channel_id`: target channel (for servers, empty for DMs).
+Future<void> sendFile({
+  String? peerId,
+  String? serverId,
+  String? channelId,
+  required String filePath,
+  required String messageId,
+  required String messageText,
+}) => RustLib.instance.api.crateApiNetworkSendFile(
+  peerId: peerId,
+  serverId: serverId,
+  channelId: channelId,
+  filePath: filePath,
+  messageId: messageId,
+  messageText: messageText,
+);
+
+/// Request file chunks from a specific peer.
+Future<void> requestFileFromPeer({
+  required String fileId,
+  required String peerId,
+  required List<int> chunks,
+}) => RustLib.instance.api.crateApiNetworkRequestFileFromPeer(
+  fileId: fileId,
+  peerId: peerId,
+  chunks: chunks,
+);
+
+/// Convert a WebP image file to another format (PNG/JPEG).
+/// Used for "Save As" functionality.
+Future<Uint8List> convertImageFormat({
+  required String sourcePath,
+  required String targetFormat,
+}) => RustLib.instance.api.crateApiNetworkConvertImageFormat(
+  sourcePath: sourcePath,
+  targetFormat: targetFormat,
+);
+
+/// Get the files directory path.
+Future<String> getFilesDir() =>
+    RustLib.instance.api.crateApiNetworkGetFilesDir();
+
 /// A discovered peer on the local network.
 class DiscoveredPeer {
   final String peerId;
@@ -420,4 +464,29 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String channelId,
     required String messageId,
   }) = NetworkEvent_MessageUnpinned;
+  const factory NetworkEvent.fileHeaderReceived({
+    required String fileId,
+    required String fileName,
+    required BigInt sizeBytes,
+    required bool isImage,
+    int? width,
+    int? height,
+    required String messageId,
+    required String senderId,
+    required String serverId,
+    required String channelId,
+  }) = NetworkEvent_FileHeaderReceived;
+  const factory NetworkEvent.fileProgress({
+    required String fileId,
+    required int chunksReceived,
+    required int totalChunks,
+  }) = NetworkEvent_FileProgress;
+  const factory NetworkEvent.fileCompleted({
+    required String fileId,
+    required String diskPath,
+  }) = NetworkEvent_FileCompleted;
+  const factory NetworkEvent.fileFailed({
+    required String fileId,
+    required String error,
+  }) = NetworkEvent_FileFailed;
 }

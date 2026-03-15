@@ -26,6 +26,7 @@ pub(crate) struct StoredMessage {
     pub edited_at: Option<i64>,
     pub hidden_at: Option<i64>,
     pub reply_to_mid: Option<String>,
+    pub file_id: Option<String>,
 }
 
 /// A stored channel message.
@@ -43,6 +44,30 @@ pub(crate) struct StoredChannelMessage {
     pub edited_at: Option<i64>,
     pub hidden_at: Option<i64>,
     pub reply_to_mid: Option<String>,
+    pub file_id: Option<String>,
+}
+
+/// A stored file metadata entry.
+pub(crate) struct StoredFile {
+    pub file_id: String,
+    pub file_name: String,
+    pub file_ext: String,
+    pub mime_type: String,
+    pub size_bytes: u64,
+    pub chunk_count: u32,
+    pub chunks_received: u32,
+    pub is_image: bool,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub message_id: Option<String>,
+    pub context_type: String,  // "dm" or "channel"
+    pub context_id: String,    // peer_id for DM, "server_id:channel_id" for channel
+    pub sender_id: String,
+    pub is_mine: bool,
+    pub created_at: i64,
+    pub completed_at: Option<i64>,
+    pub disk_path: Option<String>,
+    pub hidden_at: Option<i64>,
 }
 
 /// Encrypted SQLite message store.
@@ -375,6 +400,64 @@ impl MessageStore {
         )
         .map_err(|e| format!("Failed to create mls_identity table: {e}"))?;
 
+        // -- File sharing (Phase 3.5) --
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS files (
+                file_id         TEXT PRIMARY KEY,
+                file_name       TEXT NOT NULL,
+                file_ext        TEXT NOT NULL,
+                mime_type       TEXT NOT NULL,
+                size_bytes      INTEGER NOT NULL,
+                chunk_count     INTEGER NOT NULL,
+                chunks_received INTEGER NOT NULL DEFAULT 0,
+                is_image        INTEGER NOT NULL DEFAULT 0,
+                width           INTEGER,
+                height          INTEGER,
+                message_id      TEXT,
+                context_type    TEXT NOT NULL,
+                context_id      TEXT NOT NULL,
+                sender_id       TEXT NOT NULL,
+                is_mine         INTEGER NOT NULL DEFAULT 0,
+                created_at      INTEGER NOT NULL,
+                completed_at    INTEGER,
+                disk_path       TEXT,
+                hidden_at       INTEGER
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create files table: {e}"))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_files_message ON files (message_id)",
+            [],
+        )
+        .map_err(|e| format!("Failed to create files message_id index: {e}"))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_files_context ON files (context_type, context_id)",
+            [],
+        )
+        .map_err(|e| format!("Failed to create files context index: {e}"))?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS file_chunks (
+                file_id     TEXT    NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                received_at INTEGER NOT NULL,
+                PRIMARY KEY (file_id, chunk_index)
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create file_chunks table: {e}"))?;
+
+        // -- Migration: file_id column on messages --
+        conn.execute_batch(
+            "ALTER TABLE messages ADD COLUMN file_id TEXT;"
+        ).unwrap_or(());
+        conn.execute_batch(
+            "ALTER TABLE channel_messages ADD COLUMN file_id TEXT;"
+        ).unwrap_or(());
+
         Ok(MessageStore { conn })
     }
 
@@ -389,11 +472,12 @@ impl MessageStore {
         public_key: Option<&str>,
         message_id: Option<&str>,
         reply_to_mid: Option<&str>,
+        file_id: Option<&str>,
     ) -> Result<i64, String> {
         let rows = self.conn
             .execute(
-                "INSERT OR IGNORE INTO messages (peer_id, text, is_mine, timestamp, signature, public_key, message_id, reply_to_mid) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![peer_id, text, is_mine as i32, timestamp, signature, public_key, message_id, reply_to_mid],
+                "INSERT OR IGNORE INTO messages (peer_id, text, is_mine, timestamp, signature, public_key, message_id, reply_to_mid, file_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![peer_id, text, is_mine as i32, timestamp, signature, public_key, message_id, reply_to_mid, file_id],
             )
             .map_err(|e| format!("Failed to insert message: {e}"))?;
         if rows > 0 {
@@ -488,7 +572,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid
+                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id, file_id
                  FROM messages
                  WHERE peer_id = ?1 AND hidden_at IS NULL
                  ORDER BY id DESC
@@ -510,6 +594,7 @@ impl MessageStore {
                     edited_at: row.get(8)?,
                     hidden_at: row.get(9)?,
                     reply_to_mid: row.get(10)?,
+                    file_id: row.get(11)?,
                 })
             })
             .map_err(|e| format!("Failed to query messages: {e}"))?;
@@ -558,7 +643,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid
+                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id, file_id
                  FROM messages
                  WHERE peer_id = ?1 AND timestamp >= ?2 AND is_mine = 1
                  ORDER BY timestamp ASC
@@ -580,6 +665,7 @@ impl MessageStore {
                     edited_at: row.get(8)?,
                     hidden_at: row.get(9)?,
                     reply_to_mid: row.get(10)?,
+                    file_id: row.get(11)?,
                 })
             })
             .map_err(|e| format!("Failed to query dm_messages_since: {e}"))?;
@@ -725,12 +811,13 @@ impl MessageStore {
         public_key: Option<&str>,
         message_id: Option<&str>,
         reply_to_mid: Option<&str>,
+        file_id: Option<&str>,
     ) -> Result<usize, String> {
         let rows = self.conn
             .execute(
-                "INSERT OR IGNORE INTO channel_messages (server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, reply_to_mid)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                params![server_id, channel_id, sender_id, text, is_mine as i32, timestamp, signature, public_key, message_id, reply_to_mid],
+                "INSERT OR IGNORE INTO channel_messages (server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, reply_to_mid, file_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![server_id, channel_id, sender_id, text, is_mine as i32, timestamp, signature, public_key, message_id, reply_to_mid, file_id],
             )
             .map_err(|e| format!("Failed to insert channel message: {e}"))?;
         Ok(rows)
@@ -747,7 +834,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid
+                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id
                  FROM channel_messages
                  WHERE server_id = ?1 AND channel_id = ?2 AND hidden_at IS NULL
                  ORDER BY id DESC
@@ -771,6 +858,7 @@ impl MessageStore {
                     edited_at: row.get(10)?,
                     hidden_at: row.get(11)?,
                     reply_to_mid: row.get(12)?,
+                    file_id: row.get(13)?,
                 })
             })
             .map_err(|e| format!("Failed to query channel_messages: {e}"))?;
@@ -820,7 +908,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid
+                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id
                  FROM channel_messages
                  WHERE server_id = ?1 AND channel_id = ?2 AND timestamp > ?3
                  ORDER BY timestamp ASC
@@ -846,6 +934,7 @@ impl MessageStore {
                         edited_at: row.get(10)?,
                         hidden_at: row.get(11)?,
                         reply_to_mid: row.get(12)?,
+                        file_id: row.get(13)?,
                     })
                 },
             )
@@ -984,6 +1073,7 @@ impl MessageStore {
                     edited_at: row.get(10)?,
                     hidden_at: row.get(11)?,
                     reply_to_mid: row.get(12)?,
+                    file_id: row.get(13)?,
                 })
             })
             .map_err(|e| format!("Failed to query per_sender_since: {e}"))?;
@@ -1573,7 +1663,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid
+                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id
                  FROM channel_messages
                  WHERE server_id = ?1 AND channel_id = ?2 AND hidden_at IS NULL AND text LIKE ?3
                  ORDER BY id DESC
@@ -1597,6 +1687,7 @@ impl MessageStore {
                     edited_at: row.get(10)?,
                     hidden_at: row.get(11)?,
                     reply_to_mid: row.get(12)?,
+                    file_id: row.get(13)?,
                 })
             })
             .map_err(|e| format!("Failed to search messages: {e}"))?;
@@ -1620,7 +1711,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid
+                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id
                  FROM messages
                  WHERE peer_id = ?1 AND hidden_at IS NULL AND text LIKE ?2
                  ORDER BY id DESC
@@ -1642,6 +1733,7 @@ impl MessageStore {
                     edited_at: row.get(8)?,
                     hidden_at: row.get(9)?,
                     reply_to_mid: row.get(10)?,
+                    file_id: row.get(11)?,
                 })
             })
             .map_err(|e| format!("Failed to search DM messages: {e}"))?;
@@ -1767,5 +1859,266 @@ impl MessageStore {
             Some(Err(e)) => Err(format!("Failed to read setting: {e}")),
             None => Ok(None),
         }
+    }
+
+    // ── File sharing storage ────────────────────────────────────────
+
+    /// Insert file metadata (called when FileHeader is received or file is sent).
+    pub fn insert_file_metadata(
+        &self,
+        file_id: &str,
+        file_name: &str,
+        file_ext: &str,
+        mime_type: &str,
+        size_bytes: u64,
+        chunk_count: u32,
+        is_image: bool,
+        width: Option<u32>,
+        height: Option<u32>,
+        message_id: Option<&str>,
+        context_type: &str,
+        context_id: &str,
+        sender_id: &str,
+        is_mine: bool,
+        created_at: i64,
+    ) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO files
+                 (file_id, file_name, file_ext, mime_type, size_bytes,
+                  chunk_count, is_image, width, height, message_id,
+                  context_type, context_id, sender_id, is_mine, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                params![
+                    file_id, file_name, file_ext, mime_type,
+                    size_bytes as i64, chunk_count, is_image as i32,
+                    width.map(|w| w as i64), height.map(|h| h as i64),
+                    message_id, context_type, context_id, sender_id,
+                    is_mine as i32, created_at,
+                ],
+            )
+            .map_err(|e| format!("Failed to insert file metadata: {e}"))?;
+        Ok(())
+    }
+
+    /// Mark a chunk as received. Returns the new chunks_received count.
+    pub fn mark_chunk_received(
+        &self,
+        file_id: &str,
+        chunk_index: u32,
+    ) -> Result<u32, String> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO file_chunks (file_id, chunk_index, received_at)
+                 VALUES (?1, ?2, ?3)",
+                params![file_id, chunk_index, now],
+            )
+            .map_err(|e| format!("Failed to insert file chunk: {e}"))?;
+
+        // Update the counter on the files table.
+        self.conn
+            .execute(
+                "UPDATE files SET chunks_received = (
+                     SELECT COUNT(*) FROM file_chunks WHERE file_id = ?1
+                 ) WHERE file_id = ?1",
+                params![file_id],
+            )
+            .map_err(|e| format!("Failed to update chunks_received: {e}"))?;
+
+        // Return current count.
+        let count: u32 = self
+            .conn
+            .query_row(
+                "SELECT chunks_received FROM files WHERE file_id = ?1",
+                params![file_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Failed to read chunks_received: {e}"))?;
+        Ok(count)
+    }
+
+    /// Mark a file as fully received.
+    pub fn mark_file_complete(
+        &self,
+        file_id: &str,
+        disk_path: &str,
+    ) -> Result<(), String> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        self.conn
+            .execute(
+                "UPDATE files SET completed_at = ?1, disk_path = ?2 WHERE file_id = ?3",
+                params![now, disk_path, file_id],
+            )
+            .map_err(|e| format!("Failed to mark file complete: {e}"))?;
+        Ok(())
+    }
+
+    /// Get file metadata by file_id.
+    pub fn get_file_metadata(&self, file_id: &str) -> Result<Option<StoredFile>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT file_id, file_name, file_ext, mime_type, size_bytes,
+                        chunk_count, chunks_received, is_image, width, height,
+                        message_id, context_type, context_id, sender_id, is_mine,
+                        created_at, completed_at, disk_path, hidden_at
+                 FROM files WHERE file_id = ?1",
+            )
+            .map_err(|e| format!("Failed to prepare file query: {e}"))?;
+
+        let result = stmt
+            .query_row(params![file_id], |row| {
+                Ok(StoredFile {
+                    file_id: row.get(0)?,
+                    file_name: row.get(1)?,
+                    file_ext: row.get(2)?,
+                    mime_type: row.get(3)?,
+                    size_bytes: row.get::<_, i64>(4)? as u64,
+                    chunk_count: row.get::<_, u32>(5)?,
+                    chunks_received: row.get::<_, u32>(6)?,
+                    is_image: row.get::<_, i32>(7)? != 0,
+                    width: row.get::<_, Option<i64>>(8)?.map(|v| v as u32),
+                    height: row.get::<_, Option<i64>>(9)?.map(|v| v as u32),
+                    message_id: row.get(10)?,
+                    context_type: row.get(11)?,
+                    context_id: row.get(12)?,
+                    sender_id: row.get(13)?,
+                    is_mine: row.get::<_, i32>(14)? != 0,
+                    created_at: row.get(15)?,
+                    completed_at: row.get(16)?,
+                    disk_path: row.get(17)?,
+                    hidden_at: row.get(18)?,
+                })
+            })
+            .ok();
+
+        Ok(result)
+    }
+
+    /// Get all files attached to a specific message.
+    pub fn get_files_for_message(&self, message_id: &str) -> Result<Vec<StoredFile>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT file_id, file_name, file_ext, mime_type, size_bytes,
+                        chunk_count, chunks_received, is_image, width, height,
+                        message_id, context_type, context_id, sender_id, is_mine,
+                        created_at, completed_at, disk_path, hidden_at
+                 FROM files WHERE message_id = ?1",
+            )
+            .map_err(|e| format!("Failed to prepare files query: {e}"))?;
+
+        let rows = stmt
+            .query_map(params![message_id], |row| {
+                Ok(StoredFile {
+                    file_id: row.get(0)?,
+                    file_name: row.get(1)?,
+                    file_ext: row.get(2)?,
+                    mime_type: row.get::<_, String>(3)?,
+                    size_bytes: row.get::<_, i64>(4)? as u64,
+                    chunk_count: row.get::<_, u32>(5)?,
+                    chunks_received: row.get::<_, u32>(6)?,
+                    is_image: row.get::<_, i32>(7)? != 0,
+                    width: row.get::<_, Option<i64>>(8)?.map(|v| v as u32),
+                    height: row.get::<_, Option<i64>>(9)?.map(|v| v as u32),
+                    message_id: row.get(10)?,
+                    context_type: row.get(11)?,
+                    context_id: row.get(12)?,
+                    sender_id: row.get(13)?,
+                    is_mine: row.get::<_, i32>(14)? != 0,
+                    created_at: row.get(15)?,
+                    completed_at: row.get(16)?,
+                    disk_path: row.get(17)?,
+                    hidden_at: row.get(18)?,
+                })
+            })
+            .map_err(|e| format!("Failed to query files: {e}"))?;
+
+        let mut files = Vec::new();
+        for row in rows {
+            files.push(row.map_err(|e| format!("Failed to read file row: {e}"))?);
+        }
+        Ok(files)
+    }
+
+    /// Get all incomplete files (for sync resume).
+    pub fn get_incomplete_files(&self) -> Result<Vec<StoredFile>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT file_id, file_name, file_ext, mime_type, size_bytes,
+                        chunk_count, chunks_received, is_image, width, height,
+                        message_id, context_type, context_id, sender_id, is_mine,
+                        created_at, completed_at, disk_path, hidden_at
+                 FROM files WHERE completed_at IS NULL AND hidden_at IS NULL",
+            )
+            .map_err(|e| format!("Failed to prepare incomplete files query: {e}"))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(StoredFile {
+                    file_id: row.get(0)?,
+                    file_name: row.get(1)?,
+                    file_ext: row.get(2)?,
+                    mime_type: row.get::<_, String>(3)?,
+                    size_bytes: row.get::<_, i64>(4)? as u64,
+                    chunk_count: row.get::<_, u32>(5)?,
+                    chunks_received: row.get::<_, u32>(6)?,
+                    is_image: row.get::<_, i32>(7)? != 0,
+                    width: row.get::<_, Option<i64>>(8)?.map(|v| v as u32),
+                    height: row.get::<_, Option<i64>>(9)?.map(|v| v as u32),
+                    message_id: row.get(10)?,
+                    context_type: row.get(11)?,
+                    context_id: row.get(12)?,
+                    sender_id: row.get(13)?,
+                    is_mine: row.get::<_, i32>(14)? != 0,
+                    created_at: row.get(15)?,
+                    completed_at: row.get(16)?,
+                    disk_path: row.get(17)?,
+                    hidden_at: row.get(18)?,
+                })
+            })
+            .map_err(|e| format!("Failed to query incomplete files: {e}"))?;
+
+        let mut files = Vec::new();
+        for row in rows {
+            files.push(row.map_err(|e| format!("Failed to read file row: {e}"))?);
+        }
+        Ok(files)
+    }
+
+    /// Get missing chunk indices for a file.
+    pub fn get_missing_chunks(&self, file_id: &str) -> Result<Vec<u32>, String> {
+        let file = self.get_file_metadata(file_id)?;
+        let file = match file {
+            Some(f) => f,
+            None => return Err(format!("File not found: {file_id}")),
+        };
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT chunk_index FROM file_chunks WHERE file_id = ?1",
+            )
+            .map_err(|e| format!("Failed to prepare chunks query: {e}"))?;
+
+        let received: std::collections::HashSet<u32> = stmt
+            .query_map(params![file_id], |row| row.get::<_, u32>(0))
+            .map_err(|e| format!("Failed to query chunks: {e}"))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let missing: Vec<u32> = (0..file.chunk_count)
+            .filter(|i| !received.contains(i))
+            .collect();
+
+        Ok(missing)
     }
 }

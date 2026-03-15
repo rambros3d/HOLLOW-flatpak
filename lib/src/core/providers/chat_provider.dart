@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/models/chat_message.dart';
+import 'package:haven/src/core/models/file_attachment.dart';
 import 'package:haven/src/core/providers/identity_provider.dart';
 import 'package:haven/src/core/providers/service_providers.dart';
 import 'package:haven/src/rust/api/network.dart' as network_api;
@@ -235,6 +236,34 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
         } catch (_) {}
       }
 
+      // Load file attachments for messages that have file_id.
+      final fileIds = stored
+          .where((m) => m.fileId != null)
+          .map((m) => m.fileId!)
+          .toSet();
+      Map<String, FileAttachment> fileMap = {};
+      for (final fid in fileIds) {
+        try {
+          final info = await storage_api.getFileMetadata(fileId: fid);
+          if (info != null) {
+            fileMap[fid] = FileAttachment(
+              fileId: info.fileId,
+              fileName: info.fileName,
+              fileExt: info.fileExt,
+              mimeType: info.mimeType,
+              sizeBytes: info.sizeBytes.toInt(),
+              isImage: info.isImage,
+              width: info.width?.toInt(),
+              height: info.height?.toInt(),
+              totalChunks: info.chunkCount,
+              chunksReceived: info.chunksReceived,
+              isComplete: info.completedAt != null,
+              diskPath: info.diskPath,
+            );
+          }
+        } catch (_) {}
+      }
+
       final messages = stored
           .map((m) => ChatMessage(
                 text: m.text,
@@ -250,6 +279,9 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
                 replyToMid: m.replyToMid,
                 reactions: m.messageId != null
                     ? reactionsMap[m.messageId]
+                    : null,
+                fileAttachment: m.fileId != null
+                    ? fileMap[m.fileId]
                     : null,
               ))
           .toList();

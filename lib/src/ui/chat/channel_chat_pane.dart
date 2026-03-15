@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/providers/channel_chat_provider.dart';
+import 'package:haven/src/core/providers/chat_provider.dart' show generateMessageId;
+import 'package:haven/src/core/providers/file_transfer_provider.dart';
 import 'package:haven/src/core/providers/identity_provider.dart';
 import 'package:haven/src/core/providers/member_panel_provider.dart';
 import 'package:haven/src/core/providers/unread_provider.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:haven/src/core/providers/peers_provider.dart';
 import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/server_provider.dart';
@@ -311,6 +314,22 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
         .sendMessage(widget.serverId, widget.channelId, text,
             replyToMid: replyMid);
     _scrollToBottom();
+  }
+
+  Future<void> _pickAndSendFile() async {
+    final result = await FilePicker.platform.pickFiles();
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.first;
+    if (file.path == null) return;
+
+    final messageId = generateMessageId();
+    await ref.read(fileTransferProvider.notifier).sendFile(
+          serverId: widget.serverId,
+          channelId: widget.channelId,
+          filePath: file.path!,
+          messageId: messageId,
+          messageText: '',
+        );
   }
 
   @override
@@ -831,6 +850,18 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
           ),
           child: Row(
             children: [
+              // File attachment button
+              HavenPressable(
+                onTap: _pickAndSendFile,
+                borderRadius: BorderRadius.circular(haven.radiusMd),
+                padding: const EdgeInsets.all(HavenSpacing.sm),
+                child: Icon(
+                  LucideIcons.paperclip,
+                  color: haven.textSecondary,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: HavenSpacing.xs),
               Expanded(
                 child: Focus(
                   onKeyEvent: (_, event) => handleChatInputKey(

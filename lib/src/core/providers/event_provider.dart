@@ -14,6 +14,7 @@ import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/sync_progress_provider.dart';
 import 'package:haven/src/core/providers/typing_provider.dart';
 import 'package:haven/src/core/providers/pinned_provider.dart';
+import 'package:haven/src/core/providers/file_transfer_provider.dart';
 import 'package:haven/src/core/providers/friends_provider.dart';
 import 'package:haven/src/core/providers/member_panel_provider.dart';
 import 'package:haven/src/core/providers/unread_provider.dart';
@@ -388,6 +389,37 @@ class EventStreamNotifier extends Notifier<bool> {
             :final serverId, :final channelId, :final messageId):
         debugPrint('[HAVEN] Message unpinned: $messageId in $serverId/$channelId');
         ref.read(pinnedProvider.notifier).applyUnpin(serverId, channelId, messageId);
+
+      // -- File transfer events (Phase 3.5) --
+      case NetworkEvent_FileHeaderReceived(
+            :final fileId, :final fileName, :final sizeBytes,
+            :final isImage, :final width, :final height,
+            messageId: _, senderId: _,
+            serverId: _, channelId: _):
+        debugPrint('[HAVEN] File header: $fileId ($fileName, $sizeBytes bytes)');
+        ref.read(fileTransferProvider.notifier).onFileHeaderReceived(
+              fileId: fileId,
+              fileName: fileName,
+              sizeBytes: sizeBytes.toInt(),
+              isImage: isImage,
+              width: width?.toInt(),
+              height: height?.toInt(),
+            );
+
+      case NetworkEvent_FileProgress(
+            :final fileId, :final chunksReceived, :final totalChunks):
+        ref.read(fileTransferProvider.notifier).onFileProgress(
+              fileId, chunksReceived, totalChunks);
+
+      case NetworkEvent_FileCompleted(:final fileId, :final diskPath):
+        debugPrint('[HAVEN] File completed: $fileId at $diskPath');
+        ref.read(fileTransferProvider.notifier).onFileCompleted(
+              fileId, diskPath);
+
+      case NetworkEvent_FileFailed(:final fileId, :final error):
+        debugPrint('[HAVEN] File failed: $fileId — $error');
+        ref.read(fileTransferProvider.notifier).onFileFailed(
+              fileId, error);
     }
   }
 

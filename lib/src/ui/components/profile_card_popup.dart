@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:haven/src/core/providers/friends_provider.dart';
 import 'package:haven/src/core/providers/identity_provider.dart';
 import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
@@ -350,7 +351,6 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                                   width: double.infinity,
                                   child: HavenButton.outline(
                                     onPressed: () {
-                                      // Capture navigator context before dismiss destroys overlay
                                       final navContext =
                                           Navigator.of(context).context;
                                       widget.onDismiss();
@@ -360,6 +360,14 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                                     icon: const Icon(LucideIcons.pencil),
                                     child: const Text('Edit Profile'),
                                   ),
+                                ),
+                              ],
+
+                              // Friend action button (non-self only)
+                              if (!isMe) ...[
+                                const SizedBox(height: HavenSpacing.sm),
+                                _FriendActionButton(
+                                  peerId: widget.peerId,
                                 ),
                               ],
                             ],
@@ -415,6 +423,84 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                 ),
               ),
             ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Friend action button in profile card — shows state-aware button.
+/// - Not a friend: "Add Friend" button
+/// - Pending outgoing: "Request Sent" (disabled)
+/// - Pending incoming: "Accept Request" button
+/// - Accepted: checkmark icon "Friends"
+class _FriendActionButton extends ConsumerWidget {
+  final String peerId;
+
+  const _FriendActionButton({required this.peerId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final haven = HavenTheme.of(context);
+    final friends = ref.watch(friendsProvider);
+    final friendInfo = friends[peerId];
+
+    if (friendInfo == null) {
+      // Not a friend — show "Add Friend" button.
+      return SizedBox(
+        width: double.infinity,
+        child: HavenButton.outline(
+          onPressed: () =>
+              ref.read(friendsProvider.notifier).sendRequest(peerId),
+          compact: true,
+          icon: const Icon(LucideIcons.userPlus),
+          child: const Text('Add Friend'),
+        ),
+      );
+    }
+
+    if (friendInfo.status == 'pending') {
+      if (friendInfo.direction == 'incoming') {
+        // Incoming request — show "Accept" button.
+        return SizedBox(
+          width: double.infinity,
+          child: HavenButton.filled(
+            onPressed: () =>
+                ref.read(friendsProvider.notifier).acceptRequest(peerId),
+            compact: true,
+            icon: const Icon(LucideIcons.check),
+            child: const Text('Accept Request'),
+          ),
+        );
+      }
+      // Outgoing request — show "Pending" indicator.
+      return SizedBox(
+        width: double.infinity,
+        child: HavenButton.ghost(
+          onPressed: null,
+          compact: true,
+          icon: Icon(LucideIcons.clock, color: haven.textSecondary),
+          child: Text(
+            'Request Sent',
+            style: TextStyle(color: haven.textSecondary),
+          ),
+        ),
+      );
+    }
+
+    // Accepted friend — show "Friends" indicator.
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(LucideIcons.userCheck, size: 14, color: haven.success),
+        const SizedBox(width: HavenSpacing.xs),
+        Text(
+          'Friends',
+          style: HavenTypography.body.copyWith(
+            color: haven.success,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],

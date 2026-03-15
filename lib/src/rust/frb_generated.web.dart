@@ -48,6 +48,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkEvent dco_decode_box_autoadd_network_event(dynamic raw);
 
   @protected
+  StoredFileInfo dco_decode_box_autoadd_stored_file_info(dynamic raw);
+
+  @protected
+  int dco_decode_box_autoadd_u_32(dynamic raw);
+
+  @protected
   UserProfile dco_decode_box_autoadd_user_profile(dynamic raw);
 
   @protected
@@ -81,6 +87,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<MemberFfi> dco_decode_list_member_ffi(dynamic raw);
 
   @protected
+  List<int> dco_decode_list_prim_u_32_loose(dynamic raw);
+
+  @protected
+  Uint32List dco_decode_list_prim_u_32_strict(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
@@ -90,6 +102,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<StoredChannelMessage> dco_decode_list_stored_channel_message(
     dynamic raw,
   );
+
+  @protected
+  List<StoredFileInfo> dco_decode_list_stored_file_info(dynamic raw);
 
   @protected
   List<StoredMessage> dco_decode_list_stored_message(dynamic raw);
@@ -116,6 +131,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkEvent? dco_decode_opt_box_autoadd_network_event(dynamic raw);
 
   @protected
+  StoredFileInfo? dco_decode_opt_box_autoadd_stored_file_info(dynamic raw);
+
+  @protected
+  int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
+
+  @protected
   UserProfile? dco_decode_opt_box_autoadd_user_profile(dynamic raw);
 
   @protected
@@ -125,6 +146,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   StoredChannelMessage dco_decode_stored_channel_message(dynamic raw);
 
   @protected
+  StoredFileInfo dco_decode_stored_file_info(dynamic raw);
+
+  @protected
   StoredMessage dco_decode_stored_message(dynamic raw);
 
   @protected
@@ -132,6 +156,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int dco_decode_u_32(dynamic raw);
+
+  @protected
+  BigInt dco_decode_u_64(dynamic raw);
 
   @protected
   int dco_decode_u_8(dynamic raw);
@@ -170,6 +197,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  StoredFileInfo sse_decode_box_autoadd_stored_file_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
+
+  @protected
   UserProfile sse_decode_box_autoadd_user_profile(SseDeserializer deserializer);
 
   @protected
@@ -203,6 +238,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<MemberFfi> sse_decode_list_member_ffi(SseDeserializer deserializer);
 
   @protected
+  List<int> sse_decode_list_prim_u_32_loose(SseDeserializer deserializer);
+
+  @protected
+  Uint32List sse_decode_list_prim_u_32_strict(SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
@@ -210,6 +251,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<StoredChannelMessage> sse_decode_list_stored_channel_message(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<StoredFileInfo> sse_decode_list_stored_file_info(
     SseDeserializer deserializer,
   );
 
@@ -244,6 +290,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  StoredFileInfo? sse_decode_opt_box_autoadd_stored_file_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
+
+  @protected
   UserProfile? sse_decode_opt_box_autoadd_user_profile(
     SseDeserializer deserializer,
   );
@@ -257,6 +311,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  StoredFileInfo sse_decode_stored_file_info(SseDeserializer deserializer);
+
+  @protected
   StoredMessage sse_decode_stored_message(SseDeserializer deserializer);
 
   @protected
@@ -264,6 +321,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
+
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_8(SseDeserializer deserializer);
@@ -309,6 +369,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     NetworkEvent self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_box_autoadd_stored_file_info(
+    StoredFileInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_user_profile(
@@ -359,6 +428,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_prim_u_32_loose(
+    List<int> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_prim_u_32_strict(
+    Uint32List self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -373,6 +454,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_stored_channel_message(
     List<StoredChannelMessage> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_stored_file_info(
+    List<StoredFileInfo> self,
     SseSerializer serializer,
   );
 
@@ -416,6 +503,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_stored_file_info(
+    StoredFileInfo? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_user_profile(
     UserProfile? self,
     SseSerializer serializer,
@@ -431,6 +527,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_stored_file_info(
+    StoredFileInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_stored_message(StoredMessage self, SseSerializer serializer);
 
   @protected
@@ -441,6 +543,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_8(int self, SseSerializer serializer);

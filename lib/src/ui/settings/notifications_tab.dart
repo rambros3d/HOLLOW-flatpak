@@ -147,6 +147,8 @@ class _NotificationLevelSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final haven = HavenTheme.of(context);
+
     return Row(
       children: [
         _LevelChip(
@@ -161,6 +163,7 @@ class _NotificationLevelSelector extends StatelessWidget {
           icon: LucideIcons.atSign,
           isSelected: value == NotificationLevel.mentions,
           onTap: () => onChanged(NotificationLevel.mentions),
+          activeColor: haven.warning,
         ),
         const SizedBox(width: HavenSpacing.sm),
         _LevelChip(
@@ -168,6 +171,7 @@ class _NotificationLevelSelector extends StatelessWidget {
           icon: LucideIcons.bellOff,
           isSelected: value == NotificationLevel.nothing,
           onTap: () => onChanged(NotificationLevel.nothing),
+          activeColor: haven.error,
         ),
       ],
     );
@@ -181,16 +185,20 @@ class _LevelChip extends StatelessWidget {
   final bool isSelected;
   final VoidCallback onTap;
 
+  final Color? activeColor;
+
   const _LevelChip({
     required this.label,
     required this.icon,
     required this.isSelected,
     required this.onTap,
+    this.activeColor,
   });
 
   @override
   Widget build(BuildContext context) {
     final haven = HavenTheme.of(context);
+    final color = activeColor ?? haven.accent;
 
     return GestureDetector(
       onTap: onTap,
@@ -204,13 +212,11 @@ class _LevelChip extends StatelessWidget {
           ),
           decoration: BoxDecoration(
             color: isSelected
-                ? haven.accent.withValues(alpha: 0.15)
+                ? color.withValues(alpha: 0.15)
                 : haven.surface,
             borderRadius: BorderRadius.circular(haven.radiusMd),
             border: Border.all(
-              color: isSelected
-                  ? haven.accent
-                  : haven.border,
+              color: isSelected ? color : haven.border,
             ),
           ),
           child: Row(
@@ -219,13 +225,13 @@ class _LevelChip extends StatelessWidget {
               Icon(
                 icon,
                 size: 14,
-                color: isSelected ? haven.accent : haven.textSecondary,
+                color: isSelected ? color : haven.textSecondary,
               ),
               const SizedBox(width: HavenSpacing.xs),
               Text(
                 label,
                 style: HavenTypography.body.copyWith(
-                  color: isSelected ? haven.accent : haven.textSecondary,
+                  color: isSelected ? color : haven.textSecondary,
                   fontSize: 12,
                   fontWeight:
                       isSelected ? FontWeight.w600 : FontWeight.w400,

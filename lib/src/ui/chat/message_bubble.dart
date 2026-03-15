@@ -6,6 +6,7 @@ import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
+import 'package:haven/src/ui/chat/file_attachment_widget.dart';
 import 'package:haven/src/ui/chat/message_text_parser.dart';
 import 'package:haven/src/ui/chat/reaction_bar.dart';
 import 'package:haven/src/ui/components/haven_avatar.dart';
@@ -118,6 +119,15 @@ class MessageBubble extends ConsumerWidget {
           : null,
     );
 
+    final fileWidget = message.fileAttachment != null
+        ? Padding(
+            padding: const EdgeInsets.only(top: HavenSpacing.xs),
+            child: FileAttachmentWidget(
+              attachment: message.fileAttachment!,
+            ),
+          )
+        : null;
+
     final reactionBarWidget = message.reactions.isNotEmpty && onToggleReaction != null
         ? ReactionBar(
             reactions: message.reactions,
@@ -179,6 +189,7 @@ class MessageBubble extends ConsumerWidget {
                     const SizedBox(height: 3),
                     ?replyWidget,
                     messageTextWidget,
+                    ?fileWidget,
                     ?reactionBarWidget,
                   ],
                 ),
@@ -204,6 +215,7 @@ class MessageBubble extends ConsumerWidget {
         children: [
           ?replyWidget,
           messageTextWidget,
+          ?fileWidget,
           ?reactionBarWidget,
         ],
       ),

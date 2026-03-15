@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `derive_db_key`, `get_store`
+// These functions are ignored because they are not marked as `pub`: `derive_db_key`, `get_store`, `stored_file_to_ffi`
 
 /// Open the encrypted message database. Must be called after identity is loaded.
 /// Typically called once at app start (after `load_or_create_identity`).
@@ -124,6 +124,20 @@ Future<List<StoredChannelMessage>> loadChannelMessages({
   limit: limit,
 );
 
+/// Get file metadata by file ID.
+Future<StoredFileInfo?> getFileMetadata({required String fileId}) =>
+    RustLib.instance.api.crateApiStorageGetFileMetadata(fileId: fileId);
+
+/// Get all files attached to a message.
+Future<List<StoredFileInfo>> getFilesForMessage({required String messageId}) =>
+    RustLib.instance.api.crateApiStorageGetFilesForMessage(
+      messageId: messageId,
+    );
+
+/// Get all incomplete files (for sync resume).
+Future<List<StoredFileInfo>> getIncompleteFiles() =>
+    RustLib.instance.api.crateApiStorageGetIncompleteFiles();
+
 /// A friend entry returned to Dart.
 class FriendFfi {
   final String peerId;
@@ -175,6 +189,7 @@ class StoredChannelMessage {
   final PlatformInt64? editedAt;
   final PlatformInt64? hiddenAt;
   final String? replyToMid;
+  final String? fileId;
 
   const StoredChannelMessage({
     required this.id,
@@ -190,6 +205,7 @@ class StoredChannelMessage {
     this.editedAt,
     this.hiddenAt,
     this.replyToMid,
+    this.fileId,
   });
 
   @override
@@ -206,7 +222,8 @@ class StoredChannelMessage {
       messageId.hashCode ^
       editedAt.hashCode ^
       hiddenAt.hashCode ^
-      replyToMid.hashCode;
+      replyToMid.hashCode ^
+      fileId.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -225,7 +242,96 @@ class StoredChannelMessage {
           messageId == other.messageId &&
           editedAt == other.editedAt &&
           hiddenAt == other.hiddenAt &&
-          replyToMid == other.replyToMid;
+          replyToMid == other.replyToMid &&
+          fileId == other.fileId;
+}
+
+/// File metadata returned to Dart.
+class StoredFileInfo {
+  final String fileId;
+  final String fileName;
+  final String fileExt;
+  final String mimeType;
+  final BigInt sizeBytes;
+  final int chunkCount;
+  final int chunksReceived;
+  final bool isImage;
+  final int? width;
+  final int? height;
+  final String? messageId;
+  final String contextType;
+  final String contextId;
+  final String senderId;
+  final bool isMine;
+  final PlatformInt64 createdAt;
+  final PlatformInt64? completedAt;
+  final String? diskPath;
+
+  const StoredFileInfo({
+    required this.fileId,
+    required this.fileName,
+    required this.fileExt,
+    required this.mimeType,
+    required this.sizeBytes,
+    required this.chunkCount,
+    required this.chunksReceived,
+    required this.isImage,
+    this.width,
+    this.height,
+    this.messageId,
+    required this.contextType,
+    required this.contextId,
+    required this.senderId,
+    required this.isMine,
+    required this.createdAt,
+    this.completedAt,
+    this.diskPath,
+  });
+
+  @override
+  int get hashCode =>
+      fileId.hashCode ^
+      fileName.hashCode ^
+      fileExt.hashCode ^
+      mimeType.hashCode ^
+      sizeBytes.hashCode ^
+      chunkCount.hashCode ^
+      chunksReceived.hashCode ^
+      isImage.hashCode ^
+      width.hashCode ^
+      height.hashCode ^
+      messageId.hashCode ^
+      contextType.hashCode ^
+      contextId.hashCode ^
+      senderId.hashCode ^
+      isMine.hashCode ^
+      createdAt.hashCode ^
+      completedAt.hashCode ^
+      diskPath.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is StoredFileInfo &&
+          runtimeType == other.runtimeType &&
+          fileId == other.fileId &&
+          fileName == other.fileName &&
+          fileExt == other.fileExt &&
+          mimeType == other.mimeType &&
+          sizeBytes == other.sizeBytes &&
+          chunkCount == other.chunkCount &&
+          chunksReceived == other.chunksReceived &&
+          isImage == other.isImage &&
+          width == other.width &&
+          height == other.height &&
+          messageId == other.messageId &&
+          contextType == other.contextType &&
+          contextId == other.contextId &&
+          senderId == other.senderId &&
+          isMine == other.isMine &&
+          createdAt == other.createdAt &&
+          completedAt == other.completedAt &&
+          diskPath == other.diskPath;
 }
 
 /// A message returned to Dart from the local database.
@@ -241,6 +347,7 @@ class StoredMessage {
   final PlatformInt64? editedAt;
   final PlatformInt64? hiddenAt;
   final String? replyToMid;
+  final String? fileId;
 
   const StoredMessage({
     required this.id,
@@ -254,6 +361,7 @@ class StoredMessage {
     this.editedAt,
     this.hiddenAt,
     this.replyToMid,
+    this.fileId,
   });
 
   @override
@@ -268,7 +376,8 @@ class StoredMessage {
       messageId.hashCode ^
       editedAt.hashCode ^
       hiddenAt.hashCode ^
-      replyToMid.hashCode;
+      replyToMid.hashCode ^
+      fileId.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -285,7 +394,8 @@ class StoredMessage {
           messageId == other.messageId &&
           editedAt == other.editedAt &&
           hiddenAt == other.hiddenAt &&
-          replyToMid == other.replyToMid;
+          replyToMid == other.replyToMid &&
+          fileId == other.fileId;
 }
 
 class StoredReaction {

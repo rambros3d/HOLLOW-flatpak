@@ -18,6 +18,7 @@ pub struct StoredMessage {
     pub edited_at: Option<i64>,
     pub hidden_at: Option<i64>,
     pub reply_to_mid: Option<String>,
+    pub file_id: Option<String>,
 }
 
 // Global message store: None = not opened, Some = ready.
@@ -80,7 +81,7 @@ pub fn save_message(
     let store = get_store();
     let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
     let ms = guard.as_ref().ok_or("Message store is not open")?;
-    ms.insert(&peer_id, &text, is_mine, timestamp, signature.as_deref(), public_key.as_deref(), None, None)
+    ms.insert(&peer_id, &text, is_mine, timestamp, signature.as_deref(), public_key.as_deref(), None, None, None)
 }
 
 /// Load recent messages for a peer from the local database.
@@ -106,6 +107,7 @@ pub fn load_messages(peer_id: String, limit: i32) -> Result<Vec<StoredMessage>, 
             edited_at: r.edited_at,
             hidden_at: r.hidden_at,
             reply_to_mid: r.reply_to_mid,
+            file_id: r.file_id,
         })
         .collect())
 }
@@ -235,6 +237,7 @@ pub fn search_channel_messages(
                     edited_at: m.edited_at,
                     hidden_at: m.hidden_at,
                     reply_to_mid: m.reply_to_mid,
+                    file_id: m.file_id,
                 })
                 .collect()
         })
@@ -265,6 +268,7 @@ pub fn search_dm_messages(
                     edited_at: m.edited_at,
                     hidden_at: m.hidden_at,
                     reply_to_mid: m.reply_to_mid,
+                    file_id: m.file_id,
                 })
                 .collect()
         })
@@ -315,6 +319,7 @@ pub struct StoredChannelMessage {
     pub edited_at: Option<i64>,
     pub hidden_at: Option<i64>,
     pub reply_to_mid: Option<String>,
+    pub file_id: Option<String>,
 }
 
 /// Save a channel message to the local database.
@@ -332,7 +337,7 @@ pub fn save_channel_message(
     let store = get_store();
     let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
     let ms = guard.as_ref().ok_or("Message store is not open")?;
-    ms.insert_channel_message(&server_id, &channel_id, &sender_id, &text, is_mine, timestamp, signature.as_deref(), public_key.as_deref(), None, None)
+    ms.insert_channel_message(&server_id, &channel_id, &sender_id, &text, is_mine, timestamp, signature.as_deref(), public_key.as_deref(), None, None, None)
         .map(|n| n as i64)
 }
 
@@ -365,6 +370,87 @@ pub fn load_channel_messages(
             edited_at: r.edited_at,
             hidden_at: r.hidden_at,
             reply_to_mid: r.reply_to_mid,
+            file_id: r.file_id,
         })
+        .collect())
+}
+
+// ── File sharing storage FFI ────────────────────────────────────
+
+/// File metadata returned to Dart.
+pub struct StoredFileInfo {
+    pub file_id: String,
+    pub file_name: String,
+    pub file_ext: String,
+    pub mime_type: String,
+    pub size_bytes: u64,
+    pub chunk_count: u32,
+    pub chunks_received: u32,
+    pub is_image: bool,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub message_id: Option<String>,
+    pub context_type: String,
+    pub context_id: String,
+    pub sender_id: String,
+    pub is_mine: bool,
+    pub created_at: i64,
+    pub completed_at: Option<i64>,
+    pub disk_path: Option<String>,
+}
+
+fn stored_file_to_ffi(f: crate::storage::messages::StoredFile) -> StoredFileInfo {
+    StoredFileInfo {
+        file_id: f.file_id,
+        file_name: f.file_name,
+        file_ext: f.file_ext,
+        mime_type: f.mime_type,
+        size_bytes: f.size_bytes,
+        chunk_count: f.chunk_count,
+        chunks_received: f.chunks_received,
+        is_image: f.is_image,
+        width: f.width,
+        height: f.height,
+        message_id: f.message_id,
+        context_type: f.context_type,
+        context_id: f.context_id,
+        sender_id: f.sender_id,
+        is_mine: f.is_mine,
+        created_at: f.created_at,
+        completed_at: f.completed_at,
+        disk_path: f.disk_path,
+    }
+}
+
+/// Get file metadata by file ID.
+#[frb]
+pub fn get_file_metadata(file_id: String) -> Result<Option<StoredFileInfo>, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+    Ok(ms.get_file_metadata(&file_id)?.map(stored_file_to_ffi))
+}
+
+/// Get all files attached to a message.
+#[frb]
+pub fn get_files_for_message(message_id: String) -> Result<Vec<StoredFileInfo>, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+    Ok(ms.get_files_for_message(&message_id)?
+        .into_iter()
+        .map(stored_file_to_ffi)
+        .collect())
+}
+
+/// Get all incomplete files (for sync resume).
+#[frb]
+pub fn get_incomplete_files() -> Result<Vec<StoredFileInfo>, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+    Ok(ms.get_incomplete_files()?
+        .into_iter()
+        .map(stored_file_to_ffi)
         .collect())
 }

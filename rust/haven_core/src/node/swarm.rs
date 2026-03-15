@@ -164,6 +164,32 @@ pub(crate) enum NetworkEvent {
     // -- Pinned message events (Phase 3.5) --
     MessagePinned { server_id: String, channel_id: String, message_id: String },
     MessageUnpinned { server_id: String, channel_id: String, message_id: String },
+    // -- File transfer events (Phase 3.5) --
+    FileHeaderReceived {
+        file_id: String,
+        file_name: String,
+        size_bytes: u64,
+        is_image: bool,
+        width: Option<u32>,
+        height: Option<u32>,
+        message_id: String,
+        sender_id: String,
+        server_id: String,    // empty for DMs
+        channel_id: String,   // peer_id for DMs
+    },
+    FileProgress {
+        file_id: String,
+        chunks_received: u32,
+        total_chunks: u32,
+    },
+    FileCompleted {
+        file_id: String,
+        disk_path: String,
+    },
+    FileFailed {
+        file_id: String,
+        error: String,
+    },
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
@@ -210,6 +236,20 @@ pub(crate) enum NodeCommand {
     // -- Pinned messages (Phase 3.5) --
     PinMessage { server_id: String, channel_id: String, message_id: String },
     UnpinMessage { server_id: String, channel_id: String, message_id: String },
+    // -- File sharing (Phase 3.5) --
+    SendFile {
+        peer_id: Option<PeerId>,          // For DMs (None for channels)
+        server_id: Option<String>,         // For channels
+        channel_id: Option<String>,        // For channels
+        file_path: String,                 // Local path to file
+        message_id: String,
+        message_text: String,
+    },
+    RequestFile {
+        file_id: String,
+        peer_id: PeerId,
+        chunks: Vec<u32>,
+    },
 }
 
 // -- Wire protocol types (v2: encrypted) --
@@ -392,6 +432,32 @@ enum HavenMessage {
         /// Total message count the peer has for this channel (for load estimation).
         msg_count: u32,
     },
+
+    // -- File sharing (Phase 3.5) --
+
+    /// Request file chunks from a peer.
+    #[serde(rename = "file_req")]
+    FileRequest {
+        file_id: String,
+        /// Which chunks we need (empty = all).
+        #[serde(default)]
+        chunks: Vec<u32>,
+    },
+
+    /// "Do you have this file?"
+    #[serde(rename = "file_probe")]
+    FileProbe {
+        file_id: String,
+    },
+
+    /// Response: "I have this file / these chunks."
+    #[serde(rename = "file_probe_resp")]
+    FileProbeResponse {
+        file_id: String,
+        has_file: bool,
+        #[serde(default)]
+        available_chunks: Vec<u32>,
+    },
 }
 
 /// Envelope for the plaintext body inside an Encrypted message.
@@ -417,6 +483,9 @@ enum MessageEnvelope {
         /// Message ID this is replying to (optional).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reply_to: Option<String>,
+        /// File attachment ID (optional).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        file_id: Option<String>,
     },
     #[serde(rename = "ch")]
     ChannelMessage {
@@ -437,6 +506,9 @@ enum MessageEnvelope {
         /// Message ID this is replying to (optional).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reply_to: Option<String>,
+        /// File attachment ID (optional).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        file_id: Option<String>,
     },
     #[serde(rename = "ch_sync")]
     ChannelSyncBatch {
@@ -534,6 +606,59 @@ enum MessageEnvelope {
         sid: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cid: Option<String>,
+    },
+
+    // -- File sharing (Phase 3.5) --
+
+    /// File metadata header — sent before file chunks.
+    #[serde(rename = "file_hdr")]
+    FileHeader {
+        /// Unique file ID (32-char hex).
+        fid: String,
+        /// Original file name.
+        name: String,
+        /// File extension.
+        ext: String,
+        /// MIME type.
+        mime: String,
+        /// Total size in bytes.
+        size: u64,
+        /// Number of chunks.
+        chunks: u32,
+        /// Is this an image?
+        #[serde(default)]
+        img: bool,
+        /// Image width (if image).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        w: Option<u32>,
+        /// Image height (if image).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        h: Option<u32>,
+        /// Message ID this file is attached to.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mid: Option<String>,
+        /// Server ID (for channel files).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sid: Option<String>,
+        /// Channel ID (for channel files).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cid: Option<String>,
+        ts: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sig: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pk: Option<String>,
+    },
+
+    /// A single file chunk (base64-encoded data).
+    #[serde(rename = "file_chunk")]
+    FileChunk {
+        /// File ID this chunk belongs to.
+        fid: String,
+        /// 0-based chunk index.
+        idx: u32,
+        /// Base64-encoded chunk data (up to 256KB decoded).
+        data: String,
     },
 }
 
@@ -1509,6 +1634,7 @@ async fn run_swarm(
                             pk: pk.clone(),
                             mid: Some(message_id.clone()),
                             reply_to: reply_to_mid.clone(),
+                            file_id: None,
                         };
                         let envelope_json = serde_json::to_string(&envelope)
                             .unwrap_or_else(|_| text.clone());
@@ -1524,7 +1650,7 @@ async fn run_swarm(
                                 let _ = store.insert(
                                     &peer_id_str, &text, true, dm_timestamp,
                                     sig.as_deref(), pk.as_deref(), Some(&message_id),
-                                    reply_to_mid.as_deref(),
+                                    reply_to_mid.as_deref(), None,
                                 );
                             }
                         }
@@ -1604,6 +1730,7 @@ async fn run_swarm(
                             pk: pk.clone(),
                             mid: Some(message_id.clone()),
                             reply_to: reply_to_mid.clone(),
+                            file_id: None,
                         };
                         let envelope_json = serde_json::to_string(&envelope)
                             .unwrap_or_else(|_| text.clone());
@@ -1675,7 +1802,7 @@ async fn run_swarm(
                             let _ = store.insert_channel_message(
                                 &server_id, &channel_id, &local_peer, &text, true, timestamp,
                                 sig.as_deref(), pk.as_deref(), Some(&message_id),
-                                reply_to_mid.as_deref(),
+                                reply_to_mid.as_deref(), None,
                             );
                         }
                     }
@@ -3471,6 +3598,386 @@ async fn run_swarm(
                         }
                     }
 
+                    // -- File sharing (Phase 3.5) --
+                    NodeCommand::SendFile { peer_id, server_id, channel_id, file_path, message_id, message_text } => {
+                        use crate::node::file_transfer;
+                        use crate::node::image_convert;
+
+                        haven_log!("[HAVEN-FILE] SendFile: {file_path} mid={message_id}");
+
+                        // 1. Read file from disk.
+                        let file_data = match std::fs::read(&file_path) {
+                            Ok(d) => d,
+                            Err(e) => {
+                                haven_log!("[HAVEN-FILE] Failed to read file: {e}");
+                                let _ = event_tx.send(NetworkEvent::FileFailed {
+                                    file_id: message_id.clone(),
+                                    error: format!("Failed to read file: {e}"),
+                                }).await;
+                                continue;
+                            }
+                        };
+
+                        // 2. Extract filename and extension.
+                        let path = std::path::Path::new(&file_path);
+                        let original_name = path.file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        let original_ext = path.extension()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_lowercase();
+
+                        // 3. Check size limit (34MB default).
+                        let max_size = if let Some(ref sid) = server_id {
+                            server_states.get(sid)
+                                .and_then(|s| s.settings.get("max_file_size_mb"))
+                                .and_then(|reg| reg.read().parse::<u64>().ok())
+                                .unwrap_or(34) * 1024 * 1024
+                        } else {
+                            file_transfer::DEFAULT_MAX_FILE_SIZE
+                        };
+
+                        if file_data.len() as u64 > max_size {
+                            haven_log!("[HAVEN-FILE] File too large: {} > {}", file_data.len(), max_size);
+                            let _ = event_tx.send(NetworkEvent::FileFailed {
+                                file_id: message_id.clone(),
+                                error: format!("File too large ({}MB limit)", max_size / 1024 / 1024),
+                            }).await;
+                            continue;
+                        }
+
+                        // 4. Convert to WebP if image.
+                        let mime = file_transfer::mime_from_ext(&original_ext);
+                        let is_image = file_transfer::is_image_mime(&mime);
+                        let (final_data, final_ext, width, height) = if is_image && image_convert::should_convert_to_webp(&original_ext) {
+                            match image_convert::convert_to_webp_lossless(&file_data) {
+                                Ok((webp_data, w, h)) => {
+                                    haven_log!("[HAVEN-FILE] Converted to WebP: {}KB -> {}KB ({}x{})",
+                                        file_data.len() / 1024, webp_data.len() / 1024, w, h);
+                                    (webp_data, "webp".to_string(), Some(w), Some(h))
+                                }
+                                Err(e) => {
+                                    haven_log!("[HAVEN-FILE] WebP conversion failed, sending original: {e}");
+                                    let dims = image_convert::get_image_dimensions(&file_data).ok();
+                                    (file_data.clone(), original_ext.clone(), dims.map(|d| d.0), dims.map(|d| d.1))
+                                }
+                            }
+                        } else if is_image && original_ext == "webp" {
+                            let dims = image_convert::get_image_dimensions(&file_data).ok();
+                            (file_data.clone(), original_ext.clone(), dims.map(|d| d.0), dims.map(|d| d.1))
+                        } else {
+                            (file_data.clone(), original_ext.clone(), None, None)
+                        };
+
+                        // 5. Generate file ID and chunk.
+                        let file_id = file_transfer::generate_file_id();
+                        let chunks = file_transfer::chunk_file(&final_data);
+                        let total_chunks = chunks.len() as u32;
+                        let file_size = final_data.len() as u64;
+                        let final_mime = file_transfer::mime_from_ext(&final_ext);
+
+                        haven_log!("[HAVEN-FILE] File {file_id}: {original_name} -> {total_chunks} chunks, {file_size} bytes");
+
+                        // 6. Store file locally.
+                        let final_path = file_transfer::final_file_path(&file_id, &final_ext);
+                        if let Err(e) = std::fs::write(&final_path, &final_data) {
+                            haven_log!("[HAVEN-FILE] Failed to save local file: {e}");
+                        }
+
+                        let local_peer = swarm.local_peer_id().to_string();
+                        let timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64;
+
+                        // 7. Save file metadata to DB.
+                        let ctx_type;
+                        let ctx_id;
+                        if let Some(ref sid) = server_id {
+                            ctx_type = "channel";
+                            ctx_id = format!("{}:{}", sid, channel_id.as_deref().unwrap_or(""));
+                        } else {
+                            ctx_type = "dm";
+                            ctx_id = peer_id.map(|p| p.to_string()).unwrap_or_default();
+                        }
+
+                        {
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                let _ = store.insert_file_metadata(
+                                    &file_id, &original_name, &final_ext, &final_mime,
+                                    file_size, total_chunks, is_image,
+                                    width, height,
+                                    Some(&message_id), ctx_type, &ctx_id,
+                                    &local_peer, true, timestamp,
+                                );
+                                let _ = store.mark_file_complete(
+                                    &file_id,
+                                    &final_path.to_string_lossy(),
+                                );
+                            }
+                        }
+
+                        // 8. Build and send the message with file_id.
+                        let signing_payload_text = if message_text.is_empty() {
+                            format!("[file:{}]", file_id)
+                        } else {
+                            message_text.clone()
+                        };
+
+                        let (sig, pk) = sign_message(&bundle_keypair, &pub_key_b64, &signing_payload_text);
+
+                        if let Some(target_peer) = peer_id {
+                            // DM path
+                            let peer_str = target_peer.to_string();
+                            let envelope = MessageEnvelope::DirectMessage {
+                                text: signing_payload_text.clone(),
+                                ts: timestamp,
+                                sig: sig.clone(),
+                                pk: pk.clone(),
+                                mid: Some(message_id.clone()),
+                                reply_to: None,
+                                file_id: Some(file_id.clone()),
+                            };
+                            let envelope_json = serde_json::to_string(&envelope)
+                                .unwrap_or_else(|_| signing_payload_text.clone());
+
+                            // Store the text message.
+                            {
+                                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                    let _ = store.insert(
+                                        &peer_str, &signing_payload_text, true, timestamp,
+                                        sig.as_deref(), pk.as_deref(), Some(&message_id),
+                                        None, Some(&file_id),
+                                    );
+                                }
+                            }
+
+                            // Encrypt and send the message + FileHeader + FileChunks via Olm.
+                            if olm.has_session(&peer_str) {
+                                // Send message envelope.
+                                send_encrypted_message(
+                                    &mut swarm, &mut olm, &crypto_store,
+                                    &mut pending_requests, &mut outbound_message_text,
+                                    &target_peer, &peer_str, &envelope_json, &event_tx,
+                                ).await;
+
+                                // Send FileHeader.
+                                let header = MessageEnvelope::FileHeader {
+                                    fid: file_id.clone(),
+                                    name: original_name.clone(),
+                                    ext: final_ext.clone(),
+                                    mime: final_mime.clone(),
+                                    size: file_size,
+                                    chunks: total_chunks,
+                                    img: is_image,
+                                    w: width,
+                                    h: height,
+                                    mid: Some(message_id.clone()),
+                                    sid: None,
+                                    cid: None,
+                                    ts: timestamp,
+                                    sig: None,
+                                    pk: None,
+                                };
+                                let header_json = serde_json::to_string(&header).unwrap_or_default();
+                                send_encrypted_message(
+                                    &mut swarm, &mut olm, &crypto_store,
+                                    &mut pending_requests, &mut outbound_message_text,
+                                    &target_peer, &peer_str, &header_json, &event_tx,
+                                ).await;
+
+                                // Send chunks.
+                                for (idx, chunk_data) in chunks.iter().enumerate() {
+                                    let chunk_b64 = base64::engine::general_purpose::STANDARD.encode(chunk_data);
+                                    let chunk_envelope = MessageEnvelope::FileChunk {
+                                        fid: file_id.clone(),
+                                        idx: idx as u32,
+                                        data: chunk_b64,
+                                    };
+                                    let chunk_json = serde_json::to_string(&chunk_envelope).unwrap_or_default();
+                                    send_encrypted_message(
+                                        &mut swarm, &mut olm, &crypto_store,
+                                        &mut pending_requests, &mut outbound_message_text,
+                                        &target_peer, &peer_str, &chunk_json, &event_tx,
+                                    ).await;
+                                }
+                            }
+
+                            haven_log!("[HAVEN-FILE] Sent {total_chunks} chunks for {file_id} to DM {peer_str}");
+
+                        } else if let (Some(sid), Some(cid)) = (server_id, channel_id) {
+                            // Channel path — broadcast via MLS.
+                            let envelope = MessageEnvelope::ChannelMessage {
+                                sid: sid.clone(),
+                                cid: cid.clone(),
+                                text: signing_payload_text.clone(),
+                                ts: timestamp,
+                                sig: sig.clone(),
+                                pk: pk.clone(),
+                                mid: Some(message_id.clone()),
+                                reply_to: None,
+                                file_id: Some(file_id.clone()),
+                            };
+                            let envelope_json = serde_json::to_string(&envelope)
+                                .unwrap_or_else(|_| signing_payload_text.clone());
+
+                            // Store the text message.
+                            {
+                                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                    let _ = store.insert_channel_message(
+                                        &sid, &cid, &local_peer, &signing_payload_text, true, timestamp,
+                                        sig.as_deref(), pk.as_deref(), Some(&message_id),
+                                        None, Some(&file_id),
+                                    );
+                                }
+                            }
+
+                            // Broadcast via MLS to all server members.
+                            if let Some(ref mut mls_mgr) = mls {
+                                if let Ok(ct) = mls_mgr.encrypt(&sid, envelope_json.as_bytes()) {
+                                    let mls_msg = HavenMessage::MlsChannelMessage {
+                                        server_id: sid.clone(),
+                                        body: base64::engine::general_purpose::STANDARD.encode(&ct),
+                                    };
+                                    if let Some(state) = server_states.get(&sid) {
+                                        for member_peer_str in state.members.keys() {
+                                            if member_peer_str == &local_peer { continue; }
+                                            if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                                if connected_peers.contains(&pid) {
+                                                    swarm.behaviour_mut().messaging.send_request(
+                                                        &pid, mls_msg.clone(),
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Collect all envelopes to send via MLS: header + chunks.
+                            let mut file_envelopes: Vec<String> = Vec::new();
+
+                            // FileHeader.
+                            let header = MessageEnvelope::FileHeader {
+                                fid: file_id.clone(),
+                                name: original_name.clone(),
+                                ext: final_ext.clone(),
+                                mime: final_mime.clone(),
+                                size: file_size,
+                                chunks: total_chunks,
+                                img: is_image,
+                                w: width,
+                                h: height,
+                                mid: Some(message_id.clone()),
+                                sid: Some(sid.clone()),
+                                cid: Some(cid.clone()),
+                                ts: timestamp,
+                                sig: None,
+                                pk: None,
+                            };
+                            if let Ok(json) = serde_json::to_string(&header) {
+                                file_envelopes.push(json);
+                            }
+
+                            // File chunks.
+                            for (idx, chunk_data) in chunks.iter().enumerate() {
+                                let chunk_b64 = base64::engine::general_purpose::STANDARD.encode(chunk_data);
+                                let chunk_envelope = MessageEnvelope::FileChunk {
+                                    fid: file_id.clone(),
+                                    idx: idx as u32,
+                                    data: chunk_b64,
+                                };
+                                if let Ok(json) = serde_json::to_string(&chunk_envelope) {
+                                    file_envelopes.push(json);
+                                }
+                            }
+
+                            // Broadcast all via MLS.
+                            if let Some(ref mut mls_mgr) = mls {
+                                for envelope_json in &file_envelopes {
+                                    if let Ok(ct) = mls_mgr.encrypt(&sid, envelope_json.as_bytes()) {
+                                        let body_b64 = base64::engine::general_purpose::STANDARD.encode(&ct);
+                                        let mls_msg = HavenMessage::MlsChannelMessage {
+                                            server_id: sid.clone(),
+                                            body: body_b64,
+                                        };
+                                        if let Some(state) = server_states.get(&sid) {
+                                            for member_peer_str in state.members.keys() {
+                                                if member_peer_str == &local_peer { continue; }
+                                                if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                                    if connected_peers.contains(&pid) {
+                                                        swarm.behaviour_mut().messaging.send_request(
+                                                            &pid, mls_msg.clone(),
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            haven_log!("[HAVEN-FILE] Sent {total_chunks} chunks for {file_id} to channel {cid}");
+                        }
+                    }
+
+                    NodeCommand::RequestFile { file_id, peer_id, chunks } => {
+                        use crate::node::file_transfer;
+                        haven_log!("[HAVEN-FILE] RequestFile: {file_id} from {peer_id}, {} chunks requested", chunks.len());
+                        let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                            if let Ok(Some(file_meta)) = store.get_file_metadata(&file_id) {
+                                if let Some(ref disk_path) = file_meta.disk_path {
+                                    if let Ok(file_data) = std::fs::read(disk_path) {
+                                        let all_chunks = file_transfer::chunk_file(&file_data);
+                                        let peer_str = peer_id.to_string();
+                                        let chunk_indices: Vec<u32> = if chunks.is_empty() {
+                                            (0..all_chunks.len() as u32).collect()
+                                        } else {
+                                            chunks
+                                        };
+                                        for idx in chunk_indices {
+                                            if let Some(chunk_data) = all_chunks.get(idx as usize) {
+                                                let chunk_b64 = base64::engine::general_purpose::STANDARD.encode(chunk_data);
+                                                let chunk_envelope = MessageEnvelope::FileChunk {
+                                                    fid: file_id.clone(),
+                                                    idx,
+                                                    data: chunk_b64,
+                                                };
+                                                let chunk_json = serde_json::to_string(&chunk_envelope).unwrap_or_default();
+                                                if olm.has_session(&peer_str) {
+                                                    send_encrypted_message(
+                                                        &mut swarm, &mut olm, &crypto_store,
+                                                        &mut pending_requests, &mut outbound_message_text,
+                                                        &peer_id, &peer_str, &chunk_json, &event_tx,
+                                                    ).await;
+                                                }
+                                            }
+                                        }
+                                        haven_log!("[HAVEN-FILE] Sent requested chunks for {file_id} to {peer_str}");
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     NodeCommand::NotifyShutdown => {
                         // Broadcast graceful disconnect to all connected peers.
                         haven_log!("[HAVEN-SWARM] Notifying {} peers of shutdown", connected_peers.len());
@@ -4946,7 +5453,7 @@ async fn handle_incoming_request(
             // Detect message envelope and route accordingly.
             let text = String::from_utf8_lossy(&plaintext).to_string();
             match serde_json::from_str::<MessageEnvelope>(&text) {
-                Ok(MessageEnvelope::ChannelMessage { sid, cid, text: msg_text, ts, sig, pk, mid, reply_to }) => {
+                Ok(MessageEnvelope::ChannelMessage { sid, cid, text: msg_text, ts, sig, pk, mid, reply_to, .. }) => {
                     // Verify Ed25519 signature if present.
                     if sig.is_some() {
                         let payload = message_signing_payload(
@@ -4968,7 +5475,7 @@ async fn handle_incoming_request(
                             match store.insert_channel_message(
                                 &sid, &cid, &peer_str, &msg_text, false, ts,
                                 sig.as_deref(), pk.as_deref(), mid.as_deref(),
-                                reply_to.as_deref(),
+                                reply_to.as_deref(), None,
                             ) {
                                 Ok(0) => { is_new = false; } // INSERT OR IGNORE skipped — duplicate
                                 Ok(_) => {}
@@ -5018,7 +5525,7 @@ async fn handle_incoming_request(
                                 match store.insert_channel_message(
                                     &sid, &cid, &msg.s, &msg.t, is_mine, msg.ts,
                                     msg.sig.as_deref(), msg.pk.as_deref(), msg.mid.as_deref(),
-                                    msg.reply_to.as_deref(),
+                                    msg.reply_to.as_deref(), None, // file_id: Phase C sync integration
                                 ) {
                                     Ok(1) => { new_count += 1; }
                                     _ => {} // Duplicate or error — skip.
@@ -5077,7 +5584,7 @@ async fn handle_incoming_request(
                         }).await;
                     }
                 }
-                Ok(MessageEnvelope::DirectMessage { text: msg_text, ts, sig, pk, mid, reply_to }) => {
+                Ok(MessageEnvelope::DirectMessage { text: msg_text, ts, sig, pk, mid, reply_to, .. }) => {
                     // Verify DM signature if present.
                     if sig.is_some() {
                         let local_peer = swarm.local_peer_id().to_string();
@@ -5101,7 +5608,7 @@ async fn handle_incoming_request(
                                 match store.insert(
                                     &peer_str, &msg_text, false, ts,
                                     sig.as_deref(), pk.as_deref(), mid.as_deref(),
-                                    reply_to.as_deref(),
+                                    reply_to.as_deref(), None,
                                 ) {
                                     Ok(0) => { is_new = false; } // Duplicate
                                     Ok(_) => {}
@@ -5153,7 +5660,7 @@ async fn handle_incoming_request(
                                 match store.insert(
                                     &peer_str, &msg.t, false, msg.ts,
                                     msg.sig.as_deref(), msg.pk.as_deref(), msg.mid.as_deref(),
-                                    msg.reply_to.as_deref(),
+                                    msg.reply_to.as_deref(), None, // file_id: Phase C sync integration
                                 ) {
                                     Ok(id) if id > 0 => { new_count += 1; }
                                     _ => {} // Duplicate or error — skip.
@@ -5363,6 +5870,104 @@ async fn handle_incoming_request(
                             removed_at: ts,
                         }).await;
                     }
+                }
+                // -- File transfer receive handlers --
+                Ok(MessageEnvelope::FileHeader { fid, name, ext, mime, size, chunks, img, w, h, mid, sid, cid, ts, .. }) => {
+                    use crate::node::file_transfer;
+                    haven_log!("[HAVEN-FILE] FileHeader received: {fid} ({name}, {size} bytes, {chunks} chunks)");
+
+                    let ctx_type = if sid.is_some() { "channel" } else { "dm" };
+                    let ctx_id = match (&sid, &cid) {
+                        (Some(s), Some(c)) => format!("{s}:{c}"),
+                        _ => peer_str.clone(),
+                    };
+
+                    // Save file metadata to DB.
+                    let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                    if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                            let _ = store.insert_file_metadata(
+                                &fid, &name, &ext, &mime,
+                                size, chunks, img,
+                                w, h,
+                                mid.as_deref(), ctx_type, &ctx_id,
+                                &peer_str, false, ts,
+                            );
+                        }
+                    }
+
+                    let _ = event_tx.send(NetworkEvent::FileHeaderReceived {
+                        file_id: fid,
+                        file_name: name,
+                        size_bytes: size,
+                        is_image: img,
+                        width: w,
+                        height: h,
+                        message_id: mid.unwrap_or_default(),
+                        sender_id: peer_str.clone(),
+                        server_id: sid.unwrap_or_default(),
+                        channel_id: cid.unwrap_or_else(|| peer_str.clone()),
+                    }).await;
+                }
+                Ok(MessageEnvelope::FileChunk { fid, idx, data }) => {
+                    use crate::node::file_transfer;
+                    // Decode base64 chunk data.
+                    let chunk_bytes = base64::engine::general_purpose::STANDARD.decode(&data);
+                    if let Err(e) = &chunk_bytes {
+                        haven_log!("[HAVEN-FILE] Failed to decode chunk {idx} for {fid}: {e}");
+                    }
+                    if let Ok(chunk_bytes) = chunk_bytes {
+
+                    // Write chunk to disk.
+                    if let Err(e) = file_transfer::write_chunk(&fid, idx, &chunk_bytes) {
+                        haven_log!("[HAVEN-FILE] {e}");
+                    } else {
+
+                    // Update DB.
+                    let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                    if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                            if let Ok(received) = store.mark_chunk_received(&fid, idx) {
+                                // Get total chunks from file metadata.
+                                if let Ok(Some(file_meta)) = store.get_file_metadata(&fid) {
+                                    let _ = event_tx.send(NetworkEvent::FileProgress {
+                                        file_id: fid.clone(),
+                                        chunks_received: received,
+                                        total_chunks: file_meta.chunk_count,
+                                    }).await;
+
+                                    // Check if all chunks received.
+                                    if received >= file_meta.chunk_count {
+                                        let final_path = file_transfer::final_file_path(&fid, &file_meta.file_ext);
+                                        match file_transfer::assemble_file(&fid, file_meta.chunk_count, &final_path) {
+                                            Ok(()) => {
+                                                let disk_path = final_path.to_string_lossy().to_string();
+                                                let _ = store.mark_file_complete(&fid, &disk_path);
+                                                haven_log!("[HAVEN-FILE] File {fid} complete: {disk_path}");
+                                                let _ = event_tx.send(NetworkEvent::FileCompleted {
+                                                    file_id: fid,
+                                                    disk_path,
+                                                }).await;
+                                            }
+                                            Err(e) => {
+                                                haven_log!("[HAVEN-FILE] Assembly failed for {fid}: {e}");
+                                                let _ = event_tx.send(NetworkEvent::FileFailed {
+                                                    file_id: fid,
+                                                    error: e,
+                                                }).await;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    } // else (write_chunk ok)
+                    } // if let Ok(chunk_bytes)
                 }
                 Err(_) => {
                     // Legacy raw-text DM (backward compatible).
@@ -6104,7 +6709,7 @@ async fn handle_incoming_request(
                         // Parse the plaintext as a MessageEnvelope.
                         let envelope_str = String::from_utf8_lossy(&plaintext);
                         if let Ok(envelope) = serde_json::from_str::<MessageEnvelope>(&envelope_str) {
-                            if let MessageEnvelope::ChannelMessage { sid, cid, text, ts, sig, pk, mid, reply_to } = envelope {
+                            if let MessageEnvelope::ChannelMessage { sid, cid, text, ts, sig, pk, mid, reply_to, .. } = envelope {
                                 // Verify Ed25519 signature.
                                 let signing_payload = message_signing_payload(
                                     "ch", &format!("{}:{}", sid, cid),
@@ -6129,7 +6734,7 @@ async fn handle_incoming_request(
                                     let rows = store.insert_channel_message(
                                         &sid, &cid, &sender_peer_id, &text, is_mine, ts,
                                         sig.as_deref(), pk.as_deref(), mid.as_deref(),
-                                        reply_to.as_deref(),
+                                        reply_to.as_deref(), None,
                                     );
                                     let is_new = rows.as_ref().map(|&r| r > 0).unwrap_or(false);
                                     if is_new {

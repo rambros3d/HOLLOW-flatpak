@@ -1,3 +1,5 @@
+import 'package:haven/src/core/models/file_attachment.dart';
+
 /// A single channel chat message.
 class ChannelChatMessage {
   final String senderId;
@@ -12,6 +14,8 @@ class ChannelChatMessage {
   final String? replyToMid;
   /// Emoji reactions: emoji → list of peer IDs who reacted.
   final Map<String, List<String>> reactions;
+  /// File attachment (null if text-only message).
+  final FileAttachment? fileAttachment;
 
   ChannelChatMessage({
     required this.senderId,
@@ -25,6 +29,7 @@ class ChannelChatMessage {
     this.hiddenAt,
     this.replyToMid,
     Map<String, List<String>>? reactions,
+    this.fileAttachment,
   })  : timestamp = timestamp ?? DateTime.now(),
         reactions = reactions ?? const {};
 
@@ -34,6 +39,7 @@ class ChannelChatMessage {
     DateTime? editedAt,
     DateTime? hiddenAt,
     Map<String, List<String>>? reactions,
+    FileAttachment? fileAttachment,
   }) {
     return ChannelChatMessage(
       senderId: senderId,
@@ -47,6 +53,7 @@ class ChannelChatMessage {
       hiddenAt: hiddenAt ?? this.hiddenAt,
       replyToMid: replyToMid,
       reactions: reactions ?? this.reactions,
+      fileAttachment: fileAttachment ?? this.fileAttachment,
     );
   }
 }
