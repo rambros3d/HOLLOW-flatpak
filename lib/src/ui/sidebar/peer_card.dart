@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/models/chat_message.dart';
+import 'package:haven/src/core/providers/notification_provider.dart';
 import 'package:haven/src/core/providers/profile_provider.dart';
+import 'package:haven/src/core/providers/unread_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
@@ -38,6 +40,11 @@ class PeerCard extends ConsumerWidget {
     final profiles = ref.watch(profileProvider);
     final peerName = displayNameFor(profiles, peerId);
     final radius = BorderRadius.circular(haven.radiusMd);
+    final isDmMuted = !ref.watch(notificationSettingsProvider.notifier)
+        .isDmEnabled(peerId);
+    final hasUnread = !isSelected &&
+        !isDmMuted &&
+        ref.watch(unreadProvider.notifier).isDmUnread(peerId);
 
     Widget card = HavenPressable(
       onTap: onTap,
@@ -95,7 +102,7 @@ class PeerCard extends ConsumerWidget {
                       peerName,
                       style: HavenTypography.body.copyWith(
                         fontSize: 13,
-                        fontWeight: isSelected
+                        fontWeight: isSelected || hasUnread
                             ? FontWeight.w600
                             : FontWeight.w400,
                         color: haven.textPrimary,
@@ -117,16 +124,33 @@ class PeerCard extends ConsumerWidget {
                   ],
                 ),
               ),
-              // Timestamp
-              if (lastMessage != null)
+              // Timestamp + unread dot
+              if (lastMessage != null || hasUnread)
                 Padding(
                   padding:
                       const EdgeInsets.only(left: HavenSpacing.sm),
-                  child: Text(
-                    formatTime(lastMessage!.timestamp),
-                    style: HavenTypography.caption.copyWith(
-                      color: haven.textSecondary,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (lastMessage != null)
+                        Text(
+                          formatTime(lastMessage!.timestamp),
+                          style: HavenTypography.caption.copyWith(
+                            color: haven.textSecondary,
+                          ),
+                        ),
+                      if (hasUnread) ...[
+                        const SizedBox(width: HavenSpacing.xs),
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: haven.accent,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
             ],

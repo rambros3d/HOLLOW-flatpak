@@ -966,9 +966,10 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [X] System Tray — App working in the background)
 - [X] Friends system & DM overhaul — Rust: `friends` SQLCipher table (peer_id, display_name, added_at, status). Friend request flow: `FriendRequest` → `FriendAccepted`/`FriendDeclined` wire messages over Olm. Friends list persists offline (not just "who's online"). DM sidebar shows all friends (online/offline) with status dots, sorted online-first. DM history persists and loads from DB regardless of connection status. Unfriend removes from list but keeps DM history. No mutual server required — friends are independent of servers.
 - [X] Friends plus other UI improvements
-- [ ] Notifications — system-level (Windows toast / macOS notification center), configurable per server and per channel (all / mentions only / none)
+- [X] Notifications — system-level (Windows toast / macOS notification center), configurable per server and per channel (all / mentions only / none)
 - [X] Search — local full-text search over decrypted messages in SQLCipher. 🎞️ Animate: search bar expand, results list staggered fade-in
 - [X] Keyboard shortcuts (navigate channels, servers, quick-switch, mark as read)
+- [X] Only one process instead of two apps being opened at the same time
 - [ ] Basic file sharing — direct P2P transfer via libp2p, encrypt with MLS/Olm before sending, store locally on receiver. Image/file preview in chat. No erasure coding yet (that's Phase 4). All images auto-converted to lossless WebP on send (25-35% smaller than PNG/JPEG, Flutter decodes natively, Rust `image` crate encodes). "Save as" option converts to user's chosen format (PNG/JPEG/WebP). 🎞️ Animate: upload progress, image shimmer placeholder → fade-in
 
 **Deliverable:** Haven feels like a complete, polished chat app. Ready for daily use with friends.

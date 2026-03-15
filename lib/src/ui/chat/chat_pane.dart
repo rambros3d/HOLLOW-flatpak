@@ -4,8 +4,9 @@ import 'package:haven/src/ui/chat/chat_input_shortcuts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/providers/chat_provider.dart';
 import 'package:haven/src/core/providers/identity_provider.dart';
-import 'package:haven/src/core/providers/member_panel_provider.dart';
+import 'package:haven/src/core/providers/notification_provider.dart';
 import 'package:haven/src/core/providers/peers_provider.dart';
+import 'package:haven/src/core/providers/unread_provider.dart';
 import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/typing_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
@@ -78,6 +79,12 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     _historyLoaded = true;
     await ref.read(chatProvider.notifier).loadHistory(widget.peerId);
     _jumpToBottom();
+    // Mark DM as read now that messages are loaded.
+    final msgs = ref.read(chatProvider)[widget.peerId];
+    final latestId = msgs != null && msgs.isNotEmpty
+        ? msgs.last.messageId
+        : null;
+    ref.read(unreadProvider.notifier).markDmSeen(widget.peerId, latestId);
   }
 
   @override
@@ -253,20 +260,31 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
               ),
               const SizedBox(width: HavenSpacing.xs),
               HavenTooltip(
-                message: 'Toggle member panel',
+                message: ref.watch(notificationSettingsProvider
+                        .select((s) => s.dmEnabled[widget.peerId] ?? true))
+                    ? 'Mute notifications'
+                    : 'Unmute notifications',
                 child: HavenPressable(
                   onTap: () {
-                    ref.read(memberPanelProvider.notifier).state =
-                        !ref.read(memberPanelProvider);
+                    final current = ref
+                        .read(notificationSettingsProvider.notifier)
+                        .isDmEnabled(widget.peerId);
+                    ref
+                        .read(notificationSettingsProvider.notifier)
+                        .setDmEnabled(widget.peerId, !current);
                   },
                   borderRadius: BorderRadius.circular(haven.radiusSm),
                   padding: const EdgeInsets.all(HavenSpacing.xs),
                   child: Icon(
-                    LucideIcons.users,
+                    ref.watch(notificationSettingsProvider
+                            .select((s) => s.dmEnabled[widget.peerId] ?? true))
+                        ? LucideIcons.bell
+                        : LucideIcons.bellOff,
                     size: 18,
-                    color: ref.watch(memberPanelProvider)
-                        ? haven.accent
-                        : haven.textSecondary,
+                    color: ref.watch(notificationSettingsProvider
+                            .select((s) => s.dmEnabled[widget.peerId] ?? true))
+                        ? haven.textSecondary
+                        : haven.textSecondary.withValues(alpha: 0.4),
                   ),
                 ),
               ),

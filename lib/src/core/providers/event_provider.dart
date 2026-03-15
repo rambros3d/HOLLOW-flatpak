@@ -15,6 +15,10 @@ import 'package:haven/src/core/providers/sync_progress_provider.dart';
 import 'package:haven/src/core/providers/typing_provider.dart';
 import 'package:haven/src/core/providers/pinned_provider.dart';
 import 'package:haven/src/core/providers/friends_provider.dart';
+import 'package:haven/src/core/providers/unread_provider.dart';
+import 'package:haven/src/core/providers/notification_provider.dart';
+import 'package:haven/src/core/providers/system_notification_provider.dart';
+import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
 import 'package:haven/src/rust/api/network.dart';
 
 /// Listens to the Rust event stream and dispatches events
@@ -75,6 +79,24 @@ class EventStreamNotifier extends Notifier<bool> {
       case NetworkEvent_MessageReceived(:final fromPeer, :final text, :final timestamp, :final messageId, :final replyToMid):
         ref.read(chatProvider.notifier).receiveMessage(fromPeer, text, timestamp, messageId, replyToMid);
         ref.read(typingProvider.notifier).clearTyping(fromPeer, fromPeer);
+        // Track unread DM — only if not muted.
+        final isViewingDm = ref.read(selectedPeerProvider) == fromPeer &&
+            ref.read(selectedServerProvider) == null;
+        final isDmMuted = !ref
+            .read(notificationSettingsProvider.notifier)
+            .isDmEnabled(fromPeer);
+        if (!isDmMuted) {
+          ref.read(unreadProvider.notifier).onDmMessage(
+              fromPeer, messageId, isViewingDm);
+        }
+        // System notification for DM.
+        if (!isViewingDm && !isDmMuted) {
+          ref.read(systemNotificationProvider.notifier).notifyDm(
+                fromPeerId: fromPeer,
+                text: text,
+                replyToMid: replyToMid,
+              );
+        }
 
       case NetworkEvent_ChannelMessageReceived(
             :final serverId, :final channelId, :final fromPeer, :final text, :final timestamp, :final messageId, :final replyToMid):
@@ -82,6 +104,25 @@ class EventStreamNotifier extends Notifier<bool> {
             .read(channelChatProvider.notifier)
             .receiveMessage(serverId, channelId, fromPeer, text, timestamp, messageId, replyToMid);
         ref.read(typingProvider.notifier).clearTyping('$serverId:$channelId', fromPeer);
+        // Track unread channel message — only if not muted.
+        final isViewingChannel =
+            ref.read(selectedServerProvider) == serverId &&
+                ref.read(selectedChannelProvider) == channelId;
+        final channelNotifLevel = ref
+            .read(notificationSettingsProvider.notifier)
+            .effectiveChannelLevel(serverId, channelId);
+        final isChannelMuted =
+            channelNotifLevel == NotificationLevel.nothing;
+        if (!isChannelMuted) {
+          ref.read(unreadProvider.notifier).onChannelMessage(
+              serverId, channelId, messageId, isViewingChannel);
+        }
+        // System notification for channel message.
+        if (!isViewingChannel && !isChannelMuted) {
+          // Resolve channel name and notify (async, fire-and-forget).
+          _notifyChannelWithName(
+              serverId, channelId, fromPeer, text, replyToMid);
+        }
 
       case NetworkEvent_SessionEstablished(:final peerId):
         ref.read(peersProvider.notifier).markEncrypted(peerId);
@@ -220,8 +261,15 @@ class EventStreamNotifier extends Notifier<bool> {
         debugPrint('[HAVEN] Message sync failed for $serverId: $error');
         ref.read(syncingPeersProvider.notifier).clearServer(serverId);
         ref.read(syncProgressProvider.notifier).clearServer(serverId);
+        // Transient decrypt failures during re-key → show "Retrying"
+        // instead of stuck "Failed" state.
+        final isReKeying = error.contains('re-keying') ||
+            error.contains('re-key');
         ref.read(syncStatusProvider.notifier).setStatus(
-            serverId, ServerSyncStatus.failed);
+            serverId,
+            isReKeying
+                ? ServerSyncStatus.retrying
+                : ServerSyncStatus.failed);
 
       case NetworkEvent_MessageSyncProgress(
             :final serverId, :final channelId, :final receivedCount, :final totalCount):
@@ -339,6 +387,30 @@ class EventStreamNotifier extends Notifier<bool> {
   }
 
   /// When a session is (re-)established with a peer, clear any "Sync failed"
+  /// Resolve channel name and show notification (async helper).
+  Future<void> _notifyChannelWithName(String serverId, String channelId,
+      String fromPeer, String text, String? replyToMid) async {
+    String? chName = ref.read(channelListProvider)[channelId]?.name;
+    if (chName == null) {
+      try {
+        final channels =
+            await crdt_api.getServerChannels(serverId: serverId);
+        chName = channels
+            .where((c) => c.channelId == channelId)
+            .firstOrNull
+            ?.name;
+      } catch (_) {}
+    }
+    ref.read(systemNotificationProvider.notifier).notifyChannel(
+          serverId: serverId,
+          channelId: channelId,
+          fromPeerId: fromPeer,
+          text: text,
+          replyToMid: replyToMid,
+          channelName: chName,
+        );
+  }
+
   /// status for servers where that peer is a member, and re-trigger sync for
   /// the active channel so the UI recovers automatically after re-key.
   void _clearFailedSyncForPeer(String peerId) {

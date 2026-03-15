@@ -9,6 +9,7 @@ import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/settings/channels_tab.dart';
 import 'package:haven/src/ui/settings/danger_zone_tab.dart';
 import 'package:haven/src/ui/settings/members_tab.dart';
+import 'package:haven/src/ui/settings/notifications_tab.dart';
 import 'package:haven/src/ui/settings/overview_tab.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
@@ -54,6 +55,13 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
       isDanger: false,
     ));
 
+    // Notifications — always visible
+    tabs.add((
+      icon: LucideIcons.bell,
+      label: 'Notifications',
+      isDanger: false,
+    ));
+
     // Danger Zone — only for server owner
     if (permissions & Permission.manageServer != 0) {
       tabs.add((
@@ -82,6 +90,8 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
           key: const ValueKey('channels'), serverId: server.serverId),
       'Members' => MembersTab(
           key: const ValueKey('members'), serverId: server.serverId),
+      'Notifications' => NotificationsTab(
+          key: const ValueKey('notifications'), serverId: server.serverId),
       'Danger' => DangerZoneTab(
           key: const ValueKey('danger'), server: server),
       _ => const SizedBox.shrink(),
@@ -214,6 +224,15 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
         Expanded(
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 200),
+            layoutBuilder: (currentChild, previousChildren) {
+              return Stack(
+                alignment: Alignment.topCenter,
+                children: [
+                  ...previousChildren,
+                  ?currentChild,
+                ],
+              );
+            },
             child: _buildTabContent(currentServer, tabs, permissions),
           ),
         ),

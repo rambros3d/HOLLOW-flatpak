@@ -10,8 +10,86 @@ import 'package:haven/src/ui/shader_warmup.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+/// Lock file path — prevents multiple instances.
+late final String _lockFilePath;
+
+/// Check if another instance is already running via lock file.
+/// Returns true if this is the only instance (safe to proceed).
+bool _acquireSingleInstanceLock() {
+  final appDataDir = Platform.environment['APPDATA'] ??
+      Platform.environment['HOME'] ??
+      '.';
+  final sep = Platform.pathSeparator;
+  _lockFilePath = '$appDataDir${sep}Haven${sep}haven.lock';
+
+  // Ensure directory exists.
+  final dir = Directory('$appDataDir${sep}Haven');
+  if (!dir.existsSync()) {
+    dir.createSync(recursive: true);
+  }
+
+  final lockFile = File(_lockFilePath);
+  if (lockFile.existsSync()) {
+    try {
+      final pidStr = lockFile.readAsStringSync().trim();
+      final pid = int.tryParse(pidStr);
+      if (pid != null && _isProcessRunning(pid)) {
+        // Another instance is alive — exit.
+        return false;
+      }
+    } catch (_) {}
+    // Stale lock file — remove it.
+    try {
+      lockFile.deleteSync();
+    } catch (_) {}
+  }
+
+  // Write our PID.
+  try {
+    lockFile.writeAsStringSync('$pid');
+  } catch (_) {}
+
+  return true;
+}
+
+/// Check if a Haven process with the given PID is still running.
+/// Also verifies the process name contains "haven" to avoid false
+/// positives from PID reuse after a crash.
+bool _isProcessRunning(int targetPid) {
+  try {
+    if (Platform.isWindows) {
+      final result = Process.runSync(
+          'tasklist', ['/FI', 'PID eq $targetPid', '/NH']);
+      final output = result.stdout.toString().toLowerCase();
+      // Must match both PID and our process name.
+      return output.contains('$targetPid') && output.contains('haven');
+    } else {
+      // Linux/macOS: check /proc or ps for both PID and name.
+      final result = Process.runSync('ps', ['-p', '$targetPid', '-o', 'comm=']);
+      return result.exitCode == 0 &&
+          result.stdout.toString().toLowerCase().contains('haven');
+    }
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Remove the lock file on exit.
+void _releaseLock() {
+  try {
+    File(_lockFilePath).deleteSync();
+  } catch (_) {}
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Single-instance check — exit if another instance is running.
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    if (!_acquireSingleInstanceLock()) {
+      exit(0);
+    }
+  }
 
   // Pre-compile GPU shaders before the first frame to eliminate
   // shader compilation jank during animations.
@@ -119,6 +197,7 @@ class _HavenTrayListener extends TrayListener {
       await Future.delayed(const Duration(milliseconds: 200));
     } catch (_) {}
     await _hideTrayIcon();
+    _releaseLock();
     await windowManager.destroy();
   }
 }
@@ -145,6 +224,8 @@ class _HavenWindowListener extends WindowListener {
         await network_api.notifyShutdown();
         await Future.delayed(const Duration(milliseconds: 200));
       } catch (_) {}
+      await _hideTrayIcon();
+      _releaseLock();
       await windowManager.destroy();
     }
   }

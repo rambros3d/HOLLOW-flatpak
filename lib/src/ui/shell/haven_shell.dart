@@ -7,6 +7,7 @@ import 'package:haven/src/core/models/channel_info.dart';
 import 'package:haven/src/core/models/chat_message.dart';
 import 'package:haven/src/core/models/node_status.dart';
 import 'package:haven/src/core/models/server_info.dart';
+import 'package:haven/src/core/providers/channel_chat_provider.dart';
 import 'package:haven/src/core/providers/channel_provider.dart';
 import 'package:haven/src/core/providers/chat_provider.dart';
 import 'package:haven/src/core/providers/identity_provider.dart';
@@ -17,6 +18,7 @@ import 'package:haven/src/core/providers/friends_provider.dart';
 import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/selected_peer_provider.dart';
 import 'package:haven/src/core/providers/server_provider.dart';
+import 'package:haven/src/core/providers/unread_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/theme/haven_typography.dart';
@@ -27,6 +29,7 @@ import 'package:haven/src/ui/chat/channel_chat_pane.dart';
 import 'package:haven/src/ui/chat/chat_pane.dart';
 import 'package:haven/src/ui/components/haven_pressable.dart';
 import 'package:haven/src/ui/components/haven_tooltip.dart';
+import 'package:haven/src/ui/components/notification_overlay.dart';
 import 'package:haven/src/ui/dialogs/create_channel_dialog.dart';
 import 'package:haven/src/ui/dialogs/mnemonic_dialog.dart';
 import 'package:haven/src/ui/dialogs/user_settings_dialog.dart';
@@ -199,6 +202,12 @@ class _HavenShellState extends ConsumerState<HavenShell>
       width: width,
       onPeerSelected: (peerId) {
         ref.read(selectedPeerProvider.notifier).state = peerId;
+        // Mark DM as read.
+        final msgs = chatHistory[peerId];
+        final latestId = msgs != null && msgs.isNotEmpty
+            ? msgs.last.messageId
+            : null;
+        ref.read(unreadProvider.notifier).markDmSeen(peerId, latestId);
         // On mobile, switch to chat tab when peer is selected.
         ref.read(mobileTabProvider.notifier).state = 1;
       },
@@ -217,6 +226,14 @@ class _HavenShellState extends ConsumerState<HavenShell>
               ref.read(lastChannelPerServerProvider));
           map[serverId] = channelId;
           ref.read(lastChannelPerServerProvider.notifier).state = map;
+          // Mark channel as read.
+          final chState = ref.read(channelChatProvider);
+          final msgs = chState['$serverId:$channelId'];
+          final latestId = msgs != null && msgs.isNotEmpty
+              ? msgs.last.messageId
+              : null;
+          ref.read(unreadProvider.notifier)
+              .markChannelSeen(serverId, channelId, latestId);
         }
         // On mobile, switch to chat tab when channel is selected.
         ref.read(mobileTabProvider.notifier).state = 1;
@@ -516,7 +533,12 @@ class _HavenShellState extends ConsumerState<HavenShell>
 
         return Scaffold(
           backgroundColor: haven.background,
-          body: body,
+          body: Stack(
+            children: [
+              body,
+              const NotificationOverlay(),
+            ],
+          ),
         );
       },
     );

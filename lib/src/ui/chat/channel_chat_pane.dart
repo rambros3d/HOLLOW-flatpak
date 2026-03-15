@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/providers/channel_chat_provider.dart';
 import 'package:haven/src/core/providers/identity_provider.dart';
 import 'package:haven/src/core/providers/member_panel_provider.dart';
+import 'package:haven/src/core/providers/unread_provider.dart';
 import 'package:haven/src/core/providers/peers_provider.dart';
 import 'package:haven/src/core/providers/profile_provider.dart';
 import 'package:haven/src/core/providers/server_provider.dart';
@@ -73,6 +74,13 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
         .loadHistory(widget.serverId, widget.channelId);
     ref.read(pinnedProvider.notifier).loadPins(widget.serverId, widget.channelId);
     _jumpToBottom();
+    // Mark channel as read now that messages are loaded.
+    final msgs = ref.read(channelChatProvider)['${widget.serverId}:${widget.channelId}'];
+    final latestId = msgs != null && msgs.isNotEmpty
+        ? msgs.last.messageId
+        : null;
+    ref.read(unreadProvider.notifier)
+        .markChannelSeen(widget.serverId, widget.channelId, latestId);
   }
 
   @override

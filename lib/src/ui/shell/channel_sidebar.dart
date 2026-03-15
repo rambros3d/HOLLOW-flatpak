@@ -15,7 +15,9 @@ import 'package:haven/src/ui/animations/reveal_widgets.dart';
 import 'package:haven/src/ui/animations/selection_shimmer.dart';
 import 'package:haven/src/ui/animations/startup_reveal.dart';
 import 'package:haven/src/core/providers/friends_provider.dart';
+import 'package:haven/src/core/providers/notification_provider.dart';
 import 'package:haven/src/core/providers/profile_provider.dart';
+import 'package:haven/src/core/providers/unread_provider.dart';
 import 'package:haven/src/ui/components/haven_avatar.dart';
 import 'package:haven/src/ui/components/haven_button.dart';
 import 'package:haven/src/ui/components/haven_dialog.dart';
@@ -127,6 +129,7 @@ class ChannelSidebar extends StatelessWidget {
                   ? _ServerContent(
                       key: ValueKey('server-${selectedServer!.serverId}'),
                       haven: haven,
+                      serverId: selectedServer!.serverId,
                       channels: channels,
                       selectedChannelId: selectedChannelId,
                       onChannelSelected: onChannelSelected,
@@ -227,6 +230,7 @@ class ChannelSidebar extends StatelessWidget {
 /// Server mode content — channel list with create button.
 class _ServerContent extends StatefulWidget {
   final HavenTheme haven;
+  final String serverId;
   final Map<String, ChannelInfo> channels;
   final String? selectedChannelId;
   final ValueChanged<String> onChannelSelected;
@@ -237,6 +241,7 @@ class _ServerContent extends StatefulWidget {
   const _ServerContent({
     super.key,
     required this.haven,
+    required this.serverId,
     required this.channels,
     required this.selectedChannelId,
     required this.onChannelSelected,
@@ -288,6 +293,7 @@ class _ServerContentState extends State<_ServerContent> {
               visible: !collapsed,
               child: _ChannelTile(
                 channel: channel,
+                serverId: w.serverId,
                 isSelected: channel.channelId == w.selectedChannelId,
                 onTap: () => w.onChannelSelected(channel.channelId),
               ),
@@ -307,6 +313,7 @@ class _ServerContentState extends State<_ServerContent> {
       for (final channel in unplaced) {
         widgets.add(_ChannelTile(
           channel: channel,
+          serverId: w.serverId,
           isSelected: channel.channelId == w.selectedChannelId,
           onTap: () => w.onChannelSelected(channel.channelId),
         ));
@@ -770,21 +777,29 @@ class _PendingRequestTile extends ConsumerWidget {
 }
 
 /// A single channel tile in the channel list.
-class _ChannelTile extends StatelessWidget {
+class _ChannelTile extends ConsumerWidget {
   final ChannelInfo channel;
+  final String serverId;
   final bool isSelected;
   final VoidCallback onTap;
 
   const _ChannelTile({
     required this.channel,
+    required this.serverId,
     required this.isSelected,
     required this.onTap,
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final haven = HavenTheme.of(context);
     final radius = BorderRadius.circular(haven.radiusMd);
+    final isMuted = ref.watch(notificationSettingsProvider.notifier)
+        .isChannelMuted(serverId, channel.channelId);
+    final hasUnread = !isSelected &&
+        !isMuted &&
+        ref.watch(unreadProvider.notifier).isChannelUnread(
+            serverId, channel.channelId);
 
     Widget tile = HavenPressable(
       onTap: onTap,
@@ -801,18 +816,18 @@ class _ChannelTile extends StatelessWidget {
         duration: HavenDurations.fast,
         curve: HavenCurves.subtle,
         style: HavenTypography.body.copyWith(
-          color: isSelected
+          color: isSelected || hasUnread
               ? haven.textPrimary
               : haven.textSecondary,
           fontWeight:
-              isSelected ? FontWeight.w600 : FontWeight.w400,
+              isSelected || hasUnread ? FontWeight.w600 : FontWeight.w400,
         ),
         child: Row(
           children: [
             Icon(
               LucideIcons.hash,
               size: 18,
-              color: isSelected
+              color: isSelected || hasUnread
                   ? haven.textPrimary
                   : haven.textSecondary,
             ),
@@ -823,6 +838,16 @@ class _ChannelTile extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            // Unread dot
+            if (hasUnread)
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: haven.accent,
+                  shape: BoxShape.circle,
+                ),
+              ),
           ],
         ),
       ),

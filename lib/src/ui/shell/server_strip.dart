@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:haven/src/core/providers/channel_provider.dart';
 import 'package:haven/src/core/providers/selected_peer_provider.dart';
 import 'package:haven/src/core/providers/server_provider.dart';
+import 'package:haven/src/core/providers/notification_provider.dart';
+import 'package:haven/src/core/providers/unread_provider.dart';
 import 'package:haven/src/theme/haven_spacing.dart';
 import 'package:haven/src/theme/haven_theme.dart';
 import 'package:haven/src/ui/animations/haven_curves.dart';
@@ -37,9 +39,19 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
 
     final serverEntries = servers.values.toList();
 
-    // Home button
+    final unreadState = ref.watch(unreadProvider);
+
+    // Home button — show unread count if any unmuted DM has unreads.
+    final notifSettings = ref.watch(notificationSettingsProvider.notifier);
+    int dmUnreadTotal = 0;
+    for (final entry in unreadState.dmUnreadCounts.entries) {
+      if (notifSettings.isDmEnabled(entry.key)) {
+        dmUnreadTotal += entry.value;
+      }
+    }
     Widget homeIcon = _ServerIconWithIndicator(
       isSelected: selectedServerId == null,
+      unreadCount: selectedServerId != null ? dmUnreadTotal : 0,
       child: _ServerIcon(
         isSelected: selectedServerId == null,
         backgroundColor: haven.accent,
@@ -119,8 +131,15 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
                 final isNew =
                     !_initialServerIds!.contains(server.serverId);
 
+                final isServerMuted = ref.watch(notificationSettingsProvider.notifier)
+                    .isServerMuted(server.serverId);
+                final serverUnreads = isServerMuted
+                    ? 0
+                    : ref.watch(unreadProvider.notifier)
+                        .serverUnreadCount(server.serverId);
                 Widget icon = _ServerIconWithIndicator(
                   isSelected: isSelected,
+                  unreadCount: isSelected ? 0 : serverUnreads,
                   child: _ServerIcon(
                     isSelected: isSelected,
                     backgroundColor: _colorFromId(server.serverId),
@@ -213,14 +232,17 @@ String _initialsFromName(String name) {
   return name.substring(0, name.length.clamp(0, 2)).toUpperCase();
 }
 
-/// Wraps a server icon with a Discord-style left-edge selection indicator.
+/// Wraps a server icon with a Discord-style left-edge selection indicator
+/// and an optional unread count badge (bottom-right).
 class _ServerIconWithIndicator extends StatefulWidget {
   final bool isSelected;
+  final int unreadCount;
   final Widget child;
 
   const _ServerIconWithIndicator({
     required this.isSelected,
     required this.child,
+    this.unreadCount = 0,
   });
 
   @override
@@ -263,7 +285,43 @@ class _ServerIconWithIndicatorState
               ),
             ),
             const Spacer(),
-            widget.child,
+            // Stack for unread badge overlay.
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                widget.child,
+                if (widget.unreadCount > 0)
+                  Positioned(
+                    right: -6,
+                    bottom: -4,
+                    child: Container(
+                      constraints: const BoxConstraints(minWidth: 16),
+                      height: 16,
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      decoration: BoxDecoration(
+                        color: haven.error,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: haven.background,
+                          width: 2,
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        widget.unreadCount > 99
+                            ? '99+'
+                            : '${widget.unreadCount}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          height: 1,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
             const SizedBox(width: 12),
           ],
         ),
