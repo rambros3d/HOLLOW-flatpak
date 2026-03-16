@@ -28,6 +28,7 @@ import 'package:haven/src/ui/components/haven_tooltip.dart';
 import 'package:haven/src/ui/components/status_dot.dart';
 import 'package:haven/src/rust/api/network.dart' as network_api;
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 /// Whether two consecutive messages should be grouped (same sender, within 5 min).
 bool shouldGroup({
@@ -63,7 +64,9 @@ class ChatPane extends ConsumerStatefulWidget {
 
 class _ChatPaneState extends ConsumerState<ChatPane> {
   final _controller = TextEditingController();
-  final _scrollController = ScrollController();
+  final _itemScrollController = ItemScrollController();
+  final _itemPositionsListener = ItemPositionsListener.create();
+  final _scrollOffsetController = ScrollOffsetController();
   final _focusNode = FocusNode();
   bool _historyLoaded = false;
   bool _isPicking = false;
@@ -74,6 +77,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
   String? _replyToSenderName;
   String? _replyToImagePath;
   DateTime? _lastTypingSent;
+  int? _highlightIndex;
 
   @override
   void initState() {
@@ -85,7 +89,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     if (_historyLoaded) return;
     _historyLoaded = true;
     await ref.read(chatProvider.notifier).loadHistory(widget.peerId);
-    _jumpToBottom();
+    if (mounted) setState(() {});
     // Mark DM as read now that messages are loaded.
     final msgs = ref.read(chatProvider)[widget.peerId];
     final latestId = msgs != null && msgs.isNotEmpty
@@ -97,46 +101,52 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
   @override
   void dispose() {
     _controller.dispose();
-    _scrollController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
   bool get _isNearBottom {
-    if (!_scrollController.hasClients) return true;
-    final pos = _scrollController.position;
-    return pos.maxScrollExtent - pos.pixels < 150;
+    final positions = _itemPositionsListener.itemPositions.value;
+    if (positions.isEmpty) return true;
+    final messages = ref.read(chatProvider)[widget.peerId] ?? [];
+    if (messages.isEmpty) return true;
+    // Check if sentinel (last real message index or beyond) is visible.
+    return positions.any((p) => p.index >= messages.length - 1);
   }
 
-  /// Instant jump — retries until maxScrollExtent stabilizes.
-  int _jumpRetries = 0;
   void _jumpToBottom() {
-    _jumpRetries = 0;
-    _doJump();
-  }
-
-  void _doJump() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) return;
-      final extent = _scrollController.position.maxScrollExtent;
-      _scrollController.jumpTo(extent);
-      if (_jumpRetries < 5) {
-        _jumpRetries++;
-        _doJump();
-      }
+      if (!mounted || !_itemScrollController.isAttached) return;
+      final messages = ref.read(chatProvider)[widget.peerId] ?? [];
+      if (messages.isEmpty) return;
+      // Jump to sentinel item (index == messages.length) at bottom of viewport.
+      _itemScrollController.jumpTo(index: messages.length, alignment: 1.0);
     });
   }
 
-  /// Smooth scroll for new incoming messages.
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
-      }
+      if (!mounted || !_itemScrollController.isAttached) return;
+      // Pixel-level nudge — no crossfade animation.
+      _scrollOffsetController.animateScroll(
+        offset: 100000,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  void _scrollToMessage(int index) {
+    if (!_itemScrollController.isAttached) return;
+    setState(() => _highlightIndex = index);
+    _itemScrollController.scrollTo(
+      index: index,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      alignment: 0.3,
+    );
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (mounted) setState(() => _highlightIndex = null);
     });
   }
 
@@ -438,13 +448,23 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                 : ScrollConfiguration(
                     behavior: ScrollConfiguration.of(context)
                         .copyWith(scrollbars: false),
-                    child: ListView.builder(
-                    controller: _scrollController,
+                    child: ScrollablePositionedList.builder(
+                    key: ValueKey('dm-list-${widget.peerId}'),
+                    itemScrollController: _itemScrollController,
+                    itemPositionsListener: _itemPositionsListener,
+                    scrollOffsetController: _scrollOffsetController,
+                    initialScrollIndex: messages.length,
+                    initialAlignment: 1.0,
                     padding: const EdgeInsets.symmetric(
                       vertical: HavenSpacing.sm,
                     ),
-                    itemCount: messages.length,
+                    itemCount: messages.length + 1,
                     itemBuilder: (context, index) {
+                      // Sentinel item at the end — tiny invisible spacer that
+                      // lets us align "bottom of last message" to viewport bottom.
+                      if (index >= messages.length) {
+                        return const SizedBox.shrink();
+                      }
                       final msg = messages[index];
                       final showHeader = index == 0 ||
                           !shouldGroup(
@@ -519,10 +539,13 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                         child: Builder(builder: (_) {
                           String? replySender;
                           String? replyText;
+                          String? replyImagePath;
+                          int? replyIndex;
                           if (msg.replyToMid != null) {
                             final idx = messages.indexWhere(
                                 (m) => m.messageId == msg.replyToMid);
                             if (idx != -1) {
+                              replyIndex = idx;
                               final original = messages[idx];
                               replyText = original.fileAttachment != null
                                   ? (original.fileAttachment!.isImage ? '📷 Image' : '📎 ${original.fileAttachment!.fileName}')
@@ -532,17 +555,8 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                                   : widget.peerId;
                               replySender =
                                   displayNameFor(profiles, origSenderId);
-                            }
-                          }
-                          // Get reply image path if the original is an image.
-                          String? replyImagePath;
-                          if (msg.replyToMid != null) {
-                            final idx = messages.indexWhere(
-                                (m) => m.messageId == msg.replyToMid);
-                            if (idx != -1) {
-                              final orig = messages[idx];
-                              if (orig.fileAttachment?.isImage == true) {
-                                replyImagePath = orig.fileAttachment?.diskPath;
+                              if (original.fileAttachment?.isImage == true) {
+                                replyImagePath = original.fileAttachment?.diskPath;
                               }
                             }
                           }
@@ -553,6 +567,10 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                             replyToSenderName: replySender,
                             replyToText: replyText,
                             replyToImagePath: replyImagePath,
+                            isHighlighted: _highlightIndex == index,
+                            onReplyTap: replyIndex != null
+                                ? () => _scrollToMessage(replyIndex!)
+                                : null,
                             onToggleReaction: msg.messageId != null
                                 ? (emoji) {
                                     final hasReacted =

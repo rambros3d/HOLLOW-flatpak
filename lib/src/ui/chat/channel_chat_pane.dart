@@ -33,6 +33,7 @@ import 'package:haven/src/ui/components/status_dot.dart';
 import 'package:haven/src/rust/api/network.dart' as network_api;
 import 'package:haven/src/rust/api/storage.dart' as storage_api;
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 class ChannelChatPane extends ConsumerStatefulWidget {
   final String serverId;
@@ -52,7 +53,9 @@ class ChannelChatPane extends ConsumerStatefulWidget {
 
 class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   final _controller = TextEditingController();
-  final _scrollController = ScrollController();
+  final _itemScrollController = ItemScrollController();
+  final _itemPositionsListener = ItemPositionsListener.create();
+  final _scrollOffsetController = ScrollOffsetController();
   final _focusNode = FocusNode();
   bool _historyLoaded = false;
   bool _isPicking = false;
@@ -63,6 +66,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   String? _replyToSenderName;
   String? _replyToImagePath;
   DateTime? _lastTypingSent;
+  int? _highlightIndex;
   final _searchController = TextEditingController();
   List<dynamic> _searchResults = [];
   final _searchFocusNode = FocusNode();
@@ -83,7 +87,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
         .read(channelChatProvider.notifier)
         .loadHistory(widget.serverId, widget.channelId);
     ref.read(pinnedProvider.notifier).loadPins(widget.serverId, widget.channelId);
-    _jumpToBottom();
+    if (mounted) setState(() {});
     // Mark channel as read now that messages are loaded.
     final msgs = ref.read(channelChatProvider)['${widget.serverId}:${widget.channelId}'];
     final latestId = msgs != null && msgs.isNotEmpty
@@ -96,7 +100,6 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   @override
   void dispose() {
     _controller.dispose();
-    _scrollController.dispose();
     _focusNode.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
@@ -106,40 +109,45 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   }
 
   bool get _isNearBottom {
-    if (!_scrollController.hasClients) return true;
-    final pos = _scrollController.position;
-    return pos.maxScrollExtent - pos.pixels < 150;
+    final positions = _itemPositionsListener.itemPositions.value;
+    if (positions.isEmpty) return true;
+    final messages = ref.read(channelChatProvider)[_stateKey] ?? [];
+    if (messages.isEmpty) return true;
+    return positions.any((p) => p.index >= messages.length - 1);
   }
 
-  /// Instant jump — retries until maxScrollExtent stabilizes.
-  int _jumpRetries = 0;
   void _jumpToBottom() {
-    _jumpRetries = 0;
-    _doJump();
-  }
-
-  void _doJump() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) return;
-      final extent = _scrollController.position.maxScrollExtent;
-      _scrollController.jumpTo(extent);
-      // Retry a few times — extent may change as items render.
-      if (_jumpRetries < 5) {
-        _jumpRetries++;
-        _doJump();
-      }
+      if (!mounted || !_itemScrollController.isAttached) return;
+      final messages = ref.read(channelChatProvider)[_stateKey] ?? [];
+      if (messages.isEmpty) return;
+      _itemScrollController.jumpTo(index: messages.length, alignment: 1.0);
     });
   }
 
-  /// Smooth scroll for new incoming messages.
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 200),
+      if (!mounted || !_itemScrollController.isAttached) return;
+      // Pixel-level nudge — no crossfade animation.
+      _scrollOffsetController.animateScroll(
+        offset: 100000,
+        duration: const Duration(milliseconds: 150),
         curve: Curves.easeOut,
       );
+    });
+  }
+
+  void _scrollToMessage(int index) {
+    if (!_itemScrollController.isAttached) return;
+    setState(() => _highlightIndex = index);
+    _itemScrollController.scrollTo(
+      index: index,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      alignment: 0.3,
+    );
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (mounted) setState(() => _highlightIndex = null);
     });
   }
 
@@ -739,13 +747,21 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                 : ScrollConfiguration(
                     behavior: ScrollConfiguration.of(context)
                         .copyWith(scrollbars: false),
-                    child: ListView.builder(
-                    controller: _scrollController,
+                    child: ScrollablePositionedList.builder(
+                    key: ValueKey('ch-list-${widget.serverId}-${widget.channelId}'),
+                    itemScrollController: _itemScrollController,
+                    itemPositionsListener: _itemPositionsListener,
+                    scrollOffsetController: _scrollOffsetController,
+                    initialScrollIndex: messages.length,
+                    initialAlignment: 1.0,
                     padding: const EdgeInsets.symmetric(
                       vertical: HavenSpacing.sm,
                     ),
-                    itemCount: messages.length,
+                    itemCount: messages.length + 1,
                     itemBuilder: (context, index) {
+                      if (index >= messages.length) {
+                        return const SizedBox.shrink();
+                      }
                       final msg = messages[index];
                       final showHeader = index == 0 ||
                           !shouldGroup(
@@ -848,10 +864,13 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                               ref.watch(identityProvider).peerId ?? '';
                           String? replySender;
                           String? replyText;
+                          String? replyImagePath;
+                          int? replyIndex;
                           if (msg.replyToMid != null) {
                             final idx = messages.indexWhere(
                                 (m) => m.messageId == msg.replyToMid);
                             if (idx != -1) {
+                              replyIndex = idx;
                               final original = messages[idx];
                               replyText = original.fileAttachment != null
                                   ? (original.fileAttachment!.isImage ? '📷 Image' : '📎 ${original.fileAttachment!.fileName}')
@@ -861,16 +880,8 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                                 original.senderId,
                                 nickname: nicknames[original.senderId] ?? '',
                               );
-                            }
-                          }
-                          String? replyImagePath;
-                          if (msg.replyToMid != null) {
-                            final idx = messages.indexWhere(
-                                (m) => m.messageId == msg.replyToMid);
-                            if (idx != -1) {
-                              final orig = messages[idx];
-                              if (orig.fileAttachment?.isImage == true) {
-                                replyImagePath = orig.fileAttachment?.diskPath;
+                              if (original.fileAttachment?.isImage == true) {
+                                replyImagePath = original.fileAttachment?.diskPath;
                               }
                             }
                           }
@@ -881,6 +892,10 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                             replyToSenderName: replySender,
                             replyToText: replyText,
                             replyToImagePath: replyImagePath,
+                            isHighlighted: _highlightIndex == index,
+                            onReplyTap: replyIndex != null
+                                ? () => _scrollToMessage(replyIndex!)
+                                : null,
                             onToggleReaction: msg.messageId != null
                                 ? (emoji) {
                                     final hasReacted =

@@ -31,6 +31,8 @@ class MessageBubble extends ConsumerWidget {
   final String? replyToSenderName;
   final String? replyToText;
   final String? replyToImagePath;
+  final bool isHighlighted;
+  final VoidCallback? onReplyTap;
   final void Function(String emoji)? onToggleReaction;
 
   const MessageBubble({
@@ -41,6 +43,8 @@ class MessageBubble extends ConsumerWidget {
     this.replyToSenderName,
     this.replyToText,
     this.replyToImagePath,
+    this.isHighlighted = false,
+    this.onReplyTap,
     this.onToggleReaction,
   });
 
@@ -63,62 +67,72 @@ class MessageBubble extends ConsumerWidget {
 
     final hasReply = message.replyToMid != null && replyToText != null;
 
-    final replyWidget = hasReply
-        ? Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Row(
+    Widget? replyWidget;
+    if (hasReply) {
+      final replyContent = Row(
+        children: [
+          Container(
+            width: 2,
+            height: 28,
+            decoration: BoxDecoration(
+              color: haven.textSecondary.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(1),
+            ),
+          ),
+          const SizedBox(width: HavenSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  width: 2,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: haven.textSecondary.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(1),
+                Text(
+                  replyToSenderName ?? '',
+                  style: HavenTypography.caption.copyWith(
+                    color: haven.accent,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 10,
                   ),
                 ),
-                const SizedBox(width: HavenSpacing.sm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        replyToSenderName ?? '',
-                        style: HavenTypography.caption.copyWith(
-                          color: haven.accent,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 10,
-                        ),
-                      ),
-                      Text(
-                        replyToText!,
-                        style: HavenTypography.caption.copyWith(
-                          color: haven.textSecondary,
-                          fontSize: 11,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
+                Text(
+                  replyToText!,
+                  style: HavenTypography.caption.copyWith(
+                    color: haven.textSecondary,
+                    fontSize: 11,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                if (replyToImagePath != null && File(replyToImagePath!).existsSync())
-                  Padding(
-                    padding: const EdgeInsets.only(left: HavenSpacing.sm),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: Image.file(
-                        File(replyToImagePath!),
-                        width: 32,
-                        height: 32,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  ),
               ],
             ),
-          )
-        : null;
+          ),
+          if (replyToImagePath != null && File(replyToImagePath!).existsSync())
+            Padding(
+              padding: const EdgeInsets.only(left: HavenSpacing.sm),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: Image.file(
+                  File(replyToImagePath!),
+                  width: 32,
+                  height: 32,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
+        ],
+      );
+      replyWidget = Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: onReplyTap != null
+            ? MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: onReplyTap,
+                  child: replyContent,
+                ),
+              )
+            : replyContent,
+      );
+    }
 
     // Hide text when it's a file placeholder or empty with file attachment.
     final isFileOnly = message.fileAttachment != null &&
@@ -164,15 +178,24 @@ class MessageBubble extends ConsumerWidget {
       ),
     );
 
+    final highlightDecoration = isHighlighted
+        ? BoxDecoration(
+            color: haven.accent.withValues(alpha: 0.08),
+            border: isMe ? meDecoration.border : null,
+          )
+        : (isMe ? meDecoration : null);
+
     if (showHeader) {
-      return Container(
+      return AnimatedContainer(
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeOut,
         padding: const EdgeInsets.only(
           top: 4,
           bottom: 4,
           left: HavenSpacing.md,
           right: HavenSpacing.md,
         ),
-        decoration: isMe ? meDecoration : null,
+        decoration: highlightDecoration,
         child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -223,14 +246,16 @@ class MessageBubble extends ConsumerWidget {
 
 
     // Continuation message — indented, no avatar/name.
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeOut,
       padding: const EdgeInsets.only(
         top: 2,
         bottom: 2,
         left: HavenSpacing.md + indent,
         right: HavenSpacing.md,
       ),
-      decoration: isMe ? meDecoration : null,
+      decoration: highlightDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
