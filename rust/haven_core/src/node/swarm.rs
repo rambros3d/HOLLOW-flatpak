@@ -190,6 +190,13 @@ pub(crate) enum NetworkEvent {
         file_id: String,
         error: String,
     },
+    // -- Vault shard events (Phase 4) --
+    ShardStored { server_id: String, content_id: String, shard_index: u16, from_peer: String },
+    ShardStoreAckReceived { server_id: String, content_id: String, shard_index: u16, success: bool, error: String },
+    ShardStoreFailed { server_id: String, content_id: String, shard_index: u16, target_peer: String, error: String },
+    ShardDeleted { server_id: String, content_id: String },
+    ShardReceived { server_id: String, content_id: String, shard_index: u16, from_peer: String },
+    ShardRequestFailed { server_id: String, content_id: String, shard_index: u16, error: String },
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
@@ -251,6 +258,27 @@ pub(crate) enum NodeCommand {
         file_id: String,
         peer_id: PeerId,
         chunks: Vec<u32>,
+    },
+    // -- Vault shard distribution (Phase 4) --
+    DeleteVaultContent { server_id: String, content_id: String },
+    RequestShardFromPeer {
+        server_id: String,
+        content_id: String,
+        shard_index: u16,
+        shard_key: String,
+        target_peer: String,
+    },
+    StoreShardOnPeer {
+        server_id: String,
+        content_id: String,
+        shard_index: u16,
+        shard_key: String,
+        k: u16,
+        m: u16,
+        total_data_size: u64,
+        storage_tier: String,
+        data: Vec<u8>,
+        target_peer: String,
     },
 }
 
@@ -662,6 +690,115 @@ enum MessageEnvelope {
         /// Base64-encoded chunk data (up to 256KB decoded).
         data: String,
     },
+
+    // -- Vault shard store (Phase 4) --
+
+    /// Vault shard store request (header + optional inline data).
+    #[serde(rename = "shard_store")]
+    ShardStore {
+        sid: String,
+        cid: String,
+        si: u16,
+        sk: String,
+        k: u16,
+        m: u16,
+        total_size: u64,
+        tier: String,
+        data: String,
+        chunks: u32,
+    },
+
+    /// Vault shard chunk (for shards > 256KB).
+    #[serde(rename = "shard_chunk")]
+    ShardChunk {
+        sid: String,
+        cid: String,
+        si: u16,
+        ci: u32,
+        data: String,
+    },
+
+    /// Vault shard store acknowledgment.
+    #[serde(rename = "shard_ack")]
+    ShardStoreAck {
+        sid: String,
+        cid: String,
+        si: u16,
+        ok: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        err: Option<String>,
+    },
+
+    /// Vault shard deletion request (admin-only, MANAGE_SERVER permission).
+    #[serde(rename = "shard_delete")]
+    ShardDelete {
+        sid: String,
+        cid: String,
+    },
+
+    // -- Vault shard retrieve (Phase 4) --
+
+    /// Request a specific shard from a peer.
+    #[serde(rename = "shard_req")]
+    ShardRequest {
+        sid: String,
+        cid: String,
+        si: u16,
+        sk: String,
+    },
+
+    /// Response with shard data (or not-found).
+    #[serde(rename = "shard_resp")]
+    ShardResponse {
+        sid: String,
+        cid: String,
+        si: u16,
+        data: String,
+        chunks: u32,
+        found: bool,
+    },
+
+    /// Chunked shard response (for shards > 256KB).
+    #[serde(rename = "shard_resp_chunk")]
+    ShardResponseChunk {
+        sid: String,
+        cid: String,
+        si: u16,
+        ci: u32,
+        data: String,
+    },
+
+    /// Probe: ask peer which shards they have for a content item.
+    #[serde(rename = "shard_probe")]
+    ShardProbe {
+        sid: String,
+        cid: String,
+    },
+
+    /// Probe response: list of shard indices available locally.
+    #[serde(rename = "shard_probe_resp")]
+    ShardProbeResponse {
+        sid: String,
+        cid: String,
+        shards: Vec<u16>,
+    },
+}
+
+/// State for reassembling a chunked vault shard from multiple ShardChunk messages.
+struct PendingShardAssembly {
+    server_id: String,
+    content_id: String,
+    shard_index: u16,
+    shard_key: String,
+    k: u16,
+    m: u16,
+    total_size: u64,
+    tier: String,
+    expected_chunks: u32,
+    received: std::collections::HashSet<u32>,
+    chunk_data: Vec<(u32, Vec<u8>)>,
+    sender_peer: String,
+    received_at: std::time::Instant,
 }
 
 /// A single message in a sync batch.
@@ -1450,6 +1587,10 @@ async fn run_swarm(
     // re-discovery from stale signaling entries.
     let mut disconnected_peers: HashMap<PeerId, std::time::Instant> = HashMap::new();
     const DISCONNECT_COOLDOWN: Duration = Duration::from_secs(180); // 3 min = signaling stale threshold
+
+    // -- Vault shard assembly state (Phase 4) --
+    // Tracks chunked shard reassembly. Key = "content_id:shard_index:sender_peer".
+    let mut pending_shard_assembly: HashMap<String, PendingShardAssembly> = HashMap::new();
 
     // -- CRDT state (Phase 3) --
     // Server states keyed by server_id. Reload from DB so servers survive restarts.
@@ -3685,6 +3826,166 @@ async fn run_swarm(
                         }
                     }
 
+                    // -- Vault shard distribution (Phase 4) --
+                    NodeCommand::DeleteVaultContent { server_id, content_id } => {
+                        if let Some(state) = server_states.get(&server_id) {
+                            let local_peer = swarm.local_peer_id().to_string();
+                            if !state.has_permission(&local_peer, crate::crdt::operations::Permission::MANAGE_SERVER) {
+                                haven_log!("[HAVEN-VAULT] Permission denied: cannot delete vault content in {server_id}");
+                                continue;
+                            }
+
+                            haven_log!("[HAVEN-VAULT] Deleting vault content {content_id} in {server_id}");
+
+                            // Delete local shards and placements
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let vault_dir = data_dir.join("vault");
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+                                let _ = cs.delete_content(&server_id, &content_id);
+                                let _ = cs.delete_placements(&content_id);
+                            }
+
+                            // Broadcast ShardDelete to connected server members
+                            let delete_envelope = MessageEnvelope::ShardDelete {
+                                sid: server_id.clone(),
+                                cid: content_id.clone(),
+                            };
+                            let delete_json = serde_json::to_string(&delete_envelope).unwrap_or_default();
+                            for member_peer_str in state.members.keys() {
+                                if member_peer_str == &local_peer { continue; }
+                                if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                    if connected_peers.contains(&pid) && olm.has_session(member_peer_str) {
+                                        send_encrypted_message(
+                                            &mut swarm, &mut olm, &crypto_store,
+                                            &mut pending_requests, &mut outbound_message_text,
+                                            &pid, member_peer_str, &delete_json, &event_tx,
+                                        ).await;
+                                    }
+                                }
+                            }
+
+                            let _ = event_tx.send(NetworkEvent::ShardDeleted {
+                                server_id,
+                                content_id,
+                            }).await;
+                        }
+                    }
+
+                    NodeCommand::RequestShardFromPeer { server_id, content_id, shard_index, shard_key, target_peer } => {
+                        haven_log!("[HAVEN-VAULT] RequestShardFromPeer: cid={content_id} si={shard_index} from {target_peer}");
+                        if let Ok(pid) = target_peer.parse::<PeerId>() {
+                            if !connected_peers.contains(&pid) || !olm.has_session(&target_peer) {
+                                haven_log!("[HAVEN-VAULT] Cannot request shard: peer {target_peer} not connected or no Olm session");
+                                let _ = event_tx.send(NetworkEvent::ShardRequestFailed {
+                                    server_id, content_id, shard_index,
+                                    error: "Peer not connected or no Olm session".into(),
+                                }).await;
+                            } else {
+                                let envelope = MessageEnvelope::ShardRequest {
+                                    sid: server_id,
+                                    cid: content_id,
+                                    si: shard_index,
+                                    sk: shard_key,
+                                };
+                                let json = serde_json::to_string(&envelope).unwrap_or_default();
+                                send_encrypted_message(
+                                    &mut swarm, &mut olm, &crypto_store,
+                                    &mut pending_requests, &mut outbound_message_text,
+                                    &pid, &target_peer, &json, &event_tx,
+                                ).await;
+                            }
+                        }
+                    }
+
+                    NodeCommand::StoreShardOnPeer {
+                        server_id, content_id, shard_index, shard_key,
+                        k, m, total_data_size, storage_tier, data, target_peer,
+                    } => {
+                        let local_peer = swarm.local_peer_id().to_string();
+                        haven_log!("[HAVEN-VAULT] StoreShardOnPeer: cid={content_id} si={shard_index} -> {target_peer}");
+
+                        if let Ok(pid) = target_peer.parse::<PeerId>() {
+                            if !connected_peers.contains(&pid) || !olm.has_session(&target_peer) {
+                                haven_log!("[HAVEN-VAULT] Cannot store shard: peer {target_peer} not connected or no Olm session");
+                                let _ = event_tx.send(NetworkEvent::ShardStoreFailed {
+                                    server_id: server_id.clone(),
+                                    content_id: content_id.clone(),
+                                    shard_index,
+                                    target_peer: target_peer.clone(),
+                                    error: "Peer not connected or no Olm session".into(),
+                                }).await;
+                            } else {
+                                use crate::node::file_transfer::CHUNK_SIZE;
+
+                                if data.len() <= CHUNK_SIZE {
+                                    // Small shard — send inline
+                                    let envelope = MessageEnvelope::ShardStore {
+                                        sid: server_id.clone(),
+                                        cid: content_id.clone(),
+                                        si: shard_index,
+                                        sk: shard_key.clone(),
+                                        k,
+                                        m,
+                                        total_size: total_data_size,
+                                        tier: storage_tier.clone(),
+                                        data: base64::engine::general_purpose::STANDARD.encode(&data),
+                                        chunks: 0,
+                                    };
+                                    let json = serde_json::to_string(&envelope).unwrap_or_default();
+                                    send_encrypted_message(
+                                        &mut swarm, &mut olm, &crypto_store,
+                                        &mut pending_requests, &mut outbound_message_text,
+                                        &pid, &target_peer, &json, &event_tx,
+                                    ).await;
+                                } else {
+                                    // Large shard — send header + chunks
+                                    let chunk_count = ((data.len() + CHUNK_SIZE - 1) / CHUNK_SIZE) as u32;
+                                    let header = MessageEnvelope::ShardStore {
+                                        sid: server_id.clone(),
+                                        cid: content_id.clone(),
+                                        si: shard_index,
+                                        sk: shard_key.clone(),
+                                        k,
+                                        m,
+                                        total_size: total_data_size,
+                                        tier: storage_tier.clone(),
+                                        data: String::new(),
+                                        chunks: chunk_count,
+                                    };
+                                    let header_json = serde_json::to_string(&header).unwrap_or_default();
+                                    send_encrypted_message(
+                                        &mut swarm, &mut olm, &crypto_store,
+                                        &mut pending_requests, &mut outbound_message_text,
+                                        &pid, &target_peer, &header_json, &event_tx,
+                                    ).await;
+
+                                    // Send each chunk
+                                    for (ci, chunk_data) in data.chunks(CHUNK_SIZE).enumerate() {
+                                        let chunk_envelope = MessageEnvelope::ShardChunk {
+                                            sid: server_id.clone(),
+                                            cid: content_id.clone(),
+                                            si: shard_index,
+                                            ci: ci as u32,
+                                            data: base64::engine::general_purpose::STANDARD.encode(chunk_data),
+                                        };
+                                        let chunk_json = serde_json::to_string(&chunk_envelope).unwrap_or_default();
+                                        send_encrypted_message(
+                                            &mut swarm, &mut olm, &crypto_store,
+                                            &mut pending_requests, &mut outbound_message_text,
+                                            &pid, &target_peer, &chunk_json, &event_tx,
+                                        ).await;
+                                    }
+                                }
+                                haven_log!("[HAVEN-VAULT] Shard {shard_index} of {content_id} sent to {target_peer}");
+                            }
+                        } else {
+                            haven_log!("[HAVEN-VAULT] Invalid target_peer: {target_peer}");
+                        }
+                    }
+
                     // -- File sharing (Phase 3.5) --
                     NodeCommand::SendFile { peer_id, server_id, channel_id, file_path, message_id, message_text } => {
                         use crate::node::file_transfer;
@@ -4241,6 +4542,7 @@ async fn run_swarm(
                                             &mut mls_bootstrap_requested,
                                             &sig_cmd_tx,
                                             &known_addresses,
+                                            &mut pending_shard_assembly,
                                             peer,
                                             request,
                                             channel,
@@ -5319,6 +5621,7 @@ async fn handle_incoming_request(
     mls_bootstrap_requested: &mut std::collections::HashSet<String>,
     sig_cmd_tx: &mpsc::Sender<SignalingCmd>,
     known_addresses: &[String],
+    pending_shard_assembly: &mut HashMap<String, PendingShardAssembly>,
     peer: PeerId,
     request: HavenMessage,
     channel: request_response::ResponseChannel<HavenMessage>,
@@ -6101,6 +6404,407 @@ async fn handle_incoming_request(
                     } // else (write_chunk ok)
                     } // if let Ok(chunk_bytes)
                 }
+
+                // -- Vault shard receive handlers (Phase 4) --
+                Ok(MessageEnvelope::ShardStore { sid, cid, si, sk, k, m, total_size, tier, data, chunks }) => {
+                    haven_log!("[HAVEN-VAULT] ShardStore received: cid={cid} si={si} chunks={chunks} from {peer_str}");
+
+                    // Verify sender is a member of the server
+                    let is_member = server_states.get(&sid)
+                        .map(|s| s.members.contains_key(&peer_str))
+                        .unwrap_or(false);
+                    if !is_member {
+                        haven_log!("[HAVEN-SECURITY] REJECTED ShardStore from {peer_str} — not a member of {sid}");
+                    } else if chunks == 0 {
+                        // Inline shard — decode and store immediately
+                        if let Ok(shard_bytes) = base64::engine::general_purpose::STANDARD.decode(&data) {
+                            // Check pledge capacity
+                            let local_peer = swarm.local_peer_id().to_string();
+                            let pledge = server_states.get(&sid)
+                                .map(|s| s.get_storage_pledge(&local_peer))
+                                .unwrap_or(0);
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let vault_dir = data_dir.join("vault");
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+
+                            if let Ok(content_store) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+                                let used = content_store.total_storage_used(&sid).unwrap_or(0);
+                                if pledge > 0 && used + shard_bytes.len() as u64 > pledge {
+                                    haven_log!("[HAVEN-VAULT] Pledge exceeded for {sid} — rejecting shard");
+                                    let ack = MessageEnvelope::ShardStoreAck {
+                                        sid: sid.clone(), cid: cid.clone(), si, ok: false,
+                                        err: Some("Pledge capacity exceeded".into()),
+                                    };
+                                    let ack_json = serde_json::to_string(&ack).unwrap_or_default();
+                                    if let Ok(pid) = peer_str.parse::<PeerId>() {
+                                        send_encrypted_message(
+                                            swarm, olm, crypto_store,
+                                            pending_requests, outbound_message_text,
+                                            &pid, &peer_str, &ack_json, event_tx,
+                                        ).await;
+                                    }
+                                } else {
+                                    // Store the shard
+                                    let tier_enum = crate::vault::content_store::StorageTier::from_str(&tier);
+                                    match content_store.store_shard(&sid, &cid, si, k, m, total_size, tier_enum, &shard_bytes) {
+                                        Ok(_) => {
+                                            haven_log!("[HAVEN-VAULT] Shard stored: cid={cid} si={si}");
+                                            let _ = event_tx.send(NetworkEvent::ShardStored {
+                                                server_id: sid.clone(),
+                                                content_id: cid.clone(),
+                                                shard_index: si,
+                                                from_peer: peer_str.clone(),
+                                            }).await;
+                                            // Send ack
+                                            let ack = MessageEnvelope::ShardStoreAck {
+                                                sid: sid.clone(), cid: cid.clone(), si, ok: true, err: None,
+                                            };
+                                            let ack_json = serde_json::to_string(&ack).unwrap_or_default();
+                                            if let Ok(pid) = peer_str.parse::<PeerId>() {
+                                                send_encrypted_message(
+                                                    swarm, olm, crypto_store,
+                                                    pending_requests, outbound_message_text,
+                                                    &pid, &peer_str, &ack_json, event_tx,
+                                                ).await;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            haven_log!("[HAVEN-VAULT] Failed to store shard: {e}");
+                                            let ack = MessageEnvelope::ShardStoreAck {
+                                                sid: sid.clone(), cid: cid.clone(), si, ok: false,
+                                                err: Some(e),
+                                            };
+                                            let ack_json = serde_json::to_string(&ack).unwrap_or_default();
+                                            if let Ok(pid) = peer_str.parse::<PeerId>() {
+                                                send_encrypted_message(
+                                                    swarm, olm, crypto_store,
+                                                    pending_requests, outbound_message_text,
+                                                    &pid, &peer_str, &ack_json, event_tx,
+                                                ).await;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Chunked shard — create assembly entry
+                        let key = format!("{cid}:{si}:{peer_str}");
+                        pending_shard_assembly.insert(key, PendingShardAssembly {
+                            server_id: sid,
+                            content_id: cid,
+                            shard_index: si,
+                            shard_key: sk,
+                            k,
+                            m,
+                            total_size,
+                            tier,
+                            expected_chunks: chunks,
+                            received: std::collections::HashSet::new(),
+                            chunk_data: Vec::new(),
+                            sender_peer: peer_str.clone(),
+                            received_at: std::time::Instant::now(),
+                        });
+                    }
+                }
+
+                Ok(MessageEnvelope::ShardChunk { sid, cid, si, ci, data }) => {
+                    let key = format!("{cid}:{si}:{peer_str}");
+                    if let Some(assembly) = pending_shard_assembly.get_mut(&key) {
+                        if let Ok(chunk_bytes) = base64::engine::general_purpose::STANDARD.decode(&data) {
+                            if !assembly.received.contains(&ci) {
+                                assembly.received.insert(ci);
+                                assembly.chunk_data.push((ci, chunk_bytes));
+                            }
+
+                            // Check if all chunks received
+                            if assembly.received.len() as u32 >= assembly.expected_chunks {
+                                // Reassemble in order
+                                let mut asm = pending_shard_assembly.remove(&key).unwrap();
+                                asm.chunk_data.sort_by_key(|(idx, _)| *idx);
+                                let mut full_data = Vec::new();
+                                for (_, chunk) in &asm.chunk_data {
+                                    full_data.extend_from_slice(chunk);
+                                }
+
+                                // Store via ContentStore
+                                let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                let vault_dir = data_dir.join("vault");
+                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+
+                                if let Ok(content_store) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+                                    let tier_enum = crate::vault::content_store::StorageTier::from_str(&asm.tier);
+                                    match content_store.store_shard(&asm.server_id, &asm.content_id, asm.shard_index, asm.k, asm.m, asm.total_size, tier_enum, &full_data) {
+                                        Ok(_) => {
+                                            haven_log!("[HAVEN-VAULT] Chunked shard assembled+stored: cid={} si={}", asm.content_id, asm.shard_index);
+                                            let _ = event_tx.send(NetworkEvent::ShardStored {
+                                                server_id: asm.server_id.clone(),
+                                                content_id: asm.content_id.clone(),
+                                                shard_index: asm.shard_index,
+                                                from_peer: peer_str.clone(),
+                                            }).await;
+                                            let ack = MessageEnvelope::ShardStoreAck {
+                                                sid: asm.server_id, cid: asm.content_id, si: asm.shard_index, ok: true, err: None,
+                                            };
+                                            let ack_json = serde_json::to_string(&ack).unwrap_or_default();
+                                            if let Ok(pid) = peer_str.parse::<PeerId>() {
+                                                send_encrypted_message(
+                                                    swarm, olm, crypto_store,
+                                                    pending_requests, outbound_message_text,
+                                                    &pid, &peer_str, &ack_json, event_tx,
+                                                ).await;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            haven_log!("[HAVEN-VAULT] Failed to store assembled shard: {e}");
+                                            let ack = MessageEnvelope::ShardStoreAck {
+                                                sid: asm.server_id, cid: asm.content_id, si: asm.shard_index, ok: false, err: Some(e),
+                                            };
+                                            let ack_json = serde_json::to_string(&ack).unwrap_or_default();
+                                            if let Ok(pid) = peer_str.parse::<PeerId>() {
+                                                send_encrypted_message(
+                                                    swarm, olm, crypto_store,
+                                                    pending_requests, outbound_message_text,
+                                                    &pid, &peer_str, &ack_json, event_tx,
+                                                ).await;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        haven_log!("[HAVEN-VAULT] ShardChunk for unknown assembly: cid={cid} si={si} ci={ci}");
+                    }
+                }
+
+                Ok(MessageEnvelope::ShardStoreAck { sid, cid, si, ok, err }) => {
+                    haven_log!("[HAVEN-VAULT] ShardStoreAck: cid={cid} si={si} ok={ok} err={err:?}");
+                    let _ = event_tx.send(NetworkEvent::ShardStoreAckReceived {
+                        server_id: sid.clone(),
+                        content_id: cid.clone(),
+                        shard_index: si,
+                        success: ok,
+                        error: err.unwrap_or_default(),
+                    }).await;
+
+                    // Mark placement as confirmed in DB
+                    if ok {
+                        let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                        let vault_dir = data_dir.join("vault");
+                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        if let Ok(content_store) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+                            let _ = content_store.confirm_placement(&cid, si);
+                        }
+                    }
+                }
+
+                Ok(MessageEnvelope::ShardDelete { sid, cid }) => {
+                    haven_log!("[HAVEN-VAULT] ShardDelete received: cid={cid} from {peer_str}");
+
+                    // Verify sender is a member with MANAGE_SERVER permission
+                    let allowed = server_states.get(&sid)
+                        .map(|s| {
+                            s.members.contains_key(&peer_str) &&
+                            s.has_permission(&peer_str, crate::crdt::operations::Permission::MANAGE_SERVER)
+                        })
+                        .unwrap_or(false);
+
+                    if !allowed {
+                        haven_log!("[HAVEN-SECURITY] REJECTED ShardDelete from {peer_str} — not authorized for {sid}");
+                    } else {
+                        let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                        let vault_dir = data_dir.join("vault");
+                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+                            let _ = cs.delete_content(&sid, &cid);
+                            let _ = cs.delete_placements(&cid);
+                        }
+                        haven_log!("[HAVEN-VAULT] Shard content deleted: cid={cid}");
+                        let _ = event_tx.send(NetworkEvent::ShardDeleted {
+                            server_id: sid,
+                            content_id: cid,
+                        }).await;
+                    }
+                }
+
+                // -- Vault shard retrieve handlers (Phase 4) --
+
+                Ok(MessageEnvelope::ShardRequest { sid, cid, si, sk }) => {
+                    haven_log!("[HAVEN-VAULT] ShardRequest: cid={cid} si={si} from {peer_str}");
+                    let is_member = server_states.get(&sid)
+                        .map(|s| s.members.contains_key(&peer_str))
+                        .unwrap_or(false);
+                    if !is_member {
+                        haven_log!("[HAVEN-SECURITY] REJECTED ShardRequest from {peer_str} — not a member of {sid}");
+                    } else {
+                        let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                        let vault_dir = data_dir.join("vault");
+                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+
+                        if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+                            match cs.read_shard_unchecked(&sid, &sk) {
+                                Ok(shard_data) => {
+                                    use crate::node::file_transfer::CHUNK_SIZE;
+                                    if shard_data.len() <= CHUNK_SIZE {
+                                        let resp = MessageEnvelope::ShardResponse {
+                                            sid: sid.clone(), cid: cid.clone(), si,
+                                            data: base64::engine::general_purpose::STANDARD.encode(&shard_data),
+                                            chunks: 0, found: true,
+                                        };
+                                        let json = serde_json::to_string(&resp).unwrap_or_default();
+                                        if let Ok(pid) = peer_str.parse::<PeerId>() {
+                                            send_encrypted_message(
+                                                swarm, olm, crypto_store,
+                                                pending_requests, outbound_message_text,
+                                                &pid, &peer_str, &json, event_tx,
+                                            ).await;
+                                        }
+                                    } else {
+                                        let chunk_count = ((shard_data.len() + CHUNK_SIZE - 1) / CHUNK_SIZE) as u32;
+                                        let header = MessageEnvelope::ShardResponse {
+                                            sid: sid.clone(), cid: cid.clone(), si,
+                                            data: String::new(), chunks: chunk_count, found: true,
+                                        };
+                                        let header_json = serde_json::to_string(&header).unwrap_or_default();
+                                        if let Ok(pid) = peer_str.parse::<PeerId>() {
+                                            send_encrypted_message(
+                                                swarm, olm, crypto_store,
+                                                pending_requests, outbound_message_text,
+                                                &pid, &peer_str, &header_json, event_tx,
+                                            ).await;
+                                            for (ci, chunk) in shard_data.chunks(CHUNK_SIZE).enumerate() {
+                                                let chunk_env = MessageEnvelope::ShardResponseChunk {
+                                                    sid: sid.clone(), cid: cid.clone(), si,
+                                                    ci: ci as u32,
+                                                    data: base64::engine::general_purpose::STANDARD.encode(chunk),
+                                                };
+                                                let chunk_json = serde_json::to_string(&chunk_env).unwrap_or_default();
+                                                send_encrypted_message(
+                                                    swarm, olm, crypto_store,
+                                                    pending_requests, outbound_message_text,
+                                                    &pid, &peer_str, &chunk_json, event_tx,
+                                                ).await;
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(_) => {
+                                    let resp = MessageEnvelope::ShardResponse {
+                                        sid, cid, si, data: String::new(), chunks: 0, found: false,
+                                    };
+                                    let json = serde_json::to_string(&resp).unwrap_or_default();
+                                    if let Ok(pid) = peer_str.parse::<PeerId>() {
+                                        send_encrypted_message(
+                                            swarm, olm, crypto_store,
+                                            pending_requests, outbound_message_text,
+                                            &pid, &peer_str, &json, event_tx,
+                                        ).await;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Ok(MessageEnvelope::ShardResponse { sid, cid, si, data, chunks, found }) => {
+                    haven_log!("[HAVEN-VAULT] ShardResponse: cid={cid} si={si} found={found} chunks={chunks} from {peer_str}");
+                    if !found {
+                        let _ = event_tx.send(NetworkEvent::ShardRequestFailed {
+                            server_id: sid, content_id: cid, shard_index: si,
+                            error: "Shard not found on peer".into(),
+                        }).await;
+                    } else if chunks == 0 {
+                        if let Ok(shard_bytes) = base64::engine::general_purpose::STANDARD.decode(&data) {
+                            let _ = event_tx.send(NetworkEvent::ShardReceived {
+                                server_id: sid, content_id: cid, shard_index: si,
+                                from_peer: peer_str.clone(),
+                            }).await;
+                        }
+                    } else {
+                        // Chunked response — create assembly entry
+                        let key = format!("resp:{cid}:{si}:{peer_str}");
+                        pending_shard_assembly.insert(key, PendingShardAssembly {
+                            server_id: sid, content_id: cid, shard_index: si,
+                            shard_key: String::new(), k: 0, m: 0, total_size: 0,
+                            tier: String::new(), expected_chunks: chunks,
+                            received: std::collections::HashSet::new(),
+                            chunk_data: Vec::new(),
+                            sender_peer: peer_str.clone(),
+                            received_at: std::time::Instant::now(),
+                        });
+                    }
+                }
+
+                Ok(MessageEnvelope::ShardResponseChunk { sid, cid, si, ci, data }) => {
+                    let key = format!("resp:{cid}:{si}:{peer_str}");
+                    if let Some(assembly) = pending_shard_assembly.get_mut(&key) {
+                        if let Ok(chunk_bytes) = base64::engine::general_purpose::STANDARD.decode(&data) {
+                            if !assembly.received.contains(&ci) {
+                                assembly.received.insert(ci);
+                                assembly.chunk_data.push((ci, chunk_bytes));
+                            }
+                            if assembly.received.len() as u32 >= assembly.expected_chunks {
+                                let asm = pending_shard_assembly.remove(&key).unwrap();
+                                let mut sorted = asm.chunk_data;
+                                sorted.sort_by_key(|(idx, _)| *idx);
+                                let _full_data: Vec<u8> = sorted.into_iter().flat_map(|(_, d)| d).collect();
+                                let _ = event_tx.send(NetworkEvent::ShardReceived {
+                                    server_id: sid, content_id: cid, shard_index: si,
+                                    from_peer: peer_str.clone(),
+                                }).await;
+                            }
+                        }
+                    }
+                }
+
+                Ok(MessageEnvelope::ShardProbe { sid, cid }) => {
+                    haven_log!("[HAVEN-VAULT] ShardProbe: cid={cid} from {peer_str}");
+                    let is_member = server_states.get(&sid)
+                        .map(|s| s.members.contains_key(&peer_str))
+                        .unwrap_or(false);
+                    if is_member {
+                        let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                        let vault_dir = data_dir.join("vault");
+                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+
+                        let mut indices = Vec::new();
+                        if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+                            if let Ok(records) = cs.list_content_shards(&sid, &cid) {
+                                indices = records.iter().map(|r| r.shard_index).collect();
+                            }
+                        }
+                        let resp = MessageEnvelope::ShardProbeResponse {
+                            sid, cid, shards: indices,
+                        };
+                        let json = serde_json::to_string(&resp).unwrap_or_default();
+                        if let Ok(pid) = peer_str.parse::<PeerId>() {
+                            send_encrypted_message(
+                                swarm, olm, crypto_store,
+                                pending_requests, outbound_message_text,
+                                &pid, &peer_str, &json, event_tx,
+                            ).await;
+                        }
+                    }
+                }
+
+                Ok(MessageEnvelope::ShardProbeResponse { sid, cid, shards }) => {
+                    haven_log!("[HAVEN-VAULT] ShardProbeResponse: cid={cid} shards={shards:?} from {peer_str}");
+                    // Logged for now — download pipeline will use this data when built
+                }
+
                 Err(_) => {
                     // Legacy raw-text DM (backward compatible).
                     let legacy_ts = std::time::SystemTime::now()

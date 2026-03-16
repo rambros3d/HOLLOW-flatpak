@@ -1,4 +1,7 @@
+use std::collections::HashMap;
+
 use super::content_store::StorageTier;
+use crate::crdt::admin_lww::AdminLwwReg;
 
 /// Vault operating mode — determined automatically from server member count.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +58,40 @@ pub fn determine_tier(mime_type: &str) -> StorageTier {
     } else {
         StorageTier::Standard
     }
+}
+
+// ── Retention policy helpers ─────────────────────────────
+
+/// Parse a retention policy string into days. Returns None for "permanent".
+/// Valid values: "permanent", "365d", "180d", "90d", "30d", or custom like "60d".
+pub fn parse_retention_days(policy: &str) -> Option<u32> {
+    match policy {
+        "permanent" | "" => None,
+        "365d" => Some(365),
+        "180d" => Some(180),
+        "90d" => Some(90),
+        "30d" => Some(30),
+        other => other.trim_end_matches('d').parse().ok(),
+    }
+}
+
+/// Get the retention policy string for a storage tier from server settings.
+/// Defaults: Standard → "365d", Low → "90d".
+pub fn retention_for_tier(
+    tier: StorageTier,
+    settings: &HashMap<String, AdminLwwReg<String>>,
+) -> String {
+    let key = match tier {
+        StorageTier::Standard => "retention_files",
+        StorageTier::Low => "retention_voice",
+    };
+    settings
+        .get(key)
+        .map(|r| r.read().clone())
+        .unwrap_or_else(|| match tier {
+            StorageTier::Standard => "365d".to_string(),
+            StorageTier::Low => "90d".to_string(),
+        })
 }
 
 #[cfg(test)]
@@ -209,5 +246,39 @@ mod tests {
         assert_eq!(determine_tier("application/pdf"), StorageTier::Standard);
         assert_eq!(determine_tier("video/mp4"), StorageTier::Standard);
         assert_eq!(determine_tier(""), StorageTier::Standard);
+    }
+
+    // ── retention policy helpers ─────────────────────────────
+
+    #[test]
+    fn parse_permanent() {
+        assert_eq!(parse_retention_days("permanent"), None);
+        assert_eq!(parse_retention_days(""), None);
+    }
+
+    #[test]
+    fn parse_known_policies() {
+        assert_eq!(parse_retention_days("365d"), Some(365));
+        assert_eq!(parse_retention_days("180d"), Some(180));
+        assert_eq!(parse_retention_days("90d"), Some(90));
+        assert_eq!(parse_retention_days("30d"), Some(30));
+    }
+
+    #[test]
+    fn parse_custom() {
+        assert_eq!(parse_retention_days("60d"), Some(60));
+        assert_eq!(parse_retention_days("7d"), Some(7));
+    }
+
+    #[test]
+    fn default_retention_standard() {
+        let settings: HashMap<String, AdminLwwReg<String>> = HashMap::new();
+        assert_eq!(retention_for_tier(StorageTier::Standard, &settings), "365d");
+    }
+
+    #[test]
+    fn default_retention_low() {
+        let settings: HashMap<String, AdminLwwReg<String>> = HashMap::new();
+        assert_eq!(retention_for_tier(StorageTier::Low, &settings), "90d");
     }
 }

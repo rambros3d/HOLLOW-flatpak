@@ -663,3 +663,23 @@ pub fn get_storage_stats(server_id: String) -> Result<StorageStatsFfi, String> {
         min_pledge_mb,
     })
 }
+
+/// Delete vault content from a server (admin-only, requires MANAGE_SERVER).
+/// Broadcasts ShardDelete to all connected members and removes local shards.
+#[frb]
+pub fn delete_vault_content(server_id: String, content_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::DeleteVaultContent {
+            server_id,
+            content_id,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}

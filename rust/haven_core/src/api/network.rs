@@ -95,6 +95,13 @@ pub enum NetworkEvent {
         file_id: String,
         error: String,
     },
+    // -- Vault shard events (Phase 4) --
+    ShardStored { server_id: String, content_id: String, shard_index: u16, from_peer: String },
+    ShardStoreAckReceived { server_id: String, content_id: String, shard_index: u16, success: bool, error: String },
+    ShardStoreFailed { server_id: String, content_id: String, shard_index: u16, target_peer: String, error: String },
+    ShardDeleted { server_id: String, content_id: String },
+    ShardReceived { server_id: String, content_id: String, shard_index: u16, from_peer: String },
+    ShardRequestFailed { server_id: String, content_id: String, shard_index: u16, error: String },
 }
 
 /// Holds all mutable state for the running node.
@@ -391,6 +398,25 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::FileFailed { file_id, error } => {
             NetworkEvent::FileFailed { file_id, error }
+        }
+        // -- Vault shard events (Phase 4) --
+        node::NetworkEvent::ShardStored { server_id, content_id, shard_index, from_peer } => {
+            NetworkEvent::ShardStored { server_id, content_id, shard_index, from_peer }
+        }
+        node::NetworkEvent::ShardStoreAckReceived { server_id, content_id, shard_index, success, error } => {
+            NetworkEvent::ShardStoreAckReceived { server_id, content_id, shard_index, success, error }
+        }
+        node::NetworkEvent::ShardStoreFailed { server_id, content_id, shard_index, target_peer, error } => {
+            NetworkEvent::ShardStoreFailed { server_id, content_id, shard_index, target_peer, error }
+        }
+        node::NetworkEvent::ShardDeleted { server_id, content_id } => {
+            NetworkEvent::ShardDeleted { server_id, content_id }
+        }
+        node::NetworkEvent::ShardReceived { server_id, content_id, shard_index, from_peer } => {
+            NetworkEvent::ShardReceived { server_id, content_id, shard_index, from_peer }
+        }
+        node::NetworkEvent::ShardRequestFailed { server_id, content_id, shard_index, error } => {
+            NetworkEvent::ShardRequestFailed { server_id, content_id, shard_index, error }
         }
     }
 }

@@ -1094,29 +1094,29 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [X] Full-replication mode: returns all eligible members with shard_index=0
   - [X] 17 unit tests (placement) + 3 DB tests (content_store). 83 total vault tests passing
 
-- [ ] **Store protocol** — distributing shards (or full files) to target peers
-  - [ ] New wire messages: `HavenMessage::ShardStore { server_id, content_id, shard_index, shard_key, metadata_json, data (base64) }`, `ShardStoreAck { server_id, content_id, shard_index, success }`
-  - [ ] Full-replication mode: `shard_index = 0`, `shard_key = content_id`, data = full encrypted file — same wire message, simpler path
-  - [ ] Receive handler: verify server membership, check pledge capacity, store via content_store, send ack
-  - [ ] Store coordinator: after encoding (or in replication mode, after encryption), send shards to targets in parallel (Olm-encrypted), track acks, retry 3x with 5s backoff
-  - [ ] Large shard chunking: shards >256KB split into 256KB pieces (reuse existing FileChunk mechanism), reassemble on receiver
-  - [ ] Rate limiting: max 10 concurrent outbound shard stores per server
+- [X] **Store protocol** — distributing shards (or full files) to target peers
+  - [X] New MessageEnvelope variants: `ShardStore` (header + optional inline data), `ShardChunk` (for >256KB shards), `ShardStoreAck` (confirmation back to sender) — all Olm-encrypted via existing `HavenMessage::Encrypted` wrapper
+  - [X] Full-replication mode: same wire messages, shard_index=0, data = full encrypted file
+  - [X] Receive handler: verify server membership, check pledge capacity via ServerState + ContentStore, store via content_store, send ShardStoreAck back encrypted
+  - [X] Send handler: `NodeCommand::StoreShardOnPeer` — inline data if <=256KB, else ShardStore header + ShardChunk loop. All via send_encrypted_message()
+  - [X] Large shard chunking: shards >256KB split into 256KB pieces (reuses CHUNK_SIZE from file_transfer), `PendingShardAssembly` struct for reassembly on receiver
+  - [X] 3 NetworkEvent variants: ShardStored, ShardStoreAckReceived, ShardStoreFailed — mirrored in api/network.rs FFI layer
 
-- [ ] **Storage tier configuration** — retention policies per data type
-  - [ ] Retention policies as CRDT settings: `retention_files` (default "365d"), `retention_voice` (default "90d"). Values: "permanent", "365d", "180d", "90d", "30d"
-  - [ ] `determine_tier(mime_type) -> StorageTier` used by upload pipeline to assign tier to each file
-  - [ ] Background retention enforcement: check `created_at` on vault manifests, delete expired content and broadcast `ShardDelete` to peers
-  - [ ] New wire message: `ShardDelete { server_id, content_id, shard_indices }` — admin-only, permission-gated (MANAGE_SERVER)
-  - [ ] **Rat Files consent system** (full-replication servers <6 members): `CleanupProposal` CRDT — any member can propose file deletion (by age, size, etc.), all members must consent (unanimous), execution only when `consents.len() == member_count`. Malicious owner cannot unilaterally destroy files
-  - [ ] Server Settings UI: "Storage" tab with retention policy dropdowns (MANAGE_SERVER permission)
+- [X] **Storage tier configuration** — retention policies per data type
+  - [X] Retention policies as CRDT settings: `retention_files` (default "365d"), `retention_voice` (default "90d") — uses existing `update_server_setting()`. `parse_retention_days()` + `retention_for_tier()` helpers in adaptive.rs. 5 tests.
+  - [X] `determine_tier(mime_type) -> StorageTier` — already done in checkpoint 4 (adaptive.rs)
+  - [X] New wire message: `ShardDelete { sid, cid }` MessageEnvelope variant — admin-only, MANAGE_SERVER permission-gated on receive. Receive handler deletes local shards + placements via ContentStore.
+  - [X] `NodeCommand::DeleteVaultContent` + handler: permission check, delete local, broadcast ShardDelete to connected members. `delete_vault_content()` FFI function.
+  - [X] `NetworkEvent::ShardDeleted` mirrored in api/network.rs FFI layer
 
-- [ ] **Retrieve protocol** — fetching shards from peers for reconstruction
-  - [ ] New wire messages: `ShardRequest { server_id, content_id, shard_indices }`, `ShardResponse { server_id, content_id, shard_index, data, not_found }`, `ShardProbe { server_id, content_ids }`, `ShardProbeResponse { server_id, available: Vec<(content_id, Vec<shard_index>)> }`
-  - [ ] Receive handler: look up shards in local store, send ShardResponse for each
-  - [ ] Retrieval coordinator: compute placement, request k shards in parallel, collect responses. If peer responds not_found, fallback to broadcast ShardProbe to all connected server members
-  - [ ] Full-replication mode: request from any single peer (no reconstruction needed — any peer has the full file)
-  - [ ] 10s timeout per peer — mark unavailable, try next closest peer
-  - [ ] `NodeCommand::RetrieveContent { server_id, content_id }` → `NetworkEvent::ContentRetrieved { server_id, content_id, data }` / `ContentRetrieveFailed { server_id, content_id, error }`
+- [X] **Retrieve protocol** — fetching shards from peers for reconstruction
+  - [X] 5 new MessageEnvelope variants: `ShardRequest` (request shard by key), `ShardResponse` (inline or chunked data + found flag), `ShardResponseChunk` (for >256KB), `ShardProbe` (ask what shards peer has), `ShardProbeResponse` (list of shard indices)
+  - [X] ShardRequest receive handler: membership check, ContentStore lookup, inline/chunked response via Olm
+  - [X] ShardResponse receive handler: if found + inline → emit ShardReceived; if chunked → PendingShardAssembly; if not found → emit ShardRequestFailed
+  - [X] ShardResponseChunk receive handler: assembly tracking, emit ShardReceived when complete
+  - [X] ShardProbe receive handler: list_content_shards → ShardProbeResponse back encrypted
+  - [X] `NodeCommand::RequestShardFromPeer` + send handler (connection + Olm check)
+  - [X] 2 NetworkEvent variants (ShardReceived, ShardRequestFailed) mirrored in api/network.rs FFI
 
 - [ ] **File upload pipeline** — encrypt → erasure-code → distribute. 🎞️ Animate: upload progress with encrypt→split→distribute step visualization
   - [ ] New module `vault/pipeline.rs` — orchestrates full upload flow
@@ -1128,6 +1128,8 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [ ] Sender sees file immediately from local cache — distribution happens in background
   - [ ] FFI: `vault_upload_file(server_id, channel_id, file_path, message_id) -> content_id`
   - [ ] `NetworkEvent::VaultUploadProgress { server_id, content_id, phase ("encrypting"/"encoding"/"distributing"), progress (0.0-1.0) }`, `VaultUploadComplete`, `VaultUploadFailed`
+  - [ ] Store coordinator: send shards to targets in parallel via `StoreShardOnPeer`, track acks, retry 3x with 5s backoff, max 10 concurrent outbound stores per server
+  - [ ] Background retention enforcement: periodic task checks `created_at` on vault manifests, compares to `parse_retention_days(retention_for_tier())`, triggers `DeleteVaultContent` for expired files (moved from storage tier config — needs manifests table)
 
 - [ ] **File download pipeline** — locate shards, retrieve k, reconstruct, decrypt. 🎞️ Animate: image load shimmer placeholder → fade-in, download progress reconstruction
   - [ ] Download flow (erasure mode): (1) lookup VaultManifest by content_id (local DB), (2) decrypt manifest with MLS group key, (3) compute shard placements, (4) request k shards from placed peers, (5) erasure-decode, (6) AES-256-GCM decrypt with key from manifest, (7) write to disk, (8) cache locally
@@ -1137,6 +1139,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [ ] FFI: `vault_download_file(server_id, content_id) -> disk_path`
   - [ ] `NetworkEvent::VaultDownloadProgress { phase ("locating"/"fetching"/"reconstructing"/"decrypting"), progress }`, `VaultDownloadComplete { disk_path }`, `VaultDownloadFailed`
   - [ ] Dart: `VaultFileWidget` (shimmer placeholder during download, fade-in on completion), `VaultNotifier` provider (tracks active uploads/downloads, progress, completion)
+  - [ ] Retrieval coordinator: compute placement, request k shards in parallel via `RequestShardFromPeer`, collect responses, 10s timeout per peer, fallback ShardProbe to all connected members (moved from retrieve protocol)
 
 - [ ] **Vault status indicators** — rich UI feedback for vault operations. 🎞️ Animate: progress phases, health pulse
   - [ ] **Per-file indicators in chat**: upload "Encrypting..." → "Distributing (7/15 shards)..." → checkmark "Distributed". Download: shimmer → "Fetching (5/10 shards)..." → image fade-in. Replication mode: "Syncing to 4/5 members..." → checkmark "Synced"
@@ -1164,6 +1167,8 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [ ] **Small-server cleanup** (<6 members): "Propose Cleanup" button — select criteria (age, size), sends `CleanupProposal` to all members, shows consent status per member, executes on unanimous consent
   - [ ] FFI: `get_vault_health(server_id) -> VaultHealth` (overall + per-file stats), `get_member_storage_stats(server_id) -> Vec<MemberStorageStats>`, `propose_cleanup(server_id, criteria)`, `consent_cleanup(server_id, proposal_id)`
   - [ ] Dart: `VaultStatsProvider` (Riverpod notifier, refreshes every 60s and on events)
+  - [ ] **Rat Files consent system** (full-replication servers <6 members): `CleanupProposal` CRDT — any member can propose file deletion (by age, size), all members must consent (unanimous), execution only when `consents.len() == member_count` (moved from storage tier config — needs manifests + consent CRDT)
+  - [ ] Server Settings UI: "Storage" tab with retention policy dropdowns (MANAGE_SERVER permission) (moved from storage tier config)
 
 - [ ] **Connection subset management** — limit persistent connections for large servers (defer until scaling pain)
   - [ ] Target: 6-12 peers per server (not full mesh). Total across all servers capped at 50 (configurable)
