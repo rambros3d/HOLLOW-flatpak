@@ -1161,6 +1161,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 **Goal:** Final features, platform testing, and polish pass before distribution.
 
+- [ ] Proper roles on the server and ediiting of permissions
 - [ ] Video preview in chats
 - [ ] Link previews (URL metadata fetch + embed card rendering)
 - [ ] Discord import system (full implementation — parse GDPR export ZIP, map servers/channels/roles/messages, placeholder identities, member claiming)

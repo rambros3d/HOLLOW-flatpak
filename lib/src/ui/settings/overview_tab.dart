@@ -259,71 +259,63 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
               Icon(LucideIcons.fileUp, size: 16, color: haven.textSecondary),
               const SizedBox(width: HavenSpacing.sm),
               Expanded(
-                child: Text(
-                  'Maximum file upload size for this server',
-                  style: HavenTypography.body.copyWith(
-                    color: haven.textSecondary,
-                    fontSize: 12,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Maximum file upload size for this server',
+                      style: HavenTypography.body.copyWith(
+                        color: haven.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '1–500 MB  •  Enter to save',
+                      style: HavenTypography.caption.copyWith(
+                        color: haven.textSecondary.withValues(alpha: 0.5),
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              PopupMenuButton<int>(
-                onSelected: (val) async {
-                  setState(() => _maxFileSizeMb = val);
-                  try {
-                    await crdt_api.updateServerSetting(
-                      serverId: widget.server.serverId,
-                      key: 'max_file_size_mb',
-                      value: val.toString(),
-                    );
-                  } catch (_) {}
-                },
-                color: haven.elevated,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(haven.radiusMd),
-                  side: BorderSide(color: haven.border),
+              SizedBox(
+                width: 100,
+                child: HavenTextField(
+                  controller: TextEditingController(text: _maxFileSizeMb.toString()),
+                  isDense: true,
+                  hintText: '1–500',
+                  style: HavenTypography.body.copyWith(
+                    color: haven.textPrimary,
+                    fontSize: 13,
+                  ),
+                  borderRadius: haven.radiusSm,
+                  onSubmitted: (val) async {
+                    final mb = int.tryParse(val.trim());
+                    if (mb == null || mb < 1 || mb > 500) {
+                      HavenToast.show(context, 'Must be between 1 and 500 MB', type: HavenToastType.error);
+                      return;
+                    }
+                    setState(() => _maxFileSizeMb = mb);
+                    try {
+                      await crdt_api.updateServerSetting(
+                        serverId: widget.server.serverId,
+                        key: 'max_file_size_mb',
+                        value: mb.toString(),
+                      );
+                      if (mounted) HavenToast.show(context, 'Max file size set to ${mb}MB', type: HavenToastType.success);
+                    } catch (_) {}
+                  },
                 ),
-                itemBuilder: (context) => [8, 16, 34, 50, 100]
-                    .map((mb) => PopupMenuItem(
-                          value: mb,
-                          child: Text(
-                            '${mb}MB',
-                            style: HavenTypography.body.copyWith(
-                              color: mb == _maxFileSizeMb
-                                  ? haven.accent
-                                  : haven.textPrimary,
-                              fontWeight: mb == _maxFileSizeMb
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                            ),
-                          ),
-                        ))
-                    .toList(),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: HavenSpacing.sm + 2,
-                    vertical: HavenSpacing.xs + 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: haven.surface,
-                    borderRadius: BorderRadius.circular(haven.radiusSm),
-                    border: Border.all(color: haven.border),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '${_maxFileSizeMb}MB',
-                        style: HavenTypography.body.copyWith(
-                          color: haven.textPrimary,
-                          fontSize: 12,
-                        ),
-                      ),
-                      const SizedBox(width: HavenSpacing.xs),
-                      Icon(LucideIcons.chevronDown,
-                          size: 12, color: haven.textSecondary),
-                    ],
-                  ),
+              ),
+              const SizedBox(width: HavenSpacing.sm),
+              Text(
+                'MB',
+                style: HavenTypography.body.copyWith(
+                  color: haven.textPrimary,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
                 ),
               ),
             ],
