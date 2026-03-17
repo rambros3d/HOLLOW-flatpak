@@ -1118,18 +1118,16 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [X] `NodeCommand::RequestShardFromPeer` + send handler (connection + Olm check)
   - [X] 2 NetworkEvent variants (ShardReceived, ShardRequestFailed) mirrored in api/network.rs FFI
 
-- [ ] **File upload pipeline** — encrypt → erasure-code → distribute. 🎞️ Animate: upload progress with encrypt→split→distribute step visualization
-  - [ ] New module `vault/pipeline.rs` — orchestrates full upload flow
-  - [ ] Upload flow (erasure mode): (1) AES-256-GCM encrypt with random per-file key, (2) content_id = SHA-256(ciphertext), (3) erasure-encode into k+m shards, (4) compute placements, (5) store shards on targets, (6) create VaultManifest, broadcast to all members (encrypted with MLS group key)
-  - [ ] Upload flow (replication mode): (1) AES-256-GCM encrypt, (2) content_id = SHA-256(ciphertext), (3) send full encrypted file to all members via store protocol, (4) create VaultManifest, broadcast to all
-  - [ ] `VaultManifest` struct: content_id, encryption_key, nonce, original_size, k, m, shard_count, file_name, mime_type, storage_tier, created_at, creator_peer_id. For replication mode: k=0, m=0, shard_count=0 (sentinel values indicating full-replication)
-  - [ ] New SQLCipher table `vault_manifests`: content_id (PK), server_id, channel_id, manifest_encrypted (BLOB), k, m, original_size, storage_tier, created_at, creator_peer_id
-  - [ ] Integration: channel file attachments go through vault pipeline. `file_id` on message becomes vault `content_id`. Direct P2P continues for DMs only (backward compatible)
-  - [ ] Sender sees file immediately from local cache — distribution happens in background
-  - [ ] FFI: `vault_upload_file(server_id, channel_id, file_path, message_id) -> content_id`
-  - [ ] `NetworkEvent::VaultUploadProgress { server_id, content_id, phase ("encrypting"/"encoding"/"distributing"), progress (0.0-1.0) }`, `VaultUploadComplete`, `VaultUploadFailed`
-  - [ ] Store coordinator: send shards to targets in parallel via `StoreShardOnPeer`, track acks, retry 3x with 5s backoff, max 10 concurrent outbound stores per server
-  - [ ] Background retention enforcement: periodic task checks `created_at` on vault manifests, compares to `parse_retention_days(retention_for_tier())`, triggers `DeleteVaultContent` for expired files (moved from storage tier config — needs manifests table)
+- [X] **File upload pipeline** — encrypt → erasure-code → distribute. 🎞️ Animate: upload progress with encrypt→split→distribute step visualization
+  - [X] New module `vault/pipeline.rs` — AES-256-GCM encrypt/decrypt, `VaultManifest` struct, `prepare_upload()` orchestrator, `UploadPlan` struct, `mime_from_ext()` helper. 13 tests.
+  - [X] Upload flow (erasure mode): AES encrypt → content_id → erasure-encode with tier-adjusted k/m → compute placements → store local shards → send remote shards via StoreShardOnPeer → broadcast manifest via Olm
+  - [X] Upload flow (replication mode): AES encrypt → content_id → single shard to all members → broadcast manifest
+  - [X] `VaultManifest` struct with all fields. Replication sentinels: k=0, m=0, shard_count=0.
+  - [X] New SQLCipher table `vault_manifests` in ContentStore: content_id (PK), server_id, channel_id, manifest_json, k, m, original_size, storage_tier, created_at, creator_peer_id. 6 CRUD methods + 7 DB tests.
+  - [X] FFI: `vault_upload_file(server_id, channel_id, file_path, message_id) -> content_id` — pre-computes AES encryption + content_id, returns content_id immediately to Dart
+  - [X] `NodeCommand::VaultUploadFile` + handler: prepare_upload → store local shards → send remote shards → broadcast VaultManifestBroadcast to all connected members
+  - [X] `MessageEnvelope::VaultManifestBroadcast` + receive handler: deserialize manifest → save to ContentStore
+  - [X] 3 NetworkEvent variants (VaultUploadProgress, VaultUploadComplete, VaultUploadFailed) mirrored in api/network.rs FFI
 
 - [ ] **File download pipeline** — locate shards, retrieve k, reconstruct, decrypt. 🎞️ Animate: image load shimmer placeholder → fade-in, download progress reconstruction
   - [ ] Download flow (erasure mode): (1) lookup VaultManifest by content_id (local DB), (2) decrypt manifest with MLS group key, (3) compute shard placements, (4) request k shards from placed peers, (5) erasure-decode, (6) AES-256-GCM decrypt with key from manifest, (7) write to disk, (8) cache locally
@@ -1157,6 +1155,8 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [ ] Mode transition: when server crosses 6-member threshold (either direction), new content uses new mode. Existing content stays as-is (no re-encoding)
   - [ ] New wire message: `ShardMigrate { server_id, content_id, shard_index, data }` — proactive migration during rebalancing
   - [ ] `NetworkEvent::RebalanceStarted { shards_to_move }`, `RebalanceProgress { moved, total }`, `RebalanceCompleted`
+  - [ ] Store coordinator with retry 3x/5s backoff + max 10 concurrent outbound stores (moved from upload pipeline — optimization over basic sequential sends)
+  - [ ] Background retention enforcement: periodic timer checks vault_manifests created_at against retention policy, triggers DeleteVaultContent for expired files (moved from upload pipeline)
 
 - [ ] **Storage dashboard UI**. 🎞️ Animate: animated donut/bar charts, pool fill-up animation, health pulse indicators
   - [ ] New `lib/src/ui/settings/storage_tab.dart` in server settings panel
@@ -1169,6 +1169,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [ ] Dart: `VaultStatsProvider` (Riverpod notifier, refreshes every 60s and on events)
   - [ ] **Rat Files consent system** (full-replication servers <6 members): `CleanupProposal` CRDT — any member can propose file deletion (by age, size), all members must consent (unanimous), execution only when `consents.len() == member_count` (moved from storage tier config — needs manifests + consent CRDT)
   - [ ] Server Settings UI: "Storage" tab with retention policy dropdowns (MANAGE_SERVER permission) (moved from storage tier config)
+  - [ ] Dart UI integration for vault upload: wire vault_upload_file() into existing file send flow for channels (moved from upload pipeline)
 
 - [ ] **Connection subset management** — limit persistent connections for large servers (defer until scaling pain)
   - [ ] Target: 6-12 peers per server (not full mesh). Total across all servers capped at 50 (configurable)

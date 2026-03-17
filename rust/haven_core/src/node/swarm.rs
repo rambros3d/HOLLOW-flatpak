@@ -197,6 +197,10 @@ pub(crate) enum NetworkEvent {
     ShardDeleted { server_id: String, content_id: String },
     ShardReceived { server_id: String, content_id: String, shard_index: u16, from_peer: String },
     ShardRequestFailed { server_id: String, content_id: String, shard_index: u16, error: String },
+    // -- Vault upload pipeline events (Phase 4) --
+    VaultUploadProgress { server_id: String, content_id: String, phase: String, progress: f32 },
+    VaultUploadComplete { server_id: String, content_id: String, channel_id: String },
+    VaultUploadFailed { server_id: String, content_id: String, error: String },
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
@@ -260,6 +264,18 @@ pub(crate) enum NodeCommand {
         chunks: Vec<u32>,
     },
     // -- Vault shard distribution (Phase 4) --
+    VaultUploadFile {
+        server_id: String,
+        channel_id: String,
+        file_name: String,
+        mime_type: String,
+        message_id: String,
+        ciphertext: Vec<u8>,
+        aes_key: Vec<u8>,
+        aes_nonce: Vec<u8>,
+        original_size: u64,
+        content_id: String,
+    },
     DeleteVaultContent { server_id: String, content_id: String },
     RequestShardFromPeer {
         server_id: String,
@@ -781,6 +797,15 @@ enum MessageEnvelope {
         sid: String,
         cid: String,
         shards: Vec<u16>,
+    },
+
+    /// Vault manifest broadcast — carries file manifest (contains AES key).
+    #[serde(rename = "vault_manifest")]
+    VaultManifestBroadcast {
+        sid: String,
+        cid: String,
+        chid: String,
+        manifest: String, // manifest JSON
     },
 }
 
@@ -3827,6 +3852,180 @@ async fn run_swarm(
                     }
 
                     // -- Vault shard distribution (Phase 4) --
+                    NodeCommand::VaultUploadFile {
+                        server_id, channel_id, file_name, mime_type, message_id,
+                        ciphertext, aes_key, aes_nonce, original_size, content_id,
+                    } => {
+                        haven_log!("[HAVEN-VAULT] VaultUploadFile: {file_name} cid={content_id} in {server_id}/{channel_id}");
+
+                        let aes_key_copy = aes_key.clone();
+                        let aes_nonce_copy = aes_nonce.clone();
+
+                        let upload_result: Result<(), String> = (|| {
+                            let state = server_states.get(&server_id)
+                                .ok_or_else(|| format!("Server {server_id} not found"))?;
+                            let local_peer = swarm.local_peer_id().to_string();
+
+                            // Build members + pledges from server state
+                            let members: Vec<String> = state.members.keys().cloned().collect();
+                            let pledges: std::collections::HashMap<String, u64> = state.storage_pledges
+                                .iter()
+                                .map(|(k, v)| (k.clone(), *v.read()))
+                                .collect();
+
+                            // Prepare upload plan
+                            let key: [u8; 32] = aes_key.try_into().map_err(|_| "Invalid AES key length")?;
+                            let nonce: [u8; 12] = aes_nonce.try_into().map_err(|_| "Invalid AES nonce length")?;
+                            let plan = crate::vault::pipeline::prepare_upload(
+                                &ciphertext, &content_id, &key, &nonce,
+                                &file_name, &mime_type, &channel_id,
+                                original_size, &local_peer,
+                                &members, &pledges,
+                            )?;
+
+                            // Open ContentStore for local operations
+                            let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                            let vault_dir = data_dir.join("vault");
+                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            let cs = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir)?;
+
+                            // Store local shards
+                            let tier = crate::vault::content_store::StorageTier::from_str(&plan.manifest.storage_tier);
+                            for placement in &plan.placements {
+                                if placement.target_peer == local_peer {
+                                    if let Some((_, shard_data)) = plan.shards.iter().find(|(idx, _)| *idx == placement.shard_index) {
+                                        let _ = cs.store_shard(
+                                            &server_id, &content_id, placement.shard_index,
+                                            plan.manifest.k, plan.manifest.m, plan.manifest.original_size,
+                                            tier, shard_data,
+                                        );
+                                    }
+                                }
+                            }
+
+                            // Save placements + manifest
+                            let _ = cs.save_placements(&server_id, &content_id, &plan.placements);
+                            let _ = cs.save_manifest(&server_id, &channel_id, &plan.manifest);
+
+                            Ok(plan)
+                        })().map(|_| ());
+
+                        match upload_result {
+                            Err(e) => {
+                                haven_log!("[HAVEN-VAULT] Upload failed: {e}");
+                                let _ = event_tx.send(NetworkEvent::VaultUploadFailed {
+                                    server_id, content_id, error: e,
+                                }).await;
+                            }
+                            Ok(()) => {
+                                // Re-prepare plan for shard distribution (need the data again)
+                                if let Some(state) = server_states.get(&server_id) {
+                                    let local_peer = swarm.local_peer_id().to_string();
+                                    let members: Vec<String> = state.members.keys().cloned().collect();
+                                    let pledges: std::collections::HashMap<String, u64> = state.storage_pledges
+                                        .iter().map(|(k, v)| (k.clone(), *v.read())).collect();
+
+                                    let key: [u8; 32] = aes_key_copy.try_into().unwrap_or([0u8; 32]);
+                                    let nonce: [u8; 12] = aes_nonce_copy.try_into().unwrap_or([0u8; 12]);
+                                    if let Ok(plan) = crate::vault::pipeline::prepare_upload(
+                                        &ciphertext, &content_id, &key, &nonce,
+                                        &file_name, &mime_type, &channel_id,
+                                        original_size, &local_peer, &members, &pledges,
+                                    ) {
+                                        // Send remote shards
+                                        for placement in &plan.placements {
+                                            if placement.target_peer != local_peer {
+                                                if let Some((_, shard_data)) = plan.shards.iter().find(|(idx, _)| *idx == placement.shard_index) {
+                                                    if let Ok(pid) = placement.target_peer.parse::<PeerId>() {
+                                                        if connected_peers.contains(&pid) && olm.has_session(&placement.target_peer) {
+                                                            use crate::node::file_transfer::CHUNK_SIZE;
+
+                                                            if shard_data.len() <= CHUNK_SIZE {
+                                                                let envelope = MessageEnvelope::ShardStore {
+                                                                    sid: server_id.clone(), cid: content_id.clone(),
+                                                                    si: placement.shard_index, sk: placement.shard_key.clone(),
+                                                                    k: plan.manifest.k, m: plan.manifest.m,
+                                                                    total_size: plan.manifest.original_size,
+                                                                    tier: plan.manifest.storage_tier.clone(),
+                                                                    data: base64::engine::general_purpose::STANDARD.encode(shard_data),
+                                                                    chunks: 0,
+                                                                };
+                                                                let json = serde_json::to_string(&envelope).unwrap_or_default();
+                                                                send_encrypted_message(
+                                                                    &mut swarm, &mut olm, &crypto_store,
+                                                                    &mut pending_requests, &mut outbound_message_text,
+                                                                    &pid, &placement.target_peer, &json, &event_tx,
+                                                                ).await;
+                                                            } else {
+                                                                let chunk_count = ((shard_data.len() + CHUNK_SIZE - 1) / CHUNK_SIZE) as u32;
+                                                                let header = MessageEnvelope::ShardStore {
+                                                                    sid: server_id.clone(), cid: content_id.clone(),
+                                                                    si: placement.shard_index, sk: placement.shard_key.clone(),
+                                                                    k: plan.manifest.k, m: plan.manifest.m,
+                                                                    total_size: plan.manifest.original_size,
+                                                                    tier: plan.manifest.storage_tier.clone(),
+                                                                    data: String::new(), chunks: chunk_count,
+                                                                };
+                                                                let hdr_json = serde_json::to_string(&header).unwrap_or_default();
+                                                                send_encrypted_message(
+                                                                    &mut swarm, &mut olm, &crypto_store,
+                                                                    &mut pending_requests, &mut outbound_message_text,
+                                                                    &pid, &placement.target_peer, &hdr_json, &event_tx,
+                                                                ).await;
+                                                                for (ci, chunk) in shard_data.chunks(CHUNK_SIZE).enumerate() {
+                                                                    let chunk_env = MessageEnvelope::ShardChunk {
+                                                                        sid: server_id.clone(), cid: content_id.clone(),
+                                                                        si: placement.shard_index, ci: ci as u32,
+                                                                        data: base64::engine::general_purpose::STANDARD.encode(chunk),
+                                                                    };
+                                                                    let cj = serde_json::to_string(&chunk_env).unwrap_or_default();
+                                                                    send_encrypted_message(
+                                                                        &mut swarm, &mut olm, &crypto_store,
+                                                                        &mut pending_requests, &mut outbound_message_text,
+                                                                        &pid, &placement.target_peer, &cj, &event_tx,
+                                                                    ).await;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Broadcast manifest via Olm to all connected members
+                                        let manifest_json = serde_json::to_string(&plan.manifest).unwrap_or_default();
+                                        let manifest_envelope = MessageEnvelope::VaultManifestBroadcast {
+                                            sid: server_id.clone(),
+                                            cid: content_id.clone(),
+                                            chid: channel_id.clone(),
+                                            manifest: manifest_json,
+                                        };
+                                        let manifest_env_json = serde_json::to_string(&manifest_envelope).unwrap_or_default();
+                                        for member_peer_str in state.members.keys() {
+                                            if member_peer_str == &local_peer { continue; }
+                                            if let Ok(pid) = member_peer_str.parse::<PeerId>() {
+                                                if connected_peers.contains(&pid) && olm.has_session(member_peer_str) {
+                                                    send_encrypted_message(
+                                                        &mut swarm, &mut olm, &crypto_store,
+                                                        &mut pending_requests, &mut outbound_message_text,
+                                                        &pid, member_peer_str, &manifest_env_json, &event_tx,
+                                                    ).await;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    haven_log!("[HAVEN-VAULT] Upload complete: cid={content_id}");
+                                    let _ = event_tx.send(NetworkEvent::VaultUploadComplete {
+                                        server_id, content_id, channel_id,
+                                    }).await;
+                                }
+                            }
+                        }
+                    }
+
                     NodeCommand::DeleteVaultContent { server_id, content_id } => {
                         if let Some(state) = server_states.get(&server_id) {
                             let local_peer = swarm.local_peer_id().to_string();
@@ -6803,6 +7002,20 @@ async fn handle_incoming_request(
                 Ok(MessageEnvelope::ShardProbeResponse { sid, cid, shards }) => {
                     haven_log!("[HAVEN-VAULT] ShardProbeResponse: cid={cid} shards={shards:?} from {peer_str}");
                     // Logged for now — download pipeline will use this data when built
+                }
+
+                Ok(MessageEnvelope::VaultManifestBroadcast { sid, cid, chid, manifest }) => {
+                    haven_log!("[HAVEN-VAULT] VaultManifest received: cid={cid} in {sid}/{chid} from {peer_str}");
+                    if let Ok(manifest_obj) = serde_json::from_str::<crate::vault::pipeline::VaultManifest>(&manifest) {
+                        let data_dir = dirs::data_dir().unwrap_or_default().join("haven");
+                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                        let vault_dir = data_dir.join("vault");
+                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+                            let _ = cs.save_manifest(&sid, &chid, &manifest_obj);
+                        }
+                    }
                 }
 
                 Err(_) => {

@@ -171,6 +171,37 @@ impl ContentStore {
         )
         .map_err(|e| format!("Failed to create placement peer index: {e}"))?;
 
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS vault_manifests (
+                content_id      TEXT    PRIMARY KEY,
+                server_id       TEXT    NOT NULL,
+                channel_id      TEXT    NOT NULL,
+                manifest_json   TEXT    NOT NULL,
+                k               INTEGER NOT NULL,
+                m               INTEGER NOT NULL,
+                original_size   INTEGER NOT NULL,
+                storage_tier    TEXT    NOT NULL DEFAULT 'standard',
+                created_at      INTEGER NOT NULL,
+                creator_peer_id TEXT    NOT NULL
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create vault_manifests table: {e}"))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_vault_manifests_server
+             ON vault_manifests (server_id)",
+            [],
+        )
+        .map_err(|e| format!("Failed to create manifests server index: {e}"))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_vault_manifests_server_created
+             ON vault_manifests (server_id, created_at)",
+            [],
+        )
+        .map_err(|e| format!("Failed to create manifests created index: {e}"))?;
+
         std::fs::create_dir_all(base_dir)
             .map_err(|e| format!("Failed to create vault base dir: {e}"))?;
 
@@ -594,6 +625,164 @@ impl ContentStore {
             )
             .map(|c| c as u32)
             .map_err(|e| format!("Failed to count unconfirmed placements: {e}"))
+    }
+
+    // ── Manifest tracking ────────────────────────────────────
+
+    /// Save a vault manifest.
+    pub fn save_manifest(
+        &self,
+        server_id: &str,
+        channel_id: &str,
+        manifest: &super::pipeline::VaultManifest,
+    ) -> Result<(), String> {
+        let json = serde_json::to_string(manifest)
+            .map_err(|e| format!("Failed to serialize manifest: {e}"))?;
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO vault_manifests
+                 (content_id, server_id, channel_id, manifest_json, k, m,
+                  original_size, storage_tier, created_at, creator_peer_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    manifest.content_id,
+                    server_id,
+                    channel_id,
+                    json,
+                    manifest.k as i32,
+                    manifest.m as i32,
+                    manifest.original_size as i64,
+                    manifest.storage_tier,
+                    manifest.created_at,
+                    manifest.creator_peer_id,
+                ],
+            )
+            .map_err(|e| format!("Failed to save manifest: {e}"))?;
+        Ok(())
+    }
+
+    /// Load a vault manifest by content_id.
+    pub fn load_manifest(
+        &self,
+        cid: &str,
+    ) -> Result<Option<super::pipeline::VaultManifest>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT manifest_json FROM vault_manifests WHERE content_id = ?1")
+            .map_err(|e| format!("Failed to prepare manifest query: {e}"))?;
+
+        let mut rows = stmt
+            .query_map(params![cid], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("Failed to query manifest: {e}"))?;
+
+        match rows.next() {
+            Some(Ok(json)) => {
+                let manifest = serde_json::from_str(&json)
+                    .map_err(|e| format!("Failed to deserialize manifest: {e}"))?;
+                Ok(Some(manifest))
+            }
+            Some(Err(e)) => Err(format!("Failed to read manifest row: {e}")),
+            None => Ok(None),
+        }
+    }
+
+    /// List all manifests for a server, sorted by created_at descending.
+    pub fn list_manifests(
+        &self,
+        server_id: &str,
+    ) -> Result<Vec<super::pipeline::VaultManifest>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT manifest_json FROM vault_manifests
+                 WHERE server_id = ?1 ORDER BY created_at DESC",
+            )
+            .map_err(|e| format!("Failed to prepare manifests query: {e}"))?;
+
+        let rows = stmt
+            .query_map(params![server_id], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("Failed to query manifests: {e}"))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            let json = row.map_err(|e| format!("Failed to read manifest row: {e}"))?;
+            let manifest: super::pipeline::VaultManifest = serde_json::from_str(&json)
+                .map_err(|e| format!("Failed to deserialize manifest: {e}"))?;
+            result.push(manifest);
+        }
+        Ok(result)
+    }
+
+    /// List manifests for a specific channel.
+    pub fn list_channel_manifests(
+        &self,
+        server_id: &str,
+        channel_id: &str,
+    ) -> Result<Vec<super::pipeline::VaultManifest>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT manifest_json FROM vault_manifests
+                 WHERE server_id = ?1 AND channel_id = ?2 ORDER BY created_at DESC",
+            )
+            .map_err(|e| format!("Failed to prepare channel manifests query: {e}"))?;
+
+        let rows = stmt
+            .query_map(params![server_id, channel_id], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|e| format!("Failed to query channel manifests: {e}"))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            let json = row.map_err(|e| format!("Failed to read manifest row: {e}"))?;
+            let manifest: super::pipeline::VaultManifest = serde_json::from_str(&json)
+                .map_err(|e| format!("Failed to deserialize manifest: {e}"))?;
+            result.push(manifest);
+        }
+        Ok(result)
+    }
+
+    /// Delete a manifest. Returns true if a row was deleted.
+    pub fn delete_manifest(&self, cid: &str) -> Result<bool, String> {
+        let deleted = self
+            .conn
+            .execute(
+                "DELETE FROM vault_manifests WHERE content_id = ?1",
+                params![cid],
+            )
+            .map_err(|e| format!("Failed to delete manifest: {e}"))?;
+        Ok(deleted > 0)
+    }
+
+    /// Find manifests created before a given timestamp (for retention enforcement).
+    pub fn find_expired_manifests(
+        &self,
+        server_id: &str,
+        before_timestamp: i64,
+    ) -> Result<Vec<super::pipeline::VaultManifest>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT manifest_json FROM vault_manifests
+                 WHERE server_id = ?1 AND created_at < ?2",
+            )
+            .map_err(|e| format!("Failed to prepare expired manifests query: {e}"))?;
+
+        let rows = stmt
+            .query_map(params![server_id, before_timestamp], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|e| format!("Failed to query expired manifests: {e}"))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            let json = row.map_err(|e| format!("Failed to read manifest row: {e}"))?;
+            let manifest: super::pipeline::VaultManifest = serde_json::from_str(&json)
+                .map_err(|e| format!("Failed to deserialize manifest: {e}"))?;
+            result.push(manifest);
+        }
+        Ok(result)
     }
 }
 
@@ -1199,5 +1388,102 @@ mod tests {
         let deleted = store.delete_placements("cid1").unwrap();
         assert_eq!(deleted, 2);
         assert!(store.load_placements("cid1").unwrap().is_empty());
+    }
+
+    // ── Manifest DB tests ────────────────────────────────────
+
+    fn test_manifest(cid: &str, server_id: &str, channel_id: &str, created_at: i64) -> crate::vault::pipeline::VaultManifest {
+        crate::vault::pipeline::VaultManifest {
+            content_id: cid.to_string(),
+            encryption_key: hex::encode([0xAA; 32]),
+            nonce: hex::encode([0xBB; 12]),
+            original_size: 1000,
+            k: 3,
+            m: 2,
+            shard_count: 5,
+            file_name: "test.webp".to_string(),
+            mime_type: "image/webp".to_string(),
+            storage_tier: "standard".to_string(),
+            created_at,
+            creator_peer_id: "peer_creator".to_string(),
+            channel_id: channel_id.to_string(),
+        }
+    }
+
+    #[test]
+    fn save_and_load_manifest() {
+        let (store, _tmp) = test_store();
+        let manifest = test_manifest("cid1", "srv1", "ch1", 1710000000);
+        store.save_manifest("srv1", "ch1", &manifest).unwrap();
+
+        let loaded = store.load_manifest("cid1").unwrap().unwrap();
+        assert_eq!(loaded.content_id, "cid1");
+        assert_eq!(loaded.encryption_key, manifest.encryption_key);
+        assert_eq!(loaded.k, 3);
+        assert_eq!(loaded.m, 2);
+        assert_eq!(loaded.file_name, "test.webp");
+    }
+
+    #[test]
+    fn load_manifest_not_found() {
+        let (store, _tmp) = test_store();
+        assert!(store.load_manifest("nonexistent").unwrap().is_none());
+    }
+
+    #[test]
+    fn list_manifests_by_server() {
+        let (store, _tmp) = test_store();
+        store.save_manifest("srv1", "ch1", &test_manifest("cid1", "srv1", "ch1", 1000)).unwrap();
+        store.save_manifest("srv1", "ch1", &test_manifest("cid2", "srv1", "ch1", 2000)).unwrap();
+        store.save_manifest("srv2", "ch1", &test_manifest("cid3", "srv2", "ch1", 3000)).unwrap();
+
+        let list = store.list_manifests("srv1").unwrap();
+        assert_eq!(list.len(), 2);
+        // Sorted by created_at DESC
+        assert_eq!(list[0].content_id, "cid2");
+        assert_eq!(list[1].content_id, "cid1");
+    }
+
+    #[test]
+    fn list_channel_manifests() {
+        let (store, _tmp) = test_store();
+        store.save_manifest("srv1", "ch1", &test_manifest("cid1", "srv1", "ch1", 1000)).unwrap();
+        store.save_manifest("srv1", "ch2", &test_manifest("cid2", "srv1", "ch2", 2000)).unwrap();
+        store.save_manifest("srv1", "ch1", &test_manifest("cid3", "srv1", "ch1", 3000)).unwrap();
+
+        let list = store.list_channel_manifests("srv1", "ch1").unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].content_id, "cid3");
+        assert_eq!(list[1].content_id, "cid1");
+    }
+
+    #[test]
+    fn delete_manifest_test() {
+        let (store, _tmp) = test_store();
+        store.save_manifest("srv1", "ch1", &test_manifest("cid1", "srv1", "ch1", 1000)).unwrap();
+        assert!(store.load_manifest("cid1").unwrap().is_some());
+
+        assert!(store.delete_manifest("cid1").unwrap());
+        assert!(store.load_manifest("cid1").unwrap().is_none());
+        assert!(!store.delete_manifest("cid1").unwrap()); // Already deleted
+    }
+
+    #[test]
+    fn find_expired_manifests_test() {
+        let (store, _tmp) = test_store();
+        store.save_manifest("srv1", "ch1", &test_manifest("old1", "srv1", "ch1", 1000)).unwrap();
+        store.save_manifest("srv1", "ch1", &test_manifest("old2", "srv1", "ch1", 2000)).unwrap();
+        store.save_manifest("srv1", "ch1", &test_manifest("new1", "srv1", "ch1", 9000)).unwrap();
+
+        let expired = store.find_expired_manifests("srv1", 5000).unwrap();
+        assert_eq!(expired.len(), 2);
+    }
+
+    #[test]
+    fn find_expired_manifests_none() {
+        let (store, _tmp) = test_store();
+        store.save_manifest("srv1", "ch1", &test_manifest("cid1", "srv1", "ch1", 9000)).unwrap();
+        let expired = store.find_expired_manifests("srv1", 5000).unwrap();
+        assert!(expired.is_empty());
     }
 }

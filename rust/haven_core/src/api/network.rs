@@ -102,6 +102,10 @@ pub enum NetworkEvent {
     ShardDeleted { server_id: String, content_id: String },
     ShardReceived { server_id: String, content_id: String, shard_index: u16, from_peer: String },
     ShardRequestFailed { server_id: String, content_id: String, shard_index: u16, error: String },
+    // -- Vault upload pipeline events (Phase 4) --
+    VaultUploadProgress { server_id: String, content_id: String, phase: String, progress: f32 },
+    VaultUploadComplete { server_id: String, content_id: String, channel_id: String },
+    VaultUploadFailed { server_id: String, content_id: String, error: String },
 }
 
 /// Holds all mutable state for the running node.
@@ -417,6 +421,16 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::ShardRequestFailed { server_id, content_id, shard_index, error } => {
             NetworkEvent::ShardRequestFailed { server_id, content_id, shard_index, error }
+        }
+        // -- Vault upload pipeline events --
+        node::NetworkEvent::VaultUploadProgress { server_id, content_id, phase, progress } => {
+            NetworkEvent::VaultUploadProgress { server_id, content_id, phase, progress }
+        }
+        node::NetworkEvent::VaultUploadComplete { server_id, content_id, channel_id } => {
+            NetworkEvent::VaultUploadComplete { server_id, content_id, channel_id }
+        }
+        node::NetworkEvent::VaultUploadFailed { server_id, content_id, error } => {
+            NetworkEvent::VaultUploadFailed { server_id, content_id, error }
         }
     }
 }

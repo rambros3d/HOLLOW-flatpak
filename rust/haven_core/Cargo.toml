@@ -30,6 +30,7 @@ openmls_memory_storage = "0.5"
 shadowsocks-service = { version = "1.21", default-features = false, features = ["local-tunnel", "aead-cipher-2022"] }
 image = { version = "0.25", default-features = false, features = ["webp", "png", "jpeg", "gif", "bmp"] }
 reed-solomon-erasure = "6.0"
+aes-gcm = "0.10"
 
 [dev-dependencies]
 tempfile = "3"

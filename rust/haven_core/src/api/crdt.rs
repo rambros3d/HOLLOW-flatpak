@@ -683,3 +683,66 @@ pub fn delete_vault_content(server_id: String, content_id: String) -> Result<(),
 
     Ok(())
 }
+
+/// Upload a file to the vault. Encrypts with AES-256-GCM, computes content_id,
+/// then sends to swarm for erasure coding + distribution + manifest broadcast.
+/// Returns the content_id immediately.
+#[frb]
+pub fn vault_upload_file(
+    server_id: String,
+    channel_id: String,
+    file_path: String,
+    message_id: String,
+) -> Result<String, String> {
+    // Read the file
+    let file_data =
+        std::fs::read(&file_path).map_err(|e| format!("Failed to read file: {e}"))?;
+    let original_size = file_data.len() as u64;
+
+    // Extract filename and mime type
+    let path = std::path::Path::new(&file_path);
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let mime_type = crate::vault::pipeline::mime_from_ext(&ext);
+
+    // AES-256-GCM encrypt
+    let encrypted = crate::vault::pipeline::aes_encrypt(&file_data)
+        .map_err(|e| format!("Encryption failed: {e}"))?;
+
+    // Compute content_id
+    let content_id = crate::vault::content_store::content_id(&encrypted.ciphertext);
+
+    // Send to swarm handler
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state
+            .cmd_tx
+            .send(node::NodeCommand::VaultUploadFile {
+                server_id,
+                channel_id,
+                file_name,
+                mime_type,
+                message_id,
+                ciphertext: encrypted.ciphertext,
+                aes_key: encrypted.key.to_vec(),
+                aes_nonce: encrypted.nonce.to_vec(),
+                original_size,
+                content_id: content_id.clone(),
+            }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(content_id)
+}

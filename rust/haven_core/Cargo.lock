@@ -1445,6 +1445,7 @@ dependencies = [
 name = "haven_core"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "base64",
  "bip39",
  "crdts",
