@@ -2,8 +2,9 @@
 
 use std::path::PathBuf;
 
-/// Chunk size: 256 KB.
-pub const CHUNK_SIZE: usize = 256 * 1024;
+/// Chunk size: 2 MB. Larger chunks mean fewer Olm messages per file,
+/// reducing risk of ratchet desync from out-of-order delivery.
+pub const CHUNK_SIZE: usize = 2 * 1024 * 1024;
 
 /// Default max file size: 34 MB (sussy easter egg default).
 pub const DEFAULT_MAX_FILE_SIZE: u64 = 34 * 1024 * 1024;

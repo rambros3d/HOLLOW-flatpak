@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -12,6 +12,11 @@ use vodozemac::Curve25519PublicKey;
 pub(crate) struct OlmManager {
     account: Account,
     sessions: HashMap<String, Session>,
+    /// Tracks peers whose session was created via `create_outbound_session`
+    /// (from DHT prekey or KeyBundle). Outbound-only sessions produce PreKey
+    /// (type 0) for ALL messages until replaced by an inbound session.
+    /// Cleared when `create_inbound_session` replaces the session.
+    outbound_only: HashSet<String>,
 }
 
 impl OlmManager {
@@ -20,6 +25,7 @@ impl OlmManager {
         OlmManager {
             account: Account::new(),
             sessions: HashMap::new(),
+            outbound_only: HashSet::new(),
         }
     }
 
@@ -42,6 +48,9 @@ impl OlmManager {
         Ok(OlmManager {
             account,
             sessions: session_map,
+            // Restored sessions: conservatively assume they could be outbound.
+            // On first PreKey received from peer, the session will be replaced.
+            outbound_only: HashSet::new(),
         })
     }
 
@@ -92,6 +101,7 @@ impl OlmManager {
             their_otk,
         );
         self.sessions.insert(peer_id.to_string(), session);
+        self.outbound_only.insert(peer_id.to_string());
         Ok(())
     }
 
@@ -120,6 +130,7 @@ impl OlmManager {
             .map_err(|e| format!("Failed to create inbound session: {e}"))?;
 
         self.sessions.insert(peer_id.to_string(), session);
+        self.outbound_only.remove(peer_id); // Now inbound-derived — produces Normal
         Ok(plaintext)
     }
 
@@ -181,6 +192,21 @@ impl OlmManager {
     /// Remove an existing session (e.g., to replace it).
     pub fn remove_session(&mut self, peer_id: &str) {
         self.sessions.remove(peer_id);
+        self.outbound_only.remove(peer_id);
+    }
+
+    /// Check if the session is outbound-only (created via `create_outbound_session`
+    /// from DHT prekey or KeyBundle, never replaced by `create_inbound_session`).
+    /// Outbound-only sessions produce PreKey (type 0) for ALL messages.
+    pub fn is_outbound_only(&self, peer_id: &str) -> bool {
+        self.outbound_only.contains(peer_id)
+    }
+
+    /// Mark a session as bidirectional (no longer outbound-only).
+    /// Called when we receive a SessionAck from the peer, confirming they
+    /// created an inbound session and our ratchet has advanced.
+    pub fn mark_session_bidirectional(&mut self, peer_id: &str) {
+        self.outbound_only.remove(peer_id);
     }
 
     /// Serialize the Account for DB storage.
@@ -364,5 +390,75 @@ mod tests {
         let (_rt, rct) = bob.encrypt("alice", b"Reply from Bob").unwrap();
         let result = alice.decrypt("bob", 1, &rct);
         assert!(result.is_err(), "Dual-PreKey sessions should be incompatible");
+    }
+
+    #[test]
+    fn test_inbound_session_produces_normal_messages() {
+        // Verifies the behavior that the PreKey race fix preserves:
+        // An inbound-derived session produces Normal (type 1) messages,
+        // so file chunks won't be sent as PreKey.
+        let mut alice = OlmManager::new();
+        let mut bob = OlmManager::new();
+
+        let alice_id = alice.identity_key_base64();
+        let bob_id = bob.identity_key_base64();
+        let alice_otk = alice.generate_one_time_key();
+
+        // Bob creates outbound session and sends PreKey to Alice.
+        bob.create_outbound_session("alice", &alice_id, &alice_otk).unwrap();
+        assert!(bob.is_outbound_only("alice"));
+        let (msg_type, ct) = bob.encrypt("alice", b"Hello Alice").unwrap();
+        assert_eq!(msg_type, 0, "Outbound session produces PreKey");
+
+        // Alice receives Bob's PreKey → creates inbound session.
+        let pt = alice.create_inbound_session("bob", &bob_id, &ct).unwrap();
+        assert_eq!(pt, b"Hello Alice");
+        assert!(!alice.is_outbound_only("bob")); // inbound session — not outbound
+
+        // Alice now has an inbound-derived session. All encrypts produce Normal (type 1).
+        assert!(alice.has_session("bob"));
+        for i in 0..100 {
+            let (mt, _) = alice.encrypt("bob", format!("Chunk {i}").as_bytes()).unwrap();
+            assert_eq!(mt, 1, "Inbound-derived session should always produce Normal (type 1)");
+        }
+    }
+
+    #[test]
+    fn test_outbound_session_upgrades_after_receiving_reply() {
+        // The full handshake: A creates outbound → sends PreKey → B creates inbound
+        // → B replies Normal → A decrypts Normal → A's next encrypt is Normal.
+        // This is the mechanism that fixes the PreKey race for file transfer.
+        let mut alice = OlmManager::new();
+        let mut bob = OlmManager::new();
+
+        let bob_id = bob.identity_key_base64();
+        let bob_otk = bob.generate_one_time_key();
+
+        // Alice creates outbound session.
+        alice.create_outbound_session("bob", &bob_id, &bob_otk).unwrap();
+        assert!(alice.is_outbound_only("bob"));
+
+        // Alice sends PreKey.
+        let (mt1, ct1) = alice.encrypt("bob", b"Hello").unwrap();
+        assert_eq!(mt1, 0, "First message is PreKey");
+
+        // Bob creates inbound session.
+        let alice_id = alice.identity_key_base64();
+        let pt1 = bob.create_inbound_session("alice", &alice_id, &ct1).unwrap();
+        assert_eq!(pt1, b"Hello");
+
+        // Bob replies with Normal message.
+        let (mt2, ct2) = bob.encrypt("alice", b"Reply").unwrap();
+        assert_eq!(mt2, 1, "Bob's reply is Normal (inbound-derived session)");
+
+        // Alice decrypts Bob's Normal reply — this advances Alice's ratchet.
+        let pt2 = alice.decrypt("bob", mt2, &ct2).unwrap();
+        assert_eq!(pt2, b"Reply");
+
+        // NOW: Alice's subsequent encrypts should be Normal (type 1).
+        for i in 0..100 {
+            let (mt, _) = alice.encrypt("bob", format!("Chunk {i}").as_bytes()).unwrap();
+            assert_eq!(mt, 1, "After receiving reply, outbound session produces Normal");
+        }
     }
 }

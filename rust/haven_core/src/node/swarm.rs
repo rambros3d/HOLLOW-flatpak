@@ -826,6 +826,12 @@ enum MessageEnvelope {
         sk: String,
         data: String, // base64 shard data
     },
+
+    /// Lightweight encrypted ping sent after creating an inbound session.
+    /// Causes the remote peer's outbound session to ratchet (upgrade from
+    /// PreKey type 0 to Normal type 1) when they decrypt this message.
+    #[serde(rename = "session_ack")]
+    SessionAck,
 }
 
 /// State for reassembling a chunked vault shard from multiple ShardChunk messages.
@@ -4509,11 +4515,10 @@ async fn run_swarm(
                                         &mut pending_requests, &mut outbound_message_text,
                                         &target_peer, &peer_str, &chunk_json, &event_tx,
                                     ).await;
-                                    // Yield frequently to prevent Olm ratchet desync from out-of-order delivery.
-                                    // Large files (50+ chunks) overwhelm the connection if sent too fast.
-                                    if idx % 10 == 9 {
-                                        tokio::time::sleep(Duration::from_millis(5)).await;
-                                    }
+                                    // Yield after every chunk to prevent Olm ratchet desync from
+                                    // out-of-order delivery. Without pacing, rapid-fire chunks arrive
+                                    // interleaved with other messages, causing ratchet chain mismatches.
+                                    tokio::time::sleep(Duration::from_millis(10)).await;
                                 }
                                 } // if connected_peers (file data only)
                             }
@@ -4607,7 +4612,7 @@ async fn run_swarm(
                                                 &pid, member_peer_str, &header_json, &event_tx,
                                             ).await;
 
-                                            // Send chunks via Olm (yield every 50 to prevent connection backlog).
+                                            // Send chunks via Olm with pacing to prevent ratchet desync.
                                             for (idx, chunk_data) in chunks.iter().enumerate() {
                                                 let chunk_b64 = base64::engine::general_purpose::STANDARD.encode(chunk_data);
                                                 let chunk_envelope = MessageEnvelope::FileChunk {
@@ -4621,9 +4626,8 @@ async fn run_swarm(
                                                     &mut pending_requests, &mut outbound_message_text,
                                                     &pid, member_peer_str, &chunk_json, &event_tx,
                                                 ).await;
-                                                if idx % 50 == 49 {
-                                                    tokio::task::yield_now().await;
-                                                }
+                                                // Pace to prevent Olm ratchet desync from out-of-order delivery.
+                                                tokio::time::sleep(Duration::from_millis(10)).await;
                                             }
                                         }
                                     }
@@ -4968,6 +4972,13 @@ async fn run_swarm(
                                                             % bundle.one_time_keys.len();
                                                         let otk = &bundle.one_time_keys[idx];
 
+                                                        // Guard: don't overwrite an existing session
+                                                        // (e.g. inbound session from peer's PreKey that
+                                                        // arrived while our DHT fetch was in flight).
+                                                        if olm.has_session(&target_peer) {
+                                                            haven_log!("[HAVEN-SWARM] Session already exists for {target_peer}, skipping DHT prekey session creation");
+                                                            used = true;
+                                                        } else {
                                                         match olm.create_outbound_session(
                                                             &target_peer,
                                                             &bundle.identity_key,
@@ -5010,6 +5021,7 @@ async fn run_swarm(
                                                                     message: format!("[DHT] Prekey session creation failed: {e}"),
                                                                 }).await;
                                                             }
+                                                        }
                                                         }
                                                     }
                                                     Ok(false) => {
@@ -5938,6 +5950,10 @@ async fn send_encrypted_message(
             // Persist crypto state.
             persist_crypto_state(olm, crypto_store, peer_id_str);
 
+            if msg_type == 0 {
+                haven_log!("[HAVEN-CRYPTO] Sending PreKey (type 0) to {peer_id_str}");
+            }
+
             let identity_key = if msg_type == 0 {
                 Some(olm.identity_key_base64())
             } else {
@@ -6051,12 +6067,11 @@ async fn handle_incoming_request(
                 let had_existing_session = olm.has_session(&peer_str);
 
                 if had_existing_session {
-                    // We already have a session with this peer. Try to decrypt the
-                    // PreKey message using the existing session first. This handles
-                    // the race where two encrypted messages arrive as PreKeys
-                    // (e.g. sync batch response + regular channel message overlap).
-                    // The first creates a new session, the second should decrypt
-                    // with it rather than trying (and failing) to create another.
+                    // We have an inbound-derived session (already good). Try to decrypt
+                    // the PreKey using the existing session — this handles the race where
+                    // two encrypted messages arrive as PreKeys (e.g. sync batch response +
+                    // regular channel message overlap). The first creates a new session,
+                    // the second should decrypt with it.
                     match olm.try_decrypt_prekey_with_existing(&peer_str, &ciphertext) {
                         Ok(pt) => {
                             haven_log!("[HAVEN-CRYPTO] Decrypted PreKey with existing session for {peer_str}");
@@ -6075,6 +6090,12 @@ async fn handle_incoming_request(
                                         })
                                         .await;
                                     key_request_in_flight.remove(&peer_str);
+                                    // Send encrypted SessionAck to upgrade peer's outbound ratchet.
+                                    let ack_json = serde_json::to_string(&MessageEnvelope::SessionAck).unwrap_or_default();
+                                    send_encrypted_message(
+                                        swarm, olm, crypto_store, pending_requests,
+                                        outbound_message_text, &peer, &peer_str, &ack_json, event_tx,
+                                    ).await;
                                     if let Some(queued) = pending_messages.remove(&peer_str) {
                                         for text in queued {
                                             send_encrypted_message(
@@ -6127,6 +6148,12 @@ async fn handle_incoming_request(
                                 })
                                 .await;
                             key_request_in_flight.remove(&peer_str);
+                            // Send encrypted SessionAck to upgrade peer's outbound ratchet.
+                            let ack_json = serde_json::to_string(&MessageEnvelope::SessionAck).unwrap_or_default();
+                            send_encrypted_message(
+                                swarm, olm, crypto_store, pending_requests,
+                                outbound_message_text, &peer, &peer_str, &ack_json, event_tx,
+                            ).await;
                             if let Some(queued) = pending_messages.remove(&peer_str) {
                                 for text in queued {
                                     send_encrypted_message(
@@ -7239,6 +7266,14 @@ async fn handle_incoming_request(
                             }
                         }
                     }
+                }
+
+                Ok(MessageEnvelope::SessionAck) => {
+                    // Lightweight encrypted ping from peer after they created an inbound
+                    // session. The act of decrypting this message upgrades our outbound
+                    // session's ratchet so subsequent encrypts produce Normal (type 1).
+                    haven_log!("[HAVEN-CRYPTO] SessionAck received from {peer_str} — session ratchet upgraded");
+                    olm.mark_session_bidirectional(&peer_str);
                 }
 
                 Err(_) => {
@@ -8791,25 +8826,31 @@ async fn handle_incoming_response(
             // We got the peer's key bundle — create outbound session.
             key_request_in_flight.remove(&to_peer);
 
-            if let Err(e) = olm.create_outbound_session(&to_peer, &identity_key, &one_time_key) {
+            // Guard: don't overwrite an existing session (e.g. inbound session
+            // from peer's PreKey that arrived while our KeyRequest was in flight).
+            if olm.has_session(&to_peer) {
+                haven_log!("[HAVEN-SWARM] Session already exists for {to_peer}, skipping KeyBundle session creation");
+            } else {
+                if let Err(e) = olm.create_outbound_session(&to_peer, &identity_key, &one_time_key) {
+                    let _ = event_tx
+                        .send(NetworkEvent::Error {
+                            message: format!("Failed to create outbound session with {to_peer}: {e}"),
+                        })
+                        .await;
+                    return;
+                }
+
+                // Persist crypto state.
+                persist_crypto_state(olm, crypto_store, &to_peer);
+
                 let _ = event_tx
-                    .send(NetworkEvent::Error {
-                        message: format!("Failed to create outbound session with {to_peer}: {e}"),
+                    .send(NetworkEvent::SessionEstablished {
+                        peer_id: to_peer.clone(),
                     })
                     .await;
-                return;
             }
 
-            // Persist crypto state.
-            persist_crypto_state(olm, crypto_store, &to_peer);
-
-            let _ = event_tx
-                .send(NetworkEvent::SessionEstablished {
-                    peer_id: to_peer.clone(),
-                })
-                .await;
-
-            // Flush all pending messages for this peer.
+            // Always flush pending messages + sync — session is good either way.
             let peer_id: PeerId = match to_peer.parse() {
                 Ok(p) => p,
                 Err(_) => return,
