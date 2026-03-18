@@ -644,15 +644,19 @@ pub fn get_storage_stats(server_id: String) -> Result<StorageStatsFfi, String> {
     let member_count = state.members.len() as u32;
     let min_pledge_mb = state.min_pledge_mb();
 
-    // Load vault shard usage data
+    // Load storage usage: vault shards + local files for this server.
     let vault_dir = haven_dir.join("vault");
-    let total_used_bytes = if let Ok(content_store) =
+    let vault_used = if let Ok(content_store) =
         crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir)
     {
         content_store.total_storage_used(&server_id).unwrap_or(0)
     } else {
         0
     };
+
+    // Also count completed files stored locally for this server (P2P file sharing).
+    let file_used = store.total_file_storage_for_server(&server_id).unwrap_or(0);
+    let total_used_bytes = vault_used + file_used;
 
     Ok(StorageStatsFfi {
         total_pledged_bytes,

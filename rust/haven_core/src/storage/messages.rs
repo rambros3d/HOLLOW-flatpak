@@ -575,7 +575,7 @@ impl MessageStore {
                 "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id
                  FROM messages
                  WHERE peer_id = ?1 AND hidden_at IS NULL
-                 ORDER BY id DESC
+                 ORDER BY timestamp DESC, id DESC
                  LIMIT ?2",
             )
             .map_err(|e| format!("Failed to prepare query: {e}"))?;
@@ -837,7 +837,7 @@ impl MessageStore {
                 "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id
                  FROM channel_messages
                  WHERE server_id = ?1 AND channel_id = ?2 AND hidden_at IS NULL
-                 ORDER BY id DESC
+                 ORDER BY timestamp DESC, sender_id DESC, id DESC
                  LIMIT ?3",
             )
             .map_err(|e| format!("Failed to prepare channel_messages query: {e}"))?;
@@ -2092,6 +2092,23 @@ impl MessageStore {
             files.push(row.map_err(|e| format!("Failed to read file row: {e}"))?);
         }
         Ok(files)
+    }
+
+    /// Get total file storage used for a server (sum of size_bytes for completed files).
+    /// context_id for channel files is "server_id:channel_id", so we match with LIKE 'server_id:%'.
+    pub fn total_file_storage_for_server(&self, server_id: &str) -> Result<u64, String> {
+        let pattern = format!("{server_id}:%");
+        let result: i64 = self
+            .conn
+            .query_row(
+                "SELECT COALESCE(SUM(size_bytes), 0) FROM files
+                 WHERE context_type = 'channel' AND context_id LIKE ?1
+                 AND completed_at IS NOT NULL",
+                [&pattern],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Failed to sum file storage: {e}"))?;
+        Ok(result.max(0) as u64)
     }
 
     /// Get missing chunk indices for a file.

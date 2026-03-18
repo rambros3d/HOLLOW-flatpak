@@ -1171,6 +1171,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [ ] Per-file indicators in chat — deferred to follow-up
   - [ ] Vault status in member panel — deferred to follow-up
   - [ ] VaultFileWidget shimmer — deferred to follow-up
+  - [ ] Sync UI fixes: "Syncing..." indicator timeout (clear after 10s if no progress), CRDT server state changes (rename/delete) refresh Dart UI on SyncCompleted
 
 - [ ] **Connection subset management** — limit persistent connections for large servers (defer until scaling pain)
   - [ ] Target: 6-12 peers per server (not full mesh). Total across all servers capped at 50 (configurable)
@@ -1225,6 +1226,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [ ] Connection subset management (6-12 peers per server, peer scoring, rotation) — defer until scaling pain
   - [ ] Channel-level CRDT sharding (split ServerState for scale) — defer until ServerState is too large
 - [ ] **File deduplication** — content-addressable dedup via SHA-256 hash. If the same file is sent multiple times, store once on disk, point all file_ids to the same path. Reference counting for cleanup.
+- [ ] Unread message indicator: floating pill above chat input with arrow-down icon + unread count, click to scroll to newest, auto-dismiss on scroll — also fix channel chat auto-reload when MessageSyncCompleted fires for currently-viewed channel
 - [ ] Proper roles on the server and editing of permissions
 - [ ] Video preview in chats
 - [ ] Link previews (URL metadata fetch + embed card rendering)
