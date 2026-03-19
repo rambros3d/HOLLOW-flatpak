@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/rust/api/storage.dart' as storage_api;
+import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 
 /// Tracks unread message state per channel and per DM.
 ///

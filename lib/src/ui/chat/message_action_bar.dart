@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
-import 'package:haven/src/ui/chat/emoji_picker.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/ui/chat/emoji_picker.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Coordinates action bar visibility across all messages in a list.
@@ -196,7 +196,7 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
 
     final size = renderBox.size;
     final offset = renderBox.localToGlobal(Offset.zero);
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final screenWidth = MediaQuery.of(context).size.width;
 
     // --- Highlight overlay (exact match with message rect) ---
@@ -208,7 +208,7 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
         height: size.height,
         child: IgnorePointer(
           child: Container(
-            color: haven.textPrimary.withValues(alpha: 0.03),
+            color: hollow.textPrimary.withValues(alpha: 0.03),
           ),
         ),
       ),
@@ -223,7 +223,7 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
       // Vertically center the action bar on the right side of the message.
       final double barTop = offset.dy + (size.height / 2) - 14;
       final double barRight =
-          screenWidth - (offset.dx + size.width) + HavenSpacing.md;
+          screenWidth - (offset.dx + size.width) + HollowSpacing.md;
 
       _actionBarEntry = OverlayEntry(
         builder: (context) => Positioned(
@@ -233,7 +233,7 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
             onEnter: (_) => _onBarEnter(),
             onExit: (_) => _onBarExit(),
             child: _ActionBarContent(
-              haven: haven,
+              hollow: hollow,
               onReaction: widget.onReaction != null
                   ? (globalPosition) {
                       _dismissNow();
@@ -349,7 +349,7 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
   @override
   Widget build(BuildContext context) {
     if (widget.isEditing) {
-      return _buildEditView(HavenTheme.of(context));
+      return _buildEditView(HollowTheme.of(context));
     }
 
     return MouseRegion(
@@ -362,40 +362,40 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
     );
   }
 
-  Widget _buildEditView(HavenTheme haven) {
+  Widget _buildEditView(HollowTheme hollow) {
     return Container(
       padding: const EdgeInsets.symmetric(
-        horizontal: HavenSpacing.md,
-        vertical: HavenSpacing.xs,
+        horizontal: HollowSpacing.md,
+        vertical: HollowSpacing.xs,
       ),
-      color: haven.textPrimary.withValues(alpha: 0.03),
+      color: hollow.textPrimary.withValues(alpha: 0.03),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           TextField(
             controller: _editController,
             focusNode: _editFocusNode,
-            style: HavenTypography.body.copyWith(color: haven.textPrimary),
+            style: HollowTypography.body.copyWith(color: hollow.textPrimary),
             maxLines: 5,
             minLines: 1,
             decoration: InputDecoration(
               filled: true,
-              fillColor: haven.elevated,
+              fillColor: hollow.elevated,
               contentPadding: const EdgeInsets.symmetric(
-                horizontal: HavenSpacing.sm,
-                vertical: HavenSpacing.sm,
+                horizontal: HollowSpacing.sm,
+                vertical: HollowSpacing.sm,
               ),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(haven.radiusMd),
-                borderSide: BorderSide(color: haven.accent),
+                borderRadius: BorderRadius.circular(hollow.radiusMd),
+                borderSide: BorderSide(color: hollow.accent),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(haven.radiusMd),
-                borderSide: BorderSide(color: haven.accent),
+                borderRadius: BorderRadius.circular(hollow.radiusMd),
+                borderSide: BorderSide(color: hollow.accent),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(haven.radiusMd),
-                borderSide: BorderSide(color: haven.accent, width: 1.5),
+                borderRadius: BorderRadius.circular(hollow.radiusMd),
+                borderSide: BorderSide(color: hollow.accent, width: 1.5),
               ),
             ),
             onTapOutside: (_) => widget.onEditCancel?.call(),
@@ -403,8 +403,8 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
           const SizedBox(height: 4),
           Text(
             'escape to cancel  •  enter to save  •  shift+enter for new line',
-            style: HavenTypography.caption.copyWith(
-              color: haven.textSecondary.withValues(alpha: 0.5),
+            style: HollowTypography.caption.copyWith(
+              color: hollow.textSecondary.withValues(alpha: 0.5),
               fontSize: 10,
             ),
           ),
@@ -416,7 +416,7 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
 
 /// The action bar content — emoji + reply + edit + delete buttons.
 class _ActionBarContent extends StatelessWidget {
-  final HavenTheme haven;
+  final HollowTheme hollow;
   final void Function(Offset globalPosition)? onReaction;
   final VoidCallback? onReply;
   final VoidCallback? onEdit;
@@ -425,7 +425,7 @@ class _ActionBarContent extends StatelessWidget {
   final VoidCallback? onDownload;
 
   const _ActionBarContent({
-    required this.haven,
+    required this.hollow,
     this.onReaction,
     this.onReply,
     this.onEdit,
@@ -438,9 +438,9 @@ class _ActionBarContent extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: haven.elevated,
-        borderRadius: BorderRadius.circular(haven.radiusSm),
-        border: Border.all(color: haven.border),
+        color: hollow.elevated,
+        borderRadius: BorderRadius.circular(hollow.radiusSm),
+        border: Border.all(color: hollow.border),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.15),
@@ -453,60 +453,60 @@ class _ActionBarContent extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (onDownload != null)
-            HavenPressable(
+            HollowPressable(
               onTap: onDownload,
-              borderRadius: BorderRadius.circular(haven.radiusSm),
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
               padding: const EdgeInsets.all(6),
               child: Icon(
                 LucideIcons.download,
                 size: 14,
-                color: haven.accent,
+                color: hollow.accent,
               ),
             ),
           if (onReaction != null)
-            _EmojiButton(haven: haven, onReaction: onReaction!),
+            _EmojiButton(hollow: hollow, onReaction: onReaction!),
           if (onReply != null)
-            HavenPressable(
+            HollowPressable(
               onTap: onReply,
-              borderRadius: BorderRadius.circular(haven.radiusSm),
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
               padding: const EdgeInsets.all(6),
               child: Icon(
                 LucideIcons.reply,
                 size: 14,
-                color: haven.textSecondary,
+                color: hollow.textSecondary,
               ),
             ),
           if (onPin != null)
-            HavenPressable(
+            HollowPressable(
               onTap: onPin,
-              borderRadius: BorderRadius.circular(haven.radiusSm),
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
               padding: const EdgeInsets.all(6),
               child: Icon(
                 LucideIcons.pin,
                 size: 14,
-                color: haven.textSecondary,
+                color: hollow.textSecondary,
               ),
             ),
           if (onEdit != null)
-            HavenPressable(
+            HollowPressable(
               onTap: onEdit,
-              borderRadius: BorderRadius.circular(haven.radiusSm),
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
               padding: const EdgeInsets.all(6),
               child: Icon(
                 LucideIcons.pencil,
                 size: 14,
-                color: haven.textSecondary,
+                color: hollow.textSecondary,
               ),
             ),
           if (onDelete != null)
-            HavenPressable(
+            HollowPressable(
               onTap: onDelete,
-              borderRadius: BorderRadius.circular(haven.radiusSm),
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
               padding: const EdgeInsets.all(6),
               child: Icon(
                 LucideIcons.trash2,
                 size: 14,
-                color: haven.error,
+                color: hollow.error,
               ),
             ),
         ],
@@ -517,28 +517,28 @@ class _ActionBarContent extends StatelessWidget {
 
 /// Emoji button that captures its global position for the picker anchor.
 class _EmojiButton extends StatelessWidget {
-  final HavenTheme haven;
+  final HollowTheme hollow;
   final void Function(Offset globalPosition) onReaction;
 
   const _EmojiButton({
-    required this.haven,
+    required this.hollow,
     required this.onReaction,
   });
 
   @override
   Widget build(BuildContext context) {
-    return HavenPressable(
+    return HollowPressable(
       onTap: () {
         final box = context.findRenderObject() as RenderBox?;
         final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
         onReaction(position);
       },
-      borderRadius: BorderRadius.circular(haven.radiusSm),
+      borderRadius: BorderRadius.circular(hollow.radiusSm),
       padding: const EdgeInsets.all(6),
       child: Icon(
         LucideIcons.smile,
         size: 14,
-        color: haven.textSecondary,
+        color: hollow.textSecondary,
       ),
     );
   }

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Which tab is active on mobile.
@@ -15,15 +15,15 @@ class MobileNav extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final currentTab = ref.watch(mobileTabProvider);
 
     return Container(
       height: 56,
       decoration: BoxDecoration(
-        color: haven.surface,
+        color: hollow.surface,
         border: Border(
-          top: BorderSide(color: haven.border),
+          top: BorderSide(color: hollow.border),
         ),
       ),
       child: Row(
@@ -79,10 +79,10 @@ class _NavTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     return Expanded(
-      child: HavenPressable(
+      child: HollowPressable(
         onTap: onTap,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -90,13 +90,13 @@ class _NavTab extends StatelessWidget {
             Icon(
               isActive ? activeIcon : icon,
               size: 22,
-              color: isActive ? haven.accent : haven.textSecondary,
+              color: isActive ? hollow.accent : hollow.textSecondary,
             ),
             const SizedBox(height: 2),
             Text(
               label,
-              style: HavenTypography.caption.copyWith(
-                color: isActive ? haven.accent : haven.textSecondary,
+              style: HollowTypography.caption.copyWith(
+                color: isActive ? hollow.accent : hollow.textSecondary,
                 fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
               ),
             ),

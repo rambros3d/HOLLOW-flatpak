@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
 
 /// Displays emoji reaction pills below a message.
 /// Tapping a pill toggles the current user's reaction.
@@ -27,7 +27,7 @@ class ReactionBar extends StatelessWidget {
   Widget build(BuildContext context) {
     if (reactions.isEmpty) return const SizedBox.shrink();
 
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     // Sort by count descending. Entries maintain insertion order for tie-breaking.
     final sorted = reactions.entries.toList()
@@ -43,7 +43,7 @@ class ReactionBar extends StatelessWidget {
           final reactors = entry.value;
           final isMine = reactors.contains(localPeerId);
 
-          return HavenPressable(
+          return HollowPressable(
             onTap: () => onToggleReaction(emoji),
             borderRadius: BorderRadius.circular(12),
             padding: EdgeInsets.zero,
@@ -51,13 +51,13 @@ class ReactionBar extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: isMine
-                    ? haven.accent.withValues(alpha: 0.15)
-                    : haven.elevated,
+                    ? hollow.accent.withValues(alpha: 0.15)
+                    : hollow.elevated,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: isMine
-                      ? haven.accent.withValues(alpha: 0.4)
-                      : haven.border,
+                      ? hollow.accent.withValues(alpha: 0.4)
+                      : hollow.border,
                 ),
               ),
               child: Row(
@@ -67,8 +67,8 @@ class ReactionBar extends StatelessWidget {
                   const SizedBox(width: 3),
                   Text(
                     reactors.length.toString(),
-                    style: HavenTypography.caption.copyWith(
-                      color: isMine ? haven.accent : haven.textSecondary,
+                    style: HollowTypography.caption.copyWith(
+                      color: isMine ? hollow.accent : hollow.textSecondary,
                       fontSize: 11,
                       fontWeight: isMine ? FontWeight.w600 : FontWeight.normal,
                     ),

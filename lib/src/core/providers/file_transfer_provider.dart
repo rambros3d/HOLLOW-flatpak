@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/rust/api/network.dart' as network_api;
+import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
+import 'package:hollow/src/rust/api/network.dart' as network_api;
 
 /// State for a single file transfer (sending or receiving).
 class FileTransferState {
@@ -12,6 +14,10 @@ class FileTransferState {
   final bool isSending;
   /// True while a streamed transfer is in flight (no chunk-based progress).
   final bool isDownloading;
+  /// Vault content ID (set when vault_upload_file is called for 6+ member servers).
+  final String? contentId;
+  /// Vault download phase ("Collecting shards...", "Reconstructing...", "Decrypting...").
+  final String? vaultPhase;
   final String? error;
   final String? diskPath;
   final bool isImage;
@@ -27,6 +33,8 @@ class FileTransferState {
     this.isComplete = false,
     this.isSending = false,
     this.isDownloading = false,
+    this.contentId,
+    this.vaultPhase,
     this.error,
     this.diskPath,
     this.isImage = false,
@@ -41,6 +49,8 @@ class FileTransferState {
     int? chunksReceived,
     bool? isComplete,
     bool? isDownloading,
+    String? contentId,
+    String? vaultPhase,
     String? error,
     String? diskPath,
   }) {
@@ -53,6 +63,8 @@ class FileTransferState {
       isComplete: isComplete ?? this.isComplete,
       isSending: isSending,
       isDownloading: isDownloading ?? this.isDownloading,
+      contentId: contentId ?? this.contentId,
+      vaultPhase: vaultPhase ?? this.vaultPhase,
       error: error ?? this.error,
       diskPath: diskPath ?? this.diskPath,
       isImage: isImage,
@@ -69,6 +81,7 @@ class FileTransferNotifier
   Map<String, FileTransferState> build() => {};
 
   /// Initiate a file send.
+  /// [memberCount] is the server's member count — if >= 6, also triggers vault upload.
   Future<void> sendFile({
     String? peerId,
     String? serverId,
@@ -76,6 +89,7 @@ class FileTransferNotifier
     required String filePath,
     required String messageId,
     String messageText = '',
+    int memberCount = 0,
   }) async {
     // Extract filename for display.
     final parts = filePath.replaceAll('\\', '/').split('/');
@@ -92,7 +106,7 @@ class FileTransferNotifier
     );
     state = updated;
 
-    // Call Rust FFI.
+    // Call Rust FFI — P2P streaming path (works for all modes).
     try {
       await network_api.sendFile(
         peerId: peerId,
@@ -102,6 +116,30 @@ class FileTransferNotifier
         messageId: messageId,
         messageText: messageText,
       );
+
+      // For 6+ member servers: also trigger vault upload (erasure coding + shard distribution).
+      // P2P streaming delivers to online peers immediately; vault ensures offline peers
+      // can reconstruct from shards later.
+      if (serverId != null && channelId != null && memberCount >= 6) {
+        try {
+          final contentId = await crdt_api.vaultUploadFile(
+            serverId: serverId,
+            channelId: channelId,
+            filePath: filePath,
+            messageId: messageId,
+          );
+          // Store contentId for vault status tracking.
+          final withCid = Map<String, FileTransferState>.from(state);
+          final current = withCid[messageId];
+          if (current != null) {
+            withCid[messageId] = current.copyWith(contentId: contentId);
+            state = withCid;
+          }
+          debugPrint('[HOLLOW] Vault upload started: $contentId');
+        } catch (e) {
+          debugPrint('[HOLLOW] Vault upload failed (P2P still ok): $e');
+        }
+      }
     } catch (e) {
       final err = Map<String, FileTransferState>.from(state);
       err[messageId] = FileTransferState(
@@ -191,6 +229,39 @@ class FileTransferNotifier
       isSending: current?.isSending ?? false,
       error: error,
     );
+    state = updated;
+  }
+
+  /// Handle vault download progress — update phase text on file transfer.
+  /// contentId is matched against transfers that have contentId set.
+  void onVaultDownloadProgress(String contentId, String phase, double progress) {
+    final updated = Map<String, FileTransferState>.from(state);
+    for (final entry in updated.entries) {
+      if (entry.value.contentId == contentId) {
+        updated[entry.key] = entry.value.copyWith(
+          vaultPhase: phase,
+          isDownloading: true,
+        );
+        break;
+      }
+    }
+    state = updated;
+  }
+
+  /// Handle vault download complete.
+  void onVaultDownloadComplete(String contentId, String diskPath) {
+    final updated = Map<String, FileTransferState>.from(state);
+    for (final entry in updated.entries) {
+      if (entry.value.contentId == contentId) {
+        updated[entry.key] = entry.value.copyWith(
+          isComplete: true,
+          isDownloading: false,
+          diskPath: diskPath,
+          vaultPhase: null,
+        );
+        break;
+      }
+    }
     state = updated;
   }
 }

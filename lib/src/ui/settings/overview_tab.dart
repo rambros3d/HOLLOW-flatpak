@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/models/server_info.dart';
-import 'package:haven/src/core/providers/identity_provider.dart';
-import 'package:haven/src/core/providers/server_provider.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_button.dart';
-import 'package:haven/src/ui/components/haven_text_field.dart';
-import 'package:haven/src/ui/components/haven_toast.dart';
-import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
+import 'package:hollow/src/core/models/server_info.dart';
+import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_button.dart';
+import 'package:hollow/src/ui/components/hollow_text_field.dart';
+import 'package:hollow/src/ui/components/hollow_toast.dart';
+import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Overview tab — server settings (admin+) and server identity (all members).
@@ -113,13 +113,13 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
         newName: newName,
       );
       if (mounted) {
-        HavenToast.show(context, 'Server renamed',
-            type: HavenToastType.success);
+        HollowToast.show(context, 'Server renamed',
+            type: HollowToastType.success);
       }
     } catch (e) {
       if (mounted) {
-        HavenToast.show(context, 'Failed to rename: $e',
-            type: HavenToastType.error);
+        HollowToast.show(context, 'Failed to rename: $e',
+            type: HollowToastType.error);
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -136,13 +136,13 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
         value: desc,
       );
       if (mounted) {
-        HavenToast.show(context, 'Description updated',
-            type: HavenToastType.success);
+        HollowToast.show(context, 'Description updated',
+            type: HollowToastType.success);
       }
     } catch (e) {
       if (mounted) {
-        HavenToast.show(context, 'Failed to update: $e',
-            type: HavenToastType.error);
+        HollowToast.show(context, 'Failed to update: $e',
+            type: HollowToastType.error);
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -161,16 +161,16 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
       );
       ref.invalidate(serverMembersProvider(widget.server.serverId));
       if (mounted) {
-        HavenToast.show(
+        HollowToast.show(
           context,
           nickname.isEmpty ? 'Nickname cleared' : 'Nickname updated',
-          type: HavenToastType.success,
+          type: HollowToastType.success,
         );
       }
     } catch (e) {
       if (mounted) {
-        HavenToast.show(context, 'Failed to update nickname: $e',
-            type: HavenToastType.error);
+        HollowToast.show(context, 'Failed to update nickname: $e',
+            type: HollowToastType.error);
       }
     } finally {
       if (mounted) setState(() => _savingNickname = false);
@@ -179,101 +179,101 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     return ListView(
-      padding: const EdgeInsets.all(HavenSpacing.xl),
+      padding: const EdgeInsets.all(HollowSpacing.xl),
       children: [
         // ── Server Settings (admin+ only) ──
         if (widget.canManageServer) ...[
           Text(
             'SERVER SETTINGS',
-            style: HavenTypography.caption.copyWith(
-              color: haven.textSecondary,
+            style: HollowTypography.caption.copyWith(
+              color: hollow.textSecondary,
               fontWeight: FontWeight.w700,
               letterSpacing: 1.2,
             ),
           ),
-          const SizedBox(height: HavenSpacing.md),
+          const SizedBox(height: HollowSpacing.md),
 
           // Server Name
           Text(
             'Server Name',
             style:
-                HavenTypography.label.copyWith(color: haven.textSecondary),
+                HollowTypography.label.copyWith(color: hollow.textSecondary),
           ),
-          const SizedBox(height: HavenSpacing.sm),
+          const SizedBox(height: HollowSpacing.sm),
           Row(
             children: [
               Expanded(
-                child: HavenTextField(
+                child: HollowTextField(
                   controller: _nameController,
                   hintText: 'Server name',
                   maxLength: 32,
                   onSubmitted: (_) => _saveName(),
                 ),
               ),
-              const SizedBox(width: HavenSpacing.sm),
-              HavenButton.filled(
+              const SizedBox(width: HollowSpacing.sm),
+              HollowButton.filled(
                 onPressed: _saving ? null : _saveName,
                 child: const Text('Save'),
               ),
             ],
           ),
-          const SizedBox(height: HavenSpacing.xl),
+          const SizedBox(height: HollowSpacing.xl),
 
           // Description
           Text(
             'Description',
             style:
-                HavenTypography.label.copyWith(color: haven.textSecondary),
+                HollowTypography.label.copyWith(color: hollow.textSecondary),
           ),
-          const SizedBox(height: HavenSpacing.sm),
-          HavenTextField(
+          const SizedBox(height: HollowSpacing.sm),
+          HollowTextField(
             controller: _descController,
             hintText: 'What is this server about?',
             maxLines: 3,
             maxLength: 256,
             onSubmitted: (_) => _saveDescription(),
           ),
-          const SizedBox(height: HavenSpacing.sm),
+          const SizedBox(height: HollowSpacing.sm),
           Align(
             alignment: Alignment.centerRight,
-            child: HavenButton.filled(
+            child: HollowButton.filled(
               onPressed: _saving ? null : _saveDescription,
               compact: true,
               child: const Text('Save Description'),
             ),
           ),
-          const SizedBox(height: HavenSpacing.xl),
+          const SizedBox(height: HollowSpacing.xl),
 
           // Max File Size
           Text(
             'Max File Size',
             style:
-                HavenTypography.label.copyWith(color: haven.textSecondary),
+                HollowTypography.label.copyWith(color: hollow.textSecondary),
           ),
-          const SizedBox(height: HavenSpacing.sm),
+          const SizedBox(height: HollowSpacing.sm),
           Row(
             children: [
-              Icon(LucideIcons.fileUp, size: 16, color: haven.textSecondary),
-              const SizedBox(width: HavenSpacing.sm),
+              Icon(LucideIcons.fileUp, size: 16, color: hollow.textSecondary),
+              const SizedBox(width: HollowSpacing.sm),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       'Maximum file upload size for this server',
-                      style: HavenTypography.body.copyWith(
-                        color: haven.textSecondary,
+                      style: HollowTypography.body.copyWith(
+                        color: hollow.textSecondary,
                         fontSize: 12,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       '1–500 MB  •  Enter to save',
-                      style: HavenTypography.caption.copyWith(
-                        color: haven.textSecondary.withValues(alpha: 0.5),
+                      style: HollowTypography.caption.copyWith(
+                        color: hollow.textSecondary.withValues(alpha: 0.5),
                         fontSize: 10,
                       ),
                     ),
@@ -282,19 +282,19 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
               ),
               SizedBox(
                 width: 100,
-                child: HavenTextField(
+                child: HollowTextField(
                   controller: TextEditingController(text: _maxFileSizeMb.toString()),
                   isDense: true,
                   hintText: '1–500',
-                  style: HavenTypography.body.copyWith(
-                    color: haven.textPrimary,
+                  style: HollowTypography.body.copyWith(
+                    color: hollow.textPrimary,
                     fontSize: 13,
                   ),
-                  borderRadius: haven.radiusSm,
+                  borderRadius: hollow.radiusSm,
                   onSubmitted: (val) async {
                     final mb = int.tryParse(val.trim());
                     if (mb == null || mb < 1 || mb > 500) {
-                      HavenToast.show(context, 'Must be between 1 and 500 MB', type: HavenToastType.error);
+                      HollowToast.show(context, 'Must be between 1 and 500 MB', type: HollowToastType.error);
                       return;
                     }
                     setState(() => _maxFileSizeMb = mb);
@@ -304,58 +304,58 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
                         key: 'max_file_size_mb',
                         value: mb.toString(),
                       );
-                      if (mounted) HavenToast.show(context, 'Max file size set to ${mb}MB', type: HavenToastType.success);
+                      if (mounted) HollowToast.show(context, 'Max file size set to ${mb}MB', type: HollowToastType.success);
                     } catch (_) {}
                   },
                 ),
               ),
-              const SizedBox(width: HavenSpacing.sm),
+              const SizedBox(width: HollowSpacing.sm),
               Text(
                 'MB',
-                style: HavenTypography.body.copyWith(
-                  color: haven.textPrimary,
+                style: HollowTypography.body.copyWith(
+                  color: hollow.textPrimary,
                   fontWeight: FontWeight.w600,
                   fontSize: 13,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: HavenSpacing.xl),
+          const SizedBox(height: HollowSpacing.xl),
 
           // Server ID
           Text(
             'Server ID',
             style:
-                HavenTypography.label.copyWith(color: haven.textSecondary),
+                HollowTypography.label.copyWith(color: hollow.textSecondary),
           ),
-          const SizedBox(height: HavenSpacing.sm),
+          const SizedBox(height: HollowSpacing.sm),
           Container(
             padding: const EdgeInsets.symmetric(
-              horizontal: HavenSpacing.md,
-              vertical: HavenSpacing.sm,
+              horizontal: HollowSpacing.md,
+              vertical: HollowSpacing.sm,
             ),
             decoration: BoxDecoration(
-              color: haven.elevated,
-              borderRadius: BorderRadius.circular(haven.radiusMd),
-              border: Border.all(color: haven.border),
+              color: hollow.elevated,
+              borderRadius: BorderRadius.circular(hollow.radiusMd),
+              border: Border.all(color: hollow.border),
             ),
             child: Row(
               children: [
                 Expanded(
                   child: SelectableText(
                     widget.server.serverId,
-                    style: HavenTypography.mono.copyWith(
-                      color: haven.textSecondary,
+                    style: HollowTypography.mono.copyWith(
+                      color: hollow.textSecondary,
                     ),
                   ),
                 ),
-                const SizedBox(width: HavenSpacing.sm),
-                HavenButton.ghost(
+                const SizedBox(width: HollowSpacing.sm),
+                HollowButton.ghost(
                   onPressed: () {
                     Clipboard.setData(
                       ClipboardData(text: widget.server.serverId),
                     );
-                    HavenToast.show(context, 'Copied to clipboard');
+                    HollowToast.show(context, 'Copied to clipboard');
                   },
                   compact: true,
                   icon: const Icon(LucideIcons.copy),
@@ -365,47 +365,47 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
             ),
           ),
 
-          const SizedBox(height: HavenSpacing.xl),
-          Divider(color: haven.border),
-          const SizedBox(height: HavenSpacing.xl),
+          const SizedBox(height: HollowSpacing.xl),
+          Divider(color: hollow.border),
+          const SizedBox(height: HollowSpacing.xl),
         ],
 
         // ── Your Identity (all members) ──
         Text(
           'YOUR IDENTITY',
-          style: HavenTypography.caption.copyWith(
-            color: haven.textSecondary,
+          style: HollowTypography.caption.copyWith(
+            color: hollow.textSecondary,
             fontWeight: FontWeight.w700,
             letterSpacing: 1.2,
           ),
         ),
-        const SizedBox(height: HavenSpacing.md),
+        const SizedBox(height: HollowSpacing.md),
 
         Text(
           'Server Nickname',
           style:
-              HavenTypography.label.copyWith(color: haven.textSecondary),
+              HollowTypography.label.copyWith(color: hollow.textSecondary),
         ),
-        const SizedBox(height: HavenSpacing.xs),
+        const SizedBox(height: HollowSpacing.xs),
         Text(
           'This nickname is only visible on this server. Leave empty to use your display name.',
-          style: HavenTypography.caption.copyWith(
-            color: haven.textSecondary,
+          style: HollowTypography.caption.copyWith(
+            color: hollow.textSecondary,
           ),
         ),
-        const SizedBox(height: HavenSpacing.sm),
+        const SizedBox(height: HollowSpacing.sm),
         Row(
           children: [
             Expanded(
-              child: HavenTextField(
+              child: HollowTextField(
                 controller: _nicknameController,
                 hintText: 'Nickname (optional)',
                 maxLength: 32,
                 onSubmitted: (_) => _saveNickname(),
               ),
             ),
-            const SizedBox(width: HavenSpacing.sm),
-            HavenButton.filled(
+            const SizedBox(width: HollowSpacing.sm),
+            HollowButton.filled(
               onPressed: _savingNickname ? null : _saveNickname,
               child: const Text('Save'),
             ),

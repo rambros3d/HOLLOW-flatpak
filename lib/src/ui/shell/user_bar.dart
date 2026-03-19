@@ -1,21 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/models/node_status.dart';
-import 'package:haven/src/core/providers/identity_provider.dart';
-import 'package:haven/src/core/providers/node_provider.dart';
-import 'package:haven/src/core/providers/peers_provider.dart';
-import 'package:haven/src/core/providers/profile_provider.dart';
-import 'package:haven/src/core/providers/server_provider.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_avatar.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
-import 'package:haven/src/ui/components/haven_tooltip.dart';
-import 'package:haven/src/ui/components/profile_card_popup.dart';
-import 'package:haven/src/ui/components/status_dot.dart';
-import 'package:haven/src/ui/dialogs/mnemonic_dialog.dart';
-import 'package:haven/src/ui/dialogs/user_settings_dialog.dart';
+import 'package:hollow/src/core/models/node_status.dart';
+import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/node_provider.dart';
+import 'package:hollow/src/core/providers/peers_provider.dart';
+import 'package:hollow/src/core/providers/profile_provider.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_avatar.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/ui/components/hollow_tooltip.dart';
+import 'package:hollow/src/ui/components/profile_card_popup.dart';
+import 'package:hollow/src/ui/components/status_dot.dart';
+import 'package:hollow/src/ui/dialogs/mnemonic_dialog.dart';
+import 'package:hollow/src/ui/dialogs/user_settings_dialog.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Bottom bar in the channel sidebar showing the local user's identity and status.
@@ -25,7 +25,7 @@ class UserBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final identity = ref.watch(identityProvider);
     final nodeState = ref.watch(nodeProvider);
     final selectedServerId = ref.watch(selectedServerProvider);
@@ -65,65 +65,65 @@ class UserBar extends ConsumerWidget {
       switch (effectiveStatus) {
         case ServerSyncStatus.connecting:
           statusText = 'Connecting...';
-          statusColor = haven.textSecondary;
+          statusColor = hollow.textSecondary;
           statusPulse = true;
         case ServerSyncStatus.syncing:
           statusText = 'Syncing...';
-          statusColor = haven.accent;
+          statusColor = hollow.accent;
           statusPulse = true;
         case ServerSyncStatus.synced:
         case ServerSyncStatus.idle:
           statusText = 'Online';
-          statusColor = haven.success;
+          statusColor = hollow.success;
           statusPulse = true;
         case ServerSyncStatus.retrying:
           statusText = 'Retrying...';
-          statusColor = haven.warning;
+          statusColor = hollow.warning;
           statusPulse = true;
         case ServerSyncStatus.failed:
           statusText = 'Sync failed';
-          statusColor = haven.error;
+          statusColor = hollow.error;
           statusPulse = false;
       }
     } else {
       // No server selected — fall back to node-level status.
       statusText = _statusText(nodeState.status);
-      statusColor = _statusColor(haven, nodeState.status);
+      statusColor = _statusColor(hollow, nodeState.status);
       statusPulse = nodeState.status == NodeStatus.connected;
     }
 
     return Container(
       height: 52,
-      padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.sm + 2),
+      padding: const EdgeInsets.symmetric(horizontal: HollowSpacing.sm + 2),
       decoration: BoxDecoration(
-        color: haven.background,
+        color: hollow.background,
         border: Border(
-          top: BorderSide(color: haven.border),
+          top: BorderSide(color: hollow.border),
         ),
       ),
       child: Row(
         children: [
           // Avatar
           if (localPeerId != null)
-            HavenAvatar(peerId: localPeerId, size: 32)
+            HollowAvatar(peerId: localPeerId, size: 32)
           else
             Container(
               width: 32,
               height: 32,
               decoration: BoxDecoration(
-                color: haven.elevated,
-                borderRadius: BorderRadius.circular(haven.radiusMd),
+                color: hollow.elevated,
+                borderRadius: BorderRadius.circular(hollow.radiusMd),
               ),
             ),
 
-          const SizedBox(width: HavenSpacing.sm),
+          const SizedBox(width: HollowSpacing.sm),
 
           // Peer ID + status
           Expanded(
-            child: HavenTooltip(
+            child: HollowTooltip(
               message: localPeerId ?? 'Loading...',
-              child: HavenPressable(
-                borderRadius: BorderRadius.circular(haven.radiusSm),
+              child: HollowPressable(
+                borderRadius: BorderRadius.circular(hollow.radiusSm),
                 onTap: () {
                   if (localPeerId != null) {
                     final box = context.findRenderObject() as RenderBox?;
@@ -142,7 +142,7 @@ class UserBar extends ConsumerWidget {
                   }
                 },
                 padding: const EdgeInsets.symmetric(
-                  vertical: HavenSpacing.xs,
+                  vertical: HollowSpacing.xs,
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -150,8 +150,8 @@ class UserBar extends ConsumerWidget {
                   children: [
                     Text(
                       myDisplayName,
-                      style: HavenTypography.body.copyWith(
-                        color: haven.textPrimary,
+                      style: HollowTypography.body.copyWith(
+                        color: hollow.textPrimary,
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                       ),
@@ -166,11 +166,11 @@ class UserBar extends ConsumerWidget {
                           size: 7,
                           pulse: statusPulse,
                         ),
-                        const SizedBox(width: HavenSpacing.xs),
+                        const SizedBox(width: HollowSpacing.xs),
                         Text(
                           statusText,
-                          style: HavenTypography.caption.copyWith(
-                            color: haven.textSecondary,
+                          style: HollowTypography.caption.copyWith(
+                            color: hollow.textSecondary,
                           ),
                         ),
                       ],
@@ -182,30 +182,30 @@ class UserBar extends ConsumerWidget {
           ),
 
           // Settings
-          HavenTooltip(
+          HollowTooltip(
             message: 'Settings',
-            child: HavenPressable(
+            child: HollowPressable(
               onTap: () => showUserSettingsDialog(context, ref),
-              borderRadius: BorderRadius.circular(haven.radiusSm),
-              padding: const EdgeInsets.all(HavenSpacing.xs),
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
+              padding: const EdgeInsets.all(HollowSpacing.xs),
               child: Icon(
                 LucideIcons.settings,
                 size: 16,
-                color: haven.textSecondary,
+                color: hollow.textSecondary,
               ),
             ),
           ),
 
           // Recovery key button
           if (identity.mnemonic != null)
-            HavenTooltip(
+            HollowTooltip(
               message: 'Recovery phrase',
-              child: HavenPressable(
+              child: HollowPressable(
                 onTap: () =>
                     showMnemonicDialog(context, identity.mnemonic!),
-                borderRadius: BorderRadius.circular(haven.radiusSm),
-                padding: const EdgeInsets.all(HavenSpacing.xs),
-                child: Icon(LucideIcons.keyRound, size: 16, color: haven.textSecondary),
+                borderRadius: BorderRadius.circular(hollow.radiusSm),
+                padding: const EdgeInsets.all(HollowSpacing.xs),
+                child: Icon(LucideIcons.keyRound, size: 16, color: hollow.textSecondary),
               ),
             ),
         ],
@@ -213,12 +213,12 @@ class UserBar extends ConsumerWidget {
     );
   }
 
-  Color _statusColor(HavenTheme haven, NodeStatus status) {
+  Color _statusColor(HollowTheme hollow, NodeStatus status) {
     return switch (status) {
-      NodeStatus.connected => haven.success,
-      NodeStatus.starting => haven.warning,
-      NodeStatus.loading => haven.textSecondary,
-      NodeStatus.error => haven.error,
+      NodeStatus.connected => hollow.success,
+      NodeStatus.starting => hollow.warning,
+      NodeStatus.loading => hollow.textSecondary,
+      NodeStatus.error => hollow.error,
     };
   }
 

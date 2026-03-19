@@ -2,33 +2,33 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/models/channel_info.dart';
-import 'package:haven/src/core/models/chat_message.dart';
-import 'package:haven/src/core/models/node_status.dart';
-import 'package:haven/src/core/models/peer_info.dart';
-import 'package:haven/src/core/models/server_info.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/animations/haven_curves.dart';
-import 'package:haven/src/ui/animations/reveal_widgets.dart';
-import 'package:haven/src/ui/animations/selection_shimmer.dart';
-import 'package:haven/src/ui/dialogs/storage_dashboard_dialog.dart';
-import 'package:haven/src/ui/animations/startup_reveal.dart';
-import 'package:haven/src/core/providers/friends_provider.dart';
-import 'package:haven/src/core/providers/notification_provider.dart';
-import 'package:haven/src/core/providers/profile_provider.dart';
-import 'package:haven/src/core/providers/unread_provider.dart';
-import 'package:haven/src/ui/components/haven_avatar.dart';
-import 'package:haven/src/ui/components/haven_button.dart';
-import 'package:haven/src/ui/components/haven_dialog.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
-import 'package:haven/src/ui/components/haven_text_field.dart';
-import 'package:haven/src/ui/components/haven_toast.dart';
-import 'package:haven/src/ui/components/haven_tooltip.dart';
-import 'package:haven/src/ui/dialogs/invite_dialog.dart';
-import 'package:haven/src/ui/shell/user_bar.dart';
-import 'package:haven/src/ui/sidebar/peer_card.dart';
+import 'package:hollow/src/core/models/channel_info.dart';
+import 'package:hollow/src/core/models/chat_message.dart';
+import 'package:hollow/src/core/models/node_status.dart';
+import 'package:hollow/src/core/models/peer_info.dart';
+import 'package:hollow/src/core/models/server_info.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/animations/hollow_curves.dart';
+import 'package:hollow/src/ui/animations/reveal_widgets.dart';
+import 'package:hollow/src/ui/animations/selection_shimmer.dart';
+import 'package:hollow/src/ui/dialogs/storage_dashboard_dialog.dart';
+import 'package:hollow/src/ui/animations/startup_reveal.dart';
+import 'package:hollow/src/core/providers/friends_provider.dart';
+import 'package:hollow/src/core/providers/notification_provider.dart';
+import 'package:hollow/src/core/providers/profile_provider.dart';
+import 'package:hollow/src/core/providers/unread_provider.dart';
+import 'package:hollow/src/ui/components/hollow_avatar.dart';
+import 'package:hollow/src/ui/components/hollow_button.dart';
+import 'package:hollow/src/ui/components/hollow_dialog.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/ui/components/hollow_text_field.dart';
+import 'package:hollow/src/ui/components/hollow_toast.dart';
+import 'package:hollow/src/ui/components/hollow_tooltip.dart';
+import 'package:hollow/src/ui/dialogs/invite_dialog.dart';
+import 'package:hollow/src/ui/shell/user_bar.dart';
+import 'package:hollow/src/ui/sidebar/peer_card.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Channel / DM sidebar (240px). Supports two modes:
@@ -83,7 +83,7 @@ class ChannelSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final sidebarReveal =
         StartupRevealScope.interval(context, 0.12, 0.30);
     final userBarReveal =
@@ -106,9 +106,9 @@ class ChannelSidebar extends StatelessWidget {
     Widget sidebar = Container(
       width: width,
       decoration: BoxDecoration(
-        color: haven.surface,
+        color: hollow.surface,
         border: Border(
-          right: BorderSide(color: haven.border),
+          right: BorderSide(color: hollow.border),
         ),
       ),
       child: Column(
@@ -116,20 +116,20 @@ class ChannelSidebar extends StatelessWidget {
         children: [
           // Header — crossfade between server name and "Direct Messages"
           AnimatedSwitcher(
-            duration: HavenDurations.fast,
-            child: _buildHeader(context, haven),
+            duration: HollowDurations.fast,
+            child: _buildHeader(context, hollow),
           ),
 
           // Content — crossfade between server channels and home/DM view
           Expanded(
             child: AnimatedSwitcher(
-              duration: HavenDurations.normal,
-              switchInCurve: HavenCurves.enter,
-              switchOutCurve: HavenCurves.exit,
+              duration: HollowDurations.normal,
+              switchInCurve: HollowCurves.enter,
+              switchOutCurve: HollowCurves.exit,
               child: selectedServer != null
                   ? _ServerContent(
                       key: ValueKey('server-${selectedServer!.serverId}'),
-                      haven: haven,
+                      hollow: hollow,
                       serverId: selectedServer!.serverId,
                       channels: channels,
                       selectedChannelId: selectedChannelId,
@@ -140,7 +140,7 @@ class ChannelSidebar extends StatelessWidget {
                     )
                   : _HomeContent(
                       key: const ValueKey('home'),
-                      haven: haven,
+                      hollow: hollow,
                       peers: peers,
                       selectedPeerId: selectedPeerId,
                       nodeStatus: nodeStatus,
@@ -165,7 +165,7 @@ class ChannelSidebar extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(BuildContext context, HavenTheme haven) {
+  Widget _buildHeader(BuildContext context, HollowTheme hollow) {
     final label = selectedServer?.name ?? 'Direct Messages';
     final headerTextReveal =
         StartupRevealScope.interval(context, 0.25, 0.40);
@@ -173,10 +173,10 @@ class ChannelSidebar extends StatelessWidget {
     return Container(
       key: ValueKey('header-$label'),
       height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.lg),
+      padding: const EdgeInsets.symmetric(horizontal: HollowSpacing.lg),
       decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: haven.border),
+          bottom: BorderSide(color: hollow.border),
         ),
       ),
       child: Row(
@@ -185,56 +185,56 @@ class ChannelSidebar extends StatelessWidget {
             child: TypewriterText(
               text: label,
               animation: headerTextReveal,
-              style: HavenTypography.subheading.copyWith(
-                color: haven.textPrimary,
+              style: HollowTypography.subheading.copyWith(
+                color: hollow.textPrimary,
                 fontWeight: FontWeight.w600,
               ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
           if (selectedServer != null) ...[
-            HavenTooltip(
+            HollowTooltip(
               message: 'Invite people',
-              child: HavenPressable(
+              child: HollowPressable(
                 onTap: () {
                   final link =
-                      'haven://join?server=${selectedServer!.serverId}';
+                      'hollow://join?server=${selectedServer!.serverId}';
                   showInviteDialog(
                       context, link, selectedServer!.serverId);
                 },
-                borderRadius: BorderRadius.circular(haven.radiusSm),
-                padding: const EdgeInsets.all(HavenSpacing.xs),
+                borderRadius: BorderRadius.circular(hollow.radiusSm),
+                padding: const EdgeInsets.all(HollowSpacing.xs),
                 child: Icon(
                   LucideIcons.userPlus,
                   size: 16,
-                  color: haven.textSecondary,
+                  color: hollow.textSecondary,
                 ),
               ),
             ),
-            HavenTooltip(
+            HollowTooltip(
               message: 'Storage',
-              child: HavenPressable(
+              child: HollowPressable(
                 onTap: () => showStorageDashboardDialog(
                     context, selectedServer!.serverId),
-                borderRadius: BorderRadius.circular(haven.radiusSm),
-                padding: const EdgeInsets.all(HavenSpacing.xs),
+                borderRadius: BorderRadius.circular(hollow.radiusSm),
+                padding: const EdgeInsets.all(HollowSpacing.xs),
                 child: Icon(
                   LucideIcons.hardDrive,
                   size: 16,
-                  color: haven.textSecondary,
+                  color: hollow.textSecondary,
                 ),
               ),
             ),
-            HavenTooltip(
+            HollowTooltip(
               message: 'Server settings',
-              child: HavenPressable(
+              child: HollowPressable(
                 onTap: onOpenSettings,
-                borderRadius: BorderRadius.circular(haven.radiusSm),
-                padding: const EdgeInsets.all(HavenSpacing.xs),
+                borderRadius: BorderRadius.circular(hollow.radiusSm),
+                padding: const EdgeInsets.all(HollowSpacing.xs),
                 child: Icon(
                   LucideIcons.settings,
                   size: 16,
-                  color: haven.textSecondary,
+                  color: hollow.textSecondary,
                 ),
               ),
             ),
@@ -247,7 +247,7 @@ class ChannelSidebar extends StatelessWidget {
 
 /// Server mode content — channel list with create button.
 class _ServerContent extends StatefulWidget {
-  final HavenTheme haven;
+  final HollowTheme hollow;
   final String serverId;
   final Map<String, ChannelInfo> channels;
   final String? selectedChannelId;
@@ -258,7 +258,7 @@ class _ServerContent extends StatefulWidget {
 
   const _ServerContent({
     super.key,
-    required this.haven,
+    required this.hollow,
     required this.serverId,
     required this.channels,
     required this.selectedChannelId,
@@ -285,7 +285,7 @@ class _ServerContentState extends State<_ServerContent> {
         if (item['type'] == 'category') {
           currentCategory = item['name'] as String;
           widgets.add(_CategoryHeader(
-            haven: w.haven,
+            hollow: w.hollow,
             name: currentCategory,
             onToggle: () => setState(() {}),
           ));
@@ -294,10 +294,10 @@ class _ServerContentState extends State<_ServerContent> {
           // Add a small visual divider in the sidebar.
           widgets.add(Padding(
             padding: const EdgeInsets.symmetric(
-              horizontal: HavenSpacing.lg,
-              vertical: HavenSpacing.sm,
+              horizontal: HollowSpacing.lg,
+              vertical: HollowSpacing.sm,
             ),
-            child: Divider(height: 1, color: w.haven.border),
+            child: Divider(height: 1, color: w.hollow.border),
           ));
         } else if (item['type'] == 'channel') {
           final channelId = item['channel_id'] as String;
@@ -353,41 +353,41 @@ class _ServerContentState extends State<_ServerContent> {
         if (!hasCategories)
           Padding(
             padding: const EdgeInsets.fromLTRB(
-              HavenSpacing.lg, HavenSpacing.sm, HavenSpacing.sm, HavenSpacing.sm,
+              HollowSpacing.lg, HollowSpacing.sm, HollowSpacing.sm, HollowSpacing.sm,
             ),
             child: Row(
               children: [
                 Expanded(
                   child: Text(
                     'TEXT CHANNELS',
-                    style: HavenTypography.caption.copyWith(
-                      color: w.haven.textSecondary,
+                    style: HollowTypography.caption.copyWith(
+                      color: w.hollow.textSecondary,
                       fontWeight: FontWeight.w600,
                       letterSpacing: 0.8,
                     ),
                   ),
                 ),
                 if (w.canManageChannels)
-                  HavenPressable(
+                  HollowPressable(
                     onTap: w.onCreateChannel,
-                    borderRadius: BorderRadius.circular(w.haven.radiusSm),
-                    padding: const EdgeInsets.all(HavenSpacing.xs),
+                    borderRadius: BorderRadius.circular(w.hollow.radiusSm),
+                    padding: const EdgeInsets.all(HollowSpacing.xs),
                     child: Icon(LucideIcons.plus,
-                        size: 14, color: w.haven.textSecondary),
+                        size: 14, color: w.hollow.textSecondary),
                   ),
               ],
             ),
           ),
-        if (!hasCategories) Divider(height: 1, color: w.haven.border),
+        if (!hasCategories) Divider(height: 1, color: w.hollow.border),
         Expanded(
           child: items.isEmpty
               ? Center(
                   child: Text('No channels',
-                      style: HavenTypography.bodySmall
-                          .copyWith(color: w.haven.textSecondary)),
+                      style: HollowTypography.bodySmall
+                          .copyWith(color: w.hollow.textSecondary)),
                 )
               : ListView(
-                  padding: const EdgeInsets.symmetric(vertical: HavenSpacing.xs),
+                  padding: const EdgeInsets.symmetric(vertical: HollowSpacing.xs),
                   children: items,
                 ),
         ),
@@ -428,12 +428,12 @@ final Map<String, bool> _categoryCollapsedState = {};
 
 /// Category header in the sidebar — collapsible folder label.
 class _CategoryHeader extends StatefulWidget {
-  final HavenTheme haven;
+  final HollowTheme hollow;
   final String name;
   final VoidCallback? onToggle;
 
   const _CategoryHeader({
-    required this.haven,
+    required this.hollow,
     required this.name,
     this.onToggle,
   });
@@ -449,12 +449,12 @@ class _CategoryHeaderState extends State<_CategoryHeader> {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-        HavenSpacing.sm + 2,
-        HavenSpacing.md,
-        HavenSpacing.sm,
-        HavenSpacing.xs,
+        HollowSpacing.sm + 2,
+        HollowSpacing.md,
+        HollowSpacing.sm,
+        HollowSpacing.xs,
       ),
-      child: HavenPressable(
+      child: HollowPressable(
         subtle: true,
         onTap: () {
           setState(() =>
@@ -467,14 +467,14 @@ class _CategoryHeaderState extends State<_CategoryHeader> {
               turns: _collapsed ? -0.25 : 0,
               duration: const Duration(milliseconds: 150),
               child: Icon(LucideIcons.chevronDown,
-                  size: 10, color: widget.haven.textSecondary),
+                  size: 10, color: widget.hollow.textSecondary),
             ),
-            const SizedBox(width: HavenSpacing.xs),
+            const SizedBox(width: HollowSpacing.xs),
             Expanded(
               child: Text(
                 widget.name.toUpperCase(),
-                style: HavenTypography.caption.copyWith(
-                  color: widget.haven.textSecondary,
+                style: HollowTypography.caption.copyWith(
+                  color: widget.hollow.textSecondary,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.8,
                 ),
@@ -489,7 +489,7 @@ class _CategoryHeaderState extends State<_CategoryHeader> {
 
 /// Home / DM mode content — friends list.
 class _HomeContent extends ConsumerWidget {
-  final HavenTheme haven;
+  final HollowTheme hollow;
   final Map<String, PeerInfo> peers;
   final String? selectedPeerId;
   final NodeStatus nodeStatus;
@@ -499,7 +499,7 @@ class _HomeContent extends ConsumerWidget {
 
   const _HomeContent({
     super.key,
-    required this.haven,
+    required this.hollow,
     required this.peers,
     required this.selectedPeerId,
     required this.nodeStatus,
@@ -511,8 +511,8 @@ class _HomeContent extends ConsumerWidget {
   @override
   Widget build(BuildContext innerContext, WidgetRef ref) {
     final friends = ref.watch(friendsProvider);
-    final dividerTextStyle = HavenTypography.caption.copyWith(
-      color: haven.textSecondary,
+    final dividerTextStyle = HollowTypography.caption.copyWith(
+      color: hollow.textSecondary,
       fontWeight: FontWeight.w600,
       letterSpacing: 0.8,
       fontSize: 11,
@@ -544,8 +544,8 @@ class _HomeContent extends ConsumerWidget {
       children: [
         // Add friend button
         Padding(
-          padding: const EdgeInsets.all(HavenSpacing.sm + 2),
-          child: HavenButton.outline(
+          padding: const EdgeInsets.all(HollowSpacing.sm + 2),
+          child: HollowButton.outline(
             onPressed: () => _showAddFriendDialog(innerContext, ref),
             expand: true,
             icon: Icon(LucideIcons.userPlus, size: 14),
@@ -553,21 +553,21 @@ class _HomeContent extends ConsumerWidget {
           ),
         ),
 
-        Divider(height: 1, color: haven.border),
+        Divider(height: 1, color: hollow.border),
 
         // Pending requests section
         if (hasPending) ...[
           Padding(
             padding: const EdgeInsets.symmetric(
-              horizontal: HavenSpacing.sm + 2,
-              vertical: HavenSpacing.sm,
+              horizontal: HollowSpacing.sm + 2,
+              vertical: HollowSpacing.sm,
             ),
             child: Row(
               children: [
                 Text('PENDING', style: dividerTextStyle),
-                const SizedBox(width: HavenSpacing.sm),
-                Expanded(child: Divider(height: 1, color: haven.border)),
-                const SizedBox(width: HavenSpacing.sm),
+                const SizedBox(width: HollowSpacing.sm),
+                Expanded(child: Divider(height: 1, color: hollow.border)),
+                const SizedBox(width: HollowSpacing.sm),
                 Text('${pendingIncoming.length + pendingOutgoing.length}',
                     style: dividerTextStyle),
               ],
@@ -575,7 +575,7 @@ class _HomeContent extends ConsumerWidget {
           ),
           for (final req in pendingIncoming)
             _PendingRequestTile(
-              haven: haven,
+              hollow: hollow,
               peerId: req.peerId,
               direction: 'incoming',
               onAccept: () =>
@@ -585,25 +585,25 @@ class _HomeContent extends ConsumerWidget {
             ),
           for (final req in pendingOutgoing)
             _PendingRequestTile(
-              haven: haven,
+              hollow: hollow,
               peerId: req.peerId,
               direction: 'outgoing',
             ),
-          Divider(height: 1, color: haven.border),
+          Divider(height: 1, color: hollow.border),
         ],
 
         // Friends section header
         Padding(
           padding: const EdgeInsets.symmetric(
-            horizontal: HavenSpacing.sm + 2,
-            vertical: HavenSpacing.sm,
+            horizontal: HollowSpacing.sm + 2,
+            vertical: HollowSpacing.sm,
           ),
           child: Row(
             children: [
               Text('FRIENDS', style: dividerTextStyle),
-              const SizedBox(width: HavenSpacing.sm),
-              Expanded(child: Divider(height: 1, color: haven.border)),
-              const SizedBox(width: HavenSpacing.sm),
+              const SizedBox(width: HollowSpacing.sm),
+              Expanded(child: Divider(height: 1, color: hollow.border)),
+              const SizedBox(width: HollowSpacing.sm),
               Text('${accepted.length}', style: dividerTextStyle),
             ],
           ),
@@ -617,22 +617,22 @@ class _HomeContent extends ConsumerWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(LucideIcons.users, size: 48,
-                          color: haven.textSecondary.withValues(alpha: 0.3)),
-                      const SizedBox(height: HavenSpacing.md),
+                          color: hollow.textSecondary.withValues(alpha: 0.3)),
+                      const SizedBox(height: HollowSpacing.md),
                       Text('No friends yet',
-                          style: HavenTypography.body
-                              .copyWith(color: haven.textSecondary)),
-                      const SizedBox(height: HavenSpacing.xs),
+                          style: HollowTypography.body
+                              .copyWith(color: hollow.textSecondary)),
+                      const SizedBox(height: HollowSpacing.xs),
                       Text('Add a friend by their peer ID',
-                          style: HavenTypography.caption
-                              .copyWith(color: haven.textSecondary)),
+                          style: HollowTypography.caption
+                              .copyWith(color: hollow.textSecondary)),
                     ],
                   ),
                 )
               : ListView.builder(
                   itemCount: accepted.length,
                   padding: const EdgeInsets.symmetric(
-                      vertical: HavenSpacing.xs),
+                      vertical: HollowSpacing.xs),
                   itemBuilder: (context, index) {
                     final friend = accepted[index];
                     final isOnline = peers.containsKey(friend.peerId);
@@ -658,16 +658,16 @@ class _HomeContent extends ConsumerWidget {
 
   void _showAddFriendDialog(BuildContext context, WidgetRef ref) {
     final controller = TextEditingController();
-    showHavenDialog(
+    showHollowDialog(
       context: context,
-      builder: (ctx) => HavenDialog(
+      builder: (ctx) => HollowDialog(
         title: 'Add Friend',
-        content: HavenTextField(
+        content: HollowTextField(
           controller: controller,
           hintText: 'Paste peer ID...',
           autofocus: true,
-          style: HavenTypography.mono.copyWith(
-            color: haven.textPrimary,
+          style: HollowTypography.mono.copyWith(
+            color: hollow.textPrimary,
             fontSize: 12,
           ),
           onSubmitted: (_) {
@@ -675,29 +675,29 @@ class _HomeContent extends ConsumerWidget {
             if (peerId.isNotEmpty) {
               ref.read(friendsProvider.notifier).sendRequest(peerId);
               Navigator.pop(ctx);
-              HavenToast.show(
+              HollowToast.show(
                 context,
                 'Friend request sent',
-                type: HavenToastType.success,
+                type: HollowToastType.success,
               );
             }
           },
         ),
         actions: [
-          HavenButton.ghost(
+          HollowButton.ghost(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
-          HavenButton.filled(
+          HollowButton.filled(
             onPressed: () {
               final peerId = controller.text.trim();
               if (peerId.isNotEmpty) {
                 ref.read(friendsProvider.notifier).sendRequest(peerId);
                 Navigator.pop(ctx);
-                HavenToast.show(
+                HollowToast.show(
                   context,
                   'Friend request sent',
-                  type: HavenToastType.success,
+                  type: HollowToastType.success,
                 );
               }
             },
@@ -711,14 +711,14 @@ class _HomeContent extends ConsumerWidget {
 
 /// Pending friend request tile with accept/reject buttons.
 class _PendingRequestTile extends ConsumerWidget {
-  final HavenTheme haven;
+  final HollowTheme hollow;
   final String peerId;
   final String direction;
   final VoidCallback? onAccept;
   final VoidCallback? onReject;
 
   const _PendingRequestTile({
-    required this.haven,
+    required this.hollow,
     required this.peerId,
     required this.direction,
     this.onAccept,
@@ -732,30 +732,30 @@ class _PendingRequestTile extends ConsumerWidget {
 
     return Padding(
       padding: const EdgeInsets.symmetric(
-        horizontal: HavenSpacing.sm,
-        vertical: HavenSpacing.xxs,
+        horizontal: HollowSpacing.sm,
+        vertical: HollowSpacing.xxs,
       ),
       child: Container(
         padding: const EdgeInsets.symmetric(
-          horizontal: HavenSpacing.sm + 2,
-          vertical: HavenSpacing.sm,
+          horizontal: HollowSpacing.sm + 2,
+          vertical: HollowSpacing.sm,
         ),
         decoration: BoxDecoration(
-          color: haven.elevated,
-          borderRadius: BorderRadius.circular(haven.radiusMd),
+          color: hollow.elevated,
+          borderRadius: BorderRadius.circular(hollow.radiusMd),
         ),
         child: Row(
           children: [
-            HavenAvatar(peerId: peerId, size: 28),
-            const SizedBox(width: HavenSpacing.sm),
+            HollowAvatar(peerId: peerId, size: 28),
+            const SizedBox(width: HollowSpacing.sm),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     name,
-                    style: HavenTypography.body.copyWith(
-                      color: haven.textPrimary,
+                    style: HollowTypography.body.copyWith(
+                      color: hollow.textPrimary,
                       fontSize: 13,
                     ),
                     overflow: TextOverflow.ellipsis,
@@ -764,8 +764,8 @@ class _PendingRequestTile extends ConsumerWidget {
                     direction == 'incoming'
                         ? 'Wants to be friends'
                         : 'Request sent',
-                    style: HavenTypography.caption.copyWith(
-                      color: haven.textSecondary,
+                    style: HollowTypography.caption.copyWith(
+                      color: hollow.textSecondary,
                       fontSize: 10,
                     ),
                   ),
@@ -773,20 +773,20 @@ class _PendingRequestTile extends ConsumerWidget {
               ),
             ),
             if (direction == 'incoming') ...[
-              HavenPressable(
+              HollowPressable(
                 onTap: onAccept,
-                borderRadius: BorderRadius.circular(haven.radiusSm),
-                padding: const EdgeInsets.all(HavenSpacing.xs),
-                child: Icon(LucideIcons.check, size: 16, color: haven.success),
+                borderRadius: BorderRadius.circular(hollow.radiusSm),
+                padding: const EdgeInsets.all(HollowSpacing.xs),
+                child: Icon(LucideIcons.check, size: 16, color: hollow.success),
               ),
-              HavenPressable(
+              HollowPressable(
                 onTap: onReject,
-                borderRadius: BorderRadius.circular(haven.radiusSm),
-                padding: const EdgeInsets.all(HavenSpacing.xs),
-                child: Icon(LucideIcons.x, size: 16, color: haven.error),
+                borderRadius: BorderRadius.circular(hollow.radiusSm),
+                padding: const EdgeInsets.all(HollowSpacing.xs),
+                child: Icon(LucideIcons.x, size: 16, color: hollow.error),
               ),
             ] else
-              Icon(LucideIcons.clock, size: 14, color: haven.textSecondary),
+              Icon(LucideIcons.clock, size: 14, color: hollow.textSecondary),
           ],
         ),
       ),
@@ -810,8 +810,8 @@ class _ChannelTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
-    final radius = BorderRadius.circular(haven.radiusMd);
+    final hollow = HollowTheme.of(context);
+    final radius = BorderRadius.circular(hollow.radiusMd);
     final isMuted = ref.watch(notificationSettingsProvider.notifier)
         .isChannelMuted(serverId, channel.channelId);
     final hasUnread = !isSelected &&
@@ -819,24 +819,24 @@ class _ChannelTile extends ConsumerWidget {
         ref.watch(unreadProvider.notifier).isChannelUnread(
             serverId, channel.channelId);
 
-    Widget tile = HavenPressable(
+    Widget tile = HollowPressable(
       onTap: onTap,
       subtle: true,
       borderRadius: radius,
       backgroundColor:
-          isSelected ? haven.accentMuted : Colors.transparent,
-      hoverColor: haven.elevated,
+          isSelected ? hollow.accentMuted : Colors.transparent,
+      hoverColor: hollow.elevated,
       padding: const EdgeInsets.symmetric(
-        horizontal: HavenSpacing.sm + 2,
-        vertical: HavenSpacing.sm,
+        horizontal: HollowSpacing.sm + 2,
+        vertical: HollowSpacing.sm,
       ),
       child: AnimatedDefaultTextStyle(
-        duration: HavenDurations.fast,
-        curve: HavenCurves.subtle,
-        style: HavenTypography.body.copyWith(
+        duration: HollowDurations.fast,
+        curve: HollowCurves.subtle,
+        style: HollowTypography.body.copyWith(
           color: isSelected || hasUnread
-              ? haven.textPrimary
-              : haven.textSecondary,
+              ? hollow.textPrimary
+              : hollow.textSecondary,
           fontWeight:
               isSelected || hasUnread ? FontWeight.w600 : FontWeight.w400,
         ),
@@ -846,10 +846,10 @@ class _ChannelTile extends ConsumerWidget {
               LucideIcons.hash,
               size: 18,
               color: isSelected || hasUnread
-                  ? haven.textPrimary
-                  : haven.textSecondary,
+                  ? hollow.textPrimary
+                  : hollow.textSecondary,
             ),
-            const SizedBox(width: HavenSpacing.sm),
+            const SizedBox(width: HollowSpacing.sm),
             Expanded(
               child: Text(
                 channel.name,
@@ -862,7 +862,7 @@ class _ChannelTile extends ConsumerWidget {
                 width: 8,
                 height: 8,
                 decoration: BoxDecoration(
-                  color: haven.accent,
+                  color: hollow.accent,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -873,7 +873,7 @@ class _ChannelTile extends ConsumerWidget {
 
     if (isSelected) {
       tile = SelectionShimmer(
-        highlightColor: haven.accent.withValues(alpha: 0.12),
+        highlightColor: hollow.accent.withValues(alpha: 0.12),
         borderRadius: radius,
         child: tile,
       );
@@ -881,8 +881,8 @@ class _ChannelTile extends ConsumerWidget {
 
     return Padding(
       padding: const EdgeInsets.symmetric(
-        horizontal: HavenSpacing.sm,
-        vertical: HavenSpacing.xxs,
+        horizontal: HollowSpacing.sm,
+        vertical: HollowSpacing.xxs,
       ),
       child: tile,
     );

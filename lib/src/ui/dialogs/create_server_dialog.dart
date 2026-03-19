@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_button.dart';
-import 'package:haven/src/ui/components/haven_dialog.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
-import 'package:haven/src/ui/components/haven_text_field.dart';
+import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_button.dart';
+import 'package:hollow/src/ui/components/hollow_dialog.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Shows a dialog to join or create a server.
@@ -14,25 +14,25 @@ void showCreateServerDialog(BuildContext context) {
   final joinController = TextEditingController();
   final nameController = TextEditingController();
 
-  showHavenDialog(
+  showHollowDialog(
     context: context,
     builder: (dialogContext) {
-      final haven = HavenTheme.of(dialogContext);
+      final hollow = HollowTheme.of(dialogContext);
 
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(HavenSpacing.xl),
+          padding: const EdgeInsets.all(HollowSpacing.xl),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 600, minWidth: 400),
             child: Material(
               color: Colors.transparent,
               child: Container(
-                padding: const EdgeInsets.all(HavenSpacing.lg),
+                padding: const EdgeInsets.all(HollowSpacing.lg),
                 decoration: BoxDecoration(
-                  color: haven.elevated.withValues(alpha: 0.92),
-                  borderRadius: BorderRadius.circular(haven.radiusLg),
+                  color: hollow.elevated.withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(hollow.radiusLg),
                   border: Border.all(
-                    color: haven.accent.withValues(alpha: 0.15),
+                    color: hollow.accent.withValues(alpha: 0.15),
                   ),
                   boxShadow: [
                     BoxShadow(
@@ -47,11 +47,11 @@ void showCreateServerDialog(BuildContext context) {
                     // Close button row
                     Align(
                       alignment: Alignment.centerRight,
-                      child: HavenPressable(
+                      child: HollowPressable(
                         onTap: () => Navigator.of(dialogContext).pop(),
-                        borderRadius: BorderRadius.circular(haven.radiusSm),
-                        padding: const EdgeInsets.all(HavenSpacing.xs),
-                        child: Icon(LucideIcons.x, size: 18, color: haven.textSecondary),
+                        borderRadius: BorderRadius.circular(hollow.radiusSm),
+                        padding: const EdgeInsets.all(HollowSpacing.xs),
+                        child: Icon(LucideIcons.x, size: 18, color: hollow.textSecondary),
                       ),
                     ),
                     Row(
@@ -66,38 +66,38 @@ void showCreateServerDialog(BuildContext context) {
                           Row(
                             children: [
                               Icon(LucideIcons.logIn, size: 18,
-                                  color: haven.accent),
-                              const SizedBox(width: HavenSpacing.sm),
+                                  color: hollow.accent),
+                              const SizedBox(width: HollowSpacing.sm),
                               Text(
                                 'Join a Server',
-                                style: HavenTypography.subheading.copyWith(
-                                  color: haven.textPrimary,
+                                style: HollowTypography.subheading.copyWith(
+                                  color: hollow.textPrimary,
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: HavenSpacing.sm),
+                          const SizedBox(height: HollowSpacing.sm),
                           Text(
                             'Paste an invite link or server ID.',
-                            style: HavenTypography.caption.copyWith(
-                              color: haven.textSecondary,
+                            style: HollowTypography.caption.copyWith(
+                              color: hollow.textSecondary,
                             ),
                           ),
-                          const SizedBox(height: HavenSpacing.lg),
-                          HavenTextField(
+                          const SizedBox(height: HollowSpacing.lg),
+                          HollowTextField(
                             controller: joinController,
-                            hintText: 'haven://join?server=... or ID',
+                            hintText: 'hollow://join?server=... or ID',
                             autofocus: true,
-                            style: HavenTypography.mono.copyWith(
-                              color: haven.textPrimary,
+                            style: HollowTypography.mono.copyWith(
+                              color: hollow.textPrimary,
                               fontSize: 12,
                             ),
                             onSubmitted: (_) {
                               _handleJoin(dialogContext, joinController);
                             },
                           ),
-                          const SizedBox(height: HavenSpacing.md),
-                          HavenButton.filled(
+                          const SizedBox(height: HollowSpacing.md),
+                          HollowButton.filled(
                             onPressed: () => _handleJoin(
                                 dialogContext, joinController),
                             expand: true,
@@ -110,11 +110,11 @@ void showCreateServerDialog(BuildContext context) {
                     // Vertical divider
                     Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: HavenSpacing.lg),
+                          horizontal: HollowSpacing.lg),
                       child: SizedBox(
                         height: 180,
                         child: VerticalDivider(
-                          color: haven.border,
+                          color: hollow.border,
                           width: 1,
                         ),
                       ),
@@ -129,33 +129,33 @@ void showCreateServerDialog(BuildContext context) {
                           Row(
                             children: [
                               Icon(LucideIcons.plus, size: 18,
-                                  color: haven.accent),
-                              const SizedBox(width: HavenSpacing.sm),
+                                  color: hollow.accent),
+                              const SizedBox(width: HollowSpacing.sm),
                               Text(
                                 'Create a Server',
-                                style: HavenTypography.subheading.copyWith(
-                                  color: haven.textPrimary,
+                                style: HollowTypography.subheading.copyWith(
+                                  color: hollow.textPrimary,
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: HavenSpacing.sm),
+                          const SizedBox(height: HollowSpacing.sm),
                           Text(
                             'Start your own server. You can invite others later.',
-                            style: HavenTypography.caption.copyWith(
-                              color: haven.textSecondary,
+                            style: HollowTypography.caption.copyWith(
+                              color: hollow.textSecondary,
                             ),
                           ),
-                          const SizedBox(height: HavenSpacing.lg),
-                          HavenTextField(
+                          const SizedBox(height: HollowSpacing.lg),
+                          HollowTextField(
                             controller: nameController,
                             hintText: 'My Awesome Server',
                             onSubmitted: (_) {
                               _handleCreate(dialogContext, nameController);
                             },
                           ),
-                          const SizedBox(height: HavenSpacing.md),
-                          HavenButton.outline(
+                          const SizedBox(height: HollowSpacing.md),
+                          HollowButton.outline(
                             onPressed: () => _handleCreate(
                                 dialogContext, nameController),
                             expand: true,
@@ -185,7 +185,7 @@ void _handleJoin(BuildContext context, TextEditingController controller) {
   String serverId;
   final uri = Uri.tryParse(input);
   if (uri != null &&
-      uri.scheme == 'haven' &&
+      uri.scheme == 'hollow' &&
       uri.queryParameters.containsKey('server')) {
     serverId = uri.queryParameters['server']!;
   } else {

@@ -2,13 +2,13 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/models/file_attachment.dart';
-import 'package:haven/src/core/providers/file_transfer_provider.dart';
-import 'package:haven/src/ui/components/haven_dialog.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
+import 'package:hollow/src/core/models/file_attachment.dart';
+import 'package:hollow/src/core/providers/file_transfer_provider.dart';
+import 'package:hollow/src/ui/components/hollow_dialog.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Renders a file attachment inline in a message bubble.
@@ -25,7 +25,7 @@ class FileAttachmentWidget extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     // Watch live transfer progress.
     final transfer = ref.watch(
@@ -37,6 +37,7 @@ class FileAttachmentWidget extends ConsumerWidget {
     final isComplete = attachment.isComplete || (transfer?.isComplete ?? false);
     final diskPath = attachment.diskPath ?? transfer?.diskPath;
     final isDownloading = transfer?.isDownloading ?? false;
+    final vaultPhase = transfer?.vaultPhase;
     final progress = (transfer != null && transfer.progress > 0)
         ? transfer.progress
         : attachment.progress;
@@ -46,13 +47,13 @@ class FileAttachmentWidget extends ConsumerWidget {
         : 0;
 
     if (attachment.isImage) {
-      return _buildImagePreview(context, haven, isComplete, diskPath, isDownloading, progress, bytesReceived);
+      return _buildImagePreview(context, hollow, isComplete, diskPath, isDownloading, progress, bytesReceived, vaultPhase);
     }
-    return _buildFileCard(haven, isComplete, isDownloading, progress, bytesReceived);
+    return _buildFileCard(hollow, isComplete, isDownloading, progress, bytesReceived, vaultPhase);
   }
 
   Widget _buildImagePreview(
-      BuildContext context, HavenTheme haven, bool isComplete, String? diskPath, bool isDownloading, double progress, int bytesReceived) {
+      BuildContext context, HollowTheme hollow, bool isComplete, String? diskPath, bool isDownloading, double progress, int bytesReceived, String? vaultPhase) {
     // Calculate display size maintaining aspect ratio.
     const maxWidth = 300.0;
     const maxHeight = 250.0;
@@ -82,12 +83,12 @@ class FileAttachmentWidget extends ConsumerWidget {
               maxHeight: maxHeight,
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(haven.radiusSm),
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
               child: Image.file(
                 File(diskPath),
                 fit: BoxFit.contain,
                 errorBuilder: (_, e, st) => _buildPlaceholder(
-                    haven, displayWidth, displayHeight, false, 1.0, 0),
+                    hollow, displayWidth, displayHeight, false, 1.0, 0, null),
               ),
             ),
           ),
@@ -96,18 +97,18 @@ class FileAttachmentWidget extends ConsumerWidget {
     }
 
     // Show placeholder with progress or downloading indicator.
-    return _buildPlaceholder(haven, displayWidth, displayHeight, isDownloading, progress, bytesReceived);
+    return _buildPlaceholder(hollow, displayWidth, displayHeight, isDownloading, progress, bytesReceived, vaultPhase);
   }
 
   Widget _buildPlaceholder(
-      HavenTheme haven, double width, double height, bool isDownloading, double progress, int bytesReceived) {
+      HollowTheme hollow, double width, double height, bool isDownloading, double progress, int bytesReceived, String? vaultPhase) {
     return Container(
       width: width,
       height: height,
       decoration: BoxDecoration(
-        color: haven.surface,
-        borderRadius: BorderRadius.circular(haven.radiusSm),
-        border: Border.all(color: haven.border),
+        color: hollow.surface,
+        borderRadius: BorderRadius.circular(hollow.radiusSm),
+        border: Border.all(color: hollow.border),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -119,17 +120,19 @@ class FileAttachmentWidget extends ConsumerWidget {
               child: CircularProgressIndicator(
                 value: progress > 0 ? progress.clamp(0.0, 1.0) : null,
                 strokeWidth: 3,
-                valueColor: AlwaysStoppedAnimation(haven.accent),
-                backgroundColor: haven.border,
+                valueColor: AlwaysStoppedAnimation(hollow.accent),
+                backgroundColor: hollow.border,
               ),
             ),
-            const SizedBox(height: HavenSpacing.sm),
+            const SizedBox(height: HollowSpacing.sm),
             Text(
-              progress > 0
-                  ? '${_formatSize(bytesReceived)} / ${attachment.formattedSize}'
-                  : 'Downloading...',
-              style: HavenTypography.caption.copyWith(
-                color: haven.textSecondary,
+              vaultPhase != null
+                  ? vaultPhase
+                  : progress > 0
+                      ? '${_formatSize(bytesReceived)} / ${attachment.formattedSize}'
+                      : 'Downloading...',
+              style: HollowTypography.caption.copyWith(
+                color: hollow.textSecondary,
                 fontSize: 10,
               ),
             ),
@@ -138,25 +141,25 @@ class FileAttachmentWidget extends ConsumerWidget {
               width: 80,
               child: LinearProgressIndicator(
                 value: progress,
-                backgroundColor: haven.elevated,
-                valueColor: AlwaysStoppedAnimation(haven.accent),
+                backgroundColor: hollow.elevated,
+                valueColor: AlwaysStoppedAnimation(hollow.accent),
               ),
             ),
-            const SizedBox(height: HavenSpacing.xs),
+            const SizedBox(height: HollowSpacing.xs),
             Text(
               '${(progress * 100).toInt()}%',
-              style: HavenTypography.caption.copyWith(
-                color: haven.textSecondary,
+              style: HollowTypography.caption.copyWith(
+                color: hollow.textSecondary,
                 fontSize: 10,
               ),
             ),
           ] else ...[
-            Icon(LucideIcons.image, size: 32, color: haven.textSecondary),
-            const SizedBox(height: HavenSpacing.sm),
+            Icon(LucideIcons.image, size: 32, color: hollow.textSecondary),
+            const SizedBox(height: HollowSpacing.sm),
             Text(
               attachment.formattedSize,
-              style: HavenTypography.caption.copyWith(
-                color: haven.textSecondary,
+              style: HollowTypography.caption.copyWith(
+                color: hollow.textSecondary,
                 fontSize: 10,
               ),
             ),
@@ -174,29 +177,29 @@ class FileAttachmentWidget extends ConsumerWidget {
     return '${(b / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
   }
 
-  Widget _buildFileCard(HavenTheme haven, bool isComplete, bool isDownloading, double progress, int bytesReceived) {
+  Widget _buildFileCard(HollowTheme hollow, bool isComplete, bool isDownloading, double progress, int bytesReceived, String? vaultPhase) {
     return Container(
       constraints: const BoxConstraints(maxWidth: 280),
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: haven.surface,
-        borderRadius: BorderRadius.circular(haven.radiusSm),
-        border: Border.all(color: haven.border),
+        color: hollow.surface,
+        borderRadius: BorderRadius.circular(hollow.radiusSm),
+        border: Border.all(color: hollow.border),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
-            padding: const EdgeInsets.all(HavenSpacing.md),
+            padding: const EdgeInsets.all(HollowSpacing.md),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
                   _fileIcon(),
                   size: 28,
-                  color: haven.accent,
+                  color: hollow.accent,
                 ),
-                const SizedBox(width: HavenSpacing.md),
+                const SizedBox(width: HollowSpacing.md),
                 Flexible(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -204,23 +207,25 @@ class FileAttachmentWidget extends ConsumerWidget {
                     children: [
                       Text(
                         attachment.fileName,
-                        style: HavenTypography.body.copyWith(
-                          color: haven.textPrimary,
+                        style: HollowTypography.body.copyWith(
+                          color: hollow.textPrimary,
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: HavenSpacing.xxs),
+                      const SizedBox(height: HollowSpacing.xxs),
                       Text(
-                        isDownloading && progress > 0
-                            ? '${_formatSize(bytesReceived)} / ${attachment.formattedSize}'
-                            : isDownloading
-                                ? 'Downloading... ${attachment.formattedSize}'
-                                : attachment.formattedSize,
-                        style: HavenTypography.caption.copyWith(
-                          color: haven.textSecondary,
+                        vaultPhase != null
+                            ? '$vaultPhase  ${attachment.formattedSize}'
+                            : isDownloading && progress > 0
+                                ? '${_formatSize(bytesReceived)} / ${attachment.formattedSize}'
+                                : isDownloading
+                                    ? 'Downloading... ${attachment.formattedSize}'
+                                    : attachment.formattedSize,
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.textSecondary,
                           fontSize: 11,
                         ),
                       ),
@@ -236,8 +241,8 @@ class FileAttachmentWidget extends ConsumerWidget {
               height: 3,
               child: LinearProgressIndicator(
                 value: progress > 0 ? progress.clamp(0.0, 1.0) : null,
-                backgroundColor: haven.border,
-                valueColor: AlwaysStoppedAnimation(haven.accent),
+                backgroundColor: hollow.border,
+                valueColor: AlwaysStoppedAnimation(hollow.accent),
               ),
             ),
         ],
@@ -259,7 +264,7 @@ class FileAttachmentWidget extends ConsumerWidget {
 
   /// Open image in fullscreen overlay with blur backdrop.
   static void _showFullscreen(BuildContext context, String diskPath) {
-    showHavenDialog(
+    showHollowDialog(
       context: context,
       builder: (ctx) => _FullscreenImageView(diskPath: diskPath),
     );
@@ -274,7 +279,7 @@ class _FullscreenImageView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     return GestureDetector(
       onTap: () => Navigator.of(context).pop(),
@@ -283,9 +288,9 @@ class _FullscreenImageView extends StatelessWidget {
           children: [
             // Image
             Padding(
-              padding: const EdgeInsets.all(HavenSpacing.xxl),
+              padding: const EdgeInsets.all(HollowSpacing.xxl),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(haven.radiusMd),
+                borderRadius: BorderRadius.circular(hollow.radiusMd),
                 child: Image.file(
                   File(diskPath),
                   fit: BoxFit.contain,
@@ -295,16 +300,16 @@ class _FullscreenImageView extends StatelessWidget {
 
             // Close button (top-right)
             Positioned(
-              top: HavenSpacing.lg,
-              right: HavenSpacing.lg,
-              child: HavenPressable(
+              top: HollowSpacing.lg,
+              right: HollowSpacing.lg,
+              child: HollowPressable(
                 onTap: () => Navigator.of(context).pop(),
-                borderRadius: BorderRadius.circular(haven.radiusMd),
-                backgroundColor: haven.elevated.withValues(alpha: 0.8),
-                padding: const EdgeInsets.all(HavenSpacing.sm),
+                borderRadius: BorderRadius.circular(hollow.radiusMd),
+                backgroundColor: hollow.elevated.withValues(alpha: 0.8),
+                padding: const EdgeInsets.all(HollowSpacing.sm),
                 child: Icon(
                   LucideIcons.x,
-                  color: haven.textPrimary,
+                  color: hollow.textPrimary,
                   size: 20,
                 ),
               ),

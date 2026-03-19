@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/models/chat_message.dart';
-import 'package:haven/src/core/providers/notification_provider.dart';
-import 'package:haven/src/core/providers/profile_provider.dart';
-import 'package:haven/src/core/providers/unread_provider.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/animations/haven_curves.dart';
-import 'package:haven/src/ui/animations/selection_shimmer.dart';
-import 'package:haven/src/ui/components/haven_avatar.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
-import 'package:haven/src/ui/components/status_dot.dart';
+import 'package:hollow/src/core/models/chat_message.dart';
+import 'package:hollow/src/core/providers/notification_provider.dart';
+import 'package:hollow/src/core/providers/profile_provider.dart';
+import 'package:hollow/src/core/providers/unread_provider.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/animations/hollow_curves.dart';
+import 'package:hollow/src/ui/animations/selection_shimmer.dart';
+import 'package:hollow/src/ui/components/hollow_avatar.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/ui/components/status_dot.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 class PeerCard extends ConsumerWidget {
@@ -36,47 +36,47 @@ class PeerCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final profiles = ref.watch(profileProvider);
     final peerName = displayNameFor(profiles, peerId);
-    final radius = BorderRadius.circular(haven.radiusMd);
+    final radius = BorderRadius.circular(hollow.radiusMd);
     final isDmMuted = !ref.watch(notificationSettingsProvider.notifier)
         .isDmEnabled(peerId);
     final hasUnread = !isSelected &&
         !isDmMuted &&
         ref.watch(unreadProvider.notifier).isDmUnread(peerId);
 
-    Widget card = HavenPressable(
+    Widget card = HollowPressable(
       onTap: onTap,
       subtle: true,
       borderRadius: radius,
       backgroundColor:
-          isSelected ? haven.accentMuted : Colors.transparent,
-      hoverColor: haven.elevated,
+          isSelected ? hollow.accentMuted : Colors.transparent,
+      hoverColor: hollow.elevated,
         padding: const EdgeInsets.symmetric(
-          horizontal: HavenSpacing.md,
-          vertical: HavenSpacing.sm + 2,
+          horizontal: HollowSpacing.md,
+          vertical: HollowSpacing.sm + 2,
         ),
         child: AnimatedContainer(
-          duration: HavenDurations.fast,
-          curve: HavenCurves.subtle,
+          duration: HollowDurations.fast,
+          curve: HollowCurves.subtle,
           child: Row(
             children: [
               // Avatar with status dot overlay
               Stack(
                 children: [
-                  HavenAvatar(peerId: peerId, size: 36),
+                  HollowAvatar(peerId: peerId, size: 36),
                   Positioned(
                     right: 0,
                     bottom: 0,
                     child: Container(
                       decoration: BoxDecoration(
-                        color: haven.background,
+                        color: hollow.background,
                         shape: BoxShape.circle,
                       ),
                       padding: const EdgeInsets.all(1.5),
                       child: StatusDot(
-                        color: isOnline ? haven.success : haven.textSecondary,
+                        color: isOnline ? hollow.success : hollow.textSecondary,
                         size: 8,
                         pulse: isOnline,
                       ),
@@ -85,14 +85,14 @@ class PeerCard extends ConsumerWidget {
                 ],
               ),
               if (isEncrypted) ...[
-                const SizedBox(width: HavenSpacing.xs),
+                const SizedBox(width: HollowSpacing.xs),
                 Icon(
                   LucideIcons.lock,
                   size: 12,
-                  color: haven.success,
+                  color: hollow.success,
                 ),
               ],
-              const SizedBox(width: HavenSpacing.sm + 2),
+              const SizedBox(width: HollowSpacing.sm + 2),
               // Peer info
               Expanded(
                 child: Column(
@@ -100,24 +100,24 @@ class PeerCard extends ConsumerWidget {
                   children: [
                     Text(
                       peerName,
-                      style: HavenTypography.body.copyWith(
+                      style: HollowTypography.body.copyWith(
                         fontSize: 13,
                         fontWeight: isSelected || hasUnread
                             ? FontWeight.w600
                             : FontWeight.w400,
-                        color: haven.textPrimary,
+                        color: hollow.textPrimary,
                       ),
                     ),
                     if (lastMessage != null) ...[
-                      const SizedBox(height: HavenSpacing.xxs),
+                      const SizedBox(height: HollowSpacing.xxs),
                       Text(
                         lastMessage!.isMe
                             ? 'You: ${lastMessage!.text}'
                             : lastMessage!.text,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: HavenTypography.bodySmall.copyWith(
-                          color: haven.textSecondary,
+                        style: HollowTypography.bodySmall.copyWith(
+                          color: hollow.textSecondary,
                         ),
                       ),
                     ],
@@ -128,24 +128,24 @@ class PeerCard extends ConsumerWidget {
               if (lastMessage != null || hasUnread)
                 Padding(
                   padding:
-                      const EdgeInsets.only(left: HavenSpacing.sm),
+                      const EdgeInsets.only(left: HollowSpacing.sm),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (lastMessage != null)
                         Text(
                           formatTime(lastMessage!.timestamp),
-                          style: HavenTypography.caption.copyWith(
-                            color: haven.textSecondary,
+                          style: HollowTypography.caption.copyWith(
+                            color: hollow.textSecondary,
                           ),
                         ),
                       if (hasUnread) ...[
-                        const SizedBox(width: HavenSpacing.xs),
+                        const SizedBox(width: HollowSpacing.xs),
                         Container(
                           width: 8,
                           height: 8,
                           decoration: BoxDecoration(
-                            color: haven.accent,
+                            color: hollow.accent,
                             shape: BoxShape.circle,
                           ),
                         ),
@@ -160,7 +160,7 @@ class PeerCard extends ConsumerWidget {
 
     if (isSelected) {
       card = SelectionShimmer(
-        highlightColor: haven.accent.withValues(alpha: 0.12),
+        highlightColor: hollow.accent.withValues(alpha: 0.12),
         borderRadius: radius,
         child: card,
       );
@@ -168,8 +168,8 @@ class PeerCard extends ConsumerWidget {
 
     return Padding(
       padding: const EdgeInsets.symmetric(
-        horizontal: HavenSpacing.sm,
-        vertical: HavenSpacing.xxs,
+        horizontal: HollowSpacing.sm,
+        vertical: HollowSpacing.xxs,
       ),
       child: card,
     );

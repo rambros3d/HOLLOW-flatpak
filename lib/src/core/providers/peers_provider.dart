@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/models/peer_info.dart';
+import 'package:hollow/src/core/models/peer_info.dart';
 
 class PeersNotifier extends Notifier<Map<String, PeerInfo>> {
   @override

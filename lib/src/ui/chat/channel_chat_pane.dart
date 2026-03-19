@@ -2,37 +2,37 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/models/file_attachment.dart';
-import 'package:haven/src/core/providers/channel_chat_provider.dart';
-import 'package:haven/src/core/providers/chat_provider.dart' show generateMessageId;
-import 'package:haven/src/core/providers/file_transfer_provider.dart';
-import 'package:haven/src/core/providers/identity_provider.dart';
-import 'package:haven/src/core/providers/member_panel_provider.dart';
-import 'package:haven/src/core/providers/unread_provider.dart';
+import 'package:hollow/src/core/models/file_attachment.dart';
+import 'package:hollow/src/core/providers/channel_chat_provider.dart';
+import 'package:hollow/src/core/providers/chat_provider.dart' show generateMessageId;
+import 'package:hollow/src/core/providers/file_transfer_provider.dart';
+import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/member_panel_provider.dart';
+import 'package:hollow/src/core/providers/unread_provider.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:haven/src/core/providers/peers_provider.dart';
-import 'package:haven/src/core/providers/profile_provider.dart';
-import 'package:haven/src/core/providers/server_provider.dart';
-import 'package:haven/src/core/providers/sync_progress_provider.dart';
-import 'package:haven/src/core/providers/typing_provider.dart';
-import 'package:haven/src/core/providers/pinned_provider.dart';
-import 'package:haven/src/core/providers/vault_status_provider.dart';
-import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/chat/channel_message_bubble.dart';
-import 'package:haven/src/ui/chat/chat_input_shortcuts.dart';
-import 'package:haven/src/ui/chat/chat_pane.dart';
-import 'package:haven/src/ui/chat/message_action_bar.dart';
-import 'package:haven/src/ui/components/connection_progress.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
-import 'package:haven/src/ui/components/haven_text_field.dart';
-import 'package:haven/src/ui/components/haven_toast.dart';
-import 'package:haven/src/ui/components/haven_tooltip.dart';
-import 'package:haven/src/ui/components/status_dot.dart';
-import 'package:haven/src/rust/api/network.dart' as network_api;
-import 'package:haven/src/rust/api/storage.dart' as storage_api;
+import 'package:hollow/src/core/providers/peers_provider.dart';
+import 'package:hollow/src/core/providers/profile_provider.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
+import 'package:hollow/src/core/providers/sync_progress_provider.dart';
+import 'package:hollow/src/core/providers/typing_provider.dart';
+import 'package:hollow/src/core/providers/pinned_provider.dart';
+import 'package:hollow/src/core/providers/vault_status_provider.dart';
+import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/chat/channel_message_bubble.dart';
+import 'package:hollow/src/ui/chat/chat_input_shortcuts.dart';
+import 'package:hollow/src/ui/chat/chat_pane.dart';
+import 'package:hollow/src/ui/chat/message_action_bar.dart';
+import 'package:hollow/src/ui/components/connection_progress.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/ui/components/hollow_text_field.dart';
+import 'package:hollow/src/ui/components/hollow_toast.dart';
+import 'package:hollow/src/ui/components/hollow_tooltip.dart';
+import 'package:hollow/src/ui/components/status_dot.dart';
+import 'package:hollow/src/rust/api/network.dart' as network_api;
+import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
@@ -154,7 +154,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
 
   void _showPinnedMessages(
     BuildContext context,
-    HavenTheme haven,
+    HollowTheme hollow,
     List<String> pinnedIds,
   ) {
     final messages = ref.read(channelChatProvider)[_stateKey] ?? [];
@@ -167,46 +167,46 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
-        backgroundColor: haven.elevated,
+        backgroundColor: hollow.elevated,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(haven.radiusLg),
-          side: BorderSide(color: haven.border),
+          borderRadius: BorderRadius.circular(hollow.radiusLg),
+          side: BorderSide(color: hollow.border),
         ),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420, maxHeight: 400),
           child: Padding(
-            padding: const EdgeInsets.all(HavenSpacing.lg),
+            padding: const EdgeInsets.all(HollowSpacing.lg),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    Icon(LucideIcons.pin, size: 18, color: haven.accent),
-                    const SizedBox(width: HavenSpacing.sm),
+                    Icon(LucideIcons.pin, size: 18, color: hollow.accent),
+                    const SizedBox(width: HollowSpacing.sm),
                     Text(
                       'Pinned Messages',
-                      style: HavenTypography.subheading.copyWith(
-                        color: haven.textPrimary,
+                      style: HollowTypography.subheading.copyWith(
+                        color: hollow.textPrimary,
                       ),
                     ),
                     const Spacer(),
-                    HavenPressable(
+                    HollowPressable(
                       onTap: () => Navigator.pop(ctx),
                       padding: const EdgeInsets.all(4),
-                      child: Icon(LucideIcons.x, size: 16, color: haven.textSecondary),
+                      child: Icon(LucideIcons.x, size: 16, color: hollow.textSecondary),
                     ),
                   ],
                 ),
-                const SizedBox(height: HavenSpacing.md),
+                const SizedBox(height: HollowSpacing.md),
                 if (pinnedMessages.isEmpty)
                   Padding(
-                    padding: const EdgeInsets.symmetric(vertical: HavenSpacing.xl),
+                    padding: const EdgeInsets.symmetric(vertical: HollowSpacing.xl),
                     child: Center(
                       child: Text(
                         'Pinned messages not loaded in current view.',
-                        style: HavenTypography.body.copyWith(
-                          color: haven.textSecondary,
+                        style: HollowTypography.body.copyWith(
+                          color: hollow.textSecondary,
                         ),
                       ),
                     ),
@@ -237,7 +237,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
 
                         final msgWidget = Padding(
                           padding: const EdgeInsets.symmetric(
-                              vertical: HavenSpacing.xs),
+                              vertical: HollowSpacing.xs),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -245,17 +245,17 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                                 children: [
                                   Text(
                                     name,
-                                    style: HavenTypography.body.copyWith(
-                                      color: haven.accent,
+                                    style: HollowTypography.body.copyWith(
+                                      color: hollow.accent,
                                       fontWeight: FontWeight.w600,
                                       fontSize: 12,
                                     ),
                                   ),
-                                  const SizedBox(width: HavenSpacing.sm),
+                                  const SizedBox(width: HollowSpacing.sm),
                                   Text(
                                     time,
-                                    style: HavenTypography.caption.copyWith(
-                                      color: haven.textSecondary
+                                    style: HollowTypography.caption.copyWith(
+                                      color: hollow.textSecondary
                                           .withValues(alpha: 0.5),
                                       fontSize: 10,
                                     ),
@@ -268,7 +268,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                                     msg.fileAttachment!.diskPath != null &&
                                     File(msg.fileAttachment!.diskPath!).existsSync())
                                   ClipRRect(
-                                    borderRadius: BorderRadius.circular(haven.radiusSm),
+                                    borderRadius: BorderRadius.circular(hollow.radiusSm),
                                     child: Image.file(
                                       File(msg.fileAttachment!.diskPath!),
                                       height: 80,
@@ -278,15 +278,15 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                                 else
                                   Text(
                                     msg.fileAttachment!.isImage ? '📷 Image' : '📎 ${msg.fileAttachment!.fileName}',
-                                    style: HavenTypography.body.copyWith(
-                                      color: haven.textSecondary,
+                                    style: HollowTypography.body.copyWith(
+                                      color: hollow.textSecondary,
                                     ),
                                   ),
                               ] else
                               Text(
                                 msg.text.startsWith('[file:') ? '📎 File' : msg.text,
-                                style: HavenTypography.body.copyWith(
-                                  color: haven.textPrimary,
+                                style: HollowTypography.body.copyWith(
+                                  color: hollow.textPrimary,
                                 ),
                                 maxLines: 3,
                                 overflow: TextOverflow.ellipsis,
@@ -308,7 +308,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                           return Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Divider(color: haven.border, height: HavenSpacing.sm),
+                              Divider(color: hollow.border, height: HollowSpacing.sm),
                               msgWidget,
                             ],
                           );
@@ -397,10 +397,10 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
       if (file.size > maxBytes) {
         if (mounted) {
           final fileMb = (file.size / (1024 * 1024)).toStringAsFixed(1);
-          HavenToast.show(
+          HollowToast.show(
             context,
             'File too large (${fileMb}MB). Server limit is ${maxMb}MB.',
-            type: HavenToastType.error,
+            type: HollowToastType.error,
             duration: const Duration(seconds: 4),
           );
         }
@@ -429,12 +429,14 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
         );
     _jumpToBottom();
 
+    final members = ref.read(serverMembersProvider(widget.serverId)).valueOrNull;
     await ref.read(fileTransferProvider.notifier).sendFile(
           serverId: widget.serverId,
           channelId: widget.channelId,
           filePath: file.path!,
           messageId: messageId,
           messageText: '',
+          memberCount: members?.length ?? 0,
         );
     } finally { _isPicking = false; }
   }
@@ -475,11 +477,11 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
       }
 
       if (mounted) {
-        HavenToast.show(context, 'File saved', type: HavenToastType.success);
+        HollowToast.show(context, 'File saved', type: HollowToastType.success);
       }
     } catch (e) {
       if (mounted) {
-        HavenToast.show(context, 'Save failed: $e', type: HavenToastType.error);
+        HollowToast.show(context, 'Save failed: $e', type: HollowToastType.error);
       }
     } finally {
       _isPicking = false;
@@ -488,7 +490,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final chatState = ref.watch(channelChatProvider);
     final messages = chatState[_stateKey] ?? [];
 
@@ -522,23 +524,23 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
         // Channel header
         Container(
           height: 48,
-          padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.lg),
+          padding: const EdgeInsets.symmetric(horizontal: HollowSpacing.lg),
           decoration: BoxDecoration(
-            color: haven.surface,
-            border: Border(bottom: BorderSide(color: haven.border)),
+            color: hollow.surface,
+            border: Border(bottom: BorderSide(color: hollow.border)),
           ),
           child: Row(
             children: [
-              Icon(LucideIcons.hash, size: 20, color: haven.textSecondary),
-              const SizedBox(width: HavenSpacing.sm),
+              Icon(LucideIcons.hash, size: 20, color: hollow.textSecondary),
+              const SizedBox(width: HollowSpacing.sm),
               Text(
                 widget.channelName,
-                style: HavenTypography.subheading.copyWith(
-                  color: haven.textPrimary,
+                style: HollowTypography.subheading.copyWith(
+                  color: hollow.textPrimary,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(width: HavenSpacing.md),
+              const SizedBox(width: HollowSpacing.md),
               _ChannelConnectionStatus(
                 serverId: widget.serverId,
                 channelId: widget.channelId,
@@ -548,21 +550,21 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                 final pinKey = '${widget.serverId}:${widget.channelId}';
                 final pinnedIds = ref.watch(pinnedProvider)[pinKey] ?? [];
                 if (pinnedIds.isEmpty) return const SizedBox.shrink();
-                return HavenTooltip(
+                return HollowTooltip(
                   message: '${pinnedIds.length} pinned message${pinnedIds.length == 1 ? '' : 's'}',
-                  child: HavenPressable(
-                    onTap: () => _showPinnedMessages(context, haven, pinnedIds),
-                    borderRadius: BorderRadius.circular(haven.radiusSm),
-                    padding: const EdgeInsets.all(HavenSpacing.xs),
+                  child: HollowPressable(
+                    onTap: () => _showPinnedMessages(context, hollow, pinnedIds),
+                    borderRadius: BorderRadius.circular(hollow.radiusSm),
+                    padding: const EdgeInsets.all(HollowSpacing.xs),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(LucideIcons.pin, size: 16, color: haven.accent),
+                        Icon(LucideIcons.pin, size: 16, color: hollow.accent),
                         const SizedBox(width: 2),
                         Text(
                           '${pinnedIds.length}',
-                          style: HavenTypography.caption.copyWith(
-                            color: haven.accent,
+                          style: HollowTypography.caption.copyWith(
+                            color: hollow.accent,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -571,10 +573,10 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                   ),
                 );
               }),
-              const SizedBox(width: HavenSpacing.sm),
-              HavenTooltip(
+              const SizedBox(width: HollowSpacing.sm),
+              HollowTooltip(
                 message: 'Search messages',
-                child: HavenPressable(
+                child: HollowPressable(
                   onTap: () {
                     final current = ref.read(channelSearchOpenProvider);
                     ref.read(channelSearchOpenProvider.notifier).state = !current;
@@ -585,29 +587,29 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                       });
                     }
                   },
-                  borderRadius: BorderRadius.circular(haven.radiusSm),
-                  padding: const EdgeInsets.all(HavenSpacing.xs),
+                  borderRadius: BorderRadius.circular(hollow.radiusSm),
+                  padding: const EdgeInsets.all(HollowSpacing.xs),
                   child: Icon(
                     LucideIcons.search,
                     size: 18,
-                    color: ref.watch(channelSearchOpenProvider) ? haven.accent : haven.textSecondary,
+                    color: ref.watch(channelSearchOpenProvider) ? hollow.accent : hollow.textSecondary,
                   ),
                 ),
               ),
-              const SizedBox(width: HavenSpacing.sm),
-              HavenTooltip(
+              const SizedBox(width: HollowSpacing.sm),
+              HollowTooltip(
                 message: 'Toggle member panel',
-                child: HavenPressable(
+                child: HollowPressable(
                   onTap: () => ref.read(memberPanelProvider.notifier).state =
                       !ref.read(memberPanelProvider),
-                  borderRadius: BorderRadius.circular(haven.radiusSm),
-                  padding: const EdgeInsets.all(HavenSpacing.xs),
+                  borderRadius: BorderRadius.circular(hollow.radiusSm),
+                  padding: const EdgeInsets.all(HollowSpacing.xs),
                   child: Icon(
                     LucideIcons.users,
                     size: 20,
                     color: ref.watch(memberPanelProvider)
-                        ? haven.accent
-                        : haven.textSecondary,
+                        ? hollow.accent
+                        : hollow.textSecondary,
                   ),
                 ),
               ),
@@ -619,17 +621,17 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
         if (ref.watch(channelSearchOpenProvider))
           Container(
             padding: const EdgeInsets.symmetric(
-              horizontal: HavenSpacing.md,
-              vertical: HavenSpacing.sm,
+              horizontal: HollowSpacing.md,
+              vertical: HollowSpacing.sm,
             ),
             decoration: BoxDecoration(
-              color: haven.surface,
-              border: Border(bottom: BorderSide(color: haven.border)),
+              color: hollow.surface,
+              border: Border(bottom: BorderSide(color: hollow.border)),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                HavenTextField(
+                HollowTextField(
                   controller: _searchController,
                   focusNode: _searchFocusNode,
                   hintText: 'Search in #${widget.channelName}...',
@@ -637,8 +639,8 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                   isDense: true,
                   prefixIcon: Icon(LucideIcons.search, size: 16),
                   onChanged: _onSearch,
-                  style: HavenTypography.body.copyWith(
-                    color: haven.textPrimary,
+                  style: HollowTypography.body.copyWith(
+                    color: hollow.textPrimary,
                     fontSize: 13,
                   ),
                 ),
@@ -664,8 +666,8 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                             '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
                         return Padding(
                           padding: const EdgeInsets.only(
-                              top: HavenSpacing.xs),
-                          child: HavenPressable(
+                              top: HollowSpacing.xs),
+                          child: HollowPressable(
                             subtle: true,
                             onTap: () {
                               ref.read(channelSearchOpenProvider.notifier).state = false;
@@ -675,11 +677,11 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                               });
                             },
                             borderRadius:
-                                BorderRadius.circular(haven.radiusSm),
-                            hoverColor: haven.elevated,
+                                BorderRadius.circular(hollow.radiusSm),
+                            hoverColor: hollow.elevated,
                             padding: const EdgeInsets.symmetric(
-                              horizontal: HavenSpacing.sm,
-                              vertical: HavenSpacing.xs,
+                              horizontal: HollowSpacing.sm,
+                              vertical: HollowSpacing.xs,
                             ),
                             child: Column(
                               crossAxisAlignment:
@@ -689,20 +691,20 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                                   children: [
                                     Text(
                                       name,
-                                      style: HavenTypography.caption
+                                      style: HollowTypography.caption
                                           .copyWith(
-                                        color: haven.accent,
+                                        color: hollow.accent,
                                         fontWeight: FontWeight.w600,
                                         fontSize: 11,
                                       ),
                                     ),
                                     const SizedBox(
-                                        width: HavenSpacing.sm),
+                                        width: HollowSpacing.sm),
                                     Text(
                                       timeStr,
-                                      style: HavenTypography.caption
+                                      style: HollowTypography.caption
                                           .copyWith(
-                                        color: haven.textSecondary
+                                        color: hollow.textSecondary
                                             .withValues(alpha: 0.5),
                                         fontSize: 10,
                                       ),
@@ -712,8 +714,8 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                                 const SizedBox(height: 2),
                                 Text(
                                   msg.text,
-                                  style: HavenTypography.body.copyWith(
-                                    color: haven.textPrimary,
+                                  style: HollowTypography.body.copyWith(
+                                    color: hollow.textPrimary,
                                     fontSize: 12,
                                   ),
                                   maxLines: 2,
@@ -742,7 +744,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
               return false;
             },
             child: Container(
-            color: haven.background,
+            color: hollow.background,
             child: messages.isEmpty
                 ? (_historyLoaded
                     ? Center(
@@ -753,19 +755,19 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                               LucideIcons.hash,
                               size: 64,
                               color:
-                                  haven.textSecondary.withValues(alpha: 0.3),
+                                  hollow.textSecondary.withValues(alpha: 0.3),
                             ),
-                            const SizedBox(height: HavenSpacing.lg),
+                            const SizedBox(height: HollowSpacing.lg),
                             Text(
                               'Welcome to #${widget.channelName}',
-                              style: HavenTypography.heading
-                                  .copyWith(color: haven.textPrimary),
+                              style: HollowTypography.heading
+                                  .copyWith(color: hollow.textPrimary),
                             ),
-                            const SizedBox(height: HavenSpacing.sm),
+                            const SizedBox(height: HollowSpacing.sm),
                             Text(
                               'This is the beginning of the channel.',
-                              style: HavenTypography.body
-                                  .copyWith(color: haven.textSecondary),
+                              style: HollowTypography.body
+                                  .copyWith(color: hollow.textSecondary),
                             ),
                           ],
                         ),
@@ -782,7 +784,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                     initialScrollIndex: messages.length,
                     initialAlignment: 1.0,
                     padding: const EdgeInsets.symmetric(
-                      vertical: HavenSpacing.sm,
+                      vertical: HollowSpacing.sm,
                     ),
                     itemCount: messages.length + 1,
                     itemBuilder: (context, index) {
@@ -948,7 +950,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
 
                       final messageWidget = showHeader
                           ? Padding(
-                              padding: const EdgeInsets.only(top: HavenSpacing.sm + 2),
+                              padding: const EdgeInsets.only(top: HollowSpacing.sm + 2),
                               child: wrapper,
                             )
                           : wrapper;
@@ -992,20 +994,20 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
         if (_replyToMessageId != null)
           Container(
             padding: const EdgeInsets.symmetric(
-              horizontal: HavenSpacing.md,
-              vertical: HavenSpacing.xs + 2,
+              horizontal: HollowSpacing.md,
+              vertical: HollowSpacing.xs + 2,
             ),
             decoration: BoxDecoration(
-              color: haven.surface,
+              color: hollow.surface,
               border: Border(
-                top: BorderSide(color: haven.border),
-                left: BorderSide(color: haven.accent, width: 3),
+                top: BorderSide(color: hollow.border),
+                left: BorderSide(color: hollow.accent, width: 3),
               ),
             ),
             child: Row(
               children: [
-                Icon(LucideIcons.reply, size: 14, color: haven.accent),
-                const SizedBox(width: HavenSpacing.sm),
+                Icon(LucideIcons.reply, size: 14, color: hollow.accent),
+                const SizedBox(width: HollowSpacing.sm),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1013,8 +1015,8 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                     children: [
                       Text(
                         'Replying to ${_replyToSenderName ?? ''}',
-                        style: HavenTypography.caption.copyWith(
-                          color: haven.accent,
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.accent,
                           fontWeight: FontWeight.w600,
                           fontSize: 11,
                         ),
@@ -1031,13 +1033,13 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                                 fit: BoxFit.cover,
                               ),
                             ),
-                            const SizedBox(width: HavenSpacing.xs),
+                            const SizedBox(width: HollowSpacing.xs),
                           ],
                           Expanded(
                             child: Text(
                               _replyToText ?? '',
-                              style: HavenTypography.body.copyWith(
-                                color: haven.textSecondary,
+                              style: HollowTypography.body.copyWith(
+                                color: hollow.textSecondary,
                                 fontSize: 12,
                               ),
                               maxLines: 1,
@@ -1049,16 +1051,16 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                     ],
                   ),
                 ),
-                HavenPressable(
+                HollowPressable(
                   onTap: () => setState(() {
                     _replyToMessageId = null;
                     _replyToText = null;
                     _replyToSenderName = null;
       _replyToImagePath = null;
                   }),
-                  padding: const EdgeInsets.all(HavenSpacing.xs),
+                  padding: const EdgeInsets.all(HollowSpacing.xs),
                   child: Icon(LucideIcons.x,
-                      size: 16, color: haven.textSecondary),
+                      size: 16, color: hollow.textSecondary),
                 ),
               ],
             ),
@@ -1067,37 +1069,37 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
         // Input bar
         Container(
           padding: const EdgeInsets.symmetric(
-            horizontal: HavenSpacing.md,
-            vertical: HavenSpacing.sm,
+            horizontal: HollowSpacing.md,
+            vertical: HollowSpacing.sm,
           ),
           decoration: BoxDecoration(
-            color: haven.surface,
+            color: hollow.surface,
             border: Border(
               top: _replyToMessageId != null
                   ? BorderSide.none
-                  : BorderSide(color: haven.border),
+                  : BorderSide(color: hollow.border),
             ),
           ),
           child: Row(
             children: [
               // File attachment button
-              HavenPressable(
+              HollowPressable(
                 onTap: _pickAndSendFile,
-                borderRadius: BorderRadius.circular(haven.radiusMd),
-                padding: const EdgeInsets.all(HavenSpacing.sm),
+                borderRadius: BorderRadius.circular(hollow.radiusMd),
+                padding: const EdgeInsets.all(HollowSpacing.sm),
                 child: Icon(
                   LucideIcons.paperclip,
-                  color: haven.textSecondary,
+                  color: hollow.textSecondary,
                   size: 20,
                 ),
               ),
-              const SizedBox(width: HavenSpacing.xs),
+              const SizedBox(width: HollowSpacing.xs),
               Expanded(
                 child: Focus(
                   onKeyEvent: (_, event) => handleChatInputKey(
                     event, _controller, _focusNode, _handleSend,
                   ),
-                  child: HavenTextField(
+                  child: HollowTextField(
                     controller: _controller,
                     focusNode: _focusNode,
                     hintText: 'Message #${widget.channelName}',
@@ -1106,22 +1108,22 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                     minLines: 1,
                     maxLength: 4000,
                     showCounter: false,
-                    style: HavenTypography.body
-                        .copyWith(color: haven.textPrimary),
-                    borderRadius: haven.radiusLg,
+                    style: HollowTypography.body
+                        .copyWith(color: hollow.textPrimary),
+                    borderRadius: hollow.radiusLg,
                     onChanged: _onTextChanged,
                   ),
                 ),
               ),
-              const SizedBox(width: HavenSpacing.sm),
-              HavenPressable(
+              const SizedBox(width: HollowSpacing.sm),
+              HollowPressable(
                 onTap: _handleSend,
-                borderRadius: BorderRadius.circular(haven.radiusMd),
-                backgroundColor: haven.accent,
-                padding: const EdgeInsets.all(HavenSpacing.sm),
+                borderRadius: BorderRadius.circular(hollow.radiusMd),
+                backgroundColor: hollow.accent,
+                padding: const EdgeInsets.all(HollowSpacing.sm),
                 child: Icon(
                   LucideIcons.send,
-                  color: haven.textOnAccent,
+                  color: hollow.textOnAccent,
                   size: 20,
                 ),
               ),
@@ -1181,7 +1183,7 @@ class _ChannelConnectionStatus extends ConsumerWidget {
               stage: stage,
             ),
             if (stage == ConnectionStage.encrypted) ...[
-              const SizedBox(width: HavenSpacing.md),
+              const SizedBox(width: HollowSpacing.md),
               _SyncIndicator(serverId: serverId, channelId: channelId),
               _VaultHealthIndicator(serverId: serverId),
             ],
@@ -1228,7 +1230,7 @@ class _SyncIndicatorState extends ConsumerState<_SyncIndicator> {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final syncStatus = ref.watch(serverSyncStatusProvider(widget.serverId));
     final progress = ref.watch(syncProgressProvider)[widget.serverId];
 
@@ -1245,24 +1247,24 @@ class _SyncIndicatorState extends ConsumerState<_SyncIndicator> {
 
     switch (syncStatus) {
       case ServerSyncStatus.syncing:
-        dotColor = haven.accent;
+        dotColor = hollow.accent;
         useSpinning = true;
         label = progress != null && progress.totalCount > 0
             ? 'Syncing ${progress.receivedCount}/${progress.totalCount}...'
             : 'Syncing...';
         showRetry = false;
       case ServerSyncStatus.synced:
-        dotColor = haven.success;
+        dotColor = hollow.success;
         useSpinning = false;
         label = 'Synced';
         showRetry = false;
       case ServerSyncStatus.retrying:
-        dotColor = haven.warning;
+        dotColor = hollow.warning;
         useSpinning = true;
         label = 'Retrying...';
         showRetry = false;
       case ServerSyncStatus.failed:
-        dotColor = haven.error;
+        dotColor = hollow.error;
         useSpinning = false;
         label = 'Sync failed';
         showRetry = true;
@@ -1277,21 +1279,21 @@ class _SyncIndicatorState extends ConsumerState<_SyncIndicator> {
           _SpinningRefreshIcon(size: 10, color: dotColor)
         else
           StatusDot(color: dotColor),
-        const SizedBox(width: HavenSpacing.xs),
+        const SizedBox(width: HollowSpacing.xs),
         Text(
           label,
-          style: HavenTypography.caption.copyWith(color: dotColor),
+          style: HollowTypography.caption.copyWith(color: dotColor),
         ),
         if (showRetry) ...[
-          const SizedBox(width: HavenSpacing.xs),
-          HavenPressable(
+          const SizedBox(width: HollowSpacing.xs),
+          HollowPressable(
             onTap: _retry,
-            borderRadius: BorderRadius.circular(haven.radiusSm),
+            borderRadius: BorderRadius.circular(hollow.radiusSm),
             padding: const EdgeInsets.all(2),
             child: Icon(
               LucideIcons.refreshCw,
               size: 12,
-              color: haven.error,
+              color: hollow.error,
             ),
           ),
         ],
@@ -1347,7 +1349,7 @@ class _VaultHealthIndicator extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     // Only show vault health dot when erasure coding is active (6+ members).
     // <6 members use full replication — the existing "Synced" indicator covers it.
@@ -1362,15 +1364,15 @@ class _VaultHealthIndicator extends ConsumerWidget {
 
     final health = status.computeHealth();
     final color = switch (health) {
-      VaultHealth.healthy => haven.success,
-      VaultHealth.degraded => haven.warning,
-      VaultHealth.critical => haven.error,
+      VaultHealth.healthy => hollow.success,
+      VaultHealth.degraded => hollow.warning,
+      VaultHealth.critical => hollow.error,
     };
 
-    return HavenTooltip(
+    return HollowTooltip(
       message: status.healthMessage,
       child: Padding(
-        padding: const EdgeInsets.only(left: HavenSpacing.sm),
+        padding: const EdgeInsets.only(left: HollowSpacing.sm),
         child: StatusDot(color: color, size: 7, pulse: health != VaultHealth.healthy),
       ),
     );

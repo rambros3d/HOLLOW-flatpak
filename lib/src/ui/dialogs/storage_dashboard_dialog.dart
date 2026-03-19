@@ -2,20 +2,20 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/providers/server_provider.dart';
-import 'package:haven/src/core/providers/vault_status_provider.dart';
-import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_card.dart';
-import 'package:haven/src/ui/components/haven_dialog.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
-import 'package:haven/src/ui/components/status_dot.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
+import 'package:hollow/src/core/providers/vault_status_provider.dart';
+import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_card.dart';
+import 'package:hollow/src/ui/components/hollow_dialog.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/ui/components/status_dot.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 void showStorageDashboardDialog(BuildContext context, String serverId) {
-  showHavenDialog(
+  showHollowDialog(
     context: context,
     builder: (ctx) => ProviderScope(
       child: _StorageDashboardContent(serverId: serverId),
@@ -132,14 +132,14 @@ class _StorageDashboardContentState
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final membersAsync = ref.watch(serverMembersProvider(widget.serverId));
     final memberCount = membersAsync.valueOrNull?.length ?? 0;
     final vaultStatus = ref.watch(
       vaultStatusProvider.select((s) => s[widget.serverId]),
     );
 
-    return HavenDialog(
+    return HollowDialog(
       title: '',
       content: SizedBox(
         width: 540,
@@ -149,37 +149,37 @@ class _StorageDashboardContentState
             // Header with title + close button
             Row(
               children: [
-                Icon(LucideIcons.hardDrive, size: 18, color: haven.accent),
-                const SizedBox(width: HavenSpacing.sm),
+                Icon(LucideIcons.hardDrive, size: 18, color: hollow.accent),
+                const SizedBox(width: HollowSpacing.sm),
                 Text(
                   'Storage Dashboard',
-                  style: HavenTypography.heading.copyWith(
-                    color: haven.textPrimary,
+                  style: HollowTypography.heading.copyWith(
+                    color: hollow.textPrimary,
                   ),
                 ),
                 const Spacer(),
-                HavenPressable(
+                HollowPressable(
                   onTap: () => Navigator.of(context).pop(),
-                  borderRadius: BorderRadius.circular(haven.radiusSm),
-                  padding: const EdgeInsets.all(HavenSpacing.xs),
+                  borderRadius: BorderRadius.circular(hollow.radiusSm),
+                  padding: const EdgeInsets.all(HollowSpacing.xs),
                   child: Icon(
                     LucideIcons.x,
                     size: 16,
-                    color: haven.textSecondary,
+                    color: hollow.textSecondary,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: HavenSpacing.lg),
+            const SizedBox(height: HollowSpacing.lg),
 
             ...[
               // Server Storage — full width when <6 members, side-by-side when 6+
               if (memberCount < 6)
                 _buildSection(
-                  haven,
+                  hollow,
                   'Server Storage',
                   LucideIcons.server,
-                  _buildServerOverview(haven, memberCount),
+                  _buildServerOverview(hollow, memberCount),
                 )
               else
                 IntrinsicHeight(
@@ -188,25 +188,25 @@ class _StorageDashboardContentState
                     children: [
                       Expanded(
                         child: _buildSection(
-                          haven,
+                          hollow,
                           'Server Storage',
                           LucideIcons.server,
-                          _buildServerOverview(haven, memberCount),
+                          _buildServerOverview(hollow, memberCount),
                         ),
                       ),
-                      const SizedBox(width: HavenSpacing.md),
+                      const SizedBox(width: HollowSpacing.md),
                       Expanded(
                         child: _buildSection(
-                          haven,
+                          hollow,
                           'Your Storage',
                           LucideIcons.user,
-                          _buildYourStorage(haven),
+                          _buildYourStorage(hollow),
                         ),
                       ),
                     ],
                   ),
                 ),
-              const SizedBox(height: HavenSpacing.md),
+              const SizedBox(height: HollowSpacing.md),
 
               // Bottom row: Retention Policy | Vault Health — equal height
               IntrinsicHeight(
@@ -215,19 +215,19 @@ class _StorageDashboardContentState
                   children: [
                     Expanded(
                       child: _buildSection(
-                        haven,
+                        hollow,
                         'Retention Policy',
                         LucideIcons.clock,
-                        _buildRetentionPolicy(haven),
+                        _buildRetentionPolicy(hollow),
                       ),
                     ),
-                    const SizedBox(width: HavenSpacing.md),
+                    const SizedBox(width: HollowSpacing.md),
                     Expanded(
                       child: _buildSection(
-                        haven,
+                        hollow,
                         'Vault Health',
                         LucideIcons.shield,
-                        _buildVaultHealth(haven, vaultStatus, memberCount),
+                        _buildVaultHealth(hollow, vaultStatus, memberCount),
                       ),
                     ),
                   ],
@@ -236,12 +236,12 @@ class _StorageDashboardContentState
 
               // Member Pledges (6+ only) — full width below
               if (memberCount >= 6) ...[
-                const SizedBox(height: HavenSpacing.md),
+                const SizedBox(height: HollowSpacing.md),
                 _buildSection(
-                  haven,
+                  hollow,
                   'Member Pledges',
                   LucideIcons.users,
-                  _buildMemberPledges(haven, memberCount),
+                  _buildMemberPledges(hollow, memberCount),
                 ),
               ],
             ],
@@ -252,37 +252,37 @@ class _StorageDashboardContentState
   }
 
   Widget _buildSection(
-    HavenTheme haven,
+    HollowTheme hollow,
     String title,
     IconData icon,
     Widget content,
   ) {
-    return HavenCard(
+    return HollowCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, size: 14, color: haven.accent),
-              const SizedBox(width: HavenSpacing.sm),
+              Icon(icon, size: 14, color: hollow.accent),
+              const SizedBox(width: HollowSpacing.sm),
               Text(
                 title,
-                style: HavenTypography.caption.copyWith(
-                  color: haven.accent,
+                style: HollowTypography.caption.copyWith(
+                  color: hollow.accent,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.5,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: HavenSpacing.md),
+          const SizedBox(height: HollowSpacing.md),
           content,
         ],
       ),
     );
   }
 
-  Widget _buildServerOverview(HavenTheme haven, int memberCount) {
+  Widget _buildServerOverview(HollowTheme hollow, int memberCount) {
     final stats = _stats;
     final totalUsed = stats?.totalUsedBytes.toDouble() ?? 0;
 
@@ -292,27 +292,27 @@ class _StorageDashboardContentState
       final diskTotal = totalUsed + _diskFreeBytes.toDouble();
       final fraction = diskTotal > 0 ? totalUsed / diskTotal : 0.0;
       final diskFreeColor = _diskFreeBytes < 1024 * 1024 * 1024
-          ? haven.error
-          : haven.textSecondary;
+          ? hollow.error
+          : hollow.textSecondary;
 
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             _vaultModeLabel(memberCount),
-            style: HavenTypography.body.copyWith(
-              color: haven.textPrimary,
+            style: HollowTypography.body.copyWith(
+              color: hollow.textPrimary,
               fontWeight: FontWeight.w500,
             ),
           ),
-          const SizedBox(height: HavenSpacing.sm),
-          _storageBar(fraction, haven.accent, haven),
-          const SizedBox(height: HavenSpacing.xs),
+          const SizedBox(height: HollowSpacing.sm),
+          _storageBar(fraction, hollow.accent, hollow),
+          const SizedBox(height: HollowSpacing.xs),
           Row(
             children: [
               Text(
                 _formatBytes(stats?.totalUsedBytes ?? BigInt.zero),
-                style: HavenTypography.caption.copyWith(color: haven.textSecondary),
+                style: HollowTypography.caption.copyWith(color: hollow.textSecondary),
               ),
               const Spacer(),
               if (_diskFreeBytes > 0) ...[
@@ -326,7 +326,7 @@ class _StorageDashboardContentState
                 const SizedBox(width: 4),
                 Text(
                   '${_formatBytesInt(_diskFreeBytes)} free',
-                  style: HavenTypography.caption.copyWith(color: diskFreeColor),
+                  style: HollowTypography.caption.copyWith(color: diskFreeColor),
                 ),
               ],
             ],
@@ -334,7 +334,7 @@ class _StorageDashboardContentState
           const SizedBox(height: 2),
           Text(
             '$memberCount members',
-            style: HavenTypography.caption.copyWith(color: haven.textSecondary),
+            style: HollowTypography.caption.copyWith(color: hollow.textSecondary),
           ),
         ],
       );
@@ -349,28 +349,78 @@ class _StorageDashboardContentState
       children: [
         Text(
           _vaultModeLabel(memberCount),
-          style: HavenTypography.body.copyWith(
-            color: haven.textPrimary,
+          style: HollowTypography.body.copyWith(
+            color: hollow.textPrimary,
             fontWeight: FontWeight.w500,
           ),
         ),
-        const SizedBox(height: HavenSpacing.sm),
-        _storageBar(fraction, haven.accent, haven),
-        const SizedBox(height: HavenSpacing.xs),
+        const SizedBox(height: HollowSpacing.sm),
+        _storageBar(fraction, hollow.accent, hollow),
+        const SizedBox(height: HollowSpacing.xs),
         Text(
           '${_formatBytes(stats?.totalUsedBytes ?? BigInt.zero)} / ${_formatBytes(stats?.totalPledgedBytes ?? BigInt.zero)}',
-          style: HavenTypography.caption.copyWith(color: haven.textSecondary),
+          style: HollowTypography.caption.copyWith(color: hollow.textSecondary),
         ),
         const SizedBox(height: 2),
         Text(
           '$memberCount members',
-          style: HavenTypography.caption.copyWith(color: haven.textSecondary),
+          style: HollowTypography.caption.copyWith(color: hollow.textSecondary),
         ),
       ],
     );
   }
 
-  Widget _buildYourStorage(HavenTheme haven) {
+  Future<void> _editPledge(HollowTheme hollow) async {
+    final currentMb = (_stats?.myPledgeBytes.toDouble() ?? 512 * 1024 * 1024) / (1024 * 1024);
+    final controller = TextEditingController(text: currentMb.toInt().toString());
+
+    final result = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: hollow.elevated,
+        title: Text('Set Storage Pledge', style: TextStyle(color: hollow.textPrimary, fontSize: 16)),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          autofocus: true,
+          style: TextStyle(color: hollow.textPrimary),
+          decoration: InputDecoration(
+            suffixText: 'MB',
+            suffixStyle: TextStyle(color: hollow.textSecondary),
+            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: hollow.border)),
+            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: hollow.accent)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: TextStyle(color: hollow.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () {
+              final mb = int.tryParse(controller.text);
+              if (mb != null && mb > 0) Navigator.pop(ctx, mb);
+            },
+            child: Text('Save', style: TextStyle(color: hollow.accent)),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      try {
+        await crdt_api.setStoragePledge(
+          serverId: widget.serverId,
+          pledgeBytes: BigInt.from(result) * BigInt.from(1024 * 1024),
+        );
+        _loadData(); // Refresh stats.
+      } catch (e) {
+        debugPrint('[HOLLOW] Failed to set pledge: $e');
+      }
+    }
+  }
+
+  Widget _buildYourStorage(HollowTheme hollow) {
     final stats = _stats;
     if (stats == null) return const SizedBox.shrink();
 
@@ -381,19 +431,30 @@ class _StorageDashboardContentState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Pledge: ${_formatBytes(stats.myPledgeBytes)}',
-          style: HavenTypography.body.copyWith(
-            color: haven.textPrimary,
-            fontWeight: FontWeight.w500,
+        HollowPressable(
+          onTap: () => _editPledge(hollow),
+          borderRadius: BorderRadius.circular(4),
+          padding: EdgeInsets.zero,
+          child: Row(
+            children: [
+              Text(
+                'Pledge: ${_formatBytes(stats.myPledgeBytes)}',
+                style: HollowTypography.body.copyWith(
+                  color: hollow.textPrimary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(width: HollowSpacing.xs),
+              Icon(LucideIcons.pencil, size: 11, color: hollow.textSecondary),
+            ],
           ),
         ),
-        const SizedBox(height: HavenSpacing.sm),
-        _storageBar(fraction, haven.accent, haven),
-        const SizedBox(height: HavenSpacing.xs),
+        const SizedBox(height: HollowSpacing.sm),
+        _storageBar(fraction, hollow.accent, hollow),
+        const SizedBox(height: HollowSpacing.xs),
         Text(
           '${_formatBytes(stats.myUsedBytes)} used',
-          style: HavenTypography.caption.copyWith(color: haven.textSecondary),
+          style: HollowTypography.caption.copyWith(color: hollow.textSecondary),
         ),
         if (_diskFreeBytes > 0) ...[
           const SizedBox(height: 2),
@@ -405,16 +466,16 @@ class _StorageDashboardContentState
                     : LucideIcons.hardDrive,
                 size: 11,
                 color: _diskFreeBytes < 1024 * 1024 * 1024
-                    ? haven.error
-                    : haven.textSecondary,
+                    ? hollow.error
+                    : hollow.textSecondary,
               ),
               const SizedBox(width: 4),
               Text(
                 '${_formatBytesInt(_diskFreeBytes)} free',
-                style: HavenTypography.caption.copyWith(
+                style: HollowTypography.caption.copyWith(
                   color: _diskFreeBytes < 1024 * 1024 * 1024
-                      ? haven.error
-                      : haven.textSecondary,
+                      ? hollow.error
+                      : hollow.textSecondary,
                 ),
               ),
             ],
@@ -424,7 +485,7 @@ class _StorageDashboardContentState
     );
   }
 
-  Widget _buildMemberPledges(HavenTheme haven, int memberCount) {
+  Widget _buildMemberPledges(HollowTheme hollow, int memberCount) {
     final stats = _stats;
     if (stats == null) return const SizedBox.shrink();
 
@@ -437,29 +498,79 @@ class _StorageDashboardContentState
         Expanded(
           child: Text(
             '$memberCount members contributing',
-            style: HavenTypography.body.copyWith(color: haven.textPrimary),
+            style: HollowTypography.body.copyWith(color: hollow.textPrimary),
           ),
         ),
         Text(
           'Avg: ${_formatBytes(avgPledge)} each',
-          style: HavenTypography.caption.copyWith(color: haven.textSecondary),
+          style: HollowTypography.caption.copyWith(color: hollow.textSecondary),
         ),
       ],
     );
   }
 
-  Widget _buildRetentionPolicy(HavenTheme haven) {
+  static const _retentionOptions = [
+    ('permanent', 'Permanent'),
+    ('30d', '30 days'),
+    ('90d', '90 days'),
+    ('180d', '180 days'),
+    ('365d', '365 days'),
+  ];
+
+  Future<void> _editRetention(HollowTheme hollow, String key, String currentValue) async {
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        backgroundColor: hollow.elevated,
+        title: Text(
+          key == 'retention_files' ? 'File Retention' : 'Voice Retention',
+          style: TextStyle(color: hollow.textPrimary, fontSize: 16),
+        ),
+        children: [
+          for (final (value, label) in _retentionOptions)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, value),
+              child: Row(
+                children: [
+                  if (value == currentValue || (currentValue == '' && value == 'permanent'))
+                    Icon(LucideIcons.check, size: 14, color: hollow.accent)
+                  else
+                    const SizedBox(width: 14),
+                  const SizedBox(width: HollowSpacing.sm),
+                  Text(label, style: TextStyle(color: hollow.textPrimary)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+
+    if (result != null && result != currentValue) {
+      try {
+        await crdt_api.updateServerSetting(
+          serverId: widget.serverId,
+          key: key,
+          value: result,
+        );
+        _loadData();
+      } catch (e) {
+        debugPrint('[HOLLOW] Failed to update retention: $e');
+      }
+    }
+  }
+
+  Widget _buildRetentionPolicy(HollowTheme hollow) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _retentionRow(haven, 'Files', _retentionFiles),
-        const SizedBox(height: HavenSpacing.xs),
-        _retentionRow(haven, 'Voice', _retentionVoice),
-        const SizedBox(height: HavenSpacing.sm),
+        _retentionRow(hollow, 'Files', 'retention_files', _retentionFiles),
+        const SizedBox(height: HollowSpacing.xs),
+        _retentionRow(hollow, 'Voice', 'retention_voice', _retentionVoice),
+        const SizedBox(height: HollowSpacing.sm),
         Text(
           'Forward-only: changes affect new uploads only.',
-          style: HavenTypography.caption.copyWith(
-            color: haven.textSecondary,
+          style: HollowTypography.caption.copyWith(
+            color: hollow.textSecondary,
             fontStyle: FontStyle.italic,
             fontSize: 10,
           ),
@@ -468,29 +579,36 @@ class _StorageDashboardContentState
     );
   }
 
-  Widget _retentionRow(HavenTheme haven, String label, String policy) {
-    return Row(
-      children: [
-        SizedBox(
-          width: 48,
-          child: Text(
-            '$label:',
-            style: HavenTypography.body.copyWith(color: haven.textSecondary),
+  Widget _retentionRow(HollowTheme hollow, String label, String settingKey, String policy) {
+    return HollowPressable(
+      onTap: () => _editRetention(hollow, settingKey, policy),
+      borderRadius: BorderRadius.circular(4),
+      padding: EdgeInsets.zero,
+      child: Row(
+        children: [
+          SizedBox(
+            width: 48,
+            child: Text(
+              '$label:',
+              style: HollowTypography.body.copyWith(color: hollow.textSecondary),
+            ),
           ),
-        ),
-        Text(
-          _formatRetention(policy),
-          style: HavenTypography.body.copyWith(
-            color: haven.textPrimary,
-            fontWeight: FontWeight.w500,
+          Text(
+            _formatRetention(policy),
+            style: HollowTypography.body.copyWith(
+              color: hollow.textPrimary,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-        ),
-      ],
+          const SizedBox(width: HollowSpacing.xs),
+          Icon(LucideIcons.pencil, size: 11, color: hollow.textSecondary),
+        ],
+      ),
     );
   }
 
   Widget _buildVaultHealth(
-    HavenTheme haven,
+    HollowTheme hollow,
     VaultServerStatus? status,
     int memberCount,
   ) {
@@ -499,9 +617,9 @@ class _StorageDashboardContentState
         ? 'All files synced'
         : 'No vault activity yet');
     final color = switch (health) {
-      VaultHealth.healthy => haven.success,
-      VaultHealth.degraded => haven.warning,
-      VaultHealth.critical => haven.error,
+      VaultHealth.healthy => hollow.success,
+      VaultHealth.degraded => hollow.warning,
+      VaultHealth.critical => hollow.error,
     };
 
     return Column(
@@ -514,21 +632,21 @@ class _StorageDashboardContentState
               size: 8,
               pulse: health != VaultHealth.healthy,
             ),
-            const SizedBox(width: HavenSpacing.sm),
+            const SizedBox(width: HollowSpacing.sm),
             Expanded(
               child: Text(
                 message,
-                style: HavenTypography.body.copyWith(color: haven.textPrimary),
+                style: HollowTypography.body.copyWith(color: hollow.textPrimary),
               ),
             ),
           ],
         ),
         if (memberCount < 6) ...[
-          const SizedBox(height: HavenSpacing.sm),
+          const SizedBox(height: HollowSpacing.sm),
           Text(
             'Every member stores all files.',
-            style: HavenTypography.caption.copyWith(
-              color: haven.textSecondary,
+            style: HollowTypography.caption.copyWith(
+              color: hollow.textSecondary,
               fontSize: 10,
             ),
           ),
@@ -537,12 +655,12 @@ class _StorageDashboardContentState
     );
   }
 
-  Widget _storageBar(double fraction, Color color, HavenTheme haven) {
+  Widget _storageBar(double fraction, Color color, HollowTheme hollow) {
     final clamped = fraction.clamp(0.0, 1.0);
     final barColor = fraction > 0.9
-        ? haven.error
+        ? hollow.error
         : fraction > 0.7
-            ? haven.warning
+            ? hollow.warning
             : color;
 
     return ClipRRect(
@@ -551,7 +669,7 @@ class _StorageDashboardContentState
         height: 8,
         child: Stack(
           children: [
-            Container(color: haven.border),
+            Container(color: hollow.border),
             TweenAnimationBuilder<double>(
               tween: Tween(end: clamped),
               duration: const Duration(milliseconds: 500),

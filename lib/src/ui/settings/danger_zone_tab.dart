@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/models/server_info.dart';
-import 'package:haven/src/core/providers/channel_provider.dart';
-import 'package:haven/src/core/providers/server_provider.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_button.dart';
-import 'package:haven/src/ui/components/haven_dialog.dart';
-import 'package:haven/src/ui/components/haven_toast.dart';
-import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
+import 'package:hollow/src/core/models/server_info.dart';
+import 'package:hollow/src/core/providers/channel_provider.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_button.dart';
+import 'package:hollow/src/ui/components/hollow_dialog.dart';
+import 'package:hollow/src/ui/components/hollow_toast.dart';
+import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Danger Zone tab — delete server.
@@ -19,9 +19,9 @@ class DangerZoneTab extends ConsumerWidget {
   const DangerZoneTab({super.key, required this.server});
 
   void _confirmDelete(BuildContext context, WidgetRef ref) {
-    showHavenDialog(
+    showHollowDialog(
       context: context,
-      builder: (dialogContext) => HavenDialog(
+      builder: (dialogContext) => HollowDialog(
         title: 'Delete Server',
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -29,21 +29,21 @@ class DangerZoneTab extends ConsumerWidget {
           children: [
             Text(
               'Are you sure you want to delete "${server.name}"?',
-              style: HavenTypography.body,
+              style: HollowTypography.body,
             ),
-            const SizedBox(height: HavenSpacing.sm),
+            const SizedBox(height: HollowSpacing.sm),
             Text(
               'This action cannot be undone. All channels and messages will be permanently deleted.',
-              style: HavenTypography.bodySmall,
+              style: HollowTypography.bodySmall,
             ),
           ],
         ),
         actions: [
-          HavenButton.ghost(
+          HollowButton.ghost(
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
-          HavenButton.danger(
+          HollowButton.danger(
             onPressed: () {
               Navigator.of(dialogContext).pop();
               _deleteServer(context, ref);
@@ -64,18 +64,18 @@ class DangerZoneTab extends ConsumerWidget {
       ref.read(selectedChannelProvider.notifier).state = null;
       ref.read(channelListProvider.notifier).clear();
       if (context.mounted) {
-        HavenToast.show(
+        HollowToast.show(
           context,
           'Server "${server.name}" deleted',
-          type: HavenToastType.info,
+          type: HollowToastType.info,
         );
       }
     } catch (e) {
       if (context.mounted) {
-        HavenToast.show(
+        HollowToast.show(
           context,
           'Failed to delete server: $e',
-          type: HavenToastType.error,
+          type: HollowToastType.error,
         );
       }
     }
@@ -83,17 +83,17 @@ class DangerZoneTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     return ListView(
-      padding: const EdgeInsets.all(HavenSpacing.xl),
+      padding: const EdgeInsets.all(HollowSpacing.xl),
       children: [
         // Danger zone header
         Container(
-          padding: const EdgeInsets.all(HavenSpacing.lg),
+          padding: const EdgeInsets.all(HollowSpacing.lg),
           decoration: BoxDecoration(
-            border: Border.all(color: haven.error.withValues(alpha: 0.3)),
-            borderRadius: BorderRadius.circular(haven.radiusMd),
+            border: Border.all(color: hollow.error.withValues(alpha: 0.3)),
+            borderRadius: BorderRadius.circular(hollow.radiusMd),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -101,16 +101,16 @@ class DangerZoneTab extends ConsumerWidget {
               Row(
                 children: [
                   Icon(LucideIcons.alertTriangle,
-                      size: 18, color: haven.error),
-                  const SizedBox(width: HavenSpacing.sm),
+                      size: 18, color: hollow.error),
+                  const SizedBox(width: HollowSpacing.sm),
                   Text(
                     'Danger Zone',
-                    style: HavenTypography.subheading
-                        .copyWith(color: haven.error),
+                    style: HollowTypography.subheading
+                        .copyWith(color: hollow.error),
                   ),
                 ],
               ),
-              const SizedBox(height: HavenSpacing.lg),
+              const SizedBox(height: HollowSpacing.lg),
 
               // Delete server
               Row(
@@ -121,18 +121,18 @@ class DangerZoneTab extends ConsumerWidget {
                       children: [
                         Text(
                           'Delete this server',
-                          style: HavenTypography.body
-                              .copyWith(color: haven.textPrimary),
+                          style: HollowTypography.body
+                              .copyWith(color: hollow.textPrimary),
                         ),
-                        const SizedBox(height: HavenSpacing.xxs),
+                        const SizedBox(height: HollowSpacing.xxs),
                         Text(
                           'Once deleted, all data is permanently removed.',
-                          style: HavenTypography.bodySmall,
+                          style: HollowTypography.bodySmall,
                         ),
                       ],
                     ),
                   ),
-                  HavenButton.danger(
+                  HollowButton.danger(
                     onPressed: () => _confirmDelete(context, ref),
                     icon: const Icon(LucideIcons.trash2),
                     child: const Text('Delete Server'),

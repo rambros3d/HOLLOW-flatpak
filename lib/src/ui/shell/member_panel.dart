@@ -1,20 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/providers/identity_provider.dart';
-import 'package:haven/src/core/providers/peers_provider.dart';
-import 'package:haven/src/core/providers/profile_provider.dart';
-import 'package:haven/src/core/providers/server_provider.dart';
-import 'package:haven/src/core/providers/sync_progress_provider.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/animations/haven_curves.dart';
-import 'package:haven/src/ui/animations/reveal_widgets.dart';
-import 'package:haven/src/ui/animations/startup_reveal.dart';
-import 'package:haven/src/ui/components/haven_avatar.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
-import 'package:haven/src/ui/components/profile_card_popup.dart';
-import 'package:haven/src/ui/components/status_dot.dart';
+import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/peers_provider.dart';
+import 'package:hollow/src/core/providers/profile_provider.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
+import 'package:hollow/src/core/providers/sync_progress_provider.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/animations/hollow_curves.dart';
+import 'package:hollow/src/ui/animations/reveal_widgets.dart';
+import 'package:hollow/src/ui/animations/startup_reveal.dart';
+import 'package:hollow/src/ui/components/hollow_avatar.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/ui/components/profile_card_popup.dart';
+import 'package:hollow/src/ui/components/status_dot.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Right-side member panel (240px) showing online peers or server members.
@@ -26,7 +26,7 @@ class MemberPanel extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final selectedServerId = ref.watch(selectedServerProvider);
 
     final panelReveal =
@@ -35,15 +35,15 @@ class MemberPanel extends ConsumerWidget {
     Widget panel = Container(
       width: width,
       decoration: BoxDecoration(
-        color: haven.surface,
+        color: hollow.surface,
         border: Border(
-          left: BorderSide(color: haven.border),
+          left: BorderSide(color: hollow.border),
         ),
       ),
       child: AnimatedSwitcher(
-        duration: HavenDurations.normal,
-        switchInCurve: HavenCurves.enter,
-        switchOutCurve: HavenCurves.exit,
+        duration: HollowDurations.normal,
+        switchInCurve: HollowCurves.enter,
+        switchOutCurve: HollowCurves.exit,
         child: selectedServerId != null
             ? _ServerMemberContent(
                 key: ValueKey('server-members-$selectedServerId'),
@@ -116,10 +116,10 @@ class _SectionDividerState extends State<_SectionDivider>
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
-    final textStyle = HavenTypography.caption.copyWith(
-      color: haven.textSecondary,
+    final textStyle = HollowTypography.caption.copyWith(
+      color: hollow.textSecondary,
       fontWeight: FontWeight.w600,
       letterSpacing: 0.8,
       fontSize: 11,
@@ -127,13 +127,13 @@ class _SectionDividerState extends State<_SectionDivider>
 
     return Padding(
       padding: const EdgeInsets.symmetric(
-        horizontal: HavenSpacing.sm + 2,
-        vertical: HavenSpacing.sm,
+        horizontal: HollowSpacing.sm + 2,
+        vertical: HollowSpacing.sm,
       ),
       child: Row(
         children: [
           Text(widget.label, style: textStyle),
-          const SizedBox(width: HavenSpacing.sm),
+          const SizedBox(width: HollowSpacing.sm),
           Expanded(
             child: widget.isOnline && _curved != null
                 ? AnimatedBuilder(
@@ -142,15 +142,15 @@ class _SectionDividerState extends State<_SectionDivider>
                       // Map 0..1 to -0.2..1.2 so the glow fully exits both edges.
                       final t = -0.2 + _curved.value * 1.4;
                       const glowWidth = 0.15;
-                      final color = widget.glowColor ?? haven.accent;
+                      final color = widget.glowColor ?? hollow.accent;
                       return Container(
                         height: 1,
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
-                              haven.border,
+                              hollow.border,
                               color.withValues(alpha: 0.5),
-                              haven.border,
+                              hollow.border,
                             ],
                             stops: [
                               (t - glowWidth).clamp(0.0, 1.0),
@@ -170,10 +170,10 @@ class _SectionDividerState extends State<_SectionDivider>
                   )
                 : Container(
                     height: 1,
-                    color: haven.border,
+                    color: hollow.border,
                   ),
           ),
-          const SizedBox(width: HavenSpacing.sm),
+          const SizedBox(width: HollowSpacing.sm),
           Text('${widget.count}', style: textStyle),
         ],
       ),
@@ -222,13 +222,13 @@ class _SpinningRefreshIconState extends State<_SpinningRefreshIcon>
 
 /// Glow color for role-grouped ASOT dividers.
 /// Gold for owner, purple for admin, orange for moderator, teal for member.
-Color _roleGlowColor(String role, HavenTheme haven) {
+Color _roleGlowColor(String role, HollowTheme hollow) {
   return switch (role) {
-    'owner' => haven.warning,
+    'owner' => hollow.warning,
     'admin' => const Color(0xFFA78BFA),
     'moderator' =>
-      Color.lerp(haven.warning, haven.error, 0.5) ?? haven.warning,
-    _ => haven.accent,
+      Color.lerp(hollow.warning, hollow.error, 0.5) ?? hollow.warning,
+    _ => hollow.accent,
   };
 }
 
@@ -243,13 +243,13 @@ String _roleDividerLabel(String role) {
 }
 
 /// Color for the role label text in member tiles.
-Color _roleLabelColor(String role, HavenTheme haven) {
+Color _roleLabelColor(String role, HollowTheme hollow) {
   return switch (role) {
-    'owner' => haven.warning,
+    'owner' => hollow.warning,
     'admin' => const Color(0xFFA78BFA),
     'moderator' =>
-      Color.lerp(haven.warning, haven.error, 0.5) ?? haven.warning,
-    _ => haven.textSecondary,
+      Color.lerp(hollow.warning, hollow.error, 0.5) ?? hollow.warning,
+    _ => hollow.textSecondary,
   };
 }
 
@@ -264,7 +264,7 @@ class _ServerMemberContent extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final membersAsync = ref.watch(serverMembersProvider(serverId));
     final connectedPeers = ref.watch(peersProvider);
     final localPeerId = ref.watch(identityProvider).peerId;
@@ -277,7 +277,7 @@ class _ServerMemberContent extends ConsumerWidget {
           height: 48,
           decoration: BoxDecoration(
             border: Border(
-              bottom: BorderSide(color: haven.border),
+              bottom: BorderSide(color: hollow.border),
             ),
           ),
           alignment: Alignment.centerLeft,
@@ -289,12 +289,12 @@ class _ServerMemberContent extends ConsumerWidget {
             ),
             loading: () => Padding(
               padding: const EdgeInsets.symmetric(
-                horizontal: HavenSpacing.sm + 2,
+                horizontal: HollowSpacing.sm + 2,
               ),
               child: Text(
                 'Members ...',
-                style: HavenTypography.caption.copyWith(
-                  color: haven.textSecondary,
+                style: HollowTypography.caption.copyWith(
+                  color: hollow.textSecondary,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.8,
                   fontSize: 11,
@@ -303,12 +303,12 @@ class _ServerMemberContent extends ConsumerWidget {
             ),
             error: (_, _) => Padding(
               padding: const EdgeInsets.symmetric(
-                horizontal: HavenSpacing.sm + 2,
+                horizontal: HollowSpacing.sm + 2,
               ),
               child: Text(
                 'Members ?',
-                style: HavenTypography.caption.copyWith(
-                  color: haven.textSecondary,
+                style: HollowTypography.caption.copyWith(
+                  color: hollow.textSecondary,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.8,
                   fontSize: 11,
@@ -325,11 +325,11 @@ class _ServerMemberContent extends ConsumerWidget {
               if (members.isEmpty) {
                 return Center(
                   child: Padding(
-                    padding: const EdgeInsets.all(HavenSpacing.xl),
+                    padding: const EdgeInsets.all(HollowSpacing.xl),
                     child: Text(
                       'No members',
-                      style: HavenTypography.bodySmall
-                          .copyWith(color: haven.textSecondary),
+                      style: HollowTypography.bodySmall
+                          .copyWith(color: hollow.textSecondary),
                     ),
                   ),
                 );
@@ -367,7 +367,7 @@ class _ServerMemberContent extends ConsumerWidget {
 
                   // Role-colored divider for online groups
                   if (isOnline) {
-                    final glowColor = _roleGlowColor(role, haven);
+                    final glowColor = _roleGlowColor(role, hollow);
                     final label = _roleDividerLabel(role);
                     items.add(_SectionDivider(
                       label: label,
@@ -384,6 +384,7 @@ class _ServerMemberContent extends ConsumerWidget {
                       role: m.role,
                       nickname: m.nickname,
                       isOnline: isOnline,
+                      serverId: serverId,
                     ));
                   }
                 }
@@ -410,6 +411,7 @@ class _ServerMemberContent extends ConsumerWidget {
                       role: m.role,
                       nickname: m.nickname,
                       isOnline: true,
+                      serverId: serverId,
                     ));
                   }
                 } else {
@@ -430,13 +432,14 @@ class _ServerMemberContent extends ConsumerWidget {
                     role: m.role,
                     nickname: m.nickname,
                     isOnline: false,
+                    serverId: serverId,
                   ));
                 }
               }
 
               return ListView(
                 padding: const EdgeInsets.symmetric(
-                    vertical: HavenSpacing.sm),
+                    vertical: HollowSpacing.sm),
                 children: items,
               );
             },
@@ -449,11 +452,11 @@ class _ServerMemberContent extends ConsumerWidget {
             ),
             error: (e, _) => Center(
               child: Padding(
-                padding: const EdgeInsets.all(HavenSpacing.xl),
+                padding: const EdgeInsets.all(HollowSpacing.xl),
                 child: Text(
                   'Failed to load members',
-                  style: HavenTypography.bodySmall
-                      .copyWith(color: haven.textSecondary),
+                  style: HollowTypography.bodySmall
+                      .copyWith(color: hollow.textSecondary),
                 ),
               ),
             ),
@@ -470,7 +473,7 @@ class _PeerMemberContent extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final peers = ref.watch(peersProvider);
     final memberListReveal =
         StartupRevealScope.interval(context, 0.60, 0.80);
@@ -478,11 +481,11 @@ class _PeerMemberContent extends ConsumerWidget {
     return peers.isEmpty
         ? Center(
             child: Padding(
-              padding: const EdgeInsets.all(HavenSpacing.xl),
+              padding: const EdgeInsets.all(HollowSpacing.xl),
               child: Text(
                 'No peers online',
-                style: HavenTypography.bodySmall.copyWith(
-                  color: haven.textSecondary,
+                style: HollowTypography.bodySmall.copyWith(
+                  color: hollow.textSecondary,
                 ),
               ),
             ),
@@ -490,7 +493,7 @@ class _PeerMemberContent extends ConsumerWidget {
         : ListView.builder(
             itemCount: peers.length + 1, // +1 for ASOT header
             padding: const EdgeInsets.symmetric(
-                vertical: HavenSpacing.sm),
+                vertical: HollowSpacing.sm),
             itemBuilder: (context, index) {
               // First item: ASOT-style divider
               if (index == 0) {
@@ -527,6 +530,7 @@ class _ServerMemberTile extends ConsumerWidget {
   final String role;
   final String nickname;
   final bool isOnline;
+  final String? serverId;
 
   const _ServerMemberTile({
     required this.peerId,
@@ -534,11 +538,12 @@ class _ServerMemberTile extends ConsumerWidget {
     required this.role,
     required this.nickname,
     required this.isOnline,
+    this.serverId,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final isSyncing = ref.watch(isPeerSyncingProvider(peerId));
     // Resolution: nickname → profile display name → short peer ID.
     final profiles = ref.watch(profileProvider);
@@ -547,10 +552,10 @@ class _ServerMemberTile extends ConsumerWidget {
 
     return AnimatedOpacity(
       opacity: isOnline ? 1.0 : 0.5,
-      duration: HavenDurations.fast,
-      child: HavenPressable(
+      duration: HollowDurations.fast,
+      child: HollowPressable(
         subtle: true,
-        borderRadius: BorderRadius.circular(haven.radiusSm),
+        borderRadius: BorderRadius.circular(hollow.radiusSm),
         onTap: () {
           final box = context.findRenderObject() as RenderBox?;
           if (box == null) return;
@@ -566,31 +571,31 @@ class _ServerMemberTile extends ConsumerWidget {
           );
         },
         padding: const EdgeInsets.symmetric(
-          horizontal: HavenSpacing.sm + 2,
-          vertical: HavenSpacing.xxs + 1,
+          horizontal: HollowSpacing.sm + 2,
+          vertical: HollowSpacing.xxs + 1,
         ),
         child: Row(
           children: [
             // Avatar with status overlay
             Stack(
               children: [
-                HavenAvatar(peerId: peerId, size: 28),
+                HollowAvatar(peerId: peerId, size: 28),
                 Positioned(
                   right: -1,
                   bottom: -1,
                   child: Container(
                     decoration: BoxDecoration(
-                      color: haven.surface,
+                      color: hollow.surface,
                       shape: BoxShape.circle,
                     ),
                     padding: const EdgeInsets.all(1.5),
                     child: isSyncing
                         ? _SpinningRefreshIcon(
-                            size: 9, color: haven.accent)
+                            size: 9, color: hollow.accent)
                         : StatusDot(
                             color: isOnline
-                                ? haven.success
-                                : haven.textSecondary,
+                                ? hollow.success
+                                : hollow.textSecondary,
                             size: 7,
                             pulse: isOnline,
                           ),
@@ -599,31 +604,50 @@ class _ServerMemberTile extends ConsumerWidget {
               ],
             ),
 
-            const SizedBox(width: HavenSpacing.sm),
+            const SizedBox(width: HollowSpacing.sm),
 
-            // Display name + role
+            // Display name + role + pledge info
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    resolvedName,
-                    style: HavenTypography.bodySmall.copyWith(
-                      color: haven.textPrimary,
-                      fontSize: 12,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (role != 'member')
+              child: Builder(builder: (context) {
+                // Check member count for vault pledge display.
+                final memberCount = serverId != null
+                    ? (ref.watch(serverMembersProvider(serverId!))
+                            .valueOrNull
+                            ?.length ??
+                        0)
+                    : 0;
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      role[0].toUpperCase() + role.substring(1),
-                      style: HavenTypography.caption.copyWith(
-                        color: _roleLabelColor(role, haven),
-                        fontSize: 10,
+                      resolvedName,
+                      style: HollowTypography.bodySmall.copyWith(
+                        color: hollow.textPrimary,
+                        fontSize: 12,
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                ],
-              ),
+                    if (role != 'member')
+                      Text(
+                        role[0].toUpperCase() + role.substring(1),
+                        style: HollowTypography.caption.copyWith(
+                          color: _roleLabelColor(role, hollow),
+                          fontSize: 10,
+                        ),
+                      ),
+                    // Show pledge info for 6+ member servers (erasure coding active).
+                    if (memberCount >= 6)
+                      Text(
+                        'Contributing',
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.accent.withValues(alpha: 0.6),
+                          fontSize: 9,
+                        ),
+                      ),
+                  ],
+                );
+              }),
             ),
           ],
         ),
@@ -644,13 +668,13 @@ class _MemberTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final profiles = ref.watch(profileProvider);
     final peerName = displayNameFor(profiles, peerId);
 
-    return HavenPressable(
+    return HollowPressable(
       subtle: true,
-      borderRadius: BorderRadius.circular(haven.radiusSm),
+      borderRadius: BorderRadius.circular(hollow.radiusSm),
       onTap: () {
         final box = context.findRenderObject() as RenderBox?;
         if (box == null) return;
@@ -664,39 +688,39 @@ class _MemberTile extends ConsumerWidget {
         );
       },
       padding: const EdgeInsets.symmetric(
-        horizontal: HavenSpacing.sm + 2,
-        vertical: HavenSpacing.xxs + 1,
+        horizontal: HollowSpacing.sm + 2,
+        vertical: HollowSpacing.xxs + 1,
       ),
       child: Row(
         children: [
           // Avatar with online dot
           Stack(
             children: [
-              HavenAvatar(peerId: peerId, size: 28),
+              HollowAvatar(peerId: peerId, size: 28),
               Positioned(
                 right: -1,
                 bottom: -1,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: haven.surface,
+                    color: hollow.surface,
                     shape: BoxShape.circle,
                   ),
                   padding: const EdgeInsets.all(1.5),
                   child: StatusDot(
-                      color: haven.success, size: 7, pulse: true),
+                      color: hollow.success, size: 7, pulse: true),
                 ),
               ),
             ],
           ),
 
-          const SizedBox(width: HavenSpacing.sm),
+          const SizedBox(width: HollowSpacing.sm),
 
           // Display name
           Expanded(
             child: Text(
               peerName,
-              style: HavenTypography.bodySmall.copyWith(
-                color: haven.textSecondary,
+              style: HollowTypography.bodySmall.copyWith(
+                color: hollow.textSecondary,
                 fontSize: 12,
               ),
               overflow: TextOverflow.ellipsis,
@@ -708,10 +732,10 @@ class _MemberTile extends ConsumerWidget {
               ? Icon(
                   LucideIcons.lock,
                   size: 12,
-                  color: haven.success,
+                  color: hollow.success,
                 )
               : _SpinningRefreshIcon(
-                  size: 12, color: haven.textSecondary),
+                  size: 12, color: hollow.textSecondary),
         ],
       ),
     );

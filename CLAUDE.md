@@ -1,7 +1,7 @@
-# HAVEN — Project Instructions for Claude Code
+# HOLLOW — Project Instructions for Claude Code
 
 ## What Is This
-Haven is a fully distributed, encrypted Discord alternative. No central servers. Members collectively host the server. See `HAVEN_PLAN.md` for the full architecture.
+Hollow is a fully distributed, encrypted Discord alternative. No central servers. Members collectively host the server. See `HOLLOW_PLAN.md` for the full architecture.
 
 ## Tech Stack
 - **UI:** Flutter (Dart) — all platforms (Windows, macOS, Linux, Android, iOS, Web)
@@ -11,25 +11,25 @@ Haven is a fully distributed, encrypted Discord alternative. No central servers.
 - **Local DB:** SQLCipher (encrypted SQLite)
 - **Identity:** Ed25519 keypairs via BIP-39 mnemonic
 - **Org ID:** com.anonlisten
-- **Project name:** haven
+- **Project name:** hollow
 
 ## Project Structure
 ```
-HAVEN/
+HOLLOW/
 ├── lib/                  # Dart/Flutter code (UI, app logic, state management)
 │   ├── main.dart         # Entry point (ProviderScope + RustLib.init + window_manager init)
 │   └── src/
 │       ├── core/         # Models, Riverpod providers, service wrappers
-│       ├── theme/        # Haven design system (colors, spacing, typography, ThemeExtension)
+│       ├── theme/        # Hollow design system (colors, spacing, typography, ThemeExtension)
 │       └── ui/
-│           ├── shell/    # Layout: haven_shell, server_strip, channel_sidebar, member_panel, user_bar, mobile_nav, window_title_bar
+│           ├── shell/    # Layout: hollow_shell, server_strip, channel_sidebar, member_panel, user_bar, mobile_nav, window_title_bar
 │           ├── chat/     # ChatPane, MessageBubble, ChannelChatPane, ChannelMessageBubble
 │           ├── settings/ # ServerSettingsPanel, OverviewTab, ChannelsTab, MembersTab, DangerZoneTab
 │           ├── sidebar/  # PeerCard, EmptyPeerList (reusable components)
-│           ├── components/ # HavenPressable, HavenButton, HavenTextField, HavenDialog, HavenTooltip, HavenToast, HavenToggle, HavenAvatar, HavenCard, StatusDot
+│           ├── components/ # HollowPressable, HollowButton, HollowTextField, HollowDialog, HollowTooltip, HollowToast, HollowToggle, HollowAvatar, HollowCard, StatusDot
 │           ├── dialogs/  # InviteDialog, MnemonicDialog, CreateServerDialog, CreateChannelDialog
-│           └── animations/ # HavenCurves, HavenDurations, FadeSlideTransition, ScaleFadeTransition, SelectionShimmer, AmbientBackground, StartupRevealScope, RevealWidgets
-├── rust/haven_core/      # Rust library crate (networking, crypto, storage)
+│           └── animations/ # HollowCurves, HollowDurations, FadeSlideTransition, ScaleFadeTransition, SelectionShimmer, AmbientBackground, StartupRevealScope, RevealWidgets
+├── rust/hollow_core/      # Rust library crate (networking, crypto, storage)
 │   └── src/
 │       ├── api/          # FFI layer (flutter_rust_bridge scans these)
 │       ├── node/         # libp2p swarm + signaling client
@@ -38,7 +38,7 @@ HAVEN/
 │       └── storage/      # SQLCipher message store
 ├── relay/                # Combined relay + signaling server (standalone binary, deployed on OVH VPS)
 ├── rust_builder/         # flutter_rust_bridge build system (cargokit)
-├── HAVEN_PLAN.md         # Full architecture & design document (~1500 lines)
+├── HOLLOW_PLAN.md         # Full architecture & design document (~1500 lines)
 └── CLAUDE.md             # This file
 ```
 
@@ -51,21 +51,21 @@ flutter run -d windows
 flutter build windows
 
 # Check Rust code
-cd rust/haven_core && cargo check
-cd rust/haven_core && cargo clippy
+cd rust/hollow_core && cargo check
+cd rust/hollow_core && cargo clippy
 
 # Regenerate FFI bindings after Rust API changes
 flutter_rust_bridge_codegen generate
 
 # Deploy relay server updates to VPS
 scp relay/src/*.rs ubuntu@141.227.186.209:/home/ubuntu/relay/src/
-ssh ubuntu@141.227.186.209 "cd relay && cargo build --release && sudo systemctl restart haven-relay"
+ssh ubuntu@141.227.186.209 "cd relay && cargo build --release && sudo systemctl restart hollow-relay"
 ```
 
 ## Current Phase
 **Phase 4: Shared Vault — IN PROGRESS.** Phases 1-3.75 all COMPLETE.
 
-Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection management, invite links), 2.5 (UI Foundation), 2.75 (Haven Design System v2), UI Polish Pass, 3 (Servers & Channels), 3.5 (Daily Driver), 3.75 (Security Hardening) — all COMPLETE. WSS transport deployed.
+Phases 1 (LAN E2EE chat), 2 (cross-network E2EE, prekey bundles, connection management, invite links), 2.5 (UI Foundation), 2.75 (Hollow Design System v2), UI Polish Pass, 3 (Servers & Channels), 3.5 (Daily Driver), 3.75 (Security Hardening) — all COMPLETE. WSS transport deployed.
 
 **Phase 4 — Shared Vault — Distributed Storage (started Mar 16, 2026):**
 Distributed file storage across server members. 14 major items, ~90 sub-tasks. Key design decisions:
@@ -89,7 +89,7 @@ Distributed file storage across server members. 14 major items, ~90 sub-tasks. K
 - Storage tier configuration: `parse_retention_days()`/`retention_for_tier()` in adaptive.rs (defaults: files=365d, voice=90d). `ShardDelete` MessageEnvelope + receive handler (MANAGE_SERVER permission-gated). `NodeCommand::DeleteVaultContent` + handler (permission check, delete local shards+placements, broadcast to members). `delete_vault_content()` FFI. `ShardDeleted` NetworkEvent. 5 new tests, 88 total vault tests.
 - Retrieve protocol: 5 MessageEnvelope variants (ShardRequest, ShardResponse, ShardResponseChunk, ShardProbe, ShardProbeResponse) Olm-encrypted. ShardRequest receive handler: membership check, ContentStore lookup, inline/chunked response. ShardResponse receive handler: inline→emit ShardReceived, chunked→PendingShardAssembly, not-found→ShardRequestFailed. ShardProbe handler: list_content_shards→respond with shard indices. `NodeCommand::RequestShardFromPeer` + send handler. 2 NetworkEvent variants (ShardReceived, ShardRequestFailed) mirrored in FFI. Retrieval coordinator deferred to download pipeline.
 - File upload pipeline (`vault/pipeline.rs`): VaultManifest struct, AES-256-GCM encrypt/decrypt (`aes-gcm` 0.10), `prepare_upload()` orchestrator (erasure mode + replication mode), UploadPlan struct, `mime_from_ext()`. `vault_manifests` SQLCipher table + 6 CRUD methods in ContentStore. `NodeCommand::VaultUploadFile` + handler (prepare_upload → store local shards → send remote via StoreShardOnPeer → broadcast VaultManifestBroadcast to members). `MessageEnvelope::VaultManifestBroadcast` + receive handler (save manifest to ContentStore). `vault_upload_file()` FFI (AES encrypt + content_id precomputed in FFI thread, returns content_id immediately). 3 NetworkEvent variants (VaultUploadProgress/Complete/Failed) mirrored in FFI. 20 new tests (13 pipeline + 7 manifest DB).
-- File download pipeline: `reconstruct_file(manifest, packed_shards)` in pipeline.rs — erasure decode + AES decrypt for both modes. Vault cache (`~/.haven/vault_cache/{content_id}.{ext}`): `check_cache()`, `write_to_cache()`, `cache_path()`, `ext_from_filename()`. `NodeCommand::VaultDownloadFile` + handler (load manifest → check cache → collect local shards → reconstruct if enough → write to cache). `vault_download_file()` FFI (cache-first check, async command dispatch). 3 NetworkEvent variants (VaultDownloadProgress/Complete/Failed) mirrored in FFI. 5 new tests, 113 total vault tests.
+- File download pipeline: `reconstruct_file(manifest, packed_shards)` in pipeline.rs — erasure decode + AES decrypt for both modes. Vault cache (`~/.hollow/vault_cache/{content_id}.{ext}`): `check_cache()`, `write_to_cache()`, `cache_path()`, `ext_from_filename()`. `NodeCommand::VaultDownloadFile` + handler (load manifest → check cache → collect local shards → reconstruct if enough → write to cache). `vault_download_file()` FFI (cache-first check, async command dispatch). 3 NetworkEvent variants (VaultDownloadProgress/Complete/Failed) mirrored in FFI. 5 new tests, 113 total vault tests.
 - Vault status indicators (first Dart UI): `vault_status_provider.dart` with VaultStatusNotifier + VaultServerStatus/VaultFileStatus/VaultHealth enum. 12 vault event case branches in `event_provider.dart`. `_VaultHealthIndicator` widget in channel header (green/yellow/red StatusDot with pulse + tooltip after sync indicator). Only shows for 6+ member servers (erasure coding active). Per-file chat indicators + member panel shard info deferred to storage dashboard.
 - Rebalancing: `vault/rebalancer.rs` with `detect_departures()`, `scan_under_replicated()`, `compute_repair_plan()` (identifies missing shards, new targets via placement algorithm), `compute_migration_plan()` (compares old/new placements on membership change). `vault_member_status` SQLCipher table + CRUD. `ShardMigrate` MessageEnvelope + receive handler. 30-min rebalance timer in swarm: (1) update last_seen for connected members, (2) retention enforcement (delete expired manifests per tier policy), (3) LRU cache eviction (`evict_cache_if_needed(1GB)` — oldest files first). 3 NetworkEvent variants (RebalanceStarted/Progress/Completed) mirrored in FFI. `count_confirmed_shards()` query. 9 new tests, 122 total vault tests.
 
@@ -102,19 +102,19 @@ Full security audit of the codebase. 3 critical, 4 high, 6 medium, 8 low vulnera
 
 **Phase 3.75 — All items COMPLETE:**
 - All 3 CRITICAL: `ServerDeleteBroadcast`/`MemberKickBroadcast` permission checks (owner-only verification), CRDT op author verification against actual sender + per-payload permission checks (role-gated ops rejected from unauthorized peers).
-- All 4 HIGH: Message size limit (50MB cap on `HavenCodec` frame length), `FileHeader` size validation enforced in both Olm and MLS receive paths (reject if declared size exceeds server max file size setting), per-peer rate limiting (token bucket: 100 burst / 20/sec refill, applied to all incoming messages per peer), `op_log` compaction (capped at 1000 ops, oldest pruned on exceed).
+- All 4 HIGH: Message size limit (50MB cap on `HollowCodec` frame length), `FileHeader` size validation enforced in both Olm and MLS receive paths (reject if declared size exceeds server max file size setting), per-peer rate limiting (token bucket: 100 burst / 20/sec refill, applied to all incoming messages per peer), `op_log` compaction (capped at 1000 ops, oldest pruned on exceed).
 - All 6 MEDIUM: Delete ownership check (Rust verifies sender owns message before applying), signature enforcement (reject messages with invalid Ed25519 signatures instead of logging+continuing), cross-server channel message validation (server_id checked on receive), HLC drift bound (5-minute max future drift, reject outliers), file path sanitization (alphanumeric + dash + underscore + dot only, no path separators), reaction removal already safe (no change needed).
 - All 8 LOW: 4K character limit on chat messages (Rust `send_channel_message`/`send_message` reject + Dart UI `maxLength` with counter), profile field truncation (display name 64, status 128, about 512 chars in Rust `handle_profile_update`), markdown parser recursion depth cap (max 10 nesting levels), emoji length validation (max 32 chars, reject non-emoji strings), `height == 0` guard on message hover wrapper (prevents `localToGlobal` crash), event dispatch try-catch (swarm event loop catches panics to prevent crash-on-malformed-event), profile card overlay disposal fix (checks `mounted` before removing overlay entry), `getrandom` expect message improved (descriptive panic message).
 - Date separators: "Today", "Yesterday", or full date (e.g., "March 15, 2026") dividers in DM chat, channel chat, and pinned messages popup. Pinned messages sorted chronologically (oldest first).
-- `showCounter` param on `HavenTextField` for hiding the character counter on chat input fields.
-- Log rotation: `haven_debug.log` now rotates at 10MB (keeps last 2MB, truncates the rest).
+- `showCounter` param on `HollowTextField` for hiding the character counter on chat input fields.
+- Log rotation: `hollow_debug.log` now rotates at 10MB (keeps last 2MB, truncates the rest).
 - **Relay server hardening (VPS):** SSH key-only auth (password disabled, Ed25519 key + passphrase), Fail2ban installed (sshd jail active), UFW firewall verified (22, 80, 443, 4001 tcp+udp, 8080), signaling server already hardened (Ed25519 sig verification, anti-replay, room caps, stale cleanup), relay systemd resource limits (MemoryMax=1G, CPUQuota=80%, LimitNOFILE=65535). Skipped: change default SSH user (not needed with key-only auth), relay connection rate limiting (libp2p relay already has built-in limits).
 
-Phase 4 plan is fully broken down into 12 major items with ~80 sub-tasks in `HAVEN_PLAN.md`.
+Phase 4 plan is fully broken down into 12 major items with ~80 sub-tasks in `HOLLOW_PLAN.md`.
 
 **Phase 3.5 completed so far:**
-- User profiles: Rust `user_profiles` SQLCipher table, `ProfileUpdate` HavenMessage broadcast, timestamp-gated upsert, auto-exchange on `ConnectionEstablished`, `ProfileNotifier` Dart provider, `displayNameFor()` helper used everywhere (user_bar, member_panel, channel_message_bubble, peer_card, chat_pane)
-- User settings dialog: two-column layout (live profile preview card with centered banner/avatar/name/about-me on left, edit fields + dark mode toggle on right), `showHavenDialog` glassmorphism entrance, settings gear icon replaces theme toggle in user bar
+- User profiles: Rust `user_profiles` SQLCipher table, `ProfileUpdate` HollowMessage broadcast, timestamp-gated upsert, auto-exchange on `ConnectionEstablished`, `ProfileNotifier` Dart provider, `displayNameFor()` helper used everywhere (user_bar, member_panel, channel_message_bubble, peer_card, chat_pane)
+- User settings dialog: two-column layout (live profile preview card with centered banner/avatar/name/about-me on left, edit fields + dark mode toggle on right), `showHollowDialog` glassmorphism entrance, settings gear icon replaces theme toggle in user bar
 - Member panel slide animation: `_MemberPanelSlider` with ClipRect + Align(widthFactor) + FadeTransition (GPU-composited), `ProviderScope` override freezes `selectedServerProvider` during close animation (prevents "No peers online" flash), chat pane crossfade via single AnimatedSwitcher
 - Server nicknames: CRDT-based per-server nicknames (`NicknameChanged` payload, `AdminLwwReg<String>` in `ServerState.nicknames`), `set_nickname()` FFI, `serverDisplayNameFor()` (nickname → profile name → short peer ID), `serverNicknamesProvider` derived from members. Overview tab restructured: "SERVER SETTINGS" (admin+) above "YOUR IDENTITY" (all members). Name resolution: server context uses nickname, DM context uses display name only.
 - Profile card popup: reusable overlay (`profile_card_popup.dart`), scale+fade entrance animation, centered layout matching settings preview style. Banner, avatar, nickname/name, role badge, status (italic), about me, peer ID footer (copy on tap). User bar → card above, member panel → card to the left (Discord-style). "Edit Profile" button for self.
@@ -127,7 +127,7 @@ Phase 4 plan is fully broken down into 12 major items with ~80 sub-tasks in `HAV
 - Reply chains: Full pipeline — `reply_to_mid` column on messages/channel_messages, `reply_to` field on wire protocol (DirectMessage, ChannelMessage, SyncMessageItem, DmSyncItem), all send/receive/sync handlers thread reply_to through. FFI: `send_message()`/`send_channel_message()` accept `reply_to_mid`. Dart models have `replyToMid`, providers pass it through. UI: reply button (LucideIcons.reply) on ALL messages in hover action bar, reply preview bar above input (accent left border, sender name, truncated text, X dismiss), reply context display on messages (thin vertical bar + sender name + quoted text above message content). Both DM and channel paths fully wired.
 - Edit permission fix: `onEditStart` now requires `msg.isMe` (was missing, letting anyone edit anyone's messages). Rust receive handlers verify ownership before applying edits — `get_channel_message_sender()` for channels, `get_dm_message_is_mine()` for DMs. Rejects unauthorized edits with log.
 - Emoji reactions: Full pipeline — Rust storage (`message_reactions` + `reaction_removals` Rat Files tables), wire protocol (`AddReaction`/`RemoveReaction` envelopes), command/receive handlers for both MLS and Olm paths, FFI `add_channel_reaction()`/`remove_channel_reaction()`/`add_dm_reaction()`/`remove_dm_reaction()`, Dart models with `reactions: Map<String, List<String>>`, provider `addReaction()`/`removeReaction()`/`applyAddReaction()`/`applyRemoveReaction()` methods. UI: curated 30-emoji picker (`emoji_picker.dart`) via smiley button in hover action bar, reaction pills (`reaction_bar.dart`) below messages sorted by count descending, tapping toggles own reaction. Self-react allowed. 3 distinct emoji limit per user per message (enforced in both Dart providers and Rust `add_reaction()`). Reactions JOIN-loaded with messages from DB. Both DM and channel paths fully wired.
-- Typing indicators: Ephemeral fire-and-forget — no storage, no encryption, no CRDTs. Rust: `HavenMessage::TypingIndicator` (plaintext, like ProfileUpdate), `SendTypingIndicator` command, `TypingStarted` event. Channels broadcast to server members, DMs to single peer. FFI: `send_typing_indicator()`. Dart: `TypingNotifier` provider with 5s auto-expiry timers per peer per context. 3s throttle on sender side. UI: `TypingIndicatorBar` above input (1-3 names or "Several people are typing..."), `TypingDots` animated bouncing dots. Both DM and channel paths wired. Typing cleared on message receive (no lingering indicator after message arrives).
+- Typing indicators: Ephemeral fire-and-forget — no storage, no encryption, no CRDTs. Rust: `HollowMessage::TypingIndicator` (plaintext, like ProfileUpdate), `SendTypingIndicator` command, `TypingStarted` event. Channels broadcast to server members, DMs to single peer. FFI: `send_typing_indicator()`. Dart: `TypingNotifier` provider with 5s auto-expiry timers per peer per context. 3s throttle on sender side. UI: `TypingIndicatorBar` above input (1-3 names or "Several people are typing..."), `TypingDots` animated bouncing dots. Both DM and channel paths wired. Typing cleared on message receive (no lingering indicator after message arrives).
 - Server/DM state management fix: Server strip `onTap` clears `selectedPeerProvider` (hides DM chat on server switch). `lastChannelPerServerProvider` remembers last viewed channel per server. Auto-selects first channel when no prior selection exists. Channel selection saved on click for recall.
 - Connection progress bar: `ConnectionProgress` widget (`connection_progress.dart`) with animated 3-stage progress bar — Connecting (33%, gray) → Encrypting (66%, accent) → fills to 100%, fades out, replaced by lock + "Encrypted". Used in both DM headers and channel headers. Channel header: `_ChannelConnectionStatus` replaces static "E2E Encrypted" + old `_ConnectionIndicator`. Checks online members vs encrypted sessions. Sync indicator (Syncing/Synced/Failed) shown alongside after encryption. DM header: watches `peersProvider` directly instead of static `isEncrypted` prop.
 - Shader warmup: Added `ImageFilter.blur` pre-compilation for glassmorphism dialog animations (was missing, caused jank on first dialog open).
@@ -135,40 +135,40 @@ Phase 4 plan is fully broken down into 12 major items with ~80 sub-tasks in `HAV
 - Multiline input: Chat input auto-grows up to 5 lines (`maxLines: 5, minLines: 1`). Enter sends, Shift+Enter inserts newline. `onSubmitted` replaced with `Focus(onKeyEvent:)` wrapper. Inline edit field also multiline with same Enter/Shift+Enter behavior.
 - Formatting shortcuts: Ctrl+B (bold), Ctrl+I (italic), Ctrl+E (code), Ctrl+Shift+X (strikethrough), Ctrl+Shift+S (spoiler). Wraps selection or inserts markers at cursor. Shared `handleChatInputKey()` in `chat_input_shortcuts.dart`.
 - Avatar alignment fix: 5px top padding on message avatars for proper vertical centering with name/text row.
-- Send button hover fix: `HavenPressable` with `backgroundColor` now lightens 15% toward white on hover instead of replacing with dark `elevated` color. Prevents dark-on-dark icon visibility issue.
+- Send button hover fix: `HollowPressable` with `backgroundColor` now lightens 15% toward white on hover instead of replacing with dark `elevated` color. Prevents dark-on-dark icon visibility issue.
 - Pinned messages: CRDT-based (`MessagePinned`/`MessageUnpinned` ops), `pinned_messages: HashMap<String, Vec<String>>` on ServerState (`#[serde(default)]`). Pin/unpin via NodeCommand, permission-gated (MANAGE_CHANNELS). FFI: `pin_message()`, `unpin_message()`, `get_pinned_messages()`. Dart: `PinnedNotifier` provider, pin button in hover action bar (admin only), pin count + popup in channel header. CrdtOpBroadcast handler emits `MessagePinned`/`MessageUnpinned` events for real-time UI updates on all peers.
 - Emoji reaction sync: Reactions now sync on reconnect alongside messages. `SyncReactionItem` struct added to `SyncMessageItem` and `DmSyncItem`. Sync batch builders load reactions from DB, receivers insert them (INSERT OR IGNORE). `reloadReactions()` method on `ChannelChatNotifier` refreshes reactions without triggering sync loop. Fixed infinite sync loop caused by `loadHistory()` always calling `requestChannelSync()`.
 - Channel "+" button permission: Only visible to members with MANAGE_CHANNELS permission (Owner, Admin). `canManageChannels` prop threaded through `ChannelSidebar` → `_ServerContent`.
-- Channel organization: CRDT-based `ChannelLayoutUpdated` op with `channel_layout: Vec<ChannelLayoutItem>` on ServerState. Three item types: `Category` (collapsible folder), `Channel` (reference), `Separator` (break). Channels tab rewritten with drag-and-drop `ReorderableListView`, tree connectors for nested channels, Save/Discard buttons. Sidebar renders layout with collapsible categories (`AnimatedSize`), separators as dividers. Layout only updates for all members on Save. `channelLayoutProvider` loads from DB. Computed `_dirty` getter compares current vs saved layout. `HavenButton` icon/text alignment fixed (height: 1.0).
+- Channel organization: CRDT-based `ChannelLayoutUpdated` op with `channel_layout: Vec<ChannelLayoutItem>` on ServerState. Three item types: `Category` (collapsible folder), `Channel` (reference), `Separator` (break). Channels tab rewritten with drag-and-drop `ReorderableListView`, tree connectors for nested channels, Save/Discard buttons. Sidebar renders layout with collapsible categories (`AnimatedSize`), separators as dividers. Layout only updates for all members on Save. `channelLayoutProvider` loads from DB. Computed `_dirty` getter compares current vs saved layout. `HollowButton` icon/text alignment fixed (height: 1.0).
 
 **Phase 3.5 completed so far (continued):**
 - System tray: minimize to tray on close (configurable toggle, default ON), tray icon appears only when minimized, left-click restores, right-click menu (Show/Quit). `tray_manager` ^0.5.2. `minimizeToTrayProvider` persisted in app_settings.
 - Friends system & DM overhaul: `friends` SQLCipher table (peer_id, status, direction, requested_at, updated_at). Wire: `FriendRequest`/`FriendAccept`/`FriendReject`/`FriendRemove` (plaintext). DM room codes via SHA-256 hash for signaling discovery without shared servers. Room codes registered on friend request send, receive, accept, and on startup for all friends. Room system UI removed, replaced with "Add Friend" dialog (paste peer ID). Sidebar shows friends list (online-first sort) with pending section (accept/reject for incoming, clock for outgoing). `PeerCard` has `isOnline` prop. Chat stays open on peer disconnect. `loadHistory` always reloads from DB (removed stale guard). Message ordering uses `ORDER BY id` (insertion order) not timestamp (immune to clock skew).
-- Haven logo: custom SVG (H + integrated lock), ICO for Windows app/tray icon.
+- Hollow logo: custom SVG (H + integrated lock), ICO for Windows app/tray icon.
 - Server dialog: two-panel (Join by link/ID on left, Create on right).
 - Search: local full-text search over SQLCipher (`LIKE` query). `search_channel_messages()` / `search_dm_messages()` in storage + FFI. Search button in channel header, expandable search bar with live results dropdown (max 20 results, sender name + time + text preview).
 - DM sync pagination fix: `get_latest_dm_timestamp()` now filters `is_mine = 0` (received messages only). Previous bug: included sent messages (higher timestamps) causing follow-up sync requests to skip remaining messages. Fixed 200-message cap on DM sync — now correctly paginates through all messages.
 
-- Keyboard shortcuts: Global shortcuts via `HardwareKeyboard.instance.addHandler()` in HavenShell (focus-independent, works even when text fields have focus). Ctrl+, (toggle settings dialog), Ctrl+Shift+M (toggle member panel), Ctrl+K (toggle channel search via `channelSearchOpenProvider`). Chat input shortcuts in `chat_input_shortcuts.dart`: Enter (send), Shift+Enter (newline), Ctrl+B/I/E, Ctrl+Shift+X/S (formatting). All shortcuts listed in Settings > System tab with styled key badges.
+- Keyboard shortcuts: Global shortcuts via `HardwareKeyboard.instance.addHandler()` in HollowShell (focus-independent, works even when text fields have focus). Ctrl+, (toggle settings dialog), Ctrl+Shift+M (toggle member panel), Ctrl+K (toggle channel search via `channelSearchOpenProvider`). Chat input shortcuts in `chat_input_shortcuts.dart`: Enter (send), Shift+Enter (newline), Ctrl+B/I/E, Ctrl+Shift+X/S (formatting). All shortcuts listed in Settings > System tab with styled key badges.
 - Settings dialog redesign: Left tab rail (Profile, System) + right content area. Profile tab: preview card + edit fields. System tab: Dark Mode, Minimize to Tray, Use Proxy toggles + keyboard shortcuts reference. Fixed height (540px) prevents layout shifts on tab switch. `_settingsDialogOpen` flag makes Ctrl+, a toggle (close if already open, prevents duplicate dialogs).
 
-- Notifications system: `notification_provider.dart` (server-level All/Mentions/Nothing, per-channel override, per-DM toggle), `unread_provider.dart` (last-seen tracking, unread counts, marks seen on navigation + history load), `system_notification_provider.dart` (dual system: in-app overlay when visible+unfocused, native `local_notifier` ^0.1.6 when hidden/tray). UI: red pill badge with count on server strip, accent dots on channel tiles/DM cards, bold text on unread items. Muted sources hide all indicators. Custom overlay (`notification_overlay.dart`): up to 3 stacked mini-chat cards (bottom-right, `AnimatedPositioned` in `Stack`), each accumulates up to 5 messages from same source, slide-in/auto-dismiss/hover-pause/click-navigate. `windowVisibleProvider` tracks tray state — hidden window never counts as "viewing". Server Settings > Notifications tab with server-wide picker + per-channel `PopupMenuButton`. DM header bell icon for per-friend toggle. Single-instance lock (`%APPDATA%/Haven/haven.lock`).
+- Notifications system: `notification_provider.dart` (server-level All/Mentions/Nothing, per-channel override, per-DM toggle), `unread_provider.dart` (last-seen tracking, unread counts, marks seen on navigation + history load), `system_notification_provider.dart` (dual system: in-app overlay when visible+unfocused, native `local_notifier` ^0.1.6 when hidden/tray). UI: red pill badge with count on server strip, accent dots on channel tiles/DM cards, bold text on unread items. Muted sources hide all indicators. Custom overlay (`notification_overlay.dart`): up to 3 stacked mini-chat cards (bottom-right, `AnimatedPositioned` in `Stack`), each accumulates up to 5 messages from same source, slide-in/auto-dismiss/hover-pause/click-navigate. `windowVisibleProvider` tracks tray state — hidden window never counts as "viewing". Server Settings > Notifications tab with server-wide picker + per-channel `PopupMenuButton`. DM header bell icon for per-friend toggle. Single-instance lock (`%APPDATA%/Hollow/hollow.lock`).
 
-- P2P file sharing: 256KB chunks via Olm encryption (DMs + channels). MLS for text message only (single encrypt), file data via Olm to each member (avoids SecretReuseError). `image` crate for WebP conversion. `files`/`file_chunks` tables, `file_id` on message envelopes. FileHeader/FileChunk/FileRequest wire protocol. Auto-sync: after MessageSyncCompleted, `getMissingFileIds()` finds messages with file_id but no completed file, requests from peers. `NodeCommand::RequestFile` sends `HavenMessage::FileRequest` to remote peer. Max file size CRDT setting (default 34MB) with UI in Server Settings. Image fullscreen overlay, download/save with WebP→PNG/JPEG conversion, `_isPicking` lock, edit disabled on file messages.
+- P2P file sharing: 256KB chunks via Olm encryption (DMs + channels). MLS for text message only (single encrypt), file data via Olm to each member (avoids SecretReuseError). `image` crate for WebP conversion. `files`/`file_chunks` tables, `file_id` on message envelopes. FileHeader/FileChunk/FileRequest wire protocol. Auto-sync: after MessageSyncCompleted, `getMissingFileIds()` finds messages with file_id but no completed file, requests from peers. `NodeCommand::RequestFile` sends `HollowMessage::FileRequest` to remote peer. Max file size CRDT setting (default 34MB) with UI in Server Settings. Image fullscreen overlay, download/save with WebP→PNG/JPEG conversion, `_isPicking` lock, edit disabled on file messages.
 - Scrollable positioned list & reply-tap-scroll: Replaced `ListView.builder` with `ScrollablePositionedList.builder` (`scrollable_positioned_list` package) in both DM and channel chat panes. Click reply context to scroll to original message (300ms scroll + 1.5s accent tint fade via `AnimatedContainer`). Sentinel item pattern (`SizedBox.shrink()` at end, `initialScrollIndex` + `initialAlignment: 1.0`) for zero-animation bottom positioning on load. `ScrollOffsetController` for pixel-level new-message scroll, `ItemScrollController` for reply-tap navigation. `_isNearBottom` via `ItemPositionsListener`. Deduplicated reply context lookup. `isHighlighted` + `onReplyTap` props on both bubble widgets.
 
 **Phase 3.5: COMPLETE.** Device linking deferred to Phase 6.
 
-## Haven Design System (Phase 2.75)
-All UI interactions go through custom Haven widgets — no Material defaults anywhere. Change behavior in one place, applies everywhere.
+## Hollow Design System (Phase 2.75)
+All UI interactions go through custom Hollow widgets — no Material defaults anywhere. Change behavior in one place, applies everywhere.
 
-- **HavenPressable** (`haven_pressable.dart`): Universal interaction widget. Press: opacity 0.85 + scale 0.98, spring physics reverse. Hover: smooth color transition 150ms + shadow lift. No ripple. `subtle` mode disables press animation (for list items like channel tiles, peer cards).
-- **HavenButton** (`haven_button.dart`): 4 variants — `.filled()` (accent bg), `.ghost()` (transparent), `.outline()` (1px border), `.danger()` (error red). Self-contained StatefulWidget with own press/hover animation. Hover glow shadow (20% opacity, 8px blur). Props: `onPressed`, `child`, `icon`, `expand`, `compact`.
-- **HavenTextField** (`haven_text_field.dart`): Single `TextField` with `OutlineInputBorder` (no wrapper container). `haven.elevated` fill, border color animates (border→accent on focus, →error on error). Focus glow (teal BoxShadow 15% opacity, 6px blur). Error shake animation. Optional `prefixIcon`, `borderRadius`, `isDense`.
-- **HavenDialog** (`haven_dialog.dart`): `showHavenDialog()` uses `showGeneralDialog` with scale 0.95→1.0 + fade entrance (200ms). Full-screen glassmorphism: `BackdropFilter` in `transitionBuilder` blurs entire screen (animated 0→12 sigma). Barrier: 8% black. Dialog bg: 92% opacity, accent border, 24px shadow.
-- **HavenTooltip** (`haven_tooltip.dart`): Overlay-based, 400ms hover delay, 100ms fade+slide entrance. Dark style.
-- **HavenToast** (`haven_toast.dart`): Slide-up + fade, auto-dismiss. Three types: success/error/info. Only one visible at a time. Replaces SnackBar. Controller disposed only by widget's `dispose()` (prevents double-dispose).
-- **HavenToggle** (`haven_toggle.dart`): Spring physics thumb, color crossfade track.
+- **HollowPressable** (`hollow_pressable.dart`): Universal interaction widget. Press: opacity 0.85 + scale 0.98, spring physics reverse. Hover: smooth color transition 150ms + shadow lift. No ripple. `subtle` mode disables press animation (for list items like channel tiles, peer cards).
+- **HollowButton** (`hollow_button.dart`): 4 variants — `.filled()` (accent bg), `.ghost()` (transparent), `.outline()` (1px border), `.danger()` (error red). Self-contained StatefulWidget with own press/hover animation. Hover glow shadow (20% opacity, 8px blur). Props: `onPressed`, `child`, `icon`, `expand`, `compact`.
+- **HollowTextField** (`hollow_text_field.dart`): Single `TextField` with `OutlineInputBorder` (no wrapper container). `hollow.elevated` fill, border color animates (border→accent on focus, →error on error). Focus glow (teal BoxShadow 15% opacity, 6px blur). Error shake animation. Optional `prefixIcon`, `borderRadius`, `isDense`.
+- **HollowDialog** (`hollow_dialog.dart`): `showHollowDialog()` uses `showGeneralDialog` with scale 0.95→1.0 + fade entrance (200ms). Full-screen glassmorphism: `BackdropFilter` in `transitionBuilder` blurs entire screen (animated 0→12 sigma). Barrier: 8% black. Dialog bg: 92% opacity, accent border, 24px shadow.
+- **HollowTooltip** (`hollow_tooltip.dart`): Overlay-based, 400ms hover delay, 100ms fade+slide entrance. Dark style.
+- **HollowToast** (`hollow_toast.dart`): Slide-up + fade, auto-dismiss. Three types: success/error/info. Only one visible at a time. Replaces SnackBar. Controller disposed only by widget's `dispose()` (prevents double-dispose).
+- **HollowToggle** (`hollow_toggle.dart`): Spring physics thumb, color crossfade track.
 - **StatusDot** (`status_dot.dart`): StatefulWidget with optional `pulse` for breathing glow animation (3s cycle, BoxShadow). Used in peer cards, member tiles, user bar.
 
 ## Key Architecture Notes
@@ -176,9 +176,9 @@ All UI interactions go through custom Haven widgets — no Material defaults any
 - **Event streaming:** Rust→Dart via `StreamSink` (flutter_rust_bridge), not polling. `watch_network_events()` in `api/network.rs`, `EventStreamNotifier` in `event_provider.dart`
 - **Navigation shell:** Discord-like 4-panel layout — ServerStrip (72px) | ChannelSidebar (240px) | ChatPane | MemberPanel (240px). Responsive: mobile uses bottom nav with single-panel views.
 - **Window chrome:** `window_manager` ^0.5.1, `setAsFrameless()`, custom 32px title bar (`window_title_bar.dart`). Native Win32 changes in `windows/runner/` for dark bg brush, DWM compositing, no-flicker resize. Known issue: drag-from-maximized doesn't live-redraw until drop (Flutter engine limitation).
-- **Theme:** Dark primary (default) + light secondary. `HavenTheme.dark()`/`.light()` ThemeExtension, `HavenThemeData.dark()`/`.light()` factories. Toggle via `themeModeProvider` (Riverpod StateProvider). No persistence yet (Phase 3). Frutiger Aero theme deferred as future third option.
+- **Theme:** Dark primary (default) + light secondary. `HollowTheme.dark()`/`.light()` ThemeExtension, `HollowThemeData.dark()`/`.light()` factories. Toggle via `themeModeProvider` (Riverpod StateProvider). No persistence yet (Phase 3). Frutiger Aero theme deferred as future third option.
 - **Icons:** `lucide_icons: ^0.257.0`. All `LucideIcons.*` (camelCase). Note: v0.257.0 uses `alertTriangle`/`alertCircle` (not `triangleAlert`/`circleAlert`). No `cloudCheck` — uses `cloud`.
-- `haven_log!` macro (`#[macro_export]` in lib.rs) logs to stderr + `haven_debug.log` (works in release builds)
+- `hollow_log!` macro (`#[macro_export]` in lib.rs) logs to stderr + `hollow_debug.log` (works in release builds)
 - Relay: OVH VPS 141.227.186.209, Nginx TLS termination on 443 → plain WS on 127.0.0.1:9001
 - Domain: relay.anonlisten.com (Hostinger DNS, Let's Encrypt cert)
 - Connection priority: LAN (mDNS) → Hole punch (DCUtR) → QUIC relay → TCP relay → WSS relay
@@ -199,7 +199,7 @@ All UI interactions go through custom Haven widgets — no Material defaults any
 - Rust handles: networking (libp2p), crypto, CRDTs, storage engine
 - Dart handles: UI, app logic, state management
 - All crypto operations must use constant-time implementations
-- Ask before making architectural decisions not covered in HAVEN_PLAN.md
+- Ask before making architectural decisions not covered in HOLLOW_PLAN.md
 - When updating memory (MEMORY.md), also update this file (CLAUDE.md) if relevant
 - **VPS deployment:** Ask user — requires SSH password, never store credentials. User deploys themselves.
 - **Local dev commands:** Can run `cargo check/test/clippy`, `flutter_rust_bridge_codegen generate`, `flutter analyze` freely — these are local-only operations.

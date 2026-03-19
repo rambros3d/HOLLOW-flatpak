@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/rust/api/network.dart' as network_api;
-import 'package:haven/src/rust/api/storage.dart' as storage_api;
+import 'package:hollow/src/rust/api/network.dart' as network_api;
+import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 
 /// In-memory profile cache: peer_id → UserProfile.
 /// Loaded from DB on startup, updated on ProfileUpdated events.
@@ -19,7 +19,7 @@ class ProfileNotifier extends Notifier<Map<String, storage_api.UserProfile>> {
       }
       state = map;
     } catch (e) {
-      debugPrint('[HAVEN] Failed to load profiles: $e');
+      debugPrint('[HOLLOW] Failed to load profiles: $e');
     }
   }
 
@@ -31,7 +31,7 @@ class ProfileNotifier extends Notifier<Map<String, storage_api.UserProfile>> {
         state = {...state, peerId: profile};
       }
     } catch (e) {
-      debugPrint('[HAVEN] Failed to reload profile for $peerId: $e');
+      debugPrint('[HOLLOW] Failed to reload profile for $peerId: $e');
     }
   }
 
@@ -48,7 +48,7 @@ class ProfileNotifier extends Notifier<Map<String, storage_api.UserProfile>> {
         aboutMe: aboutMe,
       );
     } catch (e) {
-      debugPrint('[HAVEN] Failed to update profile: $e');
+      debugPrint('[HOLLOW] Failed to update profile: $e');
     }
   }
 }

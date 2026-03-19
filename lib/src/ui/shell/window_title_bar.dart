@@ -1,29 +1,29 @@
 import 'package:flutter/material.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/animations/startup_reveal.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/animations/startup_reveal.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:window_manager/window_manager.dart';
 
 /// Custom 32px title bar replacing the native Windows chrome.
 ///
-/// Layout: [Haven branding] [drag area ────────] [─] [□] [✕]
+/// Layout: [Hollow branding] [drag area ────────] [─] [□] [✕]
 class WindowTitleBar extends StatelessWidget {
   const WindowTitleBar({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final brandReveal = StartupRevealScope.interval(context, 0.0, 0.15);
     final buttonsReveal = StartupRevealScope.interval(context, 0.08, 0.20);
 
     Widget branding = Padding(
-      padding: const EdgeInsets.only(left: HavenSpacing.lg),
+      padding: const EdgeInsets.only(left: HollowSpacing.lg),
       child: Text(
-        'Haven',
-        style: HavenTypography.label.copyWith(
-          color: haven.accent,
+        'Hollow',
+        style: HollowTypography.label.copyWith(
+          color: hollow.accent,
           fontWeight: FontWeight.w700,
           fontSize: 13,
         ),
@@ -55,7 +55,7 @@ class WindowTitleBar extends StatelessWidget {
 
     return Container(
       height: 32,
-      color: haven.background,
+      color: hollow.background,
       child: Row(
         children: [
           branding,
@@ -88,9 +88,9 @@ class _WindowButtonState extends State<_WindowButton> {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final bgColor = _hovering
-        ? (widget.hoverColor ?? haven.elevated)
+        ? (widget.hoverColor ?? hollow.elevated)
         : Colors.transparent;
 
     return MouseRegion(
@@ -116,14 +116,14 @@ class _MinimizeButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     return _WindowButton(
       onTap: () => windowManager.minimize(),
       child: Icon(
         LucideIcons.minus,
         size: 16,
-        color: haven.textSecondary,
+        color: hollow.textSecondary,
       ),
     );
   }
@@ -169,7 +169,7 @@ class _MaximizeButtonState extends State<_MaximizeButton> with WindowListener {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     return _WindowButton(
       onTap: () async {
@@ -182,7 +182,7 @@ class _MaximizeButtonState extends State<_MaximizeButton> with WindowListener {
       child: Icon(
         _isMaximized ? LucideIcons.columns : LucideIcons.square,
         size: 14,
-        color: haven.textSecondary,
+        color: hollow.textSecondary,
       ),
     );
   }
@@ -193,7 +193,7 @@ class _CloseButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     return _WindowButton(
       onTap: () => windowManager.close(),
@@ -201,7 +201,7 @@ class _CloseButton extends StatelessWidget {
       child: Icon(
         LucideIcons.x,
         size: 16,
-        color: haven.textSecondary,
+        color: hollow.textSecondary,
       ),
     );
   }

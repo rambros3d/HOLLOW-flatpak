@@ -1,22 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_button.dart';
-import 'package:haven/src/ui/components/haven_dialog.dart';
-import 'package:haven/src/ui/components/haven_toast.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_button.dart';
+import 'package:hollow/src/ui/components/hollow_dialog.dart';
+import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Shows the 24-word recovery phrase dialog.
 void showMnemonicDialog(BuildContext context, String mnemonic) {
-  showHavenDialog(
+  showHollowDialog(
     context: context,
     barrierDismissible: false,
     builder: (dialogContext) {
-      final haven = HavenTheme.of(dialogContext);
+      final hollow = HollowTheme.of(dialogContext);
 
-      return HavenDialog(
+      return HollowDialog(
         title: 'Your Recovery Phrase',
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -27,33 +27,33 @@ void showMnemonicDialog(BuildContext context, String mnemonic) {
               'it safe. You will need it to restore your identity if you lose '
               'access to this device.',
               style:
-                  HavenTypography.body.copyWith(color: haven.textSecondary),
+                  HollowTypography.body.copyWith(color: hollow.textSecondary),
             ),
-            const SizedBox(height: HavenSpacing.lg),
+            const SizedBox(height: HollowSpacing.lg),
             Container(
-              padding: const EdgeInsets.all(HavenSpacing.md),
+              padding: const EdgeInsets.all(HollowSpacing.md),
               decoration: BoxDecoration(
-                color: haven.background,
-                borderRadius: BorderRadius.circular(haven.radiusMd),
+                color: hollow.background,
+                borderRadius: BorderRadius.circular(hollow.radiusMd),
                 border:
-                    Border.all(color: haven.warning.withValues(alpha: 0.4)),
+                    Border.all(color: hollow.warning.withValues(alpha: 0.4)),
               ),
               child: SelectableText(
                 mnemonic,
-                style: HavenTypography.mono.copyWith(
-                  color: haven.textPrimary,
+                style: HollowTypography.mono.copyWith(
+                  color: hollow.textPrimary,
                   height: 1.6,
                 ),
               ),
             ),
-            const SizedBox(height: HavenSpacing.md),
-            HavenButton.ghost(
+            const SizedBox(height: HollowSpacing.md),
+            HollowButton.ghost(
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: mnemonic));
-                HavenToast.show(
+                HollowToast.show(
                   dialogContext,
                   'Copied to clipboard',
-                  type: HavenToastType.success,
+                  type: HollowToastType.success,
                 );
               },
               icon: Icon(LucideIcons.copy, size: 16),
@@ -62,7 +62,7 @@ void showMnemonicDialog(BuildContext context, String mnemonic) {
           ],
         ),
         actions: [
-          HavenButton.filled(
+          HollowButton.filled(
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('I\'ve saved it'),
           ),

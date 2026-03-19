@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Connection stage for the progress indicator.
@@ -122,17 +122,17 @@ class _ConnectionProgressState extends State<ConnectionProgress>
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     if (_showEncrypted) {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(LucideIcons.lock, size: 14, color: haven.success),
-          const SizedBox(width: HavenSpacing.xs),
+          Icon(LucideIcons.lock, size: 14, color: hollow.success),
+          const SizedBox(width: HollowSpacing.xs),
           Text(
             'Encrypted',
-            style: HavenTypography.caption.copyWith(color: haven.success),
+            style: HollowTypography.caption.copyWith(color: hollow.success),
           ),
         ],
       );
@@ -143,13 +143,13 @@ class _ConnectionProgressState extends State<ConnectionProgress>
     switch (widget.stage) {
       case ConnectionStage.connecting:
         label = 'Offline';
-        labelColor = haven.textSecondary;
+        labelColor = hollow.textSecondary;
       case ConnectionStage.encrypting:
         label = 'Encrypting...';
-        labelColor = haven.accent;
+        labelColor = hollow.accent;
       case ConnectionStage.encrypted:
         label = 'Encrypted';
-        labelColor = haven.success;
+        labelColor = hollow.success;
     }
 
     return FadeTransition(
@@ -169,15 +169,15 @@ class _ConnectionProgressState extends State<ConnectionProgress>
                   child: Stack(
                     children: [
                       // Background track
-                      Container(color: haven.border),
+                      Container(color: hollow.border),
                       // Filled portion
                       FractionallySizedBox(
                         widthFactor: _progress.value,
                         child: Container(
                           decoration: BoxDecoration(
                             color: widget.stage == ConnectionStage.connecting
-                                ? haven.textSecondary
-                                : haven.accent,
+                                ? hollow.textSecondary
+                                : hollow.accent,
                             borderRadius: BorderRadius.circular(2),
                           ),
                         ),
@@ -186,10 +186,10 @@ class _ConnectionProgressState extends State<ConnectionProgress>
                   ),
                 ),
               ),
-              const SizedBox(width: HavenSpacing.xs),
+              const SizedBox(width: HollowSpacing.xs),
               Text(
                 label,
-                style: HavenTypography.caption.copyWith(color: labelColor),
+                style: HollowTypography.caption.copyWith(color: labelColor),
               ),
             ],
           );

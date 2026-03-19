@@ -1,4 +1,4 @@
-import 'package:haven/src/rust/api/network.dart' as ffi;
+import 'package:hollow/src/rust/api/network.dart' as ffi;
 
 /// Thin wrapper around the FFI network layer for testability.
 class NetworkService {

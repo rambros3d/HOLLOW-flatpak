@@ -2,15 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/providers/channel_provider.dart';
-import 'package:haven/src/core/providers/selected_peer_provider.dart';
-import 'package:haven/src/core/providers/server_provider.dart';
-import 'package:haven/src/core/providers/system_notification_provider.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_avatar.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
+import 'package:hollow/src/core/providers/channel_provider.dart';
+import 'package:hollow/src/core/providers/selected_peer_provider.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
+import 'package:hollow/src/core/providers/system_notification_provider.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_avatar.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Overlay that shows notification cards in the bottom-right corner.
@@ -31,7 +31,7 @@ class NotificationOverlay extends ConsumerWidget {
     // Stack cards from bottom, each card ~100px tall + 4px gap.
     // Newest at bottom, oldest at top.
     const cardHeight = 100.0;
-    const gap = HavenSpacing.xxs;
+    const gap = HollowSpacing.xxs;
 
     return Stack(
       children: [
@@ -40,8 +40,8 @@ class NotificationOverlay extends ConsumerWidget {
             key: ValueKey(cards[i].sourceKey),
             duration: const Duration(milliseconds: 250),
             curve: Curves.easeOutCubic,
-            right: HavenSpacing.lg,
-            bottom: HavenSpacing.lg +
+            right: HollowSpacing.lg,
+            bottom: HollowSpacing.lg +
                 (cards.length - 1 - i) * (cardHeight + gap),
             child: _NotificationCardWidget(
               key: ValueKey('card-${cards[i].sourceKey}'),
@@ -158,7 +158,7 @@ class _NotificationCardWidgetState
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final card = widget.card;
 
     return SlideTransition(
@@ -180,10 +180,10 @@ class _NotificationCardWidgetState
               width: 320,
               constraints: const BoxConstraints(maxHeight: 260),
               decoration: BoxDecoration(
-                color: haven.elevated.withValues(alpha: 0.95),
-                borderRadius: BorderRadius.circular(haven.radiusMd),
+                color: hollow.elevated.withValues(alpha: 0.95),
+                borderRadius: BorderRadius.circular(hollow.radiusMd),
                 border: Border.all(
-                  color: haven.accent.withValues(alpha: 0.2),
+                  color: hollow.accent.withValues(alpha: 0.2),
                 ),
                 boxShadow: [
                   BoxShadow(
@@ -200,23 +200,23 @@ class _NotificationCardWidgetState
                   // Header
                   Padding(
                     padding: const EdgeInsets.fromLTRB(
-                      HavenSpacing.md,
-                      HavenSpacing.sm + 2,
-                      HavenSpacing.sm,
-                      HavenSpacing.sm,
+                      HollowSpacing.md,
+                      HollowSpacing.sm + 2,
+                      HollowSpacing.sm,
+                      HollowSpacing.sm,
                     ),
                     child: Row(
                       children: [
-                        HavenAvatar(
+                        HollowAvatar(
                           peerId: card.avatarId,
                           size: 24,
                         ),
-                        const SizedBox(width: HavenSpacing.sm),
+                        const SizedBox(width: HollowSpacing.sm),
                         Expanded(
                           child: Text(
                             card.title,
-                            style: HavenTypography.body.copyWith(
-                              color: haven.textPrimary,
+                            style: HollowTypography.body.copyWith(
+                              color: hollow.textPrimary,
                               fontWeight: FontWeight.w600,
                               fontSize: 12,
                             ),
@@ -225,16 +225,16 @@ class _NotificationCardWidgetState
                           ),
                         ),
                         // Close button
-                        HavenPressable(
+                        HollowPressable(
                           onTap: _dismiss,
                           borderRadius:
-                              BorderRadius.circular(haven.radiusSm),
+                              BorderRadius.circular(hollow.radiusSm),
                           padding:
-                              const EdgeInsets.all(HavenSpacing.xxs),
+                              const EdgeInsets.all(HollowSpacing.xxs),
                           child: Icon(
                             LucideIcons.x,
                             size: 14,
-                            color: haven.textSecondary,
+                            color: hollow.textSecondary,
                           ),
                         ),
                       ],
@@ -244,15 +244,15 @@ class _NotificationCardWidgetState
                   // Divider
                   Container(
                     height: 1,
-                    color: haven.border.withValues(alpha: 0.5),
+                    color: hollow.border.withValues(alpha: 0.5),
                   ),
 
                   // Messages
                   Flexible(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: HavenSpacing.md,
-                        vertical: HavenSpacing.sm,
+                        horizontal: HollowSpacing.md,
+                        vertical: HollowSpacing.sm,
                       ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -262,7 +262,7 @@ class _NotificationCardWidgetState
                               i < card.messages.length;
                               i++) ...[
                             if (i > 0)
-                              const SizedBox(height: HavenSpacing.xxs),
+                              const SizedBox(height: HollowSpacing.xxs),
                             _MessageRow(
                               message: card.messages[i],
                               isDm: card.isDm,
@@ -294,15 +294,15 @@ class _MessageRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     // For DMs, don't repeat the sender name (it's in the header).
     // For channels, show sender name since multiple people can send.
     if (isDm) {
       return Text(
         message.text,
-        style: HavenTypography.body.copyWith(
-          color: haven.textSecondary,
+        style: HollowTypography.body.copyWith(
+          color: hollow.textSecondary,
           fontSize: 12,
         ),
         maxLines: 2,
@@ -315,8 +315,8 @@ class _MessageRow extends StatelessWidget {
       children: [
         Text(
           '${message.senderName}: ',
-          style: HavenTypography.body.copyWith(
-            color: haven.textPrimary,
+          style: HollowTypography.body.copyWith(
+            color: hollow.textPrimary,
             fontWeight: FontWeight.w600,
             fontSize: 12,
           ),
@@ -324,8 +324,8 @@ class _MessageRow extends StatelessWidget {
         Expanded(
           child: Text(
             message.text,
-            style: HavenTypography.body.copyWith(
-              color: haven.textSecondary,
+            style: HollowTypography.body.copyWith(
+              color: hollow.textSecondary,
               fontSize: 12,
             ),
             maxLines: 2,

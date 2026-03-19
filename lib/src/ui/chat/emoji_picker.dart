@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
 
 /// Curated set of ~30 commonly used reaction emojis.
 const kReactionEmojis = [
@@ -78,7 +78,7 @@ class _EmojiPickerOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final screenSize = MediaQuery.of(context).size;
 
     const pickerWidth = 280.0;
@@ -114,9 +114,9 @@ class _EmojiPickerOverlay extends StatelessWidget {
               width: pickerWidth,
               height: pickerHeight,
               decoration: BoxDecoration(
-                color: haven.surface,
-                borderRadius: BorderRadius.circular(haven.radiusMd),
-                border: Border.all(color: haven.border),
+                color: hollow.surface,
+                borderRadius: BorderRadius.circular(hollow.radiusMd),
+                border: Border.all(color: hollow.border),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.25),
@@ -126,9 +126,9 @@ class _EmojiPickerOverlay extends StatelessWidget {
                 ],
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(haven.radiusMd),
+                borderRadius: BorderRadius.circular(hollow.radiusMd),
                 child: GridView.builder(
-                  padding: const EdgeInsets.all(HavenSpacing.sm),
+                  padding: const EdgeInsets.all(HollowSpacing.sm),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 6,
                     mainAxisSpacing: 2,
@@ -137,9 +137,9 @@ class _EmojiPickerOverlay extends StatelessWidget {
                   itemCount: kReactionEmojis.length,
                   itemBuilder: (context, index) {
                     final emoji = kReactionEmojis[index];
-                    return HavenPressable(
+                    return HollowPressable(
                       onTap: () => onSelect(emoji),
-                      borderRadius: BorderRadius.circular(haven.radiusSm),
+                      borderRadius: BorderRadius.circular(hollow.radiusSm),
                       padding: const EdgeInsets.all(4),
                       child: Center(
                         child: Text(

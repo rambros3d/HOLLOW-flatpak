@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/providers/identity_provider.dart';
-import 'package:haven/src/core/providers/server_provider.dart';
-import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_avatar.dart';
-import 'package:haven/src/ui/components/haven_button.dart';
-import 'package:haven/src/ui/components/haven_dialog.dart';
-import 'package:haven/src/ui/components/haven_toast.dart';
-import 'package:haven/src/core/providers/profile_provider.dart';
+import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
+import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_avatar.dart';
+import 'package:hollow/src/ui/components/hollow_button.dart';
+import 'package:hollow/src/ui/components/hollow_dialog.dart';
+import 'package:hollow/src/ui/components/hollow_toast.dart';
+import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Members tab — view members with their roles. Admins+ can change roles & kick.
@@ -21,7 +21,7 @@ class MembersTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final membersAsync = ref.watch(serverMembersProvider(serverId));
     final myRoleAsync = ref.watch(myRoleProvider(serverId));
 
@@ -32,7 +32,7 @@ class MembersTab extends ConsumerWidget {
             child: Text(
               'No members',
               style:
-                  HavenTypography.body.copyWith(color: haven.textSecondary),
+                  HollowTypography.body.copyWith(color: hollow.textSecondary),
             ),
           );
         }
@@ -51,7 +51,7 @@ class MembersTab extends ConsumerWidget {
         final myRole = myRoleAsync.valueOrNull ?? 'member';
 
         return ListView.builder(
-          padding: const EdgeInsets.all(HavenSpacing.lg),
+          padding: const EdgeInsets.all(HollowSpacing.lg),
           itemCount: sorted.length,
           itemBuilder: (context, index) {
             final member = sorted[index];
@@ -70,7 +70,7 @@ class MembersTab extends ConsumerWidget {
       error: (e, _) => Center(
         child: Text(
           'Failed to load members: $e',
-          style: HavenTypography.body.copyWith(color: haven.error),
+          style: HollowTypography.body.copyWith(color: hollow.error),
         ),
       ),
     );
@@ -78,15 +78,15 @@ class MembersTab extends ConsumerWidget {
 }
 
 /// Returns role display info: color, icon.
-({Color color, IconData icon}) _roleInfo(String role, HavenTheme haven) {
+({Color color, IconData icon}) _roleInfo(String role, HollowTheme hollow) {
   return switch (role) {
-    'owner' => (color: haven.warning, icon: LucideIcons.crown),
+    'owner' => (color: hollow.warning, icon: LucideIcons.crown),
     'admin' => (color: const Color(0xFFA78BFA), icon: LucideIcons.shield),
     'moderator' => (
-      color: Color.lerp(haven.warning, haven.error, 0.5) ?? haven.warning,
+      color: Color.lerp(hollow.warning, hollow.error, 0.5) ?? hollow.warning,
       icon: LucideIcons.shieldCheck,
     ),
-    _ => (color: haven.textSecondary, icon: LucideIcons.user),
+    _ => (color: hollow.textSecondary, icon: LucideIcons.user),
   };
 }
 
@@ -130,30 +130,30 @@ class _MemberRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final localPeerId = ref.watch(identityProvider).peerId;
     final isMe = peerId == localPeerId;
-    final info = _roleInfo(role, haven);
+    final info = _roleInfo(role, hollow);
     final canManage = !isMe && _canManageRole(myRole, role);
     final profiles = ref.watch(profileProvider);
     final resolvedName =
         serverDisplayNameFor(profiles, peerId, nickname: nickname);
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: HavenSpacing.sm),
+      padding: const EdgeInsets.only(bottom: HollowSpacing.sm),
       child: Container(
         padding: const EdgeInsets.symmetric(
-          horizontal: HavenSpacing.md,
-          vertical: HavenSpacing.sm,
+          horizontal: HollowSpacing.md,
+          vertical: HollowSpacing.sm,
         ),
         decoration: BoxDecoration(
-          color: haven.elevated,
-          borderRadius: BorderRadius.circular(haven.radiusMd),
+          color: hollow.elevated,
+          borderRadius: BorderRadius.circular(hollow.radiusMd),
         ),
         child: Row(
           children: [
-            HavenAvatar(peerId: peerId, size: 32),
-            const SizedBox(width: HavenSpacing.md),
+            HollowAvatar(peerId: peerId, size: 32),
+            const SizedBox(width: HollowSpacing.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -163,17 +163,17 @@ class _MemberRow extends ConsumerWidget {
                       Flexible(
                         child: Text(
                           resolvedName,
-                          style: HavenTypography.body
-                              .copyWith(color: haven.textPrimary),
+                          style: HollowTypography.body
+                              .copyWith(color: hollow.textPrimary),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
                       if (isMe) ...[
-                        const SizedBox(width: HavenSpacing.xs),
+                        const SizedBox(width: HollowSpacing.xs),
                         Text(
                           '(you)',
-                          style: HavenTypography.caption.copyWith(
-                            color: haven.textSecondary,
+                          style: HollowTypography.caption.copyWith(
+                            color: hollow.textSecondary,
                             fontStyle: FontStyle.italic,
                           ),
                         ),
@@ -182,32 +182,32 @@ class _MemberRow extends ConsumerWidget {
                   ),
                   Text(
                     peerId,
-                    style: HavenTypography.caption,
+                    style: HollowTypography.caption,
                     overflow: TextOverflow.ellipsis,
                     maxLines: 1,
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: HavenSpacing.sm),
+            const SizedBox(width: HollowSpacing.sm),
             // Role badge
             Container(
               padding: const EdgeInsets.symmetric(
-                horizontal: HavenSpacing.sm,
-                vertical: HavenSpacing.xxs,
+                horizontal: HollowSpacing.sm,
+                vertical: HollowSpacing.xxs,
               ),
               decoration: BoxDecoration(
                 color: info.color.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(HavenRadius.sm),
+                borderRadius: BorderRadius.circular(HollowRadius.sm),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(info.icon, size: 12, color: info.color),
-                  const SizedBox(width: HavenSpacing.xs),
+                  const SizedBox(width: HollowSpacing.xs),
                   Text(
                     role[0].toUpperCase() + role.substring(1),
-                    style: HavenTypography.caption.copyWith(
+                    style: HollowTypography.caption.copyWith(
                       color: info.color,
                       fontWeight: FontWeight.w600,
                     ),
@@ -217,17 +217,17 @@ class _MemberRow extends ConsumerWidget {
             ),
             // Action menu (only visible if we can manage this member)
             if (canManage) ...[
-              const SizedBox(width: HavenSpacing.xs),
+              const SizedBox(width: HollowSpacing.xs),
               PopupMenuButton<String>(
                 icon: Icon(
                   LucideIcons.moreVertical,
                   size: 16,
-                  color: haven.textSecondary,
+                  color: hollow.textSecondary,
                 ),
-                color: haven.elevated,
+                color: hollow.elevated,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(haven.radiusMd),
-                  side: BorderSide(color: haven.border),
+                  borderRadius: BorderRadius.circular(hollow.radiusMd),
+                  side: BorderSide(color: hollow.border),
                 ),
                 itemBuilder: (context) {
                   final assignable = _assignableRoles(myRole);
@@ -240,15 +240,15 @@ class _MemberRow extends ConsumerWidget {
                           child: Row(
                             children: [
                               Icon(
-                                _roleInfo(r, haven).icon,
+                                _roleInfo(r, hollow).icon,
                                 size: 14,
-                                color: _roleInfo(r, haven).color,
+                                color: _roleInfo(r, hollow).color,
                               ),
-                              const SizedBox(width: HavenSpacing.sm),
+                              const SizedBox(width: HollowSpacing.sm),
                               Text(
                                 'Make ${r[0].toUpperCase()}${r.substring(1)}',
-                                style: HavenTypography.body.copyWith(
-                                  color: haven.textPrimary,
+                                style: HollowTypography.body.copyWith(
+                                  color: hollow.textPrimary,
                                 ),
                               ),
                             ],
@@ -264,13 +264,13 @@ class _MemberRow extends ConsumerWidget {
                           Icon(
                             LucideIcons.userMinus,
                             size: 14,
-                            color: haven.error,
+                            color: hollow.error,
                           ),
-                          const SizedBox(width: HavenSpacing.sm),
+                          const SizedBox(width: HollowSpacing.sm),
                           Text(
                             'Kick Member',
-                            style: HavenTypography.body.copyWith(
-                              color: haven.error,
+                            style: HollowTypography.body.copyWith(
+                              color: hollow.error,
                             ),
                           ),
                         ],
@@ -296,7 +296,7 @@ class _MemberRow extends ConsumerWidget {
 
   void _changeRole(BuildContext context, WidgetRef ref, String newRole) {
     final roleName = newRole[0].toUpperCase() + newRole.substring(1);
-    showHavenDialog(
+    showHollowDialog(
       context: context,
       builder: (context) => _ConfirmDialog(
         title: 'Change Role',
@@ -312,18 +312,18 @@ class _MemberRow extends ConsumerWidget {
               newRole: newRole,
             );
             if (context.mounted) {
-              HavenToast.show(
+              HollowToast.show(
                 context,
                 '$displayName is now $roleName',
-                type: HavenToastType.success,
+                type: HollowToastType.success,
               );
             }
           } catch (e) {
             if (context.mounted) {
-              HavenToast.show(
+              HollowToast.show(
                 context,
                 'Failed to change role: $e',
-                type: HavenToastType.error,
+                type: HollowToastType.error,
               );
             }
           }
@@ -333,7 +333,7 @@ class _MemberRow extends ConsumerWidget {
   }
 
   void _confirmKick(BuildContext context, WidgetRef ref) {
-    showHavenDialog(
+    showHollowDialog(
       context: context,
       builder: (context) => _ConfirmDialog(
         title: 'Kick Member',
@@ -349,18 +349,18 @@ class _MemberRow extends ConsumerWidget {
               peerId: peerId,
             );
             if (context.mounted) {
-              HavenToast.show(
+              HollowToast.show(
                 context,
                 '$displayName has been kicked',
-                type: HavenToastType.success,
+                type: HollowToastType.success,
               );
             }
           } catch (e) {
             if (context.mounted) {
-              HavenToast.show(
+              HollowToast.show(
                 context,
                 'Failed to kick member: $e',
-                type: HavenToastType.error,
+                type: HollowToastType.error,
               );
             }
           }
@@ -387,18 +387,18 @@ class _ConfirmDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     return Center(
       child: Material(
         color: Colors.transparent,
         child: Container(
           width: 360,
-          padding: const EdgeInsets.all(HavenSpacing.lg),
+          padding: const EdgeInsets.all(HollowSpacing.lg),
           decoration: BoxDecoration(
-            color: haven.surface.withValues(alpha: 0.92),
-            borderRadius: BorderRadius.circular(haven.radiusLg),
-            border: Border.all(color: haven.accent.withValues(alpha: 0.2)),
+            color: hollow.surface.withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(hollow.radiusLg),
+            border: Border.all(color: hollow.accent.withValues(alpha: 0.2)),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.5),
@@ -412,32 +412,32 @@ class _ConfirmDialog extends StatelessWidget {
           children: [
             Text(
               title,
-              style: HavenTypography.heading
-                  .copyWith(color: haven.textPrimary, fontSize: 18),
+              style: HollowTypography.heading
+                  .copyWith(color: hollow.textPrimary, fontSize: 18),
             ),
-            const SizedBox(height: HavenSpacing.md),
+            const SizedBox(height: HollowSpacing.md),
             Text(
               message,
-              style: HavenTypography.body.copyWith(color: haven.textSecondary),
+              style: HollowTypography.body.copyWith(color: hollow.textSecondary),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: HavenSpacing.lg),
+            const SizedBox(height: HollowSpacing.lg),
             Row(
               children: [
                 Expanded(
-                  child: HavenButton.ghost(
+                  child: HollowButton.ghost(
                     onPressed: () => Navigator.of(context).pop(),
                     child: const Text('Cancel'),
                   ),
                 ),
-                const SizedBox(width: HavenSpacing.md),
+                const SizedBox(width: HollowSpacing.md),
                 Expanded(
                   child: isDanger
-                      ? HavenButton.danger(
+                      ? HollowButton.danger(
                           onPressed: onConfirm,
                           child: Text(confirmLabel),
                         )
-                      : HavenButton.filled(
+                      : HollowButton.filled(
                           onPressed: onConfirm,
                           child: Text(confirmLabel),
                         ),

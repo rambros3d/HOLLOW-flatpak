@@ -2,12 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/providers/member_panel_provider.dart';
-import 'package:haven/src/rust/api/network.dart' as network_api;
-import 'package:haven/src/rust/api/storage.dart' as storage_api;
-import 'package:haven/src/rust/frb_generated.dart';
-import 'package:haven/src/ui/app.dart';
-import 'package:haven/src/ui/shader_warmup.dart';
+import 'package:hollow/src/core/providers/member_panel_provider.dart';
+import 'package:hollow/src/rust/api/network.dart' as network_api;
+import 'package:hollow/src/rust/api/storage.dart' as storage_api;
+import 'package:hollow/src/rust/frb_generated.dart';
+import 'package:hollow/src/ui/app.dart';
+import 'package:hollow/src/ui/shader_warmup.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -24,10 +24,10 @@ bool _acquireSingleInstanceLock() {
       Platform.environment['HOME'] ??
       '.';
   final sep = Platform.pathSeparator;
-  _lockFilePath = '$appDataDir${sep}Haven${sep}haven.lock';
+  _lockFilePath = '$appDataDir${sep}Hollow${sep}hollow.lock';
 
   // Ensure directory exists.
-  final dir = Directory('$appDataDir${sep}Haven');
+  final dir = Directory('$appDataDir${sep}Hollow');
   if (!dir.existsSync()) {
     dir.createSync(recursive: true);
   }
@@ -56,8 +56,8 @@ bool _acquireSingleInstanceLock() {
   return true;
 }
 
-/// Check if a Haven process with the given PID is still running.
-/// Also verifies the process name contains "haven" to avoid false
+/// Check if a Hollow process with the given PID is still running.
+/// Also verifies the process name contains "hollow" to avoid false
 /// positives from PID reuse after a crash.
 bool _isProcessRunning(int targetPid) {
   try {
@@ -66,12 +66,12 @@ bool _isProcessRunning(int targetPid) {
           'tasklist', ['/FI', 'PID eq $targetPid', '/NH']);
       final output = result.stdout.toString().toLowerCase();
       // Must match both PID and our process name.
-      return output.contains('$targetPid') && output.contains('haven');
+      return output.contains('$targetPid') && output.contains('hollow');
     } else {
       // Linux/macOS: check /proc or ps for both PID and name.
       final result = Process.runSync('ps', ['-p', '$targetPid', '-o', 'comm=']);
       return result.exitCode == 0 &&
-          result.stdout.toString().toLowerCase().contains('haven');
+          result.stdout.toString().toLowerCase().contains('hollow');
     }
   } catch (_) {
     return false;
@@ -97,7 +97,7 @@ Future<void> main() async {
 
   // Pre-compile GPU shaders before the first frame to eliminate
   // shader compilation jank during animations.
-  await HavenShaderWarmUp().execute();
+  await HollowShaderWarmUp().execute();
 
   await RustLib.init();
 
@@ -111,7 +111,7 @@ Future<void> main() async {
       size: Size(1280, 800),
       minimumSize: Size(800, 500),
       center: true,
-      backgroundColor: Color(0xFF0D0F14), // Haven dark background
+      backgroundColor: Color(0xFF0D0F14), // Hollow dark background
       titleBarStyle: TitleBarStyle.hidden,
       windowButtonVisibility: false,
     );
@@ -119,18 +119,18 @@ Future<void> main() async {
       await windowManager.setAsFrameless();
       // Intercept close so we can minimize to tray instead.
       await windowManager.setPreventClose(true);
-      windowManager.addListener(_HavenWindowListener());
+      windowManager.addListener(_HollowWindowListener());
       await windowManager.show();
       await windowManager.focus();
     });
 
     // Set up tray listener (icon is only created when minimizing).
-    trayManager.addListener(_HavenTrayListener());
+    trayManager.addListener(_HollowTrayListener());
   }
 
   runApp(UncontrolledProviderScope(
     container: container,
-    child: const HavenApp(),
+    child: const HollowApp(),
   ));
 }
 
@@ -150,10 +150,10 @@ Future<void> _showTrayIcon() async {
     iconPath = '$exeDir/app_icon.ico';
   }
   await trayManager.setIcon(iconPath);
-  await trayManager.setToolTip('Haven — Running in background');
+  await trayManager.setToolTip('Hollow — Running in background');
   final menu = Menu(
     items: [
-      MenuItem(key: 'show', label: 'Show Haven'),
+      MenuItem(key: 'show', label: 'Show Hollow'),
       MenuItem.separator(),
       MenuItem(key: 'quit', label: 'Quit'),
     ],
@@ -167,7 +167,7 @@ Future<void> _hideTrayIcon() async {
 }
 
 /// Handles tray icon interactions.
-class _HavenTrayListener extends TrayListener {
+class _HollowTrayListener extends TrayListener {
   @override
   void onTrayIconMouseDown() {
     _restoreWindow();
@@ -209,7 +209,7 @@ class _HavenTrayListener extends TrayListener {
 }
 
 /// Handles window close — minimizes to tray or quits based on user setting.
-class _HavenWindowListener extends WindowListener {
+class _HollowWindowListener extends WindowListener {
   @override
   void onWindowClose() async {
     // Check user preference.

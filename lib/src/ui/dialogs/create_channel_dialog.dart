@@ -1,21 +1,21 @@
 import 'package:flutter/material.dart';
-import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_button.dart';
-import 'package:haven/src/ui/components/haven_dialog.dart';
-import 'package:haven/src/ui/components/haven_text_field.dart';
+import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_button.dart';
+import 'package:hollow/src/ui/components/hollow_dialog.dart';
+import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Shows a dialog to create a new channel in a server.
 void showCreateChannelDialog(BuildContext context, String serverId) {
   final nameController = TextEditingController();
 
-  showHavenDialog(
+  showHollowDialog(
     context: context,
     builder: (dialogContext) {
-      return HavenDialog(
+      return HollowDialog(
         title: 'Create Channel',
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -23,12 +23,12 @@ void showCreateChannelDialog(BuildContext context, String serverId) {
           children: [
             Text(
               'Choose a name for your new channel.',
-              style: HavenTypography.body.copyWith(
-                color: HavenTheme.of(dialogContext).textSecondary,
+              style: HollowTypography.body.copyWith(
+                color: HollowTheme.of(dialogContext).textSecondary,
               ),
             ),
-            const SizedBox(height: HavenSpacing.lg),
-            HavenTextField(
+            const SizedBox(height: HollowSpacing.lg),
+            HollowTextField(
               controller: nameController,
               hintText: 'general',
               autofocus: true,
@@ -47,11 +47,11 @@ void showCreateChannelDialog(BuildContext context, String serverId) {
           ],
         ),
         actions: [
-          HavenButton.ghost(
+          HollowButton.ghost(
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
-          HavenButton.filled(
+          HollowButton.filled(
             onPressed: () async {
               final name = nameController.text.trim();
               if (name.isEmpty) return;

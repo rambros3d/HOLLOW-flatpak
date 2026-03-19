@@ -1,4 +1,4 @@
-import 'package:haven/src/core/models/file_attachment.dart';
+import 'package:hollow/src/core/models/file_attachment.dart';
 
 /// A single channel chat message.
 class ChannelChatMessage {

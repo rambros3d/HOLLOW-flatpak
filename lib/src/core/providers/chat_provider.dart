@@ -2,12 +2,12 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/models/chat_message.dart';
-import 'package:haven/src/core/models/file_attachment.dart';
-import 'package:haven/src/core/providers/identity_provider.dart';
-import 'package:haven/src/core/providers/service_providers.dart';
-import 'package:haven/src/rust/api/network.dart' as network_api;
-import 'package:haven/src/rust/api/storage.dart' as storage_api;
+import 'package:hollow/src/core/models/chat_message.dart';
+import 'package:hollow/src/core/models/file_attachment.dart';
+import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/service_providers.dart';
+import 'package:hollow/src/rust/api/network.dart' as network_api;
+import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 
 /// Generate a 32-char hex message ID (same format as Rust's 16-byte random).
 String generateMessageId() {
@@ -290,7 +290,7 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
       updated[peerId] = messages;
       state = updated;
     } catch (e) {
-      debugPrint('[HAVEN] Failed to load history for $peerId: $e');
+      debugPrint('[HOLLOW] Failed to load history for $peerId: $e');
     }
   }
 

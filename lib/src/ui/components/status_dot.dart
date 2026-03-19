@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:haven/src/theme/haven_theme.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
 
 /// A small colored circle indicating connection/encryption status.
 ///
@@ -67,8 +67,8 @@ class _StatusDotState extends State<StatusDot>
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
-    final dotColor = widget.color ?? haven.success;
+    final hollow = HollowTheme.of(context);
+    final dotColor = widget.color ?? hollow.success;
 
     final dot = Container(
       width: widget.size,

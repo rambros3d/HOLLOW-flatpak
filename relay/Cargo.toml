@@ -1,10 +1,10 @@
 [package]
-name = "haven-relay"
+name = "hollow-relay"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "haven-relay"
+name = "hollow-relay"
 path = "src/main.rs"
 
 [dependencies]

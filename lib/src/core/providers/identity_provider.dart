@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/providers/service_providers.dart';
+import 'package:hollow/src/core/providers/service_providers.dart';
 
 /// Identity state: peer ID, mnemonic (first run only), loaded flag.
 class IdentityState {
@@ -50,7 +50,7 @@ class IdentityNotifier extends Notifier<IdentityState> {
         isLoaded: true,
       );
     } catch (e) {
-      debugPrint('[HAVEN] Identity load error: $e');
+      debugPrint('[HOLLOW] Identity load error: $e');
       state = state.copyWith(error: e.toString());
     }
   }
@@ -68,7 +68,7 @@ class IdentityNotifier extends Notifier<IdentityState> {
         isLoaded: true,
       );
     } catch (e) {
-      debugPrint('[HAVEN] Restore identity error: $e');
+      debugPrint('[HOLLOW] Restore identity error: $e');
       state = state.copyWith(error: e.toString());
     }
   }

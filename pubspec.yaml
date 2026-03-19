@@ -1,4 +1,4 @@
-name: haven
+name: hollow
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -32,7 +32,7 @@ dependencies:
     sdk: flutter
 
   lucide_icons: ^0.257.0
-  haven_core:
+  hollow_core:
     path: rust_builder
   flutter_rust_bridge: 2.11.1
   freezed_annotation: ^3.1.0

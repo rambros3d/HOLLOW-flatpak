@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/services/identity_service.dart';
-import 'package:haven/src/core/services/network_service.dart';
-import 'package:haven/src/core/services/storage_service.dart';
+import 'package:hollow/src/core/services/identity_service.dart';
+import 'package:hollow/src/core/services/network_service.dart';
+import 'package:hollow/src/core/services/storage_service.dart';
 
 /// Singleton service providers — one instance for the app lifetime.
 final networkServiceProvider = Provider<NetworkService>((_) => NetworkService());

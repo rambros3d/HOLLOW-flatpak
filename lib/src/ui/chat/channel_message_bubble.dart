@@ -2,18 +2,18 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/models/channel_chat_message.dart';
-import 'package:haven/src/core/providers/identity_provider.dart';
-import 'package:haven/src/core/providers/profile_provider.dart';
-import 'package:haven/src/core/providers/server_provider.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/chat/message_bubble.dart';
-import 'package:haven/src/ui/chat/file_attachment_widget.dart';
-import 'package:haven/src/ui/chat/message_text_parser.dart';
-import 'package:haven/src/ui/chat/reaction_bar.dart';
-import 'package:haven/src/ui/components/haven_avatar.dart';
+import 'package:hollow/src/core/models/channel_chat_message.dart';
+import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/profile_provider.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/chat/message_bubble.dart';
+import 'package:hollow/src/ui/chat/file_attachment_widget.dart';
+import 'package:hollow/src/ui/chat/message_text_parser.dart';
+import 'package:hollow/src/ui/chat/reaction_bar.dart';
+import 'package:hollow/src/ui/components/hollow_avatar.dart';
 
 /// Flat message row for channel messages — no bubbles.
 ///
@@ -45,7 +45,7 @@ class ChannelMessageBubble extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final profiles = ref.watch(profileProvider);
     final nicknames = ref.watch(serverNicknamesProvider(serverId));
     final senderName = serverDisplayNameFor(
@@ -59,7 +59,7 @@ class ChannelMessageBubble extends ConsumerWidget {
     final isEdited = message.editedAt != null;
 
     const avatarSize = 32.0;
-    const avatarGap = HavenSpacing.sm + 2; // 10px
+    const avatarGap = HollowSpacing.sm + 2; // 10px
     const indent = avatarSize + avatarGap;
 
     final hasReply = message.replyToMid != null && replyToText != null;
@@ -72,11 +72,11 @@ class ChannelMessageBubble extends ConsumerWidget {
             width: 2,
             height: 28,
             decoration: BoxDecoration(
-              color: haven.textSecondary.withValues(alpha: 0.3),
+              color: hollow.textSecondary.withValues(alpha: 0.3),
               borderRadius: BorderRadius.circular(1),
             ),
           ),
-          const SizedBox(width: HavenSpacing.sm),
+          const SizedBox(width: HollowSpacing.sm),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -84,16 +84,16 @@ class ChannelMessageBubble extends ConsumerWidget {
               children: [
                 Text(
                   replyToSenderName ?? '',
-                  style: HavenTypography.caption.copyWith(
-                    color: haven.accent,
+                  style: HollowTypography.caption.copyWith(
+                    color: hollow.accent,
                     fontWeight: FontWeight.w600,
                     fontSize: 10,
                   ),
                 ),
                 Text(
                   replyToText!,
-                  style: HavenTypography.caption.copyWith(
-                    color: haven.textSecondary,
+                  style: HollowTypography.caption.copyWith(
+                    color: hollow.textSecondary,
                     fontSize: 11,
                   ),
                   maxLines: 1,
@@ -104,7 +104,7 @@ class ChannelMessageBubble extends ConsumerWidget {
           ),
           if (replyToImagePath != null && File(replyToImagePath!).existsSync())
             Padding(
-              padding: const EdgeInsets.only(left: HavenSpacing.sm),
+              padding: const EdgeInsets.only(left: HollowSpacing.sm),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(4),
                 child: Image.file(
@@ -144,8 +144,8 @@ class ChannelMessageBubble extends ConsumerWidget {
                 ? [
                     TextSpan(
                       text: ' (edited)',
-                      style: HavenTypography.caption.copyWith(
-                        color: haven.textSecondary.withValues(alpha: 0.5),
+                      style: HollowTypography.caption.copyWith(
+                        color: hollow.textSecondary.withValues(alpha: 0.5),
                         fontSize: 10,
                       ),
                     ),
@@ -155,7 +155,7 @@ class ChannelMessageBubble extends ConsumerWidget {
 
     final fileWidget = message.fileAttachment != null
         ? Padding(
-            padding: const EdgeInsets.only(top: HavenSpacing.xs),
+            padding: const EdgeInsets.only(top: HollowSpacing.xs),
             child: FileAttachmentWidget(
               attachment: message.fileAttachment!,
             ),
@@ -172,13 +172,13 @@ class ChannelMessageBubble extends ConsumerWidget {
 
     final meDecoration = BoxDecoration(
       border: Border(
-        right: BorderSide(color: haven.accent, width: 2),
+        right: BorderSide(color: hollow.accent, width: 2),
       ),
     );
 
     final highlightDecoration = isHighlighted
         ? BoxDecoration(
-            color: haven.accent.withValues(alpha: 0.08),
+            color: hollow.accent.withValues(alpha: 0.08),
             border: isMe ? meDecoration.border : null,
           )
         : (isMe ? meDecoration : null);
@@ -190,8 +190,8 @@ class ChannelMessageBubble extends ConsumerWidget {
         padding: const EdgeInsets.only(
           top: 4,
           bottom: 4,
-          left: HavenSpacing.md,
-          right: HavenSpacing.md,
+          left: HollowSpacing.md,
+          right: HollowSpacing.md,
         ),
         decoration: highlightDecoration,
         child: Row(
@@ -199,7 +199,7 @@ class ChannelMessageBubble extends ConsumerWidget {
           children: [
             Padding(
               padding: const EdgeInsets.only(top: 5),
-              child: HavenAvatar(peerId: message.senderId, size: avatarSize),
+              child: HollowAvatar(peerId: message.senderId, size: avatarSize),
             ),
             const SizedBox(width: avatarGap),
             Expanded(
@@ -210,20 +210,20 @@ class ChannelMessageBubble extends ConsumerWidget {
                     children: [
                       Text(
                         senderName,
-                        style: HavenTypography.body.copyWith(
+                        style: HollowTypography.body.copyWith(
                           color: isMe
-                              ? haven.accent
+                              ? hollow.accent
                               : nameColorFromId(message.senderId),
                           fontWeight: FontWeight.w600,
                           fontSize: 13,
                         ),
                       ),
-                      const SizedBox(width: HavenSpacing.sm),
+                      const SizedBox(width: HollowSpacing.sm),
                       Text(
                         time,
-                        style: HavenTypography.caption.copyWith(
+                        style: HollowTypography.caption.copyWith(
                           color:
-                              haven.textSecondary.withValues(alpha: 0.5),
+                              hollow.textSecondary.withValues(alpha: 0.5),
                           fontSize: 10,
                         ),
                       ),
@@ -249,8 +249,8 @@ class ChannelMessageBubble extends ConsumerWidget {
       padding: const EdgeInsets.only(
         top: 2,
         bottom: 2,
-        left: HavenSpacing.md + indent,
-        right: HavenSpacing.md,
+        left: HollowSpacing.md + indent,
+        right: HollowSpacing.md,
       ),
       decoration: highlightDecoration,
       child: Column(

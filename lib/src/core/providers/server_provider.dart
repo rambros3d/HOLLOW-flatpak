@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/models/server_info.dart';
-import 'package:haven/src/core/providers/peers_provider.dart';
-import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
+import 'package:hollow/src/core/models/server_info.dart';
+import 'package:hollow/src/core/providers/peers_provider.dart';
+import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 
 /// Manages the list of servers the user has joined.
 class ServerListNotifier extends Notifier<Map<String, ServerInfo>> {
@@ -24,7 +24,7 @@ class ServerListNotifier extends Notifier<Map<String, ServerInfo>> {
       }
       state = map;
     } catch (e) {
-      debugPrint('[HAVEN] Failed to load servers: $e');
+      debugPrint('[HOLLOW] Failed to load servers: $e');
     }
   }
 
@@ -57,7 +57,7 @@ class ServerListNotifier extends Notifier<Map<String, ServerInfo>> {
         state = updated;
       }
     } catch (e) {
-      debugPrint('[HAVEN] Failed to refresh server $serverId: $e');
+      debugPrint('[HOLLOW] Failed to refresh server $serverId: $e');
     }
   }
 

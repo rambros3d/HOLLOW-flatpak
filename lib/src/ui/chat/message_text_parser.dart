@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
 
 /// Parses message text with lightweight markup into styled spans.
 ///
@@ -25,19 +25,19 @@ Widget buildMessageText(
   TextStyle? baseStyle,
   List<InlineSpan>? suffixSpans,
 }) {
-  final haven = HavenTheme.of(context);
+  final hollow = HollowTheme.of(context);
   final style = baseStyle ??
-      HavenTypography.body.copyWith(color: haven.textPrimary);
+      HollowTypography.body.copyWith(color: hollow.textPrimary);
 
   // Check for code blocks first — they split the message into segments.
   final codeBlockPattern = RegExp(r'```(\w*)\n?([\s\S]*?)```');
   if (codeBlockPattern.hasMatch(text)) {
     return _buildWithCodeBlocks(
-        text, codeBlockPattern, style, haven, suffixSpans);
+        text, codeBlockPattern, style, hollow, suffixSpans);
   }
 
   // No code blocks — pure inline parsing.
-  final spans = _parseInline(text, style, haven);
+  final spans = _parseInline(text, style, hollow);
   if (suffixSpans != null) spans.addAll(suffixSpans);
   return Text.rich(TextSpan(children: spans));
 }
@@ -47,7 +47,7 @@ Widget _buildWithCodeBlocks(
   String text,
   RegExp pattern,
   TextStyle style,
-  HavenTheme haven,
+  HollowTheme hollow,
   List<InlineSpan>? suffixSpans,
 ) {
   final children = <Widget>[];
@@ -59,7 +59,7 @@ Widget _buildWithCodeBlocks(
       final before = text.substring(lastEnd, match.start).trimRight();
       if (before.isNotEmpty) {
         children.add(Text.rich(
-          TextSpan(children: _parseInline(before, style, haven)),
+          TextSpan(children: _parseInline(before, style, hollow)),
         ));
       }
     }
@@ -71,14 +71,14 @@ Widget _buildWithCodeBlocks(
       margin: const EdgeInsets.symmetric(vertical: 4),
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: haven.background,
+        color: hollow.background,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: haven.border),
+        border: Border.all(color: hollow.border),
       ),
       child: Text(
         code.endsWith('\n') ? code.substring(0, code.length - 1) : code,
-        style: HavenTypography.mono.copyWith(
-          color: haven.textPrimary,
+        style: HollowTypography.mono.copyWith(
+          color: hollow.textPrimary,
           fontSize: 13,
         ),
       ),
@@ -91,7 +91,7 @@ Widget _buildWithCodeBlocks(
   if (lastEnd < text.length) {
     final after = text.substring(lastEnd).trimLeft();
     if (after.isNotEmpty) {
-      final spans = _parseInline(after, style, haven);
+      final spans = _parseInline(after, style, hollow);
       if (suffixSpans != null) spans.addAll(suffixSpans);
       children.add(Text.rich(TextSpan(children: spans)));
       suffixSpans = null; // Already appended.
@@ -112,7 +112,7 @@ Widget _buildWithCodeBlocks(
 }
 
 /// Parse inline formatting markers into a list of InlineSpans.
-List<InlineSpan> _parseInline(String text, TextStyle style, HavenTheme haven, {int depth = 0}) {
+List<InlineSpan> _parseInline(String text, TextStyle style, HollowTheme hollow, {int depth = 0}) {
   // SECURITY: Cap recursion depth to prevent stack overflow from adversarial input.
   if (depth > 10) {
     return [TextSpan(text: text, style: style)];
@@ -131,7 +131,7 @@ List<InlineSpan> _parseInline(String text, TextStyle style, HavenTheme haven, {i
         spans.addAll(_parseInline(
           inner,
           style.copyWith(fontWeight: FontWeight.w700),
-          haven,
+          hollow,
           depth: depth + 1,
         ));
         i = end + 2;
@@ -148,7 +148,7 @@ List<InlineSpan> _parseInline(String text, TextStyle style, HavenTheme haven, {i
         spans.addAll(_parseInline(
           inner,
           style.copyWith(decoration: TextDecoration.lineThrough),
-          haven,
+          hollow,
           depth: depth + 1,
         ));
         i = end + 2;
@@ -165,7 +165,7 @@ List<InlineSpan> _parseInline(String text, TextStyle style, HavenTheme haven, {i
         spans.add(WidgetSpan(
           alignment: PlaceholderAlignment.baseline,
           baseline: TextBaseline.alphabetic,
-          child: _SpoilerText(text: inner, style: style, haven: haven),
+          child: _SpoilerText(text: inner, style: style, hollow: hollow),
         ));
         i = end + 2;
         continue;
@@ -184,14 +184,14 @@ List<InlineSpan> _parseInline(String text, TextStyle style, HavenTheme haven, {i
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
             decoration: BoxDecoration(
-              color: haven.background,
+              color: hollow.background,
               borderRadius: BorderRadius.circular(3),
-              border: Border.all(color: haven.border),
+              border: Border.all(color: hollow.border),
             ),
             child: Text(
               code,
-              style: HavenTypography.mono.copyWith(
-                color: haven.textPrimary,
+              style: HollowTypography.mono.copyWith(
+                color: hollow.textPrimary,
                 fontSize: 13,
               ),
             ),
@@ -212,7 +212,7 @@ List<InlineSpan> _parseInline(String text, TextStyle style, HavenTheme haven, {i
         spans.addAll(_parseInline(
           inner,
           style.copyWith(fontStyle: FontStyle.italic),
-          haven,
+          hollow,
           depth: depth + 1,
         ));
         i = end + 1;
@@ -230,7 +230,7 @@ List<InlineSpan> _parseInline(String text, TextStyle style, HavenTheme haven, {i
         spans.addAll(_parseInline(
           inner,
           style.copyWith(fontStyle: FontStyle.italic),
-          haven,
+          hollow,
           depth: depth + 1,
         ));
         i = end + 1;
@@ -267,12 +267,12 @@ void _flushBuffer(
 class _SpoilerText extends StatefulWidget {
   final String text;
   final TextStyle style;
-  final HavenTheme haven;
+  final HollowTheme hollow;
 
   const _SpoilerText({
     required this.text,
     required this.style,
-    required this.haven,
+    required this.hollow,
   });
 
   @override
@@ -291,15 +291,15 @@ class _SpoilerTextState extends State<_SpoilerText> {
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
         decoration: BoxDecoration(
           color: _revealed
-              ? widget.haven.elevated
-              : widget.haven.textSecondary,
+              ? widget.hollow.elevated
+              : widget.hollow.textSecondary,
           borderRadius: BorderRadius.circular(3),
         ),
         child: Text(
           widget.text,
           style: widget.style.copyWith(
             color: _revealed
-                ? widget.haven.textPrimary
+                ? widget.hollow.textPrimary
                 : Colors.transparent,
           ),
         ),

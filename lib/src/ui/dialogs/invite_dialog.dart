@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_button.dart';
-import 'package:haven/src/ui/components/haven_dialog.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
-import 'package:haven/src/ui/components/haven_toast.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_button.dart';
+import 'package:hollow/src/ui/components/hollow_dialog.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Shows the invite link dialog after creating a room or server invite.
@@ -18,12 +18,12 @@ void showInviteDialog(
       : 'Share this link to invite someone to your room:';
   final codeLabel = isServer ? 'Server ID' : 'Room code';
 
-  showHavenDialog(
+  showHollowDialog(
     context: context,
     builder: (dialogContext) {
-      final haven = HavenTheme.of(dialogContext);
+      final hollow = HollowTheme.of(dialogContext);
 
-      return HavenDialog(
+      return HollowDialog(
         title: 'Invite Link',
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -31,17 +31,17 @@ void showInviteDialog(
           children: [
             Text(
               subtitle,
-              style: HavenTypography.body
-                  .copyWith(color: haven.textSecondary),
+              style: HollowTypography.body
+                  .copyWith(color: hollow.textSecondary),
             ),
-            const SizedBox(height: HavenSpacing.lg),
+            const SizedBox(height: HollowSpacing.lg),
             Container(
-              padding: const EdgeInsets.all(HavenSpacing.md),
+              padding: const EdgeInsets.all(HollowSpacing.md),
               decoration: BoxDecoration(
-                color: haven.background,
-                borderRadius: BorderRadius.circular(haven.radiusMd),
+                color: hollow.background,
+                borderRadius: BorderRadius.circular(hollow.radiusMd),
                 border: Border.all(
-                  color: haven.accent.withValues(alpha: 0.3),
+                  color: hollow.accent.withValues(alpha: 0.3),
                 ),
               ),
               child: Row(
@@ -49,40 +49,40 @@ void showInviteDialog(
                   Expanded(
                     child: SelectableText(
                       link,
-                      style: HavenTypography.mono.copyWith(
-                        color: haven.accent,
+                      style: HollowTypography.mono.copyWith(
+                        color: hollow.accent,
                       ),
                     ),
                   ),
-                  HavenPressable(
+                  HollowPressable(
                     onTap: () {
                       Clipboard.setData(ClipboardData(text: link));
-                      HavenToast.show(
+                      HollowToast.show(
                         dialogContext,
                         'Invite link copied to clipboard',
-                        type: HavenToastType.success,
+                        type: HollowToastType.success,
                       );
                     },
                     borderRadius:
-                        BorderRadius.circular(haven.radiusSm),
-                    padding: const EdgeInsets.all(HavenSpacing.xs),
+                        BorderRadius.circular(hollow.radiusSm),
+                    padding: const EdgeInsets.all(HollowSpacing.xs),
                     child: Icon(LucideIcons.copy,
-                        size: 18, color: haven.accent),
+                        size: 18, color: hollow.accent),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: HavenSpacing.md),
+            const SizedBox(height: HollowSpacing.md),
             Text(
               '$codeLabel: $code',
-              style: HavenTypography.caption.copyWith(
-                color: haven.textSecondary,
+              style: HollowTypography.caption.copyWith(
+                color: hollow.textSecondary,
               ),
             ),
           ],
         ),
         actions: [
-          HavenButton.filled(
+          HollowButton.filled(
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Done'),
           ),

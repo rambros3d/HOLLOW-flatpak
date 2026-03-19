@@ -2,28 +2,28 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/providers/channel_chat_provider.dart';
-import 'package:haven/src/core/providers/channel_provider.dart';
-import 'package:haven/src/core/providers/chat_provider.dart';
-import 'package:haven/src/core/providers/node_provider.dart';
-import 'package:haven/src/core/providers/peers_provider.dart';
-import 'package:haven/src/core/providers/selected_peer_provider.dart';
-import 'package:haven/src/core/providers/server_provider.dart';
-import 'package:haven/src/core/providers/service_providers.dart';
-import 'package:haven/src/core/providers/profile_provider.dart';
-import 'package:haven/src/core/providers/sync_progress_provider.dart';
-import 'package:haven/src/core/providers/typing_provider.dart';
-import 'package:haven/src/core/providers/pinned_provider.dart';
-import 'package:haven/src/core/providers/file_transfer_provider.dart';
-import 'package:haven/src/core/providers/friends_provider.dart';
-import 'package:haven/src/core/providers/member_panel_provider.dart';
-import 'package:haven/src/core/providers/unread_provider.dart';
-import 'package:haven/src/core/providers/vault_status_provider.dart';
-import 'package:haven/src/core/providers/notification_provider.dart';
-import 'package:haven/src/core/providers/system_notification_provider.dart';
-import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
-import 'package:haven/src/rust/api/network.dart';
-import 'package:haven/src/rust/api/storage.dart' as storage_api;
+import 'package:hollow/src/core/providers/channel_chat_provider.dart';
+import 'package:hollow/src/core/providers/channel_provider.dart';
+import 'package:hollow/src/core/providers/chat_provider.dart';
+import 'package:hollow/src/core/providers/node_provider.dart';
+import 'package:hollow/src/core/providers/peers_provider.dart';
+import 'package:hollow/src/core/providers/selected_peer_provider.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
+import 'package:hollow/src/core/providers/service_providers.dart';
+import 'package:hollow/src/core/providers/profile_provider.dart';
+import 'package:hollow/src/core/providers/sync_progress_provider.dart';
+import 'package:hollow/src/core/providers/typing_provider.dart';
+import 'package:hollow/src/core/providers/pinned_provider.dart';
+import 'package:hollow/src/core/providers/file_transfer_provider.dart';
+import 'package:hollow/src/core/providers/friends_provider.dart';
+import 'package:hollow/src/core/providers/member_panel_provider.dart';
+import 'package:hollow/src/core/providers/unread_provider.dart';
+import 'package:hollow/src/core/providers/vault_status_provider.dart';
+import 'package:hollow/src/core/providers/notification_provider.dart';
+import 'package:hollow/src/core/providers/system_notification_provider.dart';
+import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
+import 'package:hollow/src/rust/api/network.dart';
+import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 
 /// Listens to the Rust event stream and dispatches events
 /// to the appropriate providers.
@@ -39,10 +39,10 @@ class EventStreamNotifier extends Notifier<bool> {
     _subscription = networkService.watchNetworkEvents().listen(
       _dispatch,
       onError: (error) {
-        debugPrint('[HAVEN] Event stream error: $error');
+        debugPrint('[HOLLOW] Event stream error: $error');
       },
       onDone: () {
-        debugPrint('[HAVEN] Event stream closed');
+        debugPrint('[HOLLOW] Event stream closed');
         _subscription = null;
         state = false;
       },
@@ -63,7 +63,7 @@ class EventStreamNotifier extends Notifier<bool> {
     switch (event) {
       case NetworkEvent_PeerDiscovered(:final peer):
         debugPrint(
-            '[HAVEN] Peer discovered: ${peer.peerId} at ${peer.addresses}');
+            '[HOLLOW] Peer discovered: ${peer.peerId} at ${peer.addresses}');
         ref.read(peersProvider.notifier).addPeer(peer.peerId, peer.addresses);
 
       case NetworkEvent_PeerExpired(:final peerId):
@@ -71,17 +71,17 @@ class EventStreamNotifier extends Notifier<bool> {
         // Don't deselect — friends stay visible when offline.
 
       case NetworkEvent_PeerDisconnected(:final peerId):
-        debugPrint('[HAVEN] Peer disconnected: $peerId');
+        debugPrint('[HOLLOW] Peer disconnected: $peerId');
         ref.read(peersProvider.notifier).removePeer(peerId);
         // Don't deselect — friends stay visible when offline.
 
       case NetworkEvent_RoomCleared():
-        debugPrint('[HAVEN] Room cleared');
+        debugPrint('[HOLLOW] Room cleared');
         ref.read(peersProvider.notifier).clearAll();
         ref.read(selectedPeerProvider.notifier).state = null;
 
       case NetworkEvent_Listening(:final address):
-        debugPrint('[HAVEN] Listening: $address');
+        debugPrint('[HOLLOW] Listening: $address');
 
       case NetworkEvent_MessageReceived(:final fromPeer, :final text, :final timestamp, :final messageId, :final replyToMid):
         ref.read(chatProvider.notifier).receiveMessage(fromPeer, text, timestamp, messageId, replyToMid);
@@ -148,17 +148,17 @@ class EventStreamNotifier extends Notifier<bool> {
         ref.read(chatProvider.notifier).addSendFailure(toPeer, error);
 
       case NetworkEvent_Error(:final message):
-        debugPrint('[HAVEN] $message');
+        debugPrint('[HOLLOW] $message');
         ref.read(nodeProvider.notifier).state =
             ref.read(nodeProvider).copyWith(error: message);
 
       // -- CRDT events (Phase 3) --
       case NetworkEvent_ServerCreated(:final serverId, :final name):
-        debugPrint('[HAVEN] Server created: $name ($serverId)');
+        debugPrint('[HOLLOW] Server created: $name ($serverId)');
         ref.read(serverListProvider.notifier).onServerCreated(serverId, name);
 
       case NetworkEvent_ServerUpdated(:final serverId):
-        debugPrint('[HAVEN] Server updated: $serverId');
+        debugPrint('[HOLLOW] Server updated: $serverId');
         ref.read(serverListProvider.notifier).onServerUpdated(serverId);
         // Reload channels and layout in case they changed.
         if (ref.read(selectedServerProvider) == serverId) {
@@ -168,13 +168,13 @@ class EventStreamNotifier extends Notifier<bool> {
 
       case NetworkEvent_ChannelAdded(
             :final serverId, :final channelId, :final name):
-        debugPrint('[HAVEN] Channel added: $name ($channelId) in $serverId');
+        debugPrint('[HOLLOW] Channel added: $name ($channelId) in $serverId');
         ref
             .read(channelListProvider.notifier)
             .onChannelAdded(serverId, channelId, name);
 
       case NetworkEvent_ChannelRemoved(:final serverId, :final channelId):
-        debugPrint('[HAVEN] Channel removed: $channelId in $serverId');
+        debugPrint('[HOLLOW] Channel removed: $channelId in $serverId');
         ref
             .read(channelListProvider.notifier)
             .onChannelRemoved(serverId, channelId);
@@ -182,13 +182,13 @@ class EventStreamNotifier extends Notifier<bool> {
       case NetworkEvent_ChannelRenamed(
             :final serverId, :final channelId, :final newName):
         debugPrint(
-            '[HAVEN] Channel renamed: $channelId to $newName in $serverId');
+            '[HOLLOW] Channel renamed: $channelId to $newName in $serverId');
         ref
             .read(channelListProvider.notifier)
             .onChannelRenamed(serverId, channelId, newName);
 
       case NetworkEvent_ServerDeleted(:final serverId):
-        debugPrint('[HAVEN] Server deleted: $serverId');
+        debugPrint('[HOLLOW] Server deleted: $serverId');
         ref.read(serverListProvider.notifier).onServerDeleted(serverId);
         // Deselect if this was the active server.
         if (ref.read(selectedServerProvider) == serverId) {
@@ -198,22 +198,22 @@ class EventStreamNotifier extends Notifier<bool> {
         }
 
       case NetworkEvent_MemberJoined(:final serverId, :final peerId):
-        debugPrint('[HAVEN] Member joined: $peerId in $serverId');
+        debugPrint('[HOLLOW] Member joined: $peerId in $serverId');
         ref.read(serverListProvider.notifier).onServerUpdated(serverId);
         ref.invalidate(serverMembersProvider(serverId));
 
       case NetworkEvent_MemberLeft(:final serverId, :final peerId):
-        debugPrint('[HAVEN] Member left: $peerId in $serverId');
+        debugPrint('[HOLLOW] Member left: $peerId in $serverId');
         ref.read(serverListProvider.notifier).onServerUpdated(serverId);
         ref.invalidate(serverMembersProvider(serverId));
 
       case NetworkEvent_SyncCompleted(:final serverId, :final opsApplied):
-        debugPrint('[HAVEN] Sync completed: $serverId ($opsApplied ops)');
+        debugPrint('[HOLLOW] Sync completed: $serverId ($opsApplied ops)');
         ref.read(serverListProvider.notifier).onServerUpdated(serverId);
         ref.invalidate(serverMembersProvider(serverId));
 
       case NetworkEvent_ServerJoined(:final serverId, :final name):
-        debugPrint('[HAVEN] Server joined: $name ($serverId)');
+        debugPrint('[HOLLOW] Server joined: $name ($serverId)');
         ref.read(serverListProvider.notifier).onServerCreated(serverId, name);
         // Auto-select the newly joined server and load its channels
         ref.read(selectedServerProvider.notifier).state = serverId;
@@ -224,7 +224,7 @@ class EventStreamNotifier extends Notifier<bool> {
         ref.read(serverSettingsOpenProvider.notifier).state = false;
 
       case NetworkEvent_MessageSyncStarted(:final serverId, :final peerId):
-        debugPrint('[HAVEN] Message sync started for $serverId with $peerId');
+        debugPrint('[HOLLOW] Message sync started for $serverId with $peerId');
         ref.read(syncingPeersProvider.notifier).addPeer(serverId, peerId);
         final current = ref.read(serverSyncStatusProvider(serverId));
         ref.read(syncStatusProvider.notifier).setStatus(
@@ -237,7 +237,7 @@ class EventStreamNotifier extends Notifier<bool> {
       case NetworkEvent_MessageSyncCompleted(
             :final serverId, :final newMessageCount):
         debugPrint(
-            '[HAVEN] Message sync: $newMessageCount new messages for $serverId');
+            '[HOLLOW] Message sync: $newMessageCount new messages for $serverId');
         ref.read(syncingPeersProvider.notifier).clearServer(serverId);
         ref.read(syncProgressProvider.notifier).clearServer(serverId);
         ref.read(syncStatusProvider.notifier).setStatus(
@@ -275,7 +275,7 @@ class EventStreamNotifier extends Notifier<bool> {
         }
 
       case NetworkEvent_MessageSyncFailed(:final serverId, :final error):
-        debugPrint('[HAVEN] Message sync failed for $serverId: $error');
+        debugPrint('[HOLLOW] Message sync failed for $serverId: $error');
         ref.read(syncingPeersProvider.notifier).clearServer(serverId);
         ref.read(syncProgressProvider.notifier).clearServer(serverId);
         // Transient decrypt failures during re-key → show "Retrying"
@@ -291,19 +291,19 @@ class EventStreamNotifier extends Notifier<bool> {
       case NetworkEvent_MessageSyncProgress(
             :final serverId, :final channelId, :final receivedCount, :final totalCount):
         debugPrint(
-            '[HAVEN] Sync progress: $receivedCount/$totalCount for $channelId in $serverId');
+            '[HOLLOW] Sync progress: $receivedCount/$totalCount for $channelId in $serverId');
         ref.read(syncProgressProvider.notifier).updateProgress(
             serverId, receivedCount, totalCount);
 
       case NetworkEvent_RoleChanged(:final serverId, :final peerId, :final newRole):
-        debugPrint('[HAVEN] Role changed: $peerId is now $newRole in $serverId');
+        debugPrint('[HOLLOW] Role changed: $peerId is now $newRole in $serverId');
         ref.read(serverListProvider.notifier).onServerUpdated(serverId);
         ref.invalidate(serverMembersProvider(serverId));
         ref.invalidate(myRoleProvider(serverId));
         ref.invalidate(myPermissionsProvider(serverId));
 
       case NetworkEvent_DmSyncCompleted(:final peerId, :final newMessageCount):
-        debugPrint('[HAVEN] DM sync: $newMessageCount new messages from $peerId');
+        debugPrint('[HOLLOW] DM sync: $newMessageCount new messages from $peerId');
         // Always reload DM history from DB after sync completes — even if
         // newMessageCount == 0. Dart may have cleared its in-memory cache on
         // disconnect, and the messages are all in DB already (duplicates).
@@ -320,73 +320,73 @@ class EventStreamNotifier extends Notifier<bool> {
         }
 
       case NetworkEvent_ProfileUpdated(:final peerId):
-        debugPrint('[HAVEN] Profile updated: $peerId');
+        debugPrint('[HOLLOW] Profile updated: $peerId');
         ref.read(profileProvider.notifier).reloadProfile(peerId);
 
       case NetworkEvent_ChannelMessageEdited(
             :final serverId, :final channelId, :final messageId, :final newText, :final editedAt):
-        debugPrint('[HAVEN] Channel message edited: $messageId in $serverId/$channelId');
+        debugPrint('[HOLLOW] Channel message edited: $messageId in $serverId/$channelId');
         ref.read(channelChatProvider.notifier).applyEdit(
             serverId, channelId, messageId, newText, editedAt);
 
       case NetworkEvent_DmMessageEdited(
             :final peerId, :final messageId, :final newText, :final editedAt):
-        debugPrint('[HAVEN] DM message edited: $messageId from $peerId');
+        debugPrint('[HOLLOW] DM message edited: $messageId from $peerId');
         ref.read(chatProvider.notifier).applyEdit(
             peerId, messageId, newText, editedAt);
 
       case NetworkEvent_ChannelMessageDeleted(
             :final serverId, :final channelId, :final messageId, :final deletedAt):
-        debugPrint('[HAVEN] Channel message deleted: $messageId in $serverId/$channelId');
+        debugPrint('[HOLLOW] Channel message deleted: $messageId in $serverId/$channelId');
         ref.read(channelChatProvider.notifier).applyDelete(
             serverId, channelId, messageId, deletedAt);
 
       case NetworkEvent_DmMessageDeleted(
             :final peerId, :final messageId, :final deletedAt):
-        debugPrint('[HAVEN] DM message deleted: $messageId from $peerId');
+        debugPrint('[HOLLOW] DM message deleted: $messageId from $peerId');
         ref.read(chatProvider.notifier).applyDelete(
             peerId, messageId, deletedAt);
 
       // -- Emoji reaction events (Phase 3.5) --
       case NetworkEvent_ChannelReactionAdded(
             :final serverId, :final channelId, :final messageId, :final emoji, :final reactor):
-        debugPrint('[HAVEN] Reaction $emoji on $messageId by $reactor in $serverId/$channelId');
+        debugPrint('[HOLLOW] Reaction $emoji on $messageId by $reactor in $serverId/$channelId');
         ref.read(channelChatProvider.notifier).applyAddReaction(
             serverId, channelId, messageId, emoji, reactor);
 
       case NetworkEvent_DmReactionAdded(
             :final peerId, :final messageId, :final emoji, :final reactor):
-        debugPrint('[HAVEN] DM reaction $emoji on $messageId by $reactor for $peerId');
+        debugPrint('[HOLLOW] DM reaction $emoji on $messageId by $reactor for $peerId');
         ref.read(chatProvider.notifier).applyAddReaction(
             peerId, messageId, emoji, reactor);
 
       case NetworkEvent_ChannelReactionRemoved(
             :final serverId, :final channelId, :final messageId, :final emoji, :final reactor):
-        debugPrint('[HAVEN] Reaction $emoji removed on $messageId by $reactor in $serverId/$channelId');
+        debugPrint('[HOLLOW] Reaction $emoji removed on $messageId by $reactor in $serverId/$channelId');
         ref.read(channelChatProvider.notifier).applyRemoveReaction(
             serverId, channelId, messageId, emoji, reactor);
 
       case NetworkEvent_DmReactionRemoved(
             :final peerId, :final messageId, :final emoji, :final reactor):
-        debugPrint('[HAVEN] DM reaction $emoji removed on $messageId by $reactor for $peerId');
+        debugPrint('[HOLLOW] DM reaction $emoji removed on $messageId by $reactor for $peerId');
         ref.read(chatProvider.notifier).applyRemoveReaction(
             peerId, messageId, emoji, reactor);
 
       // -- Friend events (Phase 3.5) --
       case NetworkEvent_FriendRequestReceived(:final peerId):
-        debugPrint('[HAVEN] Friend request received from $peerId');
+        debugPrint('[HOLLOW] Friend request received from $peerId');
         ref.read(friendsProvider.notifier).loadAll();
 
       case NetworkEvent_FriendRequestAccepted(:final peerId):
-        debugPrint('[HAVEN] Friend accepted by $peerId');
+        debugPrint('[HOLLOW] Friend accepted by $peerId');
         ref.read(friendsProvider.notifier).loadAll();
 
       case NetworkEvent_FriendRequestRejected(:final peerId):
-        debugPrint('[HAVEN] Friend rejected by $peerId');
+        debugPrint('[HOLLOW] Friend rejected by $peerId');
         ref.read(friendsProvider.notifier).loadAll();
 
       case NetworkEvent_FriendRemoved(:final peerId):
-        debugPrint('[HAVEN] Friend removed: $peerId');
+        debugPrint('[HOLLOW] Friend removed: $peerId');
         ref.read(friendsProvider.notifier).loadAll();
 
       // -- Typing indicator events (Phase 3.5) --
@@ -398,12 +398,12 @@ class EventStreamNotifier extends Notifier<bool> {
       // -- Pinned message events (Phase 3.5) --
       case NetworkEvent_MessagePinned(
             :final serverId, :final channelId, :final messageId):
-        debugPrint('[HAVEN] Message pinned: $messageId in $serverId/$channelId');
+        debugPrint('[HOLLOW] Message pinned: $messageId in $serverId/$channelId');
         ref.read(pinnedProvider.notifier).applyPin(serverId, channelId, messageId);
 
       case NetworkEvent_MessageUnpinned(
             :final serverId, :final channelId, :final messageId):
-        debugPrint('[HAVEN] Message unpinned: $messageId in $serverId/$channelId');
+        debugPrint('[HOLLOW] Message unpinned: $messageId in $serverId/$channelId');
         ref.read(pinnedProvider.notifier).applyUnpin(serverId, channelId, messageId);
 
       // -- File transfer events (Phase 3.5) --
@@ -412,7 +412,7 @@ class EventStreamNotifier extends Notifier<bool> {
             :final isImage, :final width, :final height,
             messageId: _, senderId: _,
             serverId: _, channelId: _):
-        debugPrint('[HAVEN] File header: $fileId ($fileName, $sizeBytes bytes)');
+        debugPrint('[HOLLOW] File header: $fileId ($fileName, $sizeBytes bytes)');
         ref.read(fileTransferProvider.notifier).onFileHeaderReceived(
               fileId: fileId,
               fileName: fileName,
@@ -431,14 +431,14 @@ class EventStreamNotifier extends Notifier<bool> {
               fileId, chunksReceived, totalChunks);
 
       case NetworkEvent_FileCompleted(:final fileId, :final diskPath):
-        debugPrint('[HAVEN] File completed: $fileId at $diskPath');
+        debugPrint('[HOLLOW] File completed: $fileId at $diskPath');
         ref.read(fileTransferProvider.notifier).onFileCompleted(
               fileId, diskPath);
         // Reload the chat that contains this file to show the image.
         _reloadChatForFile(fileId);
 
       case NetworkEvent_FileFailed(:final fileId, :final error):
-        debugPrint('[HAVEN] File failed: $fileId — $error');
+        debugPrint('[HOLLOW] File failed: $fileId — $error');
         ref.read(fileTransferProvider.notifier).onFileFailed(
               fileId, error);
 
@@ -477,10 +477,15 @@ class EventStreamNotifier extends Notifier<bool> {
             :final contentId, :final phase, :final progress):
         ref.read(vaultStatusProvider.notifier).onDownloadProgress(
               serverId, contentId, phase, progress);
+        // Also update file transfer provider so the file card shows vault phase.
+        ref.read(fileTransferProvider.notifier).onVaultDownloadProgress(
+              contentId, phase, progress);
       case NetworkEvent_VaultDownloadComplete(:final serverId,
-            :final contentId, diskPath: _):
+            :final contentId, :final diskPath):
         ref.read(vaultStatusProvider.notifier).onDownloadComplete(
               serverId, contentId);
+        ref.read(fileTransferProvider.notifier).onVaultDownloadComplete(
+              contentId, diskPath);
       case NetworkEvent_VaultDownloadFailed(:final serverId,
             :final contentId, :final error):
         ref.read(vaultStatusProvider.notifier).onDownloadFailed(
@@ -495,7 +500,7 @@ class EventStreamNotifier extends Notifier<bool> {
         break;
     }
     } catch (e, st) {
-      debugPrint('[HAVEN] Unhandled dispatch error: $e\n$st');
+      debugPrint('[HOLLOW] Unhandled dispatch error: $e\n$st');
     }
   }
 
@@ -514,7 +519,7 @@ class EventStreamNotifier extends Notifier<bool> {
         return t == null || (!t.isDownloading && !t.isComplete);
       }).toList();
       if (toRequest.isEmpty) return;
-      debugPrint('[HAVEN] ${toRequest.length} missing files found, requesting...');
+      debugPrint('[HOLLOW] ${toRequest.length} missing files found, requesting...');
       final peers = ref.read(peersProvider);
       if (peers.isEmpty) return;
       for (final fileId in toRequest) {
@@ -531,7 +536,7 @@ class EventStreamNotifier extends Notifier<bool> {
         await Future.delayed(const Duration(milliseconds: 500));
       }
     } catch (e) {
-      debugPrint('[HAVEN] Failed to request missing files: $e');
+      debugPrint('[HOLLOW] Failed to request missing files: $e');
     }
   }
 
@@ -547,7 +552,7 @@ class EventStreamNotifier extends Notifier<bool> {
         return t == null || (!t.isDownloading && !t.isComplete);
       }).toList();
       if (toRequest.isEmpty) return;
-      debugPrint('[HAVEN] ${toRequest.length} missing DM files, requesting from $peerId');
+      debugPrint('[HOLLOW] ${toRequest.length} missing DM files, requesting from $peerId');
       for (final fileId in toRequest) {
         try {
           await requestFileFromPeer(
@@ -559,7 +564,7 @@ class EventStreamNotifier extends Notifier<bool> {
         await Future.delayed(const Duration(milliseconds: 500));
       }
     } catch (e) {
-      debugPrint('[HAVEN] Failed to request missing DM files: $e');
+      debugPrint('[HOLLOW] Failed to request missing DM files: $e');
     }
   }
 
@@ -581,7 +586,7 @@ class EventStreamNotifier extends Notifier<bool> {
         }
       }
     } catch (e) {
-      debugPrint('[HAVEN] Failed to reload chat for file $fileId: $e');
+      debugPrint('[HOLLOW] Failed to reload chat for file $fileId: $e');
     }
   }
 

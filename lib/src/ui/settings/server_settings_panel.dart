@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/models/server_info.dart';
-import 'package:haven/src/core/providers/server_provider.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
-import 'package:haven/src/ui/settings/channels_tab.dart';
-import 'package:haven/src/ui/settings/danger_zone_tab.dart';
-import 'package:haven/src/ui/settings/members_tab.dart';
-import 'package:haven/src/ui/settings/notifications_tab.dart';
-import 'package:haven/src/ui/settings/overview_tab.dart';
+import 'package:hollow/src/core/models/server_info.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/ui/settings/channels_tab.dart';
+import 'package:hollow/src/ui/settings/danger_zone_tab.dart';
+import 'package:hollow/src/ui/settings/members_tab.dart';
+import 'package:hollow/src/ui/settings/notifications_tab.dart';
+import 'package:hollow/src/ui/settings/overview_tab.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Full server settings panel — replaces the chat pane.
@@ -100,7 +100,7 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     // Re-read the server from provider so it updates when renamed
     final currentServer =
@@ -115,31 +115,31 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
         children: [
           Container(
             height: 48,
-            padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.lg),
+            padding: const EdgeInsets.symmetric(horizontal: HollowSpacing.lg),
             decoration: BoxDecoration(
-              border: Border(bottom: BorderSide(color: haven.border)),
+              border: Border(bottom: BorderSide(color: hollow.border)),
             ),
             child: Row(
               children: [
-                Icon(LucideIcons.settings, size: 18, color: haven.textSecondary),
-                const SizedBox(width: HavenSpacing.sm),
+                Icon(LucideIcons.settings, size: 18, color: hollow.textSecondary),
+                const SizedBox(width: HollowSpacing.sm),
                 Expanded(
                   child: Text(
                     'Server Settings — ${currentServer.name}',
-                    style: HavenTypography.subheading.copyWith(
-                      color: haven.textPrimary,
+                    style: HollowTypography.subheading.copyWith(
+                      color: hollow.textPrimary,
                       fontWeight: FontWeight.w600,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                HavenPressable(
+                HollowPressable(
                   onTap: () {
                     ref.read(serverSettingsOpenProvider.notifier).state = false;
                   },
-                  borderRadius: BorderRadius.circular(haven.radiusSm),
-                  padding: const EdgeInsets.all(HavenSpacing.xs),
-                  child: Icon(LucideIcons.x, size: 18, color: haven.textSecondary),
+                  borderRadius: BorderRadius.circular(hollow.radiusSm),
+                  padding: const EdgeInsets.all(HollowSpacing.xs),
+                  child: Icon(LucideIcons.x, size: 18, color: hollow.textSecondary),
                 ),
               ],
             ),
@@ -163,34 +163,34 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
         Container(
           height: 48,
           padding:
-              const EdgeInsets.symmetric(horizontal: HavenSpacing.lg),
+              const EdgeInsets.symmetric(horizontal: HollowSpacing.lg),
           decoration: BoxDecoration(
-            border: Border(bottom: BorderSide(color: haven.border)),
+            border: Border(bottom: BorderSide(color: hollow.border)),
           ),
           child: Row(
             children: [
               Icon(LucideIcons.settings,
-                  size: 18, color: haven.textSecondary),
-              const SizedBox(width: HavenSpacing.sm),
+                  size: 18, color: hollow.textSecondary),
+              const SizedBox(width: HollowSpacing.sm),
               Expanded(
                 child: Text(
                   'Server Settings — ${currentServer.name}',
-                  style: HavenTypography.subheading.copyWith(
-                    color: haven.textPrimary,
+                  style: HollowTypography.subheading.copyWith(
+                    color: hollow.textPrimary,
                     fontWeight: FontWeight.w600,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              HavenPressable(
+              HollowPressable(
                 onTap: () {
                   ref.read(serverSettingsOpenProvider.notifier).state =
                       false;
                 },
-                borderRadius: BorderRadius.circular(haven.radiusSm),
-                padding: const EdgeInsets.all(HavenSpacing.xs),
+                borderRadius: BorderRadius.circular(hollow.radiusSm),
+                padding: const EdgeInsets.all(HollowSpacing.xs),
                 child: Icon(LucideIcons.x,
-                    size: 18, color: haven.textSecondary),
+                    size: 18, color: hollow.textSecondary),
               ),
             ],
           ),
@@ -200,10 +200,10 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
         Container(
           height: 40,
           padding:
-              const EdgeInsets.symmetric(horizontal: HavenSpacing.md),
+              const EdgeInsets.symmetric(horizontal: HollowSpacing.md),
           decoration: BoxDecoration(
-            color: haven.surface,
-            border: Border(bottom: BorderSide(color: haven.border)),
+            color: hollow.surface,
+            border: Border(bottom: BorderSide(color: hollow.border)),
           ),
           child: Row(
             children: List.generate(tabs.length, (i) {
@@ -258,26 +258,26 @@ class _TabButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
-    final activeColor = isDanger ? haven.error : haven.accent;
-    final color = isSelected ? activeColor : haven.textSecondary;
+    final hollow = HollowTheme.of(context);
+    final activeColor = isDanger ? hollow.error : hollow.accent;
+    final color = isSelected ? activeColor : hollow.textSecondary;
 
-    return HavenPressable(
+    return HollowPressable(
       onTap: onTap,
       subtle: true,
-      borderRadius: BorderRadius.circular(haven.radiusSm),
+      borderRadius: BorderRadius.circular(hollow.radiusSm),
       padding: const EdgeInsets.symmetric(
-        horizontal: HavenSpacing.md,
-        vertical: HavenSpacing.sm,
+        horizontal: HollowSpacing.md,
+        vertical: HollowSpacing.sm,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 14, color: color),
-          const SizedBox(width: HavenSpacing.xs),
+          const SizedBox(width: HollowSpacing.xs),
           Text(
             label,
-            style: HavenTypography.label.copyWith(
+            style: HollowTypography.label.copyWith(
               color: color,
               fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
             ),

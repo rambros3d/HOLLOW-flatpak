@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
+import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 
 /// Tracks pinned message IDs per channel.
 /// State: Map of "serverId:channelId" to List of message IDs.
@@ -18,7 +18,7 @@ class PinnedNotifier extends Notifier<Map<String, List<String>>> {
       );
       state = {...state, key: pins};
     } catch (e) {
-      debugPrint('[HAVEN] Failed to load pins: $e');
+      debugPrint('[HOLLOW] Failed to load pins: $e');
     }
   }
 

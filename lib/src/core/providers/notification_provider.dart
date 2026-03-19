@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/rust/api/storage.dart' as storage_api;
+import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 
 /// Notification level for a server or channel.
 enum NotificationLevel {

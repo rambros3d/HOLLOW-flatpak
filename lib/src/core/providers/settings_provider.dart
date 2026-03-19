@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/rust/api/storage.dart' as storage_api;
+import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 
 /// Whether closing the window minimizes to system tray instead of quitting.
 /// Default: true (minimize to tray).

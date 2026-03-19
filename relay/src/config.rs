@@ -5,7 +5,7 @@ use clap::Parser;
 use libp2p::identity;
 
 #[derive(Parser)]
-#[command(name = "haven-relay", about = "Haven combined relay + signaling server")]
+#[command(name = "hollow-relay", about = "Hollow combined relay + signaling server")]
 pub struct Config {
     /// TCP port for libp2p relay
     #[arg(long, default_value = "4001")]

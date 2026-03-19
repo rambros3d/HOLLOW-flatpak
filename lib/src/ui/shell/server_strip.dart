@@ -1,20 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/providers/channel_provider.dart';
-import 'package:haven/src/core/providers/selected_peer_provider.dart';
-import 'package:haven/src/core/providers/server_provider.dart';
-import 'package:haven/src/core/providers/notification_provider.dart';
-import 'package:haven/src/core/providers/unread_provider.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/ui/animations/haven_curves.dart';
-import 'package:haven/src/ui/components/haven_tooltip.dart';
-import 'package:haven/src/ui/dialogs/create_server_dialog.dart';
+import 'package:hollow/src/core/providers/channel_provider.dart';
+import 'package:hollow/src/core/providers/selected_peer_provider.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
+import 'package:hollow/src/core/providers/notification_provider.dart';
+import 'package:hollow/src/core/providers/unread_provider.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/ui/animations/hollow_curves.dart';
+import 'package:hollow/src/ui/components/hollow_tooltip.dart';
+import 'package:hollow/src/ui/dialogs/create_server_dialog.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Vertical server icon strip (72px wide) — like Discord's left column.
 ///
-/// Shows the Haven home icon, server icons from [serverListProvider],
+/// Shows the Hollow home icon, server icons from [serverListProvider],
 /// and an "add server" button at the bottom.
 class ServerStrip extends ConsumerStatefulWidget {
   const ServerStrip({super.key});
@@ -30,7 +30,7 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final servers = ref.watch(serverListProvider);
     final selectedServerId = ref.watch(selectedServerProvider);
 
@@ -54,7 +54,7 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
       unreadCount: selectedServerId != null ? dmUnreadTotal : 0,
       child: _ServerIcon(
         isSelected: selectedServerId == null,
-        backgroundColor: haven.accent,
+        backgroundColor: hollow.accent,
         onTap: () {
           ref.read(selectedServerProvider.notifier).state = null;
           ref.read(channelListProvider.notifier).clear();
@@ -64,7 +64,7 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
         child: Text(
           'H',
           style: TextStyle(
-            color: haven.textOnAccent,
+            color: hollow.textOnAccent,
             fontSize: 22,
             fontWeight: FontWeight.w700,
           ),
@@ -77,21 +77,21 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
       width: 32,
       height: 2,
       decoration: BoxDecoration(
-        color: haven.border,
+        color: hollow.border,
         borderRadius: BorderRadius.circular(1),
       ),
     );
 
     // Add server button
     Widget addButton = Padding(
-      padding: const EdgeInsets.only(bottom: HavenSpacing.md),
+      padding: const EdgeInsets.only(bottom: HollowSpacing.md),
       child: _ServerIcon(
-        backgroundColor: haven.elevated,
+        backgroundColor: hollow.elevated,
         tooltip: 'Create a server',
         onTap: () => showCreateServerDialog(context),
         child: Icon(
           LucideIcons.plus,
-          color: haven.accent,
+          color: hollow.accent,
           size: 24,
         ),
       ),
@@ -104,27 +104,27 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            haven.background,
-            Color.lerp(haven.background, haven.accent, 0.08)!,
+            hollow.background,
+            Color.lerp(hollow.background, hollow.accent, 0.08)!,
           ],
         ),
         border: Border(
-          right: BorderSide(color: haven.border),
+          right: BorderSide(color: hollow.border),
         ),
       ),
       child: Column(
         children: [
-          const SizedBox(height: HavenSpacing.md),
+          const SizedBox(height: HollowSpacing.md),
           homeIcon,
-          const SizedBox(height: HavenSpacing.sm),
+          const SizedBox(height: HollowSpacing.sm),
           divider,
-          const SizedBox(height: HavenSpacing.sm),
+          const SizedBox(height: HollowSpacing.sm),
 
           // Server icon list
           Expanded(
             child: ListView.builder(
               itemCount: serverEntries.length,
-              padding: const EdgeInsets.symmetric(vertical: HavenSpacing.xs),
+              padding: const EdgeInsets.symmetric(vertical: HollowSpacing.xs),
               itemBuilder: (context, index) {
                 final server = serverEntries[index];
                 final isSelected = server.serverId == selectedServerId;
@@ -202,7 +202,7 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
                 }
 
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: HavenSpacing.sm),
+                  padding: const EdgeInsets.only(bottom: HollowSpacing.sm),
                   child: icon,
                 );
               },
@@ -216,7 +216,7 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
   }
 }
 
-/// Deterministic color from an ID string (same logic as HavenAvatar).
+/// Deterministic color from an ID string (same logic as HollowAvatar).
 Color _colorFromId(String id) {
   final hash = id.hashCode;
   final hue = (hash % 360).abs().toDouble();
@@ -256,7 +256,7 @@ class _ServerIconWithIndicatorState
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     // Indicator height: selected=36, hovering=20, default=0.
     final indicatorHeight =
@@ -272,12 +272,12 @@ class _ServerIconWithIndicatorState
           children: [
             // Left-edge pill indicator
             AnimatedContainer(
-              duration: HavenDurations.fast,
-              curve: HavenCurves.enter,
+              duration: HollowDurations.fast,
+              curve: HollowCurves.enter,
               width: 3,
               height: indicatorHeight,
               decoration: BoxDecoration(
-                color: haven.textPrimary,
+                color: hollow.textPrimary,
                 borderRadius: const BorderRadius.only(
                   topRight: Radius.circular(4),
                   bottomRight: Radius.circular(4),
@@ -299,10 +299,10 @@ class _ServerIconWithIndicatorState
                       height: 16,
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                       decoration: BoxDecoration(
-                        color: haven.error,
+                        color: hollow.error,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: haven.background,
+                          color: hollow.background,
                           width: 2,
                         ),
                       ),
@@ -356,15 +356,15 @@ class _ServerIconState extends State<_ServerIcon> {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     // Stay pill-shaped when selected or hovering.
     final radius =
-        (_hovering || widget.isSelected) ? 16.0 : haven.radiusLg;
+        (_hovering || widget.isSelected) ? 16.0 : hollow.radiusLg;
 
     // Hover brightens the background slightly.
     final effectiveBg = _hovering && !widget.isSelected
-        ? Color.lerp(widget.backgroundColor, haven.accent, 0.15)!
+        ? Color.lerp(widget.backgroundColor, hollow.accent, 0.15)!
         : widget.backgroundColor;
 
     Widget icon = MouseRegion(
@@ -385,7 +385,7 @@ class _ServerIconState extends State<_ServerIcon> {
             borderRadius: BorderRadius.circular(radius),
             border: widget.isSelected
                 ? Border.all(
-                    color: haven.accent.withValues(alpha: 0.6),
+                    color: hollow.accent.withValues(alpha: 0.6),
                     width: 2,
                   )
                 : null,
@@ -397,7 +397,7 @@ class _ServerIconState extends State<_ServerIcon> {
     );
 
     if (widget.tooltip != null) {
-      icon = HavenTooltip(message: widget.tooltip!, child: icon);
+      icon = HollowTooltip(message: widget.tooltip!, child: icon);
     }
 
     return icon;

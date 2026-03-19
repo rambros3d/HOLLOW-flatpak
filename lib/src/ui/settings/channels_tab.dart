@@ -2,17 +2,17 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/models/channel_info.dart';
-import 'package:haven/src/core/providers/channel_provider.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_button.dart';
-import 'package:haven/src/ui/components/haven_dialog.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
-import 'package:haven/src/ui/components/haven_text_field.dart';
-import 'package:haven/src/ui/components/haven_toast.dart';
-import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
+import 'package:hollow/src/core/models/channel_info.dart';
+import 'package:hollow/src/core/providers/channel_provider.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_button.dart';
+import 'package:hollow/src/ui/components/hollow_dialog.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/ui/components/hollow_text_field.dart';
+import 'package:hollow/src/ui/components/hollow_toast.dart';
+import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// A layout item — either a category header or a channel.
@@ -142,20 +142,20 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
     setState(() {
            _savedLayout = List.from(_layout);
     });
-    HavenToast.show(
+    HollowToast.show(
       context,
       'Channel layout saved',
-      type: HavenToastType.success,
+      type: HollowToastType.success,
     );
   }
 
   void _addChannel() {
     final controller = TextEditingController();
-    showHavenDialog(
+    showHollowDialog(
       context: context,
-      builder: (ctx) => HavenDialog(
+      builder: (ctx) => HollowDialog(
         title: 'New Channel',
-        content: HavenTextField(
+        content: HollowTextField(
           controller: controller,
           hintText: 'Channel name',
           autofocus: true,
@@ -176,11 +176,11 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
           },
         ),
         actions: [
-          HavenButton.ghost(
+          HollowButton.ghost(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
-          HavenButton.filled(
+          HollowButton.filled(
             onPressed: () {
               final name = controller.text.trim();
               if (name.isNotEmpty) {
@@ -202,11 +202,11 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
 
   void _addCategory() {
     final controller = TextEditingController();
-    showHavenDialog(
+    showHollowDialog(
       context: context,
-      builder: (ctx) => HavenDialog(
+      builder: (ctx) => HollowDialog(
         title: 'New Category',
-        content: HavenTextField(
+        content: HollowTextField(
           controller: controller,
           hintText: 'Category name',
           autofocus: true,
@@ -222,11 +222,11 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
           },
         ),
         actions: [
-          HavenButton.ghost(
+          HollowButton.ghost(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
-          HavenButton.filled(
+          HollowButton.filled(
             onPressed: () {
               final name = controller.text.trim();
               if (name.isNotEmpty) {
@@ -245,11 +245,11 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
 
   void _renameCategory(int index, String currentName) {
     final controller = TextEditingController(text: currentName);
-    showHavenDialog(
+    showHollowDialog(
       context: context,
-      builder: (ctx) => HavenDialog(
+      builder: (ctx) => HollowDialog(
         title: 'Rename Category',
-        content: HavenTextField(
+        content: HollowTextField(
           controller: controller,
           hintText: 'Category name',
           autofocus: true,
@@ -265,11 +265,11 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
           },
         ),
         actions: [
-          HavenButton.ghost(
+          HollowButton.ghost(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
-          HavenButton.filled(
+          HollowButton.filled(
             onPressed: () {
               final name = controller.text.trim();
               if (name.isNotEmpty) {
@@ -294,11 +294,11 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
 
   void _renameChannel(String channelId, String currentName) {
     final controller = TextEditingController(text: currentName);
-    showHavenDialog(
+    showHollowDialog(
       context: context,
-      builder: (ctx) => HavenDialog(
+      builder: (ctx) => HollowDialog(
         title: 'Rename Channel',
-        content: HavenTextField(
+        content: HollowTextField(
           controller: controller,
           hintText: 'Channel name',
           autofocus: true,
@@ -315,11 +315,11 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
           },
         ),
         actions: [
-          HavenButton.ghost(
+          HollowButton.ghost(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
-          HavenButton.filled(
+          HollowButton.filled(
             onPressed: () {
               final newName = controller.text.trim();
               if (newName.isNotEmpty && newName != currentName) {
@@ -339,20 +339,20 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
   }
 
   void _deleteChannel(String channelId, String name) {
-    showHavenDialog(
+    showHollowDialog(
       context: context,
-      builder: (ctx) => HavenDialog(
+      builder: (ctx) => HollowDialog(
         title: 'Delete Channel',
         content: Text(
           'Are you sure you want to delete #$name? This cannot be undone.',
-          style: HavenTypography.body,
+          style: HollowTypography.body,
         ),
         actions: [
-          HavenButton.ghost(
+          HollowButton.ghost(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
-          HavenButton.danger(
+          HollowButton.danger(
             onPressed: () {
               crdt_api.removeChannel(
                 serverId: widget.serverId,
@@ -363,10 +363,10 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
                     (i) => i is ChannelItem && i.channelId == channelId);
               });
               Navigator.pop(ctx);
-              HavenToast.show(
+              HollowToast.show(
                 context,
                 'Channel #$name deleted',
-                type: HavenToastType.info,
+                type: HollowToastType.info,
               );
             },
             child: const Text('Delete'),
@@ -378,7 +378,7 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final channels = ref.watch(channelListProvider);
 
     if (!_loaded) {
@@ -418,19 +418,19 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
         // Header row with action buttons
         Padding(
           padding: const EdgeInsets.fromLTRB(
-            HavenSpacing.lg, HavenSpacing.md, HavenSpacing.lg, HavenSpacing.sm,
+            HollowSpacing.lg, HollowSpacing.md, HollowSpacing.lg, HollowSpacing.sm,
           ),
           child: Row(
             children: [
               Expanded(
                 child: Text(
                   'Drag to reorder channels and categories',
-                  style: HavenTypography.caption.copyWith(
-                    color: haven.textSecondary,
+                  style: HollowTypography.caption.copyWith(
+                    color: hollow.textSecondary,
                   ),
                 ),
               ),
-              HavenButton.ghost(
+              HollowButton.ghost(
                 onPressed: () {
                   setState(() {
                     _layout.add(const SeparatorItem());
@@ -440,15 +440,15 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
                 icon: Icon(LucideIcons.minus, size: 14),
                 child: const Text('Break'),
               ),
-              const SizedBox(width: HavenSpacing.sm),
-              HavenButton.ghost(
+              const SizedBox(width: HollowSpacing.sm),
+              HollowButton.ghost(
                 onPressed: _addCategory,
                 compact: true,
                 icon: Icon(LucideIcons.folderPlus, size: 14),
                 child: const Text('Category'),
               ),
-              const SizedBox(width: HavenSpacing.sm),
-              HavenButton.ghost(
+              const SizedBox(width: HollowSpacing.sm),
+              HollowButton.ghost(
                 onPressed: _addChannel,
                 compact: true,
                 icon: Icon(LucideIcons.plus, size: 14),
@@ -458,7 +458,7 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
           ),
         ),
 
-        Divider(height: 1, color: haven.border),
+        Divider(height: 1, color: hollow.border),
 
         // Drag-and-drop list
         Expanded(
@@ -466,12 +466,12 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
               ? Center(
                   child: Text(
                     'No channels yet. Create one to get started.',
-                    style: HavenTypography.body
-                        .copyWith(color: haven.textSecondary),
+                    style: HollowTypography.body
+                        .copyWith(color: hollow.textSecondary),
                   ),
                 )
               : ReorderableListView.builder(
-                  padding: const EdgeInsets.all(HavenSpacing.md),
+                  padding: const EdgeInsets.all(HollowSpacing.md),
                   itemCount: _layout.length,
                   buildDefaultDragHandles: false,
                   proxyDecorator: (child, index, animation) {
@@ -482,7 +482,7 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
                         elevation: 4,
                         shadowColor: Colors.black26,
                         borderRadius:
-                            BorderRadius.circular(haven.radiusMd),
+                            BorderRadius.circular(hollow.radiusMd),
                         child: child,
                       ),
                       child: child,
@@ -560,12 +560,12 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
         if (_dirty)
           Padding(
             padding: const EdgeInsets.fromLTRB(
-              HavenSpacing.lg, HavenSpacing.sm, HavenSpacing.lg, HavenSpacing.lg,
+              HollowSpacing.lg, HollowSpacing.sm, HollowSpacing.lg, HollowSpacing.lg,
             ),
             child: Row(
               children: [
                 Expanded(
-                  child: HavenButton.ghost(
+                  child: HollowButton.ghost(
                     onPressed: () {
                       // Reload from DB to get current state
                       // (channels created/deleted are CRDT ops, can't undo).
@@ -579,9 +579,9 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
                     child: const Text('Discard'),
                   ),
                 ),
-                const SizedBox(width: HavenSpacing.sm),
+                const SizedBox(width: HollowSpacing.sm),
                 Expanded(
-                  child: HavenButton.filled(
+                  child: HollowButton.filled(
                     onPressed: _save,
                     expand: true,
                     icon: Icon(LucideIcons.save, size: 16),
@@ -612,20 +612,20 @@ class _CategoryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: HavenSpacing.xs),
+      padding: const EdgeInsets.only(bottom: HollowSpacing.xs),
       child: Container(
         padding: const EdgeInsets.symmetric(
-          horizontal: HavenSpacing.sm,
-          vertical: HavenSpacing.sm,
+          horizontal: HollowSpacing.sm,
+          vertical: HollowSpacing.sm,
         ),
         decoration: BoxDecoration(
-          color: haven.accent.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(haven.radiusMd),
+          color: hollow.accent.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(hollow.radiusMd),
           border: Border.all(
-            color: haven.accent.withValues(alpha: 0.15),
+            color: hollow.accent.withValues(alpha: 0.15),
           ),
         ),
         child: Row(
@@ -633,35 +633,35 @@ class _CategoryRow extends StatelessWidget {
             ReorderableDragStartListener(
               index: index,
               child: Icon(LucideIcons.gripVertical,
-                  size: 16, color: haven.textSecondary),
+                  size: 16, color: hollow.textSecondary),
             ),
-            const SizedBox(width: HavenSpacing.sm),
-            Icon(LucideIcons.folder, size: 16, color: haven.accent),
-            const SizedBox(width: HavenSpacing.sm),
+            const SizedBox(width: HollowSpacing.sm),
+            Icon(LucideIcons.folder, size: 16, color: hollow.accent),
+            const SizedBox(width: HollowSpacing.sm),
             Expanded(
               child: Text(
                 name.toUpperCase(),
-                style: HavenTypography.caption.copyWith(
-                  color: haven.accent,
+                style: HollowTypography.caption.copyWith(
+                  color: hollow.accent,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.8,
                 ),
               ),
             ),
-            HavenPressable(
+            HollowPressable(
               onTap: onRename,
-              borderRadius: BorderRadius.circular(haven.radiusSm),
-              padding: const EdgeInsets.all(HavenSpacing.xs),
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
+              padding: const EdgeInsets.all(HollowSpacing.xs),
               child: Icon(LucideIcons.pencil,
-                  size: 14, color: haven.textSecondary),
+                  size: 14, color: hollow.textSecondary),
             ),
-            const SizedBox(width: HavenSpacing.xs),
-            HavenPressable(
+            const SizedBox(width: HollowSpacing.xs),
+            HollowPressable(
               onTap: onDelete,
-              borderRadius: BorderRadius.circular(haven.radiusSm),
-              padding: const EdgeInsets.all(HavenSpacing.xs),
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
+              padding: const EdgeInsets.all(HollowSpacing.xs),
               child:
-                  Icon(LucideIcons.trash2, size: 14, color: haven.error),
+                  Icon(LucideIcons.trash2, size: 14, color: hollow.error),
             ),
           ],
         ),
@@ -690,10 +690,10 @@ class _ChannelRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: HavenSpacing.xs),
+      padding: const EdgeInsets.only(bottom: HollowSpacing.xs),
       child: Row(
         children: [
           if (indented) ...[
@@ -703,7 +703,7 @@ class _ChannelRow extends StatelessWidget {
               height: 32,
               child: CustomPaint(
                 painter: _TreeConnectorPainter(
-                  color: haven.border,
+                  color: hollow.border,
                   isLast: isLast,
                 ),
               ),
@@ -713,45 +713,45 @@ class _ChannelRow extends StatelessWidget {
           Expanded(
             child: Container(
               padding: const EdgeInsets.symmetric(
-                horizontal: HavenSpacing.sm,
-                vertical: HavenSpacing.sm,
+                horizontal: HollowSpacing.sm,
+                vertical: HollowSpacing.sm,
               ),
               decoration: BoxDecoration(
-                color: haven.elevated,
-                borderRadius: BorderRadius.circular(haven.radiusMd),
+                color: hollow.elevated,
+                borderRadius: BorderRadius.circular(hollow.radiusMd),
               ),
               child: Row(
                 children: [
                   ReorderableDragStartListener(
                     index: index,
                     child: Icon(LucideIcons.gripVertical,
-                        size: 16, color: haven.textSecondary),
+                        size: 16, color: hollow.textSecondary),
                   ),
-                  const SizedBox(width: HavenSpacing.sm),
-                  Icon(LucideIcons.hash, size: 16, color: haven.textSecondary),
-                  const SizedBox(width: HavenSpacing.sm),
+                  const SizedBox(width: HollowSpacing.sm),
+                  Icon(LucideIcons.hash, size: 16, color: hollow.textSecondary),
+                  const SizedBox(width: HollowSpacing.sm),
                   Expanded(
                     child: Text(
                       name,
-                      style: HavenTypography.body
-                          .copyWith(color: haven.textPrimary),
+                      style: HollowTypography.body
+                          .copyWith(color: hollow.textPrimary),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  HavenPressable(
+                  HollowPressable(
                     onTap: onRename,
-                    borderRadius: BorderRadius.circular(haven.radiusSm),
-                    padding: const EdgeInsets.all(HavenSpacing.xs),
+                    borderRadius: BorderRadius.circular(hollow.radiusSm),
+                    padding: const EdgeInsets.all(HollowSpacing.xs),
                     child: Icon(LucideIcons.pencil,
-                        size: 14, color: haven.textSecondary),
+                        size: 14, color: hollow.textSecondary),
                   ),
-                  const SizedBox(width: HavenSpacing.xs),
-                  HavenPressable(
+                  const SizedBox(width: HollowSpacing.xs),
+                  HollowPressable(
                     onTap: onDelete,
-                    borderRadius: BorderRadius.circular(haven.radiusSm),
-                    padding: const EdgeInsets.all(HavenSpacing.xs),
+                    borderRadius: BorderRadius.circular(hollow.radiusSm),
+                    padding: const EdgeInsets.all(HollowSpacing.xs),
                     child:
-                        Icon(LucideIcons.trash2, size: 14, color: haven.error),
+                        Icon(LucideIcons.trash2, size: 14, color: hollow.error),
                   ),
                 ],
               ),
@@ -776,30 +776,30 @@ class _SeparatorRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: HavenSpacing.xs),
+      padding: const EdgeInsets.symmetric(vertical: HollowSpacing.xs),
       child: Row(
         children: [
           ReorderableDragStartListener(
             index: index,
             child: Icon(LucideIcons.gripVertical,
-                size: 16, color: haven.textSecondary),
+                size: 16, color: hollow.textSecondary),
           ),
-          const SizedBox(width: HavenSpacing.sm),
+          const SizedBox(width: HollowSpacing.sm),
           Expanded(
             child: Container(
               height: 1.5,
-              color: haven.border,
+              color: hollow.border,
             ),
           ),
-          const SizedBox(width: HavenSpacing.sm),
-          HavenPressable(
+          const SizedBox(width: HollowSpacing.sm),
+          HollowPressable(
             onTap: onDelete,
-            borderRadius: BorderRadius.circular(haven.radiusSm),
-            padding: const EdgeInsets.all(HavenSpacing.xs),
-            child: Icon(LucideIcons.x, size: 12, color: haven.textSecondary),
+            borderRadius: BorderRadius.circular(hollow.radiusSm),
+            padding: const EdgeInsets.all(HollowSpacing.xs),
+            child: Icon(LucideIcons.x, size: 12, color: hollow.textSecondary),
           ),
         ],
       ),

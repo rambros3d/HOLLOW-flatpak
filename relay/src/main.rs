@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let peer_id = keypair.public().to_peer_id();
 
     tracing::info!("========================================");
-    tracing::info!("Haven Relay + Signaling Server");
+    tracing::info!("Hollow Relay + Signaling Server");
     tracing::info!("PeerId: {peer_id}");
     tracing::info!("libp2p port: {}", config.libp2p_port);
     tracing::info!("HTTP port: {}", config.http_port);

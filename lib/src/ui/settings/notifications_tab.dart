@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/providers/channel_provider.dart';
-import 'package:haven/src/core/providers/notification_provider.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
+import 'package:hollow/src/core/providers/channel_provider.dart';
+import 'package:hollow/src/core/providers/notification_provider.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Notifications settings tab in Server Settings.
@@ -18,7 +18,7 @@ class NotificationsTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final notifState = ref.watch(notificationSettingsProvider);
     final notifNotifier = ref.read(notificationSettingsProvider.notifier);
     final channels = ref.watch(channelListProvider);
@@ -26,30 +26,30 @@ class NotificationsTab extends ConsumerWidget {
         NotificationLevel.all;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(HavenSpacing.xl),
+      padding: const EdgeInsets.all(HollowSpacing.xl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Server-wide setting
           Text(
             'SERVER NOTIFICATIONS',
-            style: HavenTypography.caption.copyWith(
-              color: haven.textSecondary,
+            style: HollowTypography.caption.copyWith(
+              color: hollow.textSecondary,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.5,
               fontSize: 10,
             ),
           ),
-          const SizedBox(height: HavenSpacing.sm),
+          const SizedBox(height: HollowSpacing.sm),
 
           Text(
             'Default notification level for all channels in this server.',
-            style: HavenTypography.body.copyWith(
-              color: haven.textSecondary,
+            style: HollowTypography.body.copyWith(
+              color: hollow.textSecondary,
               fontSize: 12,
             ),
           ),
-          const SizedBox(height: HavenSpacing.md),
+          const SizedBox(height: HollowSpacing.md),
 
           _NotificationLevelSelector(
             value: serverLevel,
@@ -57,37 +57,37 @@ class NotificationsTab extends ConsumerWidget {
                 notifNotifier.setServerLevel(serverId, level),
           ),
 
-          const SizedBox(height: HavenSpacing.xxl),
+          const SizedBox(height: HollowSpacing.xxl),
 
           // Per-channel overrides
           Text(
             'CHANNEL OVERRIDES',
-            style: HavenTypography.caption.copyWith(
-              color: haven.textSecondary,
+            style: HollowTypography.caption.copyWith(
+              color: hollow.textSecondary,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.5,
               fontSize: 10,
             ),
           ),
-          const SizedBox(height: HavenSpacing.xs),
+          const SizedBox(height: HollowSpacing.xs),
           Text(
             'Override notification settings for specific channels.',
-            style: HavenTypography.body.copyWith(
-              color: haven.textSecondary,
+            style: HollowTypography.body.copyWith(
+              color: hollow.textSecondary,
               fontSize: 12,
             ),
           ),
-          const SizedBox(height: HavenSpacing.md),
+          const SizedBox(height: HollowSpacing.md),
 
           if (channels.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(
-                  vertical: HavenSpacing.xl),
+                  vertical: HollowSpacing.xl),
               child: Center(
                 child: Text(
                   'No channels',
-                  style: HavenTypography.body.copyWith(
-                    color: haven.textSecondary,
+                  style: HollowTypography.body.copyWith(
+                    color: hollow.textSecondary,
                   ),
                 ),
               ),
@@ -99,26 +99,26 @@ class NotificationsTab extends ConsumerWidget {
 
               return Padding(
                 padding: const EdgeInsets.only(
-                    bottom: HavenSpacing.sm),
+                    bottom: HollowSpacing.sm),
                 child: Row(
                   children: [
                     Icon(
                       LucideIcons.hash,
                       size: 16,
-                      color: haven.textSecondary,
+                      color: hollow.textSecondary,
                     ),
-                    const SizedBox(width: HavenSpacing.sm),
+                    const SizedBox(width: HollowSpacing.sm),
                     Expanded(
                       child: Text(
                         channel.name,
-                        style: HavenTypography.body.copyWith(
-                          color: haven.textPrimary,
+                        style: HollowTypography.body.copyWith(
+                          color: hollow.textPrimary,
                           fontSize: 13,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    const SizedBox(width: HavenSpacing.md),
+                    const SizedBox(width: HollowSpacing.md),
                     _ChannelOverrideDropdown(
                       value: override,
                       onChanged: (level) =>
@@ -147,7 +147,7 @@ class _NotificationLevelSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     return Row(
       children: [
@@ -157,21 +157,21 @@ class _NotificationLevelSelector extends StatelessWidget {
           isSelected: value == NotificationLevel.all,
           onTap: () => onChanged(NotificationLevel.all),
         ),
-        const SizedBox(width: HavenSpacing.sm),
+        const SizedBox(width: HollowSpacing.sm),
         _LevelChip(
           label: 'Mentions Only',
           icon: LucideIcons.atSign,
           isSelected: value == NotificationLevel.mentions,
           onTap: () => onChanged(NotificationLevel.mentions),
-          activeColor: haven.warning,
+          activeColor: hollow.warning,
         ),
-        const SizedBox(width: HavenSpacing.sm),
+        const SizedBox(width: HollowSpacing.sm),
         _LevelChip(
           label: 'Nothing',
           icon: LucideIcons.bellOff,
           isSelected: value == NotificationLevel.nothing,
           onTap: () => onChanged(NotificationLevel.nothing),
-          activeColor: haven.error,
+          activeColor: hollow.error,
         ),
       ],
     );
@@ -197,8 +197,8 @@ class _LevelChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
-    final color = activeColor ?? haven.accent;
+    final hollow = HollowTheme.of(context);
+    final color = activeColor ?? hollow.accent;
 
     return GestureDetector(
       onTap: onTap,
@@ -207,16 +207,16 @@ class _LevelChip extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(
-            horizontal: HavenSpacing.md,
-            vertical: HavenSpacing.sm,
+            horizontal: HollowSpacing.md,
+            vertical: HollowSpacing.sm,
           ),
           decoration: BoxDecoration(
             color: isSelected
                 ? color.withValues(alpha: 0.15)
-                : haven.surface,
-            borderRadius: BorderRadius.circular(haven.radiusMd),
+                : hollow.surface,
+            borderRadius: BorderRadius.circular(hollow.radiusMd),
             border: Border.all(
-              color: isSelected ? color : haven.border,
+              color: isSelected ? color : hollow.border,
             ),
           ),
           child: Row(
@@ -225,13 +225,13 @@ class _LevelChip extends StatelessWidget {
               Icon(
                 icon,
                 size: 14,
-                color: isSelected ? color : haven.textSecondary,
+                color: isSelected ? color : hollow.textSecondary,
               ),
-              const SizedBox(width: HavenSpacing.xs),
+              const SizedBox(width: HollowSpacing.xs),
               Text(
                 label,
-                style: HavenTypography.body.copyWith(
-                  color: isSelected ? color : haven.textSecondary,
+                style: HollowTypography.body.copyWith(
+                  color: isSelected ? color : hollow.textSecondary,
                   fontSize: 12,
                   fontWeight:
                       isSelected ? FontWeight.w600 : FontWeight.w400,
@@ -245,7 +245,7 @@ class _LevelChip extends StatelessWidget {
   }
 }
 
-/// Per-channel override selector — Haven-styled PopupMenuButton.
+/// Per-channel override selector — Hollow-styled PopupMenuButton.
 class _ChannelOverrideDropdown extends StatelessWidget {
   final ChannelNotificationLevel value;
   final ValueChanged<ChannelNotificationLevel> onChanged;
@@ -264,16 +264,16 @@ class _ChannelOverrideDropdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final currentLabel =
         _options.firstWhere((o) => o.$1 == value).$2;
 
     return PopupMenuButton<ChannelNotificationLevel>(
       onSelected: onChanged,
-      color: haven.elevated,
+      color: hollow.elevated,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(haven.radiusMd),
-        side: BorderSide(color: haven.border),
+        borderRadius: BorderRadius.circular(hollow.radiusMd),
+        side: BorderSide(color: hollow.border),
       ),
       offset: const Offset(0, 32),
       itemBuilder: (context) => _options.map((option) {
@@ -285,13 +285,13 @@ class _ChannelOverrideDropdown extends StatelessWidget {
               Icon(
                 option.$3,
                 size: 14,
-                color: isActive ? haven.accent : haven.textSecondary,
+                color: isActive ? hollow.accent : hollow.textSecondary,
               ),
-              const SizedBox(width: HavenSpacing.sm),
+              const SizedBox(width: HollowSpacing.sm),
               Text(
                 option.$2,
-                style: HavenTypography.body.copyWith(
-                  color: isActive ? haven.accent : haven.textPrimary,
+                style: HollowTypography.body.copyWith(
+                  color: isActive ? hollow.accent : hollow.textPrimary,
                   fontWeight:
                       isActive ? FontWeight.w600 : FontWeight.w400,
                   fontSize: 13,
@@ -303,29 +303,29 @@ class _ChannelOverrideDropdown extends StatelessWidget {
       }).toList(),
       child: Container(
         padding: const EdgeInsets.symmetric(
-          horizontal: HavenSpacing.sm + 2,
-          vertical: HavenSpacing.xs + 2,
+          horizontal: HollowSpacing.sm + 2,
+          vertical: HollowSpacing.xs + 2,
         ),
         decoration: BoxDecoration(
-          color: haven.surface,
-          borderRadius: BorderRadius.circular(haven.radiusSm),
-          border: Border.all(color: haven.border),
+          color: hollow.surface,
+          borderRadius: BorderRadius.circular(hollow.radiusSm),
+          border: Border.all(color: hollow.border),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               currentLabel,
-              style: HavenTypography.body.copyWith(
-                color: haven.textPrimary,
+              style: HollowTypography.body.copyWith(
+                color: hollow.textPrimary,
                 fontSize: 12,
               ),
             ),
-            const SizedBox(width: HavenSpacing.xs),
+            const SizedBox(width: HollowSpacing.xs),
             Icon(
               LucideIcons.chevronDown,
               size: 12,
-              color: haven.textSecondary,
+              color: hollow.textSecondary,
             ),
           ],
         ),

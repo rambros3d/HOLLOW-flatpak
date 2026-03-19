@@ -2,20 +2,20 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/providers/identity_provider.dart';
-import 'package:haven/src/core/providers/profile_provider.dart';
-import 'package:haven/src/core/providers/settings_provider.dart';
-import 'package:haven/src/core/providers/theme_provider.dart';
-import 'package:haven/src/rust/api/network.dart' as network_api;
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_avatar.dart';
-import 'package:haven/src/ui/components/haven_button.dart';
-import 'package:haven/src/ui/components/haven_dialog.dart';
-import 'package:haven/src/ui/components/haven_pressable.dart';
-import 'package:haven/src/ui/components/haven_text_field.dart';
-import 'package:haven/src/ui/components/haven_toggle.dart';
+import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/profile_provider.dart';
+import 'package:hollow/src/core/providers/settings_provider.dart';
+import 'package:hollow/src/core/providers/theme_provider.dart';
+import 'package:hollow/src/rust/api/network.dart' as network_api;
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_avatar.dart';
+import 'package:hollow/src/ui/components/hollow_button.dart';
+import 'package:hollow/src/ui/components/hollow_dialog.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/ui/components/hollow_text_field.dart';
+import 'package:hollow/src/ui/components/hollow_toggle.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Tracks whether the settings dialog is currently open.
@@ -47,7 +47,7 @@ void showUserSettingsDialog(BuildContext context, WidgetRef ref) {
 
   _settingsDialogOpen = true;
 
-  showHavenDialog(
+  showHollowDialog(
     context: context,
     builder: (dialogContext) {
       return _UserSettingsContent(
@@ -190,7 +190,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
   }
 
   void _showRestartDialog(BuildContext parentContext) {
-    showHavenDialog(
+    showHollowDialog(
       context: parentContext,
       builder: (ctx) => _RestartPrompt(),
     );
@@ -224,12 +224,12 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
       });
     }
 
-    final haven = HavenTheme.of(context);
-    final radius = BorderRadius.circular(haven.radiusLg);
+    final hollow = HollowTheme.of(context);
+    final radius = BorderRadius.circular(hollow.radiusLg);
 
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(HavenSpacing.xl),
+        padding: const EdgeInsets.all(HollowSpacing.xl),
         child: ConstrainedBox(
           constraints: const BoxConstraints(
             maxWidth: 680,
@@ -241,10 +241,10 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
             color: Colors.transparent,
             child: Container(
               decoration: BoxDecoration(
-                color: haven.elevated.withValues(alpha: 0.92),
+                color: hollow.elevated.withValues(alpha: 0.92),
                 borderRadius: radius,
                 border: Border.all(
-                  color: haven.accent.withValues(alpha: 0.15),
+                  color: hollow.accent.withValues(alpha: 0.15),
                 ),
                 boxShadow: [
                   BoxShadow(
@@ -258,29 +258,29 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                   // Header
                   Padding(
                     padding: const EdgeInsets.fromLTRB(
-                      HavenSpacing.xl,
-                      HavenSpacing.xl,
-                      HavenSpacing.xl,
+                      HollowSpacing.xl,
+                      HollowSpacing.xl,
+                      HollowSpacing.xl,
                       0,
                     ),
                     child: Row(
                       children: [
                         Text(
                           'Settings',
-                          style: HavenTypography.heading
-                              .copyWith(color: haven.textPrimary),
+                          style: HollowTypography.heading
+                              .copyWith(color: hollow.textPrimary),
                         ),
                       ],
                     ),
                   ),
 
-                  const SizedBox(height: HavenSpacing.lg),
+                  const SizedBox(height: HollowSpacing.lg),
 
                   // Tab rail + content
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: HavenSpacing.xl,
+                        horizontal: HollowSpacing.xl,
                       ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -299,7 +299,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                                   onTap: () => setState(() =>
                                       _activeTab = _SettingsTab.profile),
                                 ),
-                                const SizedBox(height: HavenSpacing.xxs),
+                                const SizedBox(height: HollowSpacing.xxs),
                                 _TabItem(
                                   icon: LucideIcons.monitor,
                                   label: 'System',
@@ -312,21 +312,21 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                             ),
                           ),
 
-                          const SizedBox(width: HavenSpacing.lg),
+                          const SizedBox(width: HollowSpacing.lg),
 
                           // Vertical divider
                           Container(
                             width: 1,
-                            color: haven.border,
+                            color: hollow.border,
                           ),
 
-                          const SizedBox(width: HavenSpacing.xl),
+                          const SizedBox(width: HollowSpacing.xl),
 
                           // Right: content area
                           Expanded(
                             child: _activeTab == _SettingsTab.profile
-                                ? _buildProfileTab(haven)
-                                : _buildSystemTab(haven),
+                                ? _buildProfileTab(hollow)
+                                : _buildSystemTab(hollow),
                           ),
                         ],
                       ),
@@ -335,16 +335,16 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
 
                   // Actions
                   Padding(
-                    padding: const EdgeInsets.all(HavenSpacing.xl),
+                    padding: const EdgeInsets.all(HollowSpacing.xl),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        HavenButton.ghost(
+                        HollowButton.ghost(
                           onPressed: () => Navigator.of(context).pop(),
                           child: const Text('Cancel'),
                         ),
-                        const SizedBox(width: HavenSpacing.sm),
-                        HavenButton.filled(
+                        const SizedBox(width: HollowSpacing.sm),
+                        HollowButton.filled(
                           onPressed: _onSave,
                           child: const Text('Save'),
                         ),
@@ -362,7 +362,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
 
   // ── Profile tab ──────────────────────────────────────────────────
 
-  Widget _buildProfileTab(HavenTheme haven) {
+  Widget _buildProfileTab(HollowTheme hollow) {
     final bannerColor = _bannerColorFromId(widget.localPeerId);
     final previewName = _liveDisplayName.trim().isNotEmpty
         ? _liveDisplayName.trim()
@@ -378,9 +378,9 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
             width: 200,
             child: Container(
               decoration: BoxDecoration(
-                color: haven.surface,
-                borderRadius: BorderRadius.circular(haven.radiusMd),
-                border: Border.all(color: haven.border),
+                color: hollow.surface,
+                borderRadius: BorderRadius.circular(hollow.radiusMd),
+                border: Border.all(color: hollow.border),
               ),
               clipBehavior: Clip.antiAlias,
               child: Column(
@@ -406,7 +406,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                     offset: const Offset(0, -28),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: HavenSpacing.md,
+                        horizontal: HollowSpacing.md,
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.center,
@@ -415,25 +415,25 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                           Container(
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(
-                                  haven.radiusMd + 2),
+                                  hollow.radiusMd + 2),
                               border: Border.all(
-                                color: haven.surface,
+                                color: hollow.surface,
                                 width: 3,
                               ),
                             ),
-                            child: HavenAvatar(
+                            child: HollowAvatar(
                               peerId: widget.localPeerId,
                               size: 56,
                             ),
                           ),
 
-                          const SizedBox(height: HavenSpacing.xs),
+                          const SizedBox(height: HollowSpacing.xs),
 
                           // Display name
                           Text(
                             previewName,
-                            style: HavenTypography.subheading.copyWith(
-                              color: haven.textPrimary,
+                            style: HollowTypography.subheading.copyWith(
+                              color: hollow.textPrimary,
                               fontWeight: FontWeight.w700,
                               fontSize: 14,
                             ),
@@ -444,11 +444,11 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
 
                           // Status
                           if (_liveStatus.trim().isNotEmpty) ...[
-                            const SizedBox(height: HavenSpacing.xxs),
+                            const SizedBox(height: HollowSpacing.xxs),
                             Text(
                               _liveStatus.trim(),
-                              style: HavenTypography.caption.copyWith(
-                                color: haven.textSecondary,
+                              style: HollowTypography.caption.copyWith(
+                                color: hollow.textSecondary,
                                 fontSize: 10,
                                 fontStyle: FontStyle.italic,
                               ),
@@ -458,28 +458,28 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                             ),
                           ],
 
-                          const SizedBox(height: HavenSpacing.sm),
-                          Container(height: 1, color: haven.border),
+                          const SizedBox(height: HollowSpacing.sm),
+                          Container(height: 1, color: hollow.border),
 
                           // About Me preview
                           if (widget.aboutMeController.text
                               .trim()
                               .isNotEmpty) ...[
-                            const SizedBox(height: HavenSpacing.sm),
+                            const SizedBox(height: HollowSpacing.sm),
                             Text(
                               'ABOUT ME',
-                              style: HavenTypography.caption.copyWith(
-                                color: haven.textSecondary,
+                              style: HollowTypography.caption.copyWith(
+                                color: hollow.textSecondary,
                                 fontWeight: FontWeight.w700,
                                 letterSpacing: 0.5,
                                 fontSize: 9,
                               ),
                             ),
-                            const SizedBox(height: HavenSpacing.xxs),
+                            const SizedBox(height: HollowSpacing.xxs),
                             Text(
                               widget.aboutMeController.text.trim(),
-                              style: HavenTypography.caption.copyWith(
-                                color: haven.textSecondary,
+                              style: HollowTypography.caption.copyWith(
+                                color: hollow.textSecondary,
                                 fontSize: 10,
                               ),
                               maxLines: 3,
@@ -489,14 +489,14 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                           ],
 
                           // Peer ID footer
-                          const SizedBox(height: HavenSpacing.sm),
+                          const SizedBox(height: HollowSpacing.sm),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Icon(
                                 LucideIcons.copy,
                                 size: 8,
-                                color: haven.textSecondary
+                                color: hollow.textSecondary
                                     .withValues(alpha: 0.35),
                               ),
                               const SizedBox(width: 3),
@@ -505,8 +505,8 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                                     ? widget.localPeerId.substring(
                                         widget.localPeerId.length - 8)
                                     : widget.localPeerId,
-                                style: HavenTypography.mono.copyWith(
-                                  color: haven.textSecondary
+                                style: HollowTypography.mono.copyWith(
+                                  color: hollow.textSecondary
                                       .withValues(alpha: 0.35),
                                   fontSize: 8,
                                 ),
@@ -522,7 +522,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
             ),
           ),
 
-          const SizedBox(width: HavenSpacing.lg),
+          const SizedBox(width: HollowSpacing.lg),
 
           // Edit fields
           Expanded(
@@ -531,29 +531,29 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _FieldLabel(label: 'DISPLAY NAME'),
-                const SizedBox(height: HavenSpacing.xs),
-                HavenTextField(
+                const SizedBox(height: HollowSpacing.xs),
+                HollowTextField(
                   controller: widget.displayNameController,
                   hintText: 'Enter a display name',
                   autofocus: true,
                   maxLength: 32,
                 ),
 
-                const SizedBox(height: HavenSpacing.lg),
+                const SizedBox(height: HollowSpacing.lg),
 
                 _FieldLabel(label: 'STATUS'),
-                const SizedBox(height: HavenSpacing.xs),
-                HavenTextField(
+                const SizedBox(height: HollowSpacing.xs),
+                HollowTextField(
                   controller: widget.statusController,
                   hintText: 'What are you up to?',
                   maxLength: 48,
                 ),
 
-                const SizedBox(height: HavenSpacing.lg),
+                const SizedBox(height: HollowSpacing.lg),
 
                 _FieldLabel(label: 'ABOUT ME'),
-                const SizedBox(height: HavenSpacing.xs),
-                HavenTextField(
+                const SizedBox(height: HollowSpacing.xs),
+                HollowTextField(
                   controller: widget.aboutMeController,
                   hintText: 'Tell us about yourself',
                   maxLines: 3,
@@ -570,7 +570,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
 
   // ── System tab ───────────────────────────────────────────────────
 
-  Widget _buildSystemTab(HavenTheme haven) {
+  Widget _buildSystemTab(HollowTheme hollow) {
     final isDesktop =
         Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
@@ -582,7 +582,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
         children: [
           // ── Appearance ──
           _SectionLabel(label: 'APPEARANCE'),
-          const SizedBox(height: HavenSpacing.sm),
+          const SizedBox(height: HollowSpacing.sm),
 
           // Theme toggle
           _ToggleRow(
@@ -593,11 +593,11 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                 setState(() => _pendingDarkMode = value),
           ),
 
-          const SizedBox(height: HavenSpacing.xl),
+          const SizedBox(height: HollowSpacing.xl),
 
           // ── System ──
           _SectionLabel(label: 'SYSTEM'),
-          const SizedBox(height: HavenSpacing.sm),
+          const SizedBox(height: HollowSpacing.sm),
 
           // Minimize to tray toggle
           if (isDesktop) ...[
@@ -608,7 +608,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
               onChanged: (value) =>
                   setState(() => _pendingMinimizeToTray = value),
             ),
-            const SizedBox(height: HavenSpacing.md),
+            const SizedBox(height: HollowSpacing.md),
           ],
 
           // Proxy toggle
@@ -621,11 +621,11 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                 setState(() => _pendingProxy = value),
           ),
 
-          const SizedBox(height: HavenSpacing.xl),
+          const SizedBox(height: HollowSpacing.xl),
 
           // ── Keyboard Shortcuts ──
           _SectionLabel(label: 'KEYBOARD SHORTCUTS'),
-          const SizedBox(height: HavenSpacing.sm),
+          const SizedBox(height: HollowSpacing.sm),
 
           _ShortcutRow(
             label: 'Open Settings',
@@ -640,22 +640,22 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
             shortcut: 'Ctrl + K',
           ),
 
-          const SizedBox(height: HavenSpacing.lg),
+          const SizedBox(height: HollowSpacing.lg),
 
           // Sub-section: Chat Input
           Padding(
-            padding: const EdgeInsets.only(left: HavenSpacing.xs),
+            padding: const EdgeInsets.only(left: HollowSpacing.xs),
             child: Text(
               'CHAT INPUT',
-              style: HavenTypography.caption.copyWith(
-                color: haven.textSecondary.withValues(alpha: 0.5),
+              style: HollowTypography.caption.copyWith(
+                color: hollow.textSecondary.withValues(alpha: 0.5),
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.5,
                 fontSize: 9,
               ),
             ),
           ),
-          const SizedBox(height: HavenSpacing.sm),
+          const SizedBox(height: HollowSpacing.sm),
 
           _ShortcutRow(
             label: 'Send Message',
@@ -707,29 +707,29 @@ class _TabItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
-    return HavenPressable(
+    return HollowPressable(
       onTap: onTap,
       subtle: true,
-      borderRadius: BorderRadius.circular(haven.radiusSm),
-      hoverColor: haven.surface,
+      borderRadius: BorderRadius.circular(hollow.radiusSm),
+      hoverColor: hollow.surface,
       padding: const EdgeInsets.symmetric(
-        horizontal: HavenSpacing.md,
-        vertical: HavenSpacing.sm + 2,
+        horizontal: HollowSpacing.md,
+        vertical: HollowSpacing.sm + 2,
       ),
       child: Row(
         children: [
           Icon(
             icon,
             size: 16,
-            color: isActive ? haven.accent : haven.textSecondary,
+            color: isActive ? hollow.accent : hollow.textSecondary,
           ),
-          const SizedBox(width: HavenSpacing.sm),
+          const SizedBox(width: HollowSpacing.sm),
           Text(
             label,
-            style: HavenTypography.body.copyWith(
-              color: isActive ? haven.textPrimary : haven.textSecondary,
+            style: HollowTypography.body.copyWith(
+              color: isActive ? hollow.textPrimary : hollow.textSecondary,
               fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
               fontSize: 13,
             ),
@@ -758,12 +758,12 @@ class _ToggleRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     return Row(
       children: [
-        Icon(icon, size: 16, color: haven.textSecondary),
-        const SizedBox(width: HavenSpacing.sm),
+        Icon(icon, size: 16, color: hollow.textSecondary),
+        const SizedBox(width: HollowSpacing.sm),
         Expanded(
           child: subtitle != null
               ? Column(
@@ -771,13 +771,13 @@ class _ToggleRow extends StatelessWidget {
                   children: [
                     Text(
                       label,
-                      style: HavenTypography.body
-                          .copyWith(color: haven.textPrimary),
+                      style: HollowTypography.body
+                          .copyWith(color: hollow.textPrimary),
                     ),
                     Text(
                       subtitle!,
-                      style: HavenTypography.caption.copyWith(
-                        color: haven.textSecondary,
+                      style: HollowTypography.caption.copyWith(
+                        color: hollow.textSecondary,
                         fontSize: 10,
                       ),
                     ),
@@ -785,11 +785,11 @@ class _ToggleRow extends StatelessWidget {
                 )
               : Text(
                   label,
-                  style: HavenTypography.body
-                      .copyWith(color: haven.textPrimary),
+                  style: HollowTypography.body
+                      .copyWith(color: hollow.textPrimary),
                 ),
         ),
-        HavenToggle(value: value, onChanged: onChanged),
+        HollowToggle(value: value, onChanged: onChanged),
       ],
     );
   }
@@ -807,17 +807,17 @@ class _ShortcutRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: HavenSpacing.xxs + 1),
+      padding: const EdgeInsets.symmetric(vertical: HollowSpacing.xxs + 1),
       child: Row(
         children: [
           Expanded(
             child: Text(
               label,
-              style: HavenTypography.body.copyWith(
-                color: haven.textSecondary,
+              style: HollowTypography.body.copyWith(
+                color: hollow.textSecondary,
                 fontSize: 12,
               ),
             ),
@@ -837,7 +837,7 @@ class _KeyBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
 
     // Split on " + " to render each key individually.
     final keys = shortcut.split(' + ');
@@ -849,31 +849,31 @@ class _KeyBadge extends StatelessWidget {
           if (i > 0)
             Padding(
               padding:
-                  const EdgeInsets.symmetric(horizontal: HavenSpacing.xxs),
+                  const EdgeInsets.symmetric(horizontal: HollowSpacing.xxs),
               child: Text(
                 '+',
-                style: HavenTypography.caption.copyWith(
-                  color: haven.textSecondary.withValues(alpha: 0.4),
+                style: HollowTypography.caption.copyWith(
+                  color: hollow.textSecondary.withValues(alpha: 0.4),
                   fontSize: 9,
                 ),
               ),
             ),
           Container(
             padding: const EdgeInsets.symmetric(
-              horizontal: HavenSpacing.xs + 2,
-              vertical: HavenSpacing.xxs,
+              horizontal: HollowSpacing.xs + 2,
+              vertical: HollowSpacing.xxs,
             ),
             decoration: BoxDecoration(
-              color: haven.surface,
-              borderRadius: BorderRadius.circular(haven.radiusSm - 2),
+              color: hollow.surface,
+              borderRadius: BorderRadius.circular(hollow.radiusSm - 2),
               border: Border.all(
-                color: haven.border,
+                color: hollow.border,
               ),
             ),
             child: Text(
               keys[i],
-              style: HavenTypography.mono.copyWith(
-                color: haven.textSecondary,
+              style: HollowTypography.mono.copyWith(
+                color: hollow.textSecondary,
                 fontSize: 10,
               ),
             ),
@@ -891,13 +891,13 @@ class _SectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     return Padding(
-      padding: const EdgeInsets.only(left: HavenSpacing.xs),
+      padding: const EdgeInsets.only(left: HollowSpacing.xs),
       child: Text(
         label,
-        style: HavenTypography.caption.copyWith(
-          color: haven.textSecondary,
+        style: HollowTypography.caption.copyWith(
+          color: hollow.textSecondary,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.5,
           fontSize: 10,
@@ -911,8 +911,8 @@ class _SectionLabel extends StatelessWidget {
 class _RestartPrompt extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
-    final radius = BorderRadius.circular(haven.radiusMd);
+    final hollow = HollowTheme.of(context);
+    final radius = BorderRadius.circular(hollow.radiusMd);
 
     return Center(
       child: ConstrainedBox(
@@ -921,10 +921,10 @@ class _RestartPrompt extends ConsumerWidget {
           color: Colors.transparent,
           child: Container(
             decoration: BoxDecoration(
-              color: haven.elevated.withValues(alpha: 0.95),
+              color: hollow.elevated.withValues(alpha: 0.95),
               borderRadius: radius,
               border: Border.all(
-                color: haven.accent.withValues(alpha: 0.15),
+                color: hollow.accent.withValues(alpha: 0.15),
               ),
               boxShadow: [
                 BoxShadow(
@@ -933,43 +933,43 @@ class _RestartPrompt extends ConsumerWidget {
                 ),
               ],
             ),
-            padding: const EdgeInsets.all(HavenSpacing.xl),
+            padding: const EdgeInsets.all(HollowSpacing.xl),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
                   LucideIcons.rotateCcw,
                   size: 32,
-                  color: haven.accent,
+                  color: hollow.accent,
                 ),
-                const SizedBox(height: HavenSpacing.md),
+                const SizedBox(height: HollowSpacing.md),
                 Text(
                   'Restart Required',
-                  style: HavenTypography.subheading.copyWith(
-                    color: haven.textPrimary,
+                  style: HollowTypography.subheading.copyWith(
+                    color: hollow.textPrimary,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: HavenSpacing.sm),
+                const SizedBox(height: HollowSpacing.sm),
                 Text(
                   'The proxy setting requires a restart to take effect.',
-                  style: HavenTypography.body.copyWith(
-                    color: haven.textSecondary,
+                  style: HollowTypography.body.copyWith(
+                    color: hollow.textSecondary,
                   ),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: HavenSpacing.xl),
+                const SizedBox(height: HollowSpacing.xl),
                 Row(
                   children: [
                     Expanded(
-                      child: HavenButton.ghost(
+                      child: HollowButton.ghost(
                         onPressed: () => Navigator.of(context).pop(),
                         child: const Text('Restart Later'),
                       ),
                     ),
-                    const SizedBox(width: HavenSpacing.sm),
+                    const SizedBox(width: HollowSpacing.sm),
                     Expanded(
-                      child: HavenButton.filled(
+                      child: HollowButton.filled(
                         onPressed: () async {
                           // Graceful shutdown: notify peers, stop node.
                           try {
@@ -1008,11 +1008,11 @@ class _FieldLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     return Text(
       label,
-      style: HavenTypography.caption.copyWith(
-        color: haven.textSecondary,
+      style: HollowTypography.caption.copyWith(
+        color: hollow.textSecondary,
         fontWeight: FontWeight.w700,
         letterSpacing: 0.5,
         fontSize: 10,

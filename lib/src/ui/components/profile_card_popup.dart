@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/providers/friends_provider.dart';
-import 'package:haven/src/core/providers/identity_provider.dart';
-import 'package:haven/src/core/providers/profile_provider.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
-import 'package:haven/src/ui/components/haven_avatar.dart';
-import 'package:haven/src/ui/components/haven_button.dart';
-import 'package:haven/src/ui/components/haven_toast.dart';
-import 'package:haven/src/ui/dialogs/user_settings_dialog.dart';
+import 'package:hollow/src/core/providers/friends_provider.dart';
+import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/profile_provider.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_avatar.dart';
+import 'package:hollow/src/ui/components/hollow_button.dart';
+import 'package:hollow/src/ui/components/hollow_toast.dart';
+import 'package:hollow/src/ui/dialogs/user_settings_dialog.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Deterministic banner color from peer ID (shifted hue from avatar).
@@ -103,7 +103,7 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final profiles = ref.watch(profileProvider);
     final profile = profiles[widget.peerId];
     final localPeerId = ref.watch(identityProvider).peerId;
@@ -170,10 +170,10 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                 child: Container(
                   width: cardWidth,
                   decoration: BoxDecoration(
-                    color: haven.surface.withValues(alpha: 0.96),
-                    borderRadius: BorderRadius.circular(haven.radiusLg),
+                    color: hollow.surface.withValues(alpha: 0.96),
+                    borderRadius: BorderRadius.circular(hollow.radiusLg),
                     border: Border.all(
-                      color: haven.accent.withValues(alpha: 0.15),
+                      color: hollow.accent.withValues(alpha: 0.15),
                     ),
                     boxShadow: [
                       BoxShadow(
@@ -207,7 +207,7 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                         offset: const Offset(0, -32),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: HavenSpacing.md,
+                            horizontal: HollowSpacing.md,
                           ),
                           child: Column(
                             children: [
@@ -215,17 +215,17 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                               Container(
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(
-                                      haven.radiusMd + 2),
+                                      hollow.radiusMd + 2),
                                   border: Border.all(
-                                    color: haven.surface,
+                                    color: hollow.surface,
                                     width: 3,
                                   ),
                                 ),
-                                child: HavenAvatar(
+                                child: HollowAvatar(
                                     peerId: widget.peerId, size: 64),
                               ),
 
-                              const SizedBox(height: HavenSpacing.xs + 2),
+                              const SizedBox(height: HollowSpacing.xs + 2),
 
                               // Name(s) — centered
                               if (widget.nickname != null &&
@@ -233,8 +233,8 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                                 Text(
                                   widget.nickname!,
                                   style:
-                                      HavenTypography.subheading.copyWith(
-                                    color: haven.textPrimary,
+                                      HollowTypography.subheading.copyWith(
+                                    color: hollow.textPrimary,
                                     fontWeight: FontWeight.w700,
                                     fontSize: 15,
                                   ),
@@ -244,8 +244,8 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                                 ),
                                 Text(
                                   shownName,
-                                  style: HavenTypography.caption.copyWith(
-                                    color: haven.textSecondary,
+                                  style: HollowTypography.caption.copyWith(
+                                    color: hollow.textSecondary,
                                     fontSize: 11,
                                   ),
                                   maxLines: 1,
@@ -256,8 +256,8 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                                 Text(
                                   shownName,
                                   style:
-                                      HavenTypography.subheading.copyWith(
-                                    color: haven.textPrimary,
+                                      HollowTypography.subheading.copyWith(
+                                    color: hollow.textPrimary,
                                     fontWeight: FontWeight.w700,
                                     fontSize: 15,
                                   ),
@@ -271,25 +271,25 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                               if (widget.role != null &&
                                   widget.role!.isNotEmpty &&
                                   widget.role != 'member') ...[
-                                const SizedBox(height: HavenSpacing.xs),
+                                const SizedBox(height: HollowSpacing.xs),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: HavenSpacing.sm,
+                                    horizontal: HollowSpacing.sm,
                                     vertical: 2,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: _roleColor(widget.role!, haven)
+                                    color: _roleColor(widget.role!, hollow)
                                         .withValues(alpha: 0.15),
                                     borderRadius: BorderRadius.circular(
-                                        HavenRadius.sm),
+                                        HollowRadius.sm),
                                   ),
                                   child: Text(
                                     widget.role![0].toUpperCase() +
                                         widget.role!.substring(1),
                                     style:
-                                        HavenTypography.caption.copyWith(
+                                        HollowTypography.caption.copyWith(
                                       color:
-                                          _roleColor(widget.role!, haven),
+                                          _roleColor(widget.role!, hollow),
                                       fontWeight: FontWeight.w600,
                                       fontSize: 10,
                                     ),
@@ -299,11 +299,11 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
 
                               // Status (before divider)
                               if (status.isNotEmpty) ...[
-                                const SizedBox(height: HavenSpacing.xs),
+                                const SizedBox(height: HollowSpacing.xs),
                                 Text(
                                   status,
-                                  style: HavenTypography.caption.copyWith(
-                                    color: haven.textSecondary,
+                                  style: HollowTypography.caption.copyWith(
+                                    color: hollow.textSecondary,
                                     fontSize: 11,
                                     fontStyle: FontStyle.italic,
                                   ),
@@ -313,29 +313,29 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                                 ),
                               ],
 
-                              const SizedBox(height: HavenSpacing.sm),
+                              const SizedBox(height: HollowSpacing.sm),
 
                               // Divider
-                              Container(height: 1, color: haven.border),
+                              Container(height: 1, color: hollow.border),
 
                               // About Me
                               if (aboutMe.isNotEmpty) ...[
-                                const SizedBox(height: HavenSpacing.sm),
+                                const SizedBox(height: HollowSpacing.sm),
                                 Text(
                                   'ABOUT ME',
-                                  style: HavenTypography.caption.copyWith(
-                                    color: haven.textSecondary,
+                                  style: HollowTypography.caption.copyWith(
+                                    color: hollow.textSecondary,
                                     fontWeight: FontWeight.w700,
                                     letterSpacing: 0.5,
                                     fontSize: 9,
                                   ),
                                   textAlign: TextAlign.center,
                                 ),
-                                const SizedBox(height: HavenSpacing.xxs),
+                                const SizedBox(height: HollowSpacing.xxs),
                                 Text(
                                   aboutMe,
-                                  style: HavenTypography.caption.copyWith(
-                                    color: haven.textSecondary,
+                                  style: HollowTypography.caption.copyWith(
+                                    color: hollow.textSecondary,
                                     fontSize: 11,
                                   ),
                                   maxLines: 4,
@@ -346,10 +346,10 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
 
                               // Edit Profile button (self only)
                               if (isMe) ...[
-                                const SizedBox(height: HavenSpacing.sm),
+                                const SizedBox(height: HollowSpacing.sm),
                                 SizedBox(
                                   width: double.infinity,
-                                  child: HavenButton.outline(
+                                  child: HollowButton.outline(
                                     onPressed: () {
                                       final navContext =
                                           Navigator.of(context).context;
@@ -365,7 +365,7 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
 
                               // Friend action button (non-self only)
                               if (!isMe) ...[
-                                const SizedBox(height: HavenSpacing.sm),
+                                const SizedBox(height: HollowSpacing.sm),
                                 _FriendActionButton(
                                   peerId: widget.peerId,
                                 ),
@@ -383,10 +383,10 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                             Clipboard.setData(
                               ClipboardData(text: widget.peerId),
                             );
-                            HavenToast.show(
+                            HollowToast.show(
                               context,
                               'Peer ID copied',
-                              type: HavenToastType.success,
+                              type: HollowToastType.success,
                               duration: const Duration(seconds: 1),
                             );
                           },
@@ -398,7 +398,7 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                                 Icon(
                                   LucideIcons.copy,
                                   size: 8,
-                                  color: haven.textSecondary
+                                  color: hollow.textSecondary
                                       .withValues(alpha: 0.35),
                                 ),
                                 const SizedBox(width: 3),
@@ -407,8 +407,8 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                                       ? widget.peerId.substring(
                                           widget.peerId.length - 8)
                                       : widget.peerId,
-                                  style: HavenTypography.mono.copyWith(
-                                    color: haven.textSecondary
+                                  style: HollowTypography.mono.copyWith(
+                                    color: hollow.textSecondary
                                         .withValues(alpha: 0.35),
                                     fontSize: 8,
                                   ),
@@ -442,7 +442,7 @@ class _FriendActionButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final friends = ref.watch(friendsProvider);
     final friendInfo = friends[peerId];
 
@@ -450,7 +450,7 @@ class _FriendActionButton extends ConsumerWidget {
       // Not a friend — show "Add Friend" button.
       return SizedBox(
         width: double.infinity,
-        child: HavenButton.outline(
+        child: HollowButton.outline(
           onPressed: () =>
               ref.read(friendsProvider.notifier).sendRequest(peerId),
           compact: true,
@@ -465,7 +465,7 @@ class _FriendActionButton extends ConsumerWidget {
         // Incoming request — show "Accept" button.
         return SizedBox(
           width: double.infinity,
-          child: HavenButton.filled(
+          child: HollowButton.filled(
             onPressed: () =>
                 ref.read(friendsProvider.notifier).acceptRequest(peerId),
             compact: true,
@@ -477,13 +477,13 @@ class _FriendActionButton extends ConsumerWidget {
       // Outgoing request — show "Pending" indicator.
       return SizedBox(
         width: double.infinity,
-        child: HavenButton.ghost(
+        child: HollowButton.ghost(
           onPressed: null,
           compact: true,
-          icon: Icon(LucideIcons.clock, color: haven.textSecondary),
+          icon: Icon(LucideIcons.clock, color: hollow.textSecondary),
           child: Text(
             'Request Sent',
-            style: TextStyle(color: haven.textSecondary),
+            style: TextStyle(color: hollow.textSecondary),
           ),
         ),
       );
@@ -493,12 +493,12 @@ class _FriendActionButton extends ConsumerWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(LucideIcons.userCheck, size: 14, color: haven.success),
-        const SizedBox(width: HavenSpacing.xs),
+        Icon(LucideIcons.userCheck, size: 14, color: hollow.success),
+        const SizedBox(width: HollowSpacing.xs),
         Text(
           'Friends',
-          style: HavenTypography.body.copyWith(
-            color: haven.success,
+          style: HollowTypography.body.copyWith(
+            color: hollow.success,
             fontSize: 12,
             fontWeight: FontWeight.w600,
           ),
@@ -509,12 +509,12 @@ class _FriendActionButton extends ConsumerWidget {
 }
 
 /// Role badge color.
-Color _roleColor(String role, HavenTheme haven) {
+Color _roleColor(String role, HollowTheme hollow) {
   return switch (role) {
-    'owner' => haven.warning,
+    'owner' => hollow.warning,
     'admin' => const Color(0xFFA78BFA),
     'moderator' =>
-      Color.lerp(haven.warning, haven.error, 0.5) ?? haven.warning,
-    _ => haven.textSecondary,
+      Color.lerp(hollow.warning, hollow.error, 0.5) ?? hollow.warning,
+    _ => hollow.textSecondary,
   };
 }

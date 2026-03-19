@@ -2,13 +2,13 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-/// Pre-compiles GPU shaders used by Haven's UI before the first frame.
+/// Pre-compiles GPU shaders used by Hollow's UI before the first frame.
 ///
 /// Skia lazily compiles a GPU shader the first time it encounters a draw
 /// operation type. Each compilation can cost 20-200ms, causing dropped frames.
 /// By drawing all our common primitives on an offscreen canvas at startup,
 /// the shaders are compiled before any animation runs.
-class HavenShaderWarmUp extends ShaderWarmUp {
+class HollowShaderWarmUp extends ShaderWarmUp {
   @override
   ui.Size get size => const ui.Size(200, 200);
 
@@ -161,7 +161,7 @@ class HavenShaderWarmUp extends ShaderWarmUp {
       ),
     )
       ..pushStyle(ui.TextStyle(color: const Color(0xFFF1F3F5)))
-      ..addText('Haven shader warmup');
+      ..addText('Hollow shader warmup');
     final paragraph = paragraphBuilder.build()
       ..layout(const ui.ParagraphConstraints(width: 200));
     canvas.drawParagraph(paragraph, Offset.zero);

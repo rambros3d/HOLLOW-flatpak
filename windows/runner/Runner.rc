@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.anonlisten" "\0"
-            VALUE "FileDescription", "haven" "\0"
+            VALUE "FileDescription", "hollow" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "haven" "\0"
+            VALUE "InternalName", "hollow" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.anonlisten. All rights reserved." "\0"
-            VALUE "OriginalFilename", "haven.exe" "\0"
-            VALUE "ProductName", "haven" "\0"
+            VALUE "OriginalFilename", "hollow.exe" "\0"
+            VALUE "ProductName", "hollow" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

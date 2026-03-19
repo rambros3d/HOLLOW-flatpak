@@ -40,7 +40,7 @@ pub async fn run_relay_node(
 
             // Relay server behaviour — accepts reservation requests and relays traffic.
             // Defaults are designed for short-lived hole-punch coordination (2 min circuits,
-            // 128 KiB data cap, 16 total circuits). Haven uses the relay as a persistent
+            // 128 KiB data cap, 16 total circuits). Hollow uses the relay as a persistent
             // fallback transport, so we need much more generous limits.
             let mut relay_config = relay::Config::default();
             relay_config.max_reservations = 1024;
@@ -61,7 +61,7 @@ pub async fn run_relay_node(
 
             // Identify — required for relay protocol to exchange peer info.
             let identify = identify::Behaviour::new(identify::Config::new(
-                "/haven/relay/1.0.0".to_string(),
+                "/hollow/relay/1.0.0".to_string(),
                 key.public(),
             ));
 

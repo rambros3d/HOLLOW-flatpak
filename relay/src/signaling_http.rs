@@ -99,7 +99,7 @@ async fn handle_register(
 
     // Verify Ed25519 signature.
     let signed_message = format!(
-        "haven-register:{}:{}:{}:{}",
+        "hollow-register:{}:{}:{}:{}",
         body.room_code, body.peer_id, addrs_joined, body.timestamp
     );
 
@@ -176,7 +176,7 @@ async fn handle_unregister(
 
     // Verify Ed25519 signature.
     let signed_message = format!(
-        "haven-unregister:{}:{}:{}",
+        "hollow-unregister:{}:{}:{}",
         body.room_code, body.peer_id, body.timestamp
     );
 
@@ -238,7 +238,7 @@ async fn handle_bootstrap(
 async fn handle_health() -> impl IntoResponse {
     Json(serde_json::json!({
         "status": "ok",
-        "service": "haven-signaling"
+        "service": "hollow-signaling"
     }))
 }
 

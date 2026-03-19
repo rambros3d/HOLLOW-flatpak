@@ -1,0 +1,170 @@
+import 'package:flutter/material.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/ui/animations/hollow_curves.dart';
+
+/// Universal interactive widget for Hollow — replaces InkWell everywhere.
+///
+/// On press: dims opacity to 0.85 + scales to 0.98 with spring physics.
+/// On hover: smoothly transitions to [hoverColor].
+/// No Material ripple, ever.
+///
+/// Set [subtle] to true for list items — hover color change only, no
+/// press dim/scale animation.
+class HollowPressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+  final BorderRadius? borderRadius;
+  final Color? hoverColor;
+  final Color? backgroundColor;
+  final EdgeInsetsGeometry? padding;
+  final bool disabled;
+  final bool subtle;
+
+  const HollowPressable({
+    super.key,
+    required this.child,
+    this.onTap,
+    this.onLongPress,
+    this.borderRadius,
+    this.hoverColor,
+    this.backgroundColor,
+    this.padding,
+    this.disabled = false,
+    this.subtle = false,
+  });
+
+  @override
+  State<HollowPressable> createState() => _HollowPressableState();
+}
+
+class _HollowPressableState extends State<HollowPressable>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _scaleAnimation;
+  late final Animation<double> _opacityAnimation;
+
+  bool _hovering = false;
+  bool _pressing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 120),
+      reverseDuration: const Duration(milliseconds: 200),
+    );
+
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.98).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeOutCubic,
+        reverseCurve: HollowCurves.spring,
+      ),
+    );
+
+    _opacityAnimation = Tween<double>(begin: 1.0, end: 0.85).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeOutCubic,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onPointerDown(PointerDownEvent _) {
+    if (widget.disabled || widget.onTap == null || widget.subtle) return;
+    setState(() => _pressing = true);
+    _controller.forward();
+  }
+
+  void _onPointerUp(PointerUpEvent _) {
+    if (!_pressing) return;
+    setState(() => _pressing = false);
+    _controller.reverse();
+  }
+
+  void _onPointerCancel(PointerCancelEvent _) {
+    if (!_pressing) return;
+    setState(() => _pressing = false);
+    _controller.reverse();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+    final isInteractive = !widget.disabled && widget.onTap != null;
+    final effectiveHoverColor = widget.hoverColor ?? hollow.elevated;
+
+    return MouseRegion(
+      cursor: isInteractive
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.basic,
+      onEnter: (_) {
+        if (isInteractive) setState(() => _hovering = true);
+      },
+      onExit: (_) {
+        setState(() => _hovering = false);
+      },
+      child: Listener(
+        onPointerDown: _onPointerDown,
+        onPointerUp: _onPointerUp,
+        onPointerCancel: _onPointerCancel,
+        child: GestureDetector(
+          onTap: isInteractive ? widget.onTap : null,
+          onLongPress:
+              isInteractive ? widget.onLongPress : null,
+          behavior: HitTestBehavior.opaque,
+          child: AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) {
+              return FadeTransition(
+                opacity: widget.disabled
+                    ? const AlwaysStoppedAnimation(0.4)
+                    : _opacityAnimation,
+                child: ScaleTransition(
+                  scale: _scaleAnimation,
+                  child: child,
+                ),
+              );
+            },
+            child: AnimatedContainer(
+              duration: HollowDurations.fast,
+              curve: HollowCurves.subtle,
+              decoration: BoxDecoration(
+                color: _hovering && isInteractive
+                    ? (widget.backgroundColor != null
+                        ? Color.lerp(
+                            widget.backgroundColor!, Colors.white, 0.15)!
+                        : effectiveHoverColor)
+                    : (widget.backgroundColor ?? Colors.transparent),
+                borderRadius: widget.borderRadius,
+                boxShadow: _hovering &&
+                        isInteractive &&
+                        widget.backgroundColor != null
+                    ? [
+                        BoxShadow(
+                          color: widget.backgroundColor!
+                              .withValues(alpha: 0.25),
+                          blurRadius: 8,
+                          spreadRadius: 0,
+                        ),
+                      ]
+                    : null,
+              ),
+              padding: widget.padding,
+              child: widget.child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

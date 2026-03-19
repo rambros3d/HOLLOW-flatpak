@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/rust/api/network.dart' as network_api;
-import 'package:haven/src/rust/api/storage.dart' as storage_api;
+import 'package:hollow/src/rust/api/network.dart' as network_api;
+import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 
 /// A friend entry from the local DB.
 class FriendInfo {
@@ -41,7 +41,7 @@ class FriendsNotifier extends Notifier<Map<String, FriendInfo>> {
       }
       state = map;
     } catch (e) {
-      debugPrint('[HAVEN] Failed to load friends: $e');
+      debugPrint('[HOLLOW] Failed to load friends: $e');
     }
   }
 
@@ -51,7 +51,7 @@ class FriendsNotifier extends Notifier<Map<String, FriendInfo>> {
       await network_api.sendFriendRequest(peerId: peerId);
       await loadAll();
     } catch (e) {
-      debugPrint('[HAVEN] Failed to send friend request: $e');
+      debugPrint('[HOLLOW] Failed to send friend request: $e');
     }
   }
 
@@ -61,7 +61,7 @@ class FriendsNotifier extends Notifier<Map<String, FriendInfo>> {
       await network_api.acceptFriendRequest(peerId: peerId);
       await loadAll();
     } catch (e) {
-      debugPrint('[HAVEN] Failed to accept friend request: $e');
+      debugPrint('[HOLLOW] Failed to accept friend request: $e');
     }
   }
 
@@ -71,7 +71,7 @@ class FriendsNotifier extends Notifier<Map<String, FriendInfo>> {
       await network_api.rejectFriendRequest(peerId: peerId);
       await loadAll();
     } catch (e) {
-      debugPrint('[HAVEN] Failed to reject friend request: $e');
+      debugPrint('[HOLLOW] Failed to reject friend request: $e');
     }
   }
 
@@ -81,7 +81,7 @@ class FriendsNotifier extends Notifier<Map<String, FriendInfo>> {
       await network_api.removeFriend(peerId: peerId);
       await loadAll();
     } catch (e) {
-      debugPrint('[HAVEN] Failed to remove friend: $e');
+      debugPrint('[HOLLOW] Failed to remove friend: $e');
     }
   }
 }

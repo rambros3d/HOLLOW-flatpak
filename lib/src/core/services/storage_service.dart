@@ -1,5 +1,5 @@
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
-import 'package:haven/src/rust/api/storage.dart' as ffi;
+import 'package:hollow/src/rust/api/storage.dart' as ffi;
 
 /// Thin wrapper around the FFI storage layer for testability.
 class StorageService {

@@ -2,10 +2,10 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/providers/channel_provider.dart';
-import 'package:haven/src/core/providers/notification_provider.dart';
-import 'package:haven/src/core/providers/profile_provider.dart';
-import 'package:haven/src/core/providers/server_provider.dart';
+import 'package:hollow/src/core/providers/channel_provider.dart';
+import 'package:hollow/src/core/providers/notification_provider.dart';
+import 'package:hollow/src/core/providers/profile_provider.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:local_notifier/local_notifier.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -84,12 +84,12 @@ class SystemNotificationNotifier
     if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) return;
     try {
       await localNotifier.setup(
-        appName: 'Haven',
+        appName: 'Hollow',
         shortcutPolicy: ShortcutPolicy.requireCreate,
       );
       _nativeInitialized = true;
     } catch (e) {
-      debugPrint('[HAVEN] Failed to init local_notifier: $e');
+      debugPrint('[HOLLOW] Failed to init local_notifier: $e');
     }
   }
 

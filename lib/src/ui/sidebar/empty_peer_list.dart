@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:haven/src/core/models/node_status.dart';
-import 'package:haven/src/theme/haven_spacing.dart';
-import 'package:haven/src/theme/haven_theme.dart';
-import 'package:haven/src/theme/haven_typography.dart';
+import 'package:hollow/src/core/models/node_status.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 class EmptyPeerList extends StatelessWidget {
@@ -12,7 +12,7 @@ class EmptyPeerList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final haven = HavenTheme.of(context);
+    final hollow = HollowTheme.of(context);
     final String text;
     final IconData icon;
 
@@ -33,21 +33,21 @@ class EmptyPeerList extends StatelessWidget {
 
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(HavenSpacing.xl),
+        padding: const EdgeInsets.all(HollowSpacing.xl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               icon,
               size: 36,
-              color: haven.textSecondary.withValues(alpha: 0.5),
+              color: hollow.textSecondary.withValues(alpha: 0.5),
             ),
-            const SizedBox(height: HavenSpacing.md),
+            const SizedBox(height: HollowSpacing.md),
             Text(
               text,
               textAlign: TextAlign.center,
-              style: HavenTypography.bodySmall.copyWith(
-                color: haven.textSecondary,
+              style: HollowTypography.bodySmall.copyWith(
+                color: hollow.textSecondary,
               ),
             ),
           ],

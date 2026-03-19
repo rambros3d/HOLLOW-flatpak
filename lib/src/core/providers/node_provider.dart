@@ -1,9 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/models/node_status.dart';
-import 'package:haven/src/core/providers/event_provider.dart';
-import 'package:haven/src/core/providers/identity_provider.dart';
-import 'package:haven/src/core/providers/service_providers.dart';
+import 'package:hollow/src/core/models/node_status.dart';
+import 'package:hollow/src/core/providers/event_provider.dart';
+import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/service_providers.dart';
 
 /// Node state: status + last error.
 class NodeState {
@@ -40,7 +40,7 @@ class NodeNotifier extends Notifier<NodeState> {
       // Start polling for network events.
       ref.read(eventStreamProvider.notifier).start();
     } catch (e) {
-      debugPrint('[HAVEN] Node start error: $e');
+      debugPrint('[HOLLOW] Node start error: $e');
       state = state.copyWith(status: NodeStatus.error, error: e.toString());
     }
   }
@@ -51,7 +51,7 @@ class NodeNotifier extends Notifier<NodeState> {
     try {
       await ref.read(networkServiceProvider).stopNode();
     } catch (e) {
-      debugPrint('[HAVEN] Node stop error: $e');
+      debugPrint('[HOLLOW] Node stop error: $e');
     }
     state = state.copyWith(status: NodeStatus.loading);
   }

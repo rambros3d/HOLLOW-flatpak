@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haven/src/core/models/channel_info.dart';
-import 'package:haven/src/core/providers/server_provider.dart';
-import 'package:haven/src/rust/api/crdt.dart' as crdt_api;
+import 'package:hollow/src/core/models/channel_info.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
+import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 
 /// Manages the channel list for the currently selected server.
 class ChannelListNotifier extends Notifier<Map<String, ChannelInfo>> {
@@ -23,7 +23,7 @@ class ChannelListNotifier extends Notifier<Map<String, ChannelInfo>> {
       }
       state = map;
     } catch (e) {
-      debugPrint('[HAVEN] Failed to load channels: $e');
+      debugPrint('[HOLLOW] Failed to load channels: $e');
     }
   }
 
