@@ -7,7 +7,9 @@ import 'package:hollow/src/core/providers/channel_chat_provider.dart';
 import 'package:hollow/src/core/providers/chat_provider.dart' show generateMessageId;
 import 'package:hollow/src/core/providers/file_transfer_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/layout_provider.dart';
 import 'package:hollow/src/core/providers/member_panel_provider.dart';
+import 'package:hollow/src/core/providers/split_view_provider.dart';
 import 'package:hollow/src/core/providers/unread_provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
@@ -40,12 +42,15 @@ class ChannelChatPane extends ConsumerStatefulWidget {
   final String serverId;
   final String channelId;
   final String channelName;
+  /// Which split pane this is in: null = not split, 0 = left, 1 = right.
+  final int? splitPaneIndex;
 
   const ChannelChatPane({
     super.key,
     required this.serverId,
     required this.channelId,
     required this.channelName,
+    this.splitPaneIndex,
   });
 
   @override
@@ -53,6 +58,17 @@ class ChannelChatPane extends ConsumerStatefulWidget {
 }
 
 class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
+  void _handleSplitToggle(WidgetRef ref) {
+    final split = ref.read(splitViewProvider);
+    if (split.isSplit) {
+      ref.read(splitViewProvider.notifier).closePane(
+            widget.splitPaneIndex ?? 0,
+          );
+    } else {
+      ref.read(splitViewProvider.notifier).openSplit();
+    }
+  }
+
   final _controller = TextEditingController();
   final _itemScrollController = ItemScrollController();
   final _itemPositionsListener = ItemPositionsListener.create();
@@ -613,6 +629,27 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                   ),
                 ),
               ),
+              // Split view toggle (dock mode only)
+              if ((ref.watch(layoutModeProvider).valueOrNull ?? LayoutMode.dock) == LayoutMode.dock) ...[
+                const SizedBox(width: HollowSpacing.sm),
+                HollowTooltip(
+                  message: ref.watch(splitViewProvider).isSplit
+                      ? 'Close this pane'
+                      : 'Split view',
+                  child: HollowPressable(
+                    onTap: () => _handleSplitToggle(ref),
+                    borderRadius: BorderRadius.circular(hollow.radiusSm),
+                    padding: const EdgeInsets.all(HollowSpacing.xs),
+                    child: Icon(
+                      LucideIcons.columns,
+                      size: 18,
+                      color: ref.watch(splitViewProvider).isSplit
+                          ? hollow.accent
+                          : hollow.textSecondary,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

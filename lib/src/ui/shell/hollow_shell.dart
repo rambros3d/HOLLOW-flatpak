@@ -35,7 +35,13 @@ import 'package:hollow/src/ui/dialogs/create_channel_dialog.dart';
 import 'package:hollow/src/ui/dialogs/mnemonic_dialog.dart';
 import 'package:hollow/src/ui/dialogs/user_settings_dialog.dart';
 import 'package:hollow/src/ui/settings/server_settings_panel.dart';
+import 'package:hollow/src/core/providers/layout_provider.dart';
+import 'package:hollow/src/core/providers/split_view_provider.dart';
+import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
+import 'package:hollow/src/ui/shell/bottom_bar.dart';
 import 'package:hollow/src/ui/shell/channel_sidebar.dart';
+import 'package:hollow/src/ui/shell/friends_bar.dart';
+import 'package:hollow/src/ui/shell/home_dashboard.dart';
 import 'package:hollow/src/ui/shell/member_panel.dart';
 import 'package:hollow/src/ui/shell/mobile_nav.dart';
 import 'package:hollow/src/ui/shell/server_strip.dart';
@@ -169,6 +175,45 @@ class _HollowShellState extends ConsumerState<HollowShell>
       return true;
     }
 
+    // Ctrl+Shift+\ → Toggle split view (dock mode only).
+    if (isCtrl &&
+        isShift &&
+        event.logicalKey == LogicalKeyboardKey.backslash) {
+      final layoutMode =
+          ref.read(layoutModeProvider).valueOrNull ?? LayoutMode.dock;
+      if (layoutMode == LayoutMode.dock) {
+        final split = ref.read(splitViewProvider);
+        if (split.isSplit) {
+          ref.read(splitViewProvider.notifier).closeSplit();
+        } else {
+          ref.read(splitViewProvider.notifier).openSplit();
+        }
+        return true;
+      }
+    }
+
+    // Ctrl+1 → Focus left pane.
+    if (isCtrl &&
+        !isShift &&
+        event.logicalKey == LogicalKeyboardKey.digit1) {
+      final split = ref.read(splitViewProvider);
+      if (split.isSplit) {
+        ref.read(splitViewProvider.notifier).setFocus(0);
+        return true;
+      }
+    }
+
+    // Ctrl+2 → Focus right pane.
+    if (isCtrl &&
+        !isShift &&
+        event.logicalKey == LogicalKeyboardKey.digit2) {
+      final split = ref.read(splitViewProvider);
+      if (split.isSplit) {
+        ref.read(splitViewProvider.notifier).setFocus(1);
+        return true;
+      }
+    }
+
     return false;
   }
 
@@ -197,6 +242,7 @@ class _HollowShellState extends ConsumerState<HollowShell>
     required String? selectedChannelId,
     required String channelLayoutJson,
     double? width = 240,
+    bool dockMode = false,
   }) {
     return ChannelSidebar(
       peers: Map.from(peers),
@@ -204,6 +250,8 @@ class _HollowShellState extends ConsumerState<HollowShell>
       selectedPeerId: selectedPeerId,
       nodeStatus: nodeStatus,
       width: width,
+      dockMode: dockMode,
+      showUserBar: !dockMode,
       onPeerSelected: (peerId) {
         ref.read(selectedPeerProvider.notifier).state = peerId;
         // Mark DM as read.
@@ -248,8 +296,13 @@ class _HollowShellState extends ConsumerState<HollowShell>
         }
       },
       onOpenSettings: () {
-        ref.read(serverSettingsOpenProvider.notifier).state =
-            !ref.read(serverSettingsOpenProvider);
+        final split = ref.read(splitViewProvider);
+        if (split.isSplit && selectedServer != null) {
+          _showServerSettingsDialog(context, selectedServer);
+        } else {
+          ref.read(serverSettingsOpenProvider.notifier).state =
+              !ref.read(serverSettingsOpenProvider);
+        }
       },
       canManageChannels: selectedServer != null &&
           (ref.watch(myPermissionsProvider(selectedServer.serverId)).whenOrNull(
@@ -368,8 +421,15 @@ class _HollowShellState extends ConsumerState<HollowShell>
       }
       return _buildChannelPlaceholder(hollow, channel);
     }
-    // DM chat view
-    if (selectedPeerId == null) return _buildEmptyChat(hollow);
+    // DM chat view — show Home dashboard when nothing selected (dock mode)
+    if (selectedPeerId == null) {
+      final layoutMode =
+          ref.read(layoutModeProvider).valueOrNull ?? LayoutMode.dock;
+      if (layoutMode == LayoutMode.dock) {
+        return const HomeDashboard();
+      }
+      return _buildEmptyChat(hollow);
+    }
     return ChatPane(
       key: ValueKey(selectedPeerId),
       peerId: selectedPeerId,
@@ -430,6 +490,10 @@ class _HollowShellState extends ConsumerState<HollowShell>
     final channelLayout = ref.watch(channelLayoutProvider);
     final settingsOpen = ref.watch(serverSettingsOpenProvider);
 
+    // Layout mode
+    final layoutMode =
+        ref.watch(layoutModeProvider).valueOrNull ?? LayoutMode.dock;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
@@ -454,89 +518,44 @@ class _HollowShellState extends ConsumerState<HollowShell>
         final isDesktopPlatform =
             Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
-        // Desktop and tablet — same layout, tablet just hides member panel.
-        Widget body = StartupRevealScope(
-          controller: _revealController,
-          isComplete: _revealComplete,
-          child: Column(
-            children: [
-              // Custom window title bar (desktop platforms only)
-              if (isDesktopPlatform) const WindowTitleBar(),
+        Widget body;
 
-              // Main content area
-              Expanded(
-                child: Row(
-                  children: [
-                    // Server strip (far left)
-                    const RepaintBoundary(child: ServerStrip()),
-
-                    // Channel sidebar
-                    _buildChannelSidebar(
-                      peers: peers,
-                      chatHistory: chatHistory,
-                      selectedPeerId: selectedPeerId,
-                      nodeStatus: nodeState.status,
-          
-                      selectedServer: selectedServer,
-                      channels: channels,
-                      selectedChannelId: selectedChannelId,
-                      channelLayoutJson: channelLayout,
-                    ),
-
-                    // Chat pane with crossfade
-                    Expanded(
-                      child: _chatRevealWrap(
-                        RepaintBoundary(
-                          child: AmbientBackground(
-                            color1: hollow.accent,
-                            color2: const Color(0xFF6366F1), // indigo/purple
-                            child: AnimatedSwitcher(
-                              duration: HollowDurations.normal,
-                              switchInCurve: HollowCurves.enter,
-                              switchOutCurve: HollowCurves.exit,
-                              layoutBuilder: (currentChild, previousChildren) {
-                                return Stack(
-                                  alignment: Alignment.topCenter,
-                                  children: [
-                                    ...previousChildren,
-                                    ?currentChild,
-                                  ],
-                                );
-                              },
-                              child: Container(
-                                key: ValueKey(
-                                    settingsOpen && selectedServer != null
-                                        ? 'settings-${selectedServer.serverId}'
-                                        : selectedChannelId ?? selectedPeerId ?? 'empty'),
-                                color: hollow.background,
-                                child: settingsOpen && selectedServer != null
-                                    ? ServerSettingsPanel(server: selectedServer)
-                                    : _buildChatOrEmpty(
-                                        hollow: hollow,
-                                        selectedPeerId: selectedPeerId,
-                                        peers: peers,
-                                        selectedChannelId: selectedChannelId,
-                                        channels: channels,
-                                      ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // Member panel — slide in/out from right
-                    if (isDesktop || !isMobile)
-                      _MemberPanelSlider(
-                        visible: selectedServerId != null && memberPanelOpen,
-                        serverId: selectedServerId,
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
+        if (layoutMode == LayoutMode.dock) {
+          body = _buildDockLayout(
+            hollow: hollow,
+            isDesktopPlatform: isDesktopPlatform,
+            isDesktop: isDesktop,
+            peers: peers,
+            chatHistory: chatHistory,
+            selectedPeerId: selectedPeerId,
+            nodeStatus: nodeState.status,
+            selectedServer: selectedServer,
+            selectedServerId: selectedServerId,
+            channels: channels,
+            selectedChannelId: selectedChannelId,
+            channelLayout: channelLayout,
+            settingsOpen: settingsOpen,
+            memberPanelOpen: memberPanelOpen,
+          );
+        } else {
+          body = _buildClassicLayout(
+            hollow: hollow,
+            isDesktopPlatform: isDesktopPlatform,
+            isDesktop: isDesktop,
+            isMobile: isMobile,
+            peers: peers,
+            chatHistory: chatHistory,
+            selectedPeerId: selectedPeerId,
+            nodeStatus: nodeState.status,
+            selectedServer: selectedServer,
+            selectedServerId: selectedServerId,
+            channels: channels,
+            selectedChannelId: selectedChannelId,
+            channelLayout: channelLayout,
+            settingsOpen: settingsOpen,
+            memberPanelOpen: memberPanelOpen,
+          );
+        }
 
         // Wrap in DragToResizeArea to restore edge/corner resize handles
         // after setAsFrameless() removed them.
@@ -554,6 +573,274 @@ class _HollowShellState extends ConsumerState<HollowShell>
           ),
         );
       },
+    );
+  }
+
+  /// Classic Discord-like layout: ServerStrip | ChannelSidebar | ChatPane | MemberPanel
+  Widget _buildClassicLayout({
+    required HollowTheme hollow,
+    required bool isDesktopPlatform,
+    required bool isDesktop,
+    required bool isMobile,
+    required Map<String, dynamic> peers,
+    required Map<String, List<ChatMessage>> chatHistory,
+    required String? selectedPeerId,
+    required NodeStatus nodeStatus,
+    required ServerInfo? selectedServer,
+    required String? selectedServerId,
+    required Map<String, ChannelInfo> channels,
+    required String? selectedChannelId,
+    required String channelLayout,
+    required bool settingsOpen,
+    required bool memberPanelOpen,
+  }) {
+    return StartupRevealScope(
+      controller: _revealController,
+      isComplete: _revealComplete,
+      child: Column(
+        children: [
+          if (isDesktopPlatform) const WindowTitleBar(),
+          Expanded(
+            child: Row(
+              children: [
+                const RepaintBoundary(child: ServerStrip()),
+                _buildChannelSidebar(
+                  peers: peers,
+                  chatHistory: chatHistory,
+                  selectedPeerId: selectedPeerId,
+                  nodeStatus: nodeStatus,
+                  selectedServer: selectedServer,
+                  channels: channels,
+                  selectedChannelId: selectedChannelId,
+                  channelLayoutJson: channelLayout,
+                ),
+                Expanded(
+                  child: _chatRevealWrap(
+                    RepaintBoundary(
+                      child: AmbientBackground(
+                        color1: hollow.accent,
+                        color2: const Color(0xFF6366F1),
+                        child: AnimatedSwitcher(
+                          duration: HollowDurations.normal,
+                          switchInCurve: HollowCurves.enter,
+                          switchOutCurve: HollowCurves.exit,
+                          layoutBuilder: (currentChild, previousChildren) {
+                            return Stack(
+                              alignment: Alignment.topCenter,
+                              children: [
+                                ...previousChildren,
+                                ?currentChild,
+                              ],
+                            );
+                          },
+                          child: Container(
+                            key: ValueKey(
+                                settingsOpen && selectedServer != null
+                                    ? 'settings-${selectedServer.serverId}'
+                                    : selectedChannelId ?? selectedPeerId ?? 'empty'),
+                            color: hollow.background,
+                            child: settingsOpen && selectedServer != null
+                                ? ServerSettingsPanel(server: selectedServer)
+                                : _buildChatOrEmpty(
+                                    hollow: hollow,
+                                    selectedPeerId: selectedPeerId,
+                                    peers: peers,
+                                    selectedChannelId: selectedChannelId,
+                                    channels: channels,
+                                  ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                if (isDesktop || !isMobile)
+                  _MemberPanelSlider(
+                    visible: selectedServerId != null && memberPanelOpen,
+                    serverId: selectedServerId,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Dock layout: FriendsBar (top) | ChannelSidebar + ChatPane + MemberPanel | BottomBar
+  Widget _buildDockLayout({
+    required HollowTheme hollow,
+    required bool isDesktopPlatform,
+    required bool isDesktop,
+    required Map<String, dynamic> peers,
+    required Map<String, List<ChatMessage>> chatHistory,
+    required String? selectedPeerId,
+    required NodeStatus nodeStatus,
+    required ServerInfo? selectedServer,
+    required String? selectedServerId,
+    required Map<String, ChannelInfo> channels,
+    required String? selectedChannelId,
+    required String channelLayout,
+    required bool settingsOpen,
+    required bool memberPanelOpen,
+  }) {
+    final splitState = ref.watch(splitViewProvider);
+
+    // Handle pending migration: when the left pane was closed in split mode,
+    // the right pane's context needs to be applied to global providers.
+    if (splitState.pendingMigration != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final migration = ref.read(splitViewProvider).pendingMigration;
+        if (migration == null) return;
+        if (migration.serverId != null) {
+          ref.read(selectedServerProvider.notifier).state =
+              migration.serverId;
+          ref.read(selectedChannelProvider.notifier).state =
+              migration.channelId;
+          ref.read(selectedPeerProvider.notifier).state = null;
+          // Load channels for the new primary server.
+          ref
+              .read(channelListProvider.notifier)
+              .loadForServer(migration.serverId!);
+          ref
+              .read(channelLayoutProvider.notifier)
+              .loadForServer(migration.serverId!);
+        } else if (migration.peerId != null) {
+          ref.read(selectedPeerProvider.notifier).state =
+              migration.peerId;
+          ref.read(selectedServerProvider.notifier).state = null;
+          ref.read(selectedChannelProvider.notifier).state = null;
+        }
+        ref.read(splitViewProvider.notifier).clearPendingMigration();
+      });
+    }
+
+    // Member panel shows for focused pane's server.
+    final effectiveServerId = splitState.isSplit && splitState.focusedPane == 1
+        ? splitState.rightPane?.serverId
+        : selectedServerId;
+
+    return StartupRevealScope(
+      controller: _revealController,
+      isComplete: _revealComplete,
+      child: Column(
+        children: [
+          if (isDesktopPlatform) const WindowTitleBar(),
+
+          // Friends bar (top)
+          const RepaintBoundary(child: FriendsBar()),
+
+          // Main content area
+          Expanded(
+            child: Row(
+              children: [
+                // Channel sidebar — animated slide in/out in dock mode
+                _DockSidebarSlider(
+                  visible: selectedServerId != null,
+                  child: _buildChannelSidebar(
+                    peers: peers,
+                    chatHistory: chatHistory,
+                    selectedPeerId: selectedPeerId,
+                    nodeStatus: nodeStatus,
+                    selectedServer: selectedServer,
+                    channels: channels,
+                    selectedChannelId: selectedChannelId,
+                    channelLayoutJson: channelLayout,
+                    dockMode: true,
+                  ),
+                ),
+
+                // Chat area (single pane or split, animated transition)
+                Expanded(
+                  child: _chatRevealWrap(
+                    AnimatedSwitcher(
+                      duration: HollowDurations.normal,
+                      switchInCurve: HollowCurves.enter,
+                      switchOutCurve: HollowCurves.exit,
+                      layoutBuilder: (currentChild, previousChildren) {
+                        return Stack(
+                          alignment: Alignment.topCenter,
+                          children: [
+                            ...previousChildren,
+                            ?currentChild,
+                          ],
+                        );
+                      },
+                      child: splitState.isSplit
+                          ? _SplitChatArea(
+                              key: const ValueKey('split'),
+                              hollow: hollow,
+                              selectedPeerId: selectedPeerId,
+                              selectedChannelId: selectedChannelId,
+                              channels: channels,
+                              settingsOpen: settingsOpen,
+                              selectedServer: selectedServer,
+                            )
+                          : RepaintBoundary(
+                              key: ValueKey(
+                                  'single-${settingsOpen && selectedServer != null ? 'settings-${selectedServer.serverId}' : selectedChannelId ?? selectedPeerId ?? 'empty'}'),
+                              child: AmbientBackground(
+                                color1: hollow.accent,
+                                color2: const Color(0xFF6366F1),
+                                child: AnimatedSwitcher(
+                                  duration: HollowDurations.normal,
+                                  switchInCurve: HollowCurves.enter,
+                                  switchOutCurve: HollowCurves.exit,
+                                  layoutBuilder: (currentChild,
+                                      previousChildren) {
+                                    return Stack(
+                                      alignment: Alignment.topCenter,
+                                      children: [
+                                        ...previousChildren,
+                                        ?currentChild,
+                                      ],
+                                    );
+                                  },
+                                  child: Container(
+                                    key: ValueKey(settingsOpen &&
+                                            selectedServer != null
+                                        ? 'settings-${selectedServer.serverId}'
+                                        : selectedChannelId ??
+                                            selectedPeerId ??
+                                            'empty'),
+                                    color: hollow.background,
+                                    child: settingsOpen &&
+                                            selectedServer != null
+                                        ? ServerSettingsPanel(
+                                            server: selectedServer)
+                                        : _buildChatOrEmpty(
+                                            hollow: hollow,
+                                            selectedPeerId:
+                                                selectedPeerId,
+                                            peers: peers,
+                                            selectedChannelId:
+                                                selectedChannelId,
+                                            channels: channels,
+                                          ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                    ),
+                  ),
+                ),
+
+                // Member panel
+                // Member panel — hidden during split view
+                if (isDesktop && !splitState.isSplit)
+                  _MemberPanelSlider(
+                    visible:
+                        effectiveServerId != null && memberPanelOpen,
+                    serverId: effectiveServerId,
+                  ),
+              ],
+            ),
+          ),
+
+          // Bottom bar (dock)
+          const RepaintBoundary(child: BottomBar()),
+        ],
+      ),
     );
   }
 
@@ -732,6 +1019,613 @@ class _MemberPanelSliderState extends State<_MemberPanelSlider>
               child: const RepaintBoundary(child: MemberPanel()),
             )
           : const RepaintBoundary(child: MemberPanel()),
+    );
+  }
+}
+
+/// Animates the channel sidebar sliding in/out from the left in dock mode.
+class _DockSidebarSlider extends StatefulWidget {
+  final bool visible;
+  final Widget child;
+
+  const _DockSidebarSlider({
+    required this.visible,
+    required this.child,
+  });
+
+  @override
+  State<_DockSidebarSlider> createState() => _DockSidebarSliderState();
+}
+
+class _DockSidebarSliderState extends State<_DockSidebarSlider>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final CurvedAnimation _curved;
+
+  /// Cached child widget — kept during close animation so content
+  /// doesn't collapse before the slide-out finishes.
+  Widget? _frozenChild;
+  bool _isClosing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: HollowDurations.normal,
+      value: widget.visible ? 1.0 : 0.0,
+    );
+    _curved = CurvedAnimation(
+      parent: _controller,
+      curve: HollowCurves.enter,
+      reverseCurve: HollowCurves.exit,
+    );
+    if (widget.visible) _frozenChild = widget.child;
+  }
+
+  @override
+  void didUpdateWidget(_DockSidebarSlider oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.visible != oldWidget.visible) {
+      if (widget.visible) {
+        _isClosing = false;
+        _frozenChild = widget.child;
+        _controller.forward();
+      } else {
+        // Freeze the current child so it stays visible during close.
+        _isClosing = true;
+        _controller.reverse();
+      }
+    } else if (widget.visible) {
+      // Update child while open.
+      _frozenChild = widget.child;
+    }
+  }
+
+  @override
+  void dispose() {
+    _curved.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _curved,
+      builder: (context, child) {
+        if (_curved.value == 0.0) return const SizedBox.shrink();
+        return ClipRect(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            widthFactor: _curved.value,
+            child: FadeTransition(
+              opacity: _curved,
+              child: child,
+            ),
+          ),
+        );
+      },
+      // During close animation, show the frozen child.
+      child: _isClosing ? _frozenChild : widget.child,
+    );
+  }
+}
+
+/// Split chat area — two panes side by side with a draggable divider.
+class _SplitChatArea extends ConsumerStatefulWidget {
+  final HollowTheme hollow;
+  final String? selectedPeerId;
+  final String? selectedChannelId;
+  final Map<String, ChannelInfo> channels;
+  final bool settingsOpen;
+  final ServerInfo? selectedServer;
+
+  const _SplitChatArea({
+    super.key,
+    required this.hollow,
+    required this.selectedPeerId,
+    required this.selectedChannelId,
+    required this.channels,
+    required this.settingsOpen,
+    required this.selectedServer,
+  });
+
+  @override
+  ConsumerState<_SplitChatArea> createState() => _SplitChatAreaState();
+}
+
+class _SplitChatAreaState extends ConsumerState<_SplitChatArea> {
+  @override
+  Widget build(BuildContext context) {
+    final hollow = widget.hollow;
+    final splitState = ref.watch(splitViewProvider);
+    final rightPane = splitState.rightPane ?? const PaneContext();
+    final dividerPos = splitState.dividerPosition;
+    final focusedPane = splitState.focusedPane;
+
+    final leftFlex = (dividerPos * 1000).round();
+    final rightFlex = ((1 - dividerPos) * 1000).round();
+
+    // ProviderScope for the entire right section (sidebar + chat).
+    return ProviderScope(
+      key: ValueKey('split-${rightPane.serverId}:${rightPane.channelId}:${rightPane.peerId}'),
+      overrides: [
+        selectedServerProvider
+            .overrideWith((ref) => rightPane.serverId),
+        selectedChannelProvider
+            .overrideWith((ref) => rightPane.channelId),
+        selectedPeerProvider
+            .overrideWith((ref) => rightPane.peerId),
+      ],
+      child: Row(
+        children: [
+          // ── Left Pane Chat (uses global providers) ──
+          Flexible(
+            flex: leftFlex,
+            child: GestureDetector(
+              onTap: () =>
+                  ref.read(splitViewProvider.notifier).setFocus(0),
+              child: AnimatedContainer(
+                duration: HollowDurations.fast,
+                decoration: BoxDecoration(
+                  border: Border(
+                    top: BorderSide(
+                      color: focusedPane == 0
+                          ? hollow.accent
+                          : Colors.transparent,
+                      width: 2,
+                    ),
+                  ),
+                ),
+                child: RepaintBoundary(
+                  child: AmbientBackground(
+                    color1: hollow.accent,
+                    color2: const Color(0xFF6366F1),
+                    child: AnimatedSwitcher(
+                      duration: HollowDurations.normal,
+                      switchInCurve: HollowCurves.enter,
+                      switchOutCurve: HollowCurves.exit,
+                      layoutBuilder: (currentChild, previousChildren) {
+                        return Stack(
+                          alignment: Alignment.topCenter,
+                          children: [
+                            ...previousChildren,
+                            ?currentChild,
+                          ],
+                        );
+                      },
+                      child: Container(
+                        key: ValueKey(widget.settingsOpen &&
+                                widget.selectedServer != null
+                            ? 'settings-${widget.selectedServer!.serverId}'
+                            : widget.selectedChannelId ??
+                                widget.selectedPeerId ??
+                                'empty-left'),
+                        color: hollow.background,
+                        child: widget.settingsOpen &&
+                                widget.selectedServer != null
+                            ? ServerSettingsPanel(
+                                server: widget.selectedServer!)
+                            : _buildLeftChatOrEmpty(hollow),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // ── Draggable Divider ──
+          _SplitDivider(
+            onDrag: (details) {
+              // Use delta-based dragging to avoid snap-to-center.
+              final renderBox = context.findRenderObject() as RenderBox;
+              final totalWidth = renderBox.size.width;
+              if (totalWidth > 0) {
+                final delta = details.delta.dx / totalWidth;
+                final current = ref.read(splitViewProvider).dividerPosition;
+                ref
+                    .read(splitViewProvider.notifier)
+                    .setDividerPosition(current + delta);
+              }
+            },
+          ),
+
+          // ── Right Pane Sidebar (fixed width, if server selected) ──
+          _RightPaneSidebar(hollow: hollow),
+
+          // ── Right Pane Chat ──
+          Flexible(
+            flex: rightFlex,
+            child: GestureDetector(
+              onTap: () =>
+                  ref.read(splitViewProvider.notifier).setFocus(1),
+              child: AnimatedContainer(
+                duration: HollowDurations.fast,
+                decoration: BoxDecoration(
+                  border: Border(
+                    top: BorderSide(
+                      color: focusedPane == 1
+                          ? hollow.accent
+                          : Colors.transparent,
+                      width: 2,
+                    ),
+                  ),
+                ),
+                child: RepaintBoundary(
+                  child: AmbientBackground(
+                    color1: hollow.accent,
+                    color2: const Color(0xFF6366F1),
+                    child: _RightPaneChatContent(hollow: hollow),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLeftChatOrEmpty(HollowTheme hollow) {
+    if (widget.selectedChannelId != null) {
+      final channel = widget.channels[widget.selectedChannelId];
+      final serverId = ref.read(selectedServerProvider);
+      if (serverId != null && channel != null) {
+        return ChannelChatPane(
+          key: ValueKey('ch:${widget.selectedChannelId}'),
+          serverId: serverId,
+          channelId: widget.selectedChannelId!,
+          channelName: channel.name,
+          splitPaneIndex: 0,
+        );
+      }
+    }
+    if (widget.selectedPeerId != null) {
+      return ChatPane(
+        key: ValueKey(widget.selectedPeerId),
+        peerId: widget.selectedPeerId!,
+        splitPaneIndex: 0,
+      );
+    }
+    return _buildSplitEmptyChat(hollow);
+  }
+
+  Widget _buildSplitEmptyChat(HollowTheme hollow) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            LucideIcons.messageSquare,
+            size: 48,
+            color: hollow.textSecondary.withValues(alpha: 0.3),
+          ),
+          const SizedBox(height: HollowSpacing.md),
+          Text(
+            'Select a conversation',
+            style: HollowTypography.body.copyWith(
+              color: hollow.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Channel sidebar for the right pane in split view (fixed width).
+/// Loads channels from FFI independently of the global channelListProvider.
+class _RightPaneSidebar extends ConsumerStatefulWidget {
+  final HollowTheme hollow;
+  const _RightPaneSidebar({required this.hollow});
+
+  @override
+  ConsumerState<_RightPaneSidebar> createState() =>
+      _RightPaneSidebarState();
+}
+
+class _RightPaneSidebarState extends ConsumerState<_RightPaneSidebar> {
+  Map<String, ChannelInfo> _channels = {};
+  String _channelLayoutJson = '[]';
+  String? _loadedServerId;
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedServerId = ref.watch(selectedServerProvider);
+
+    if (selectedServerId == null) return const SizedBox.shrink();
+
+    if (selectedServerId != _loadedServerId) {
+      _loadChannels(selectedServerId);
+    }
+
+    final selectedChannelId = ref.watch(selectedChannelProvider);
+    final servers = ref.watch(serverListProvider);
+    final selectedServer = servers[selectedServerId];
+
+    return ChannelSidebar(
+      peers: const {},
+      chatHistory: const {},
+      selectedPeerId: null,
+      nodeStatus: NodeStatus.connected,
+      onPeerSelected: (_) {},
+      lastMessage: (_) => null,
+      formatTime: (_) => '',
+      selectedServer: selectedServer,
+      channels: _channels,
+      selectedChannelId: selectedChannelId,
+      onChannelSelected: (channelId) {
+        ref.read(splitViewProvider.notifier).setRightChannel(channelId);
+      },
+      onCreateChannel: () {
+        if (selectedServer != null) {
+          showCreateChannelDialog(context, selectedServer.serverId);
+        }
+      },
+      onOpenSettings: () {
+        if (selectedServer != null) {
+          _showServerSettingsDialog(context, selectedServer);
+        }
+      },
+      canManageChannels: selectedServer != null &&
+          (ref
+                  .watch(
+                      myPermissionsProvider(selectedServer.serverId))
+                  .whenOrNull(
+                      data: (perms) =>
+                          (perms & Permission.manageChannels) != 0) ??
+              false),
+      channelLayoutJson: _channelLayoutJson,
+      width: 200,
+      dockMode: true,
+      showUserBar: false,
+    );
+  }
+
+  Future<void> _loadChannels(String serverId) async {
+    _loadedServerId = serverId;
+    try {
+      final channels =
+          await crdt_api.getServerChannels(serverId: serverId);
+      final map = <String, ChannelInfo>{};
+      for (final ch in channels) {
+        map[ch.channelId] = ChannelInfo(
+          channelId: ch.channelId,
+          name: ch.name,
+          category: ch.category,
+        );
+      }
+      final layoutJson =
+          await crdt_api.getChannelLayout(serverId: serverId);
+      if (mounted) {
+        setState(() {
+          _channels = map;
+          _channelLayoutJson = layoutJson;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _channels = {};
+          _channelLayoutJson = '[]';
+        });
+      }
+    }
+  }
+}
+
+/// Chat content for the right pane in split view (no sidebar).
+class _RightPaneChatContent extends ConsumerWidget {
+  final HollowTheme hollow;
+  const _RightPaneChatContent({required this.hollow});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final selectedChannelId = ref.watch(selectedChannelProvider);
+    final selectedPeerId = ref.watch(selectedPeerProvider);
+    final selectedServerId = ref.watch(selectedServerProvider);
+
+    if (selectedChannelId != null && selectedServerId != null) {
+      // Get channel name from the sibling sidebar's loaded data.
+      // Use a FutureBuilder to load it if needed.
+      return _RightChannelChat(
+        serverId: selectedServerId,
+        channelId: selectedChannelId,
+      );
+    }
+
+    if (selectedPeerId != null && selectedPeerId.isNotEmpty) {
+      return Container(
+        color: hollow.background,
+        child: ChatPane(
+          key: ValueKey('dm-r:$selectedPeerId'),
+          peerId: selectedPeerId,
+          splitPaneIndex: 1,
+        ),
+      );
+    }
+
+    // Empty state
+    return Container(
+      color: hollow.background,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              LucideIcons.columns,
+              size: 48,
+              color: hollow.textSecondary.withValues(alpha: 0.3),
+            ),
+            const SizedBox(height: HollowSpacing.md),
+            Text(
+              'Select a conversation',
+              style: HollowTypography.body.copyWith(
+                color: hollow.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Loads channel name from FFI and renders ChannelChatPane.
+class _RightChannelChat extends StatefulWidget {
+  final String serverId;
+  final String channelId;
+  const _RightChannelChat({
+    required this.serverId,
+    required this.channelId,
+  });
+
+  @override
+  State<_RightChannelChat> createState() => _RightChannelChatState();
+}
+
+class _RightChannelChatState extends State<_RightChannelChat> {
+  final Map<String, String> _nameCache = {};
+
+  @override
+  Widget build(BuildContext context) {
+    final cacheKey = '${widget.serverId}:${widget.channelId}';
+    final name = _nameCache[cacheKey];
+
+    if (name == null) {
+      _loadName();
+      return const SizedBox.shrink();
+    }
+
+    return ChannelChatPane(
+      key: ValueKey('ch-r:${widget.channelId}'),
+      serverId: widget.serverId,
+      channelId: widget.channelId,
+      channelName: name,
+      splitPaneIndex: 1,
+    );
+  }
+
+  Future<void> _loadName() async {
+    final cacheKey = '${widget.serverId}:${widget.channelId}';
+    if (_nameCache.containsKey(cacheKey)) return;
+    try {
+      final channels = await crdt_api.getServerChannels(
+          serverId: widget.serverId);
+      for (final ch in channels) {
+        _nameCache['${widget.serverId}:${ch.channelId}'] = ch.name;
+      }
+    } catch (_) {
+      _nameCache[cacheKey] = widget.channelId;
+    }
+    if (mounted) setState(() {});
+  }
+}
+
+/// Shows server settings as a dialog popup (used during split view).
+void _showServerSettingsDialog(BuildContext context, ServerInfo server) {
+  showGeneralDialog(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: 'Server Settings',
+    barrierColor: Colors.black.withValues(alpha: 0.5),
+    transitionDuration: const Duration(milliseconds: 200),
+    pageBuilder: (context, anim1, anim2) {
+      return Center(
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            width: 800,
+            height: 600,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: HollowTheme.of(context).background,
+              borderRadius: BorderRadius.circular(
+                HollowTheme.of(context).radiusLg,
+              ),
+              border: Border.all(
+                color: HollowTheme.of(context).border,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: ServerSettingsPanel(
+              server: server,
+              onClose: () => Navigator.of(context).pop(),
+            ),
+          ),
+        ),
+      );
+    },
+    transitionBuilder: (context, anim1, anim2, child) {
+      return FadeTransition(
+        opacity: CurvedAnimation(parent: anim1, curve: Curves.easeOut),
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.95, end: 1.0).animate(
+            CurvedAnimation(parent: anim1, curve: Curves.easeOut),
+          ),
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
+/// Draggable vertical divider between split panes.
+class _SplitDivider extends StatefulWidget {
+  final void Function(DragUpdateDetails) onDrag;
+
+  const _SplitDivider({required this.onDrag});
+
+  @override
+  State<_SplitDivider> createState() => _SplitDividerState();
+}
+
+class _SplitDividerState extends State<_SplitDivider> {
+  bool _hovering = false;
+  bool _dragging = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+    final isActive = _hovering || _dragging;
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeColumn,
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        onHorizontalDragStart: (_) => setState(() => _dragging = true),
+        onHorizontalDragUpdate: widget.onDrag,
+        onHorizontalDragEnd: (_) => setState(() => _dragging = false),
+        child: AnimatedContainer(
+          duration: HollowDurations.fast,
+          width: 6,
+          color: isActive
+              ? hollow.accent.withValues(alpha: 0.3)
+              : Colors.transparent,
+          child: Center(
+            child: AnimatedContainer(
+              duration: HollowDurations.fast,
+              width: isActive ? 2 : 1,
+              height: 40,
+              decoration: BoxDecoration(
+                color: isActive
+                    ? hollow.accent
+                    : hollow.border,
+                borderRadius: BorderRadius.circular(1),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

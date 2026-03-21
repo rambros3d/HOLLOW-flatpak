@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
+import 'package:hollow/src/core/providers/layout_provider.dart';
 import 'package:hollow/src/core/providers/settings_provider.dart';
 import 'package:hollow/src/core/providers/theme_provider.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
@@ -22,7 +23,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 bool _settingsDialogOpen = false;
 
 /// Shows the user settings dialog, or closes it if already open (toggle).
-void showUserSettingsDialog(BuildContext context, WidgetRef ref) {
+void showUserSettingsDialog(BuildContext context, WidgetRef ref, {bool openSystemTab = false}) {
   // Toggle: if already open, close it.
   if (_settingsDialogOpen) {
     Navigator.of(context, rootNavigator: true).pop();
@@ -55,6 +56,7 @@ void showUserSettingsDialog(BuildContext context, WidgetRef ref) {
         displayNameController: displayNameController,
         statusController: statusController,
         aboutMeController: aboutMeController,
+        initialTab: openSystemTab ? _SettingsTab.system : _SettingsTab.profile,
       );
     },
   ).then((_) {
@@ -78,12 +80,14 @@ class _UserSettingsContent extends ConsumerStatefulWidget {
   final TextEditingController displayNameController;
   final TextEditingController statusController;
   final TextEditingController aboutMeController;
+  final _SettingsTab initialTab;
 
   const _UserSettingsContent({
     required this.localPeerId,
     required this.displayNameController,
     required this.statusController,
     required this.aboutMeController,
+    this.initialTab = _SettingsTab.profile,
   });
 
   @override
@@ -97,7 +101,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
   String _liveStatus = '';
 
   // Active tab.
-  _SettingsTab _activeTab = _SettingsTab.profile;
+  late _SettingsTab _activeTab;
 
   // Pending toggle states (applied only on Save).
   late bool _pendingDarkMode;
@@ -107,10 +111,14 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
   bool _pendingProxy = false;
   bool _initialProxy = false;
   bool _proxyInitialized = false;
+  bool _pendingDockMode = true;
+  bool _initialDockMode = true;
+  bool _layoutInitialized = false;
 
   @override
   void initState() {
     super.initState();
+    _activeTab = widget.initialTab;
     _liveDisplayName = widget.displayNameController.text;
     _liveStatus = widget.statusController.text;
     widget.displayNameController.addListener(_onFieldChanged);
@@ -132,6 +140,13 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
       _pendingProxy = proxyAsync.value!;
       _initialProxy = _pendingProxy;
       _proxyInitialized = true;
+    }
+
+    final layoutAsync = ref.read(layoutModeProvider);
+    if (layoutAsync.hasValue) {
+      _pendingDockMode = layoutAsync.value! == LayoutMode.dock;
+      _initialDockMode = _pendingDockMode;
+      _layoutInitialized = true;
     }
   }
 
@@ -171,6 +186,13 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
       await ref
           .read(proxyEnabledProvider.notifier)
           .setEnabled(_pendingProxy);
+    }
+
+    // Apply layout mode change.
+    if (_pendingDockMode != _initialDockMode) {
+      await ref.read(layoutModeProvider.notifier).setMode(
+            _pendingDockMode ? LayoutMode.dock : LayoutMode.classic,
+          );
     }
 
     // Save profile.
@@ -219,6 +241,19 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
             _pendingProxy = next.value!;
             _initialProxy = _pendingProxy;
             _proxyInitialized = true;
+          });
+        }
+      });
+    }
+
+    // Update pending layout mode once the async value resolves.
+    if (!_layoutInitialized) {
+      ref.listen(layoutModeProvider, (prev, next) {
+        if (next.hasValue && !_layoutInitialized) {
+          setState(() {
+            _pendingDockMode = next.value! == LayoutMode.dock;
+            _initialDockMode = _pendingDockMode;
+            _layoutInitialized = true;
           });
         }
       });
@@ -595,6 +630,20 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
 
           const SizedBox(height: HollowSpacing.xl),
 
+          // ── Layout ──
+          _SectionLabel(label: 'LAYOUT'),
+          const SizedBox(height: HollowSpacing.sm),
+          _ToggleRow(
+            icon: LucideIcons.layoutDashboard,
+            label: 'Dock Mode',
+            subtitle: 'Bottom bar with friends strip',
+            value: _pendingDockMode,
+            onChanged: (value) =>
+                setState(() => _pendingDockMode = value),
+          ),
+
+          const SizedBox(height: HollowSpacing.xl),
+
           // ── System ──
           _SectionLabel(label: 'SYSTEM'),
           const SizedBox(height: HollowSpacing.sm),
@@ -638,6 +687,18 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
           _ShortcutRow(
             label: 'Quick Search',
             shortcut: 'Ctrl + K',
+          ),
+          _ShortcutRow(
+            label: 'Toggle Split View',
+            shortcut: r'Ctrl + Shift + \',
+          ),
+          _ShortcutRow(
+            label: 'Focus Left Pane',
+            shortcut: 'Ctrl + 1',
+          ),
+          _ShortcutRow(
+            label: 'Focus Right Pane',
+            shortcut: 'Ctrl + 2',
           ),
 
           const SizedBox(height: HollowSpacing.lg),

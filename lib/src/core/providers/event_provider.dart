@@ -8,6 +8,7 @@ import 'package:hollow/src/core/providers/chat_provider.dart';
 import 'package:hollow/src/core/providers/node_provider.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
 import 'package:hollow/src/core/providers/selected_peer_provider.dart';
+import 'package:hollow/src/core/providers/split_view_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:hollow/src/core/providers/service_providers.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
@@ -388,6 +389,15 @@ class EventStreamNotifier extends Notifier<bool> {
       case NetworkEvent_FriendRemoved(:final peerId):
         debugPrint('[HOLLOW] Friend removed: $peerId');
         ref.read(friendsProvider.notifier).loadAll();
+        // Close chat if viewing the removed friend.
+        if (ref.read(selectedPeerProvider) == peerId) {
+          ref.read(selectedPeerProvider.notifier).state = null;
+        }
+        // Close split pane if showing the removed friend.
+        final splitState = ref.read(splitViewProvider);
+        if (splitState.isSplit && splitState.rightPane?.peerId == peerId) {
+          ref.read(splitViewProvider.notifier).closeSplit();
+        }
 
       // -- Typing indicator events (Phase 3.5) --
       case NetworkEvent_TypingStarted(

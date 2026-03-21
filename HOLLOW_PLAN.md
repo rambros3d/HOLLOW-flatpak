@@ -1223,6 +1223,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 **Goal:** Final features, platform testing, and polish pass before distribution.
 
 - [X] Rename HAVEN to HOLLOW
+- [ ] Add avatars for peers and servers / Server folder organizing
 - [ ] **Scaling (deferred from Phase 4):**
   - [ ] Connection subset management (6-12 peers per server, peer scoring, rotation) — defer until scaling pain
   - [ ] Channel-level CRDT sharding (split ServerState for scale) — defer until ServerState is too large

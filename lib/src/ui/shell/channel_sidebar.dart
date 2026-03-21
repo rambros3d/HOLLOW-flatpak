@@ -58,6 +58,12 @@ class ChannelSidebar extends StatelessWidget {
   /// Fixed width for desktop/tablet. Pass null on mobile to fill available space.
   final double? width;
 
+  /// When true, sidebar hides entirely when no server selected (Dock layout).
+  final bool dockMode;
+
+  /// Whether to show the UserBar at the bottom. False in Dock layout.
+  final bool showUserBar;
+
   const ChannelSidebar({
     super.key,
     required this.peers,
@@ -76,6 +82,8 @@ class ChannelSidebar extends StatelessWidget {
     this.canManageChannels = false,
     this.channelLayoutJson = '[]',
     this.width = 240,
+    this.dockMode = false,
+    this.showUserBar = true,
   });
 
   static void _noop(String _) {}
@@ -84,23 +92,32 @@ class ChannelSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hollow = HollowTheme.of(context);
+
+    // In dock mode, hide sidebar entirely when no server is selected.
+    if (dockMode && selectedServer == null) {
+      return const SizedBox.shrink();
+    }
+
     final sidebarReveal =
         StartupRevealScope.interval(context, 0.12, 0.30);
     final userBarReveal =
         StartupRevealScope.interval(context, 0.50, 0.60);
 
-    Widget userBar = const UserBar();
-    if (userBarReveal != null) {
-      userBar = FadeTransition(
-        opacity: userBarReveal,
-        child: SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, 0.5),
-            end: Offset.zero,
-          ).animate(userBarReveal),
-          child: userBar,
-        ),
-      );
+    Widget? userBar;
+    if (showUserBar) {
+      userBar = const UserBar();
+      if (userBarReveal != null) {
+        userBar = FadeTransition(
+          opacity: userBarReveal,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.5),
+              end: Offset.zero,
+            ).animate(userBarReveal),
+            child: userBar,
+          ),
+        );
+      }
     }
 
     Widget sidebar = Container(
@@ -151,8 +168,8 @@ class ChannelSidebar extends StatelessWidget {
             ),
           ),
 
-          // User bar at bottom
-          userBar,
+          // User bar at bottom (hidden in dock mode)
+          ?userBar,
         ],
       ),
     );

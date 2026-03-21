@@ -112,6 +112,9 @@ Full security audit of the codebase. 3 critical, 4 high, 6 medium, 8 low vulnera
 
 Phase 4 plan is fully broken down into 12 major items with ~80 sub-tasks in `HOLLOW_PLAN.md`.
 
+**Dock Layout Redesign — COMPLETE (Mar 21, 2026):**
+New "Dock" layout as default. Bottom bar (macOS dock-style server strip), top friends bar, split view (50/50 draggable, ProviderScope overrides for right pane, pending migration pattern), Friends Manager dialog (4 tabs with remove friend), Home Dashboard (profile + recent conversations + network monitor). Classic layout preserved as option in Settings > System. See MEMORY.md for full details.
+
 **Phase 3.5 completed so far:**
 - User profiles: Rust `user_profiles` SQLCipher table, `ProfileUpdate` HollowMessage broadcast, timestamp-gated upsert, auto-exchange on `ConnectionEstablished`, `ProfileNotifier` Dart provider, `displayNameFor()` helper used everywhere (user_bar, member_panel, channel_message_bubble, peer_card, chat_pane)
 - User settings dialog: two-column layout (live profile preview card with centered banner/avatar/name/about-me on left, edit fields + dark mode toggle on right), `showHollowDialog` glassmorphism entrance, settings gear icon replaces theme toggle in user bar
@@ -174,7 +177,10 @@ All UI interactions go through custom Hollow widgets — no Material defaults an
 ## Key Architecture Notes
 - **Peer state tracking in swarm.rs:** `connected_peers`, `expected_peers`, `disconnected_peers` HashSets. Bootstrap handler skips disconnected + connected peers. `InboundCircuitEstablished` clears disconnected. `ConnectionEstablished` triggers proactive DHT prekey fetch for auto-encryption. Ping: 5s/5s. Rebootstrap: 60s unconditional.
 - **Event streaming:** Rust→Dart via `StreamSink` (flutter_rust_bridge), not polling. `watch_network_events()` in `api/network.rs`, `EventStreamNotifier` in `event_provider.dart`
-- **Navigation shell:** Discord-like 4-panel layout — ServerStrip (72px) | ChannelSidebar (240px) | ChatPane | MemberPanel (240px). Responsive: mobile uses bottom nav with single-panel views.
+- **Navigation shell:** Two layout modes (persisted via `layoutModeProvider`):
+  - **Dock mode (default):** FriendsBar (top) | ChannelSidebar (hidden when home) + ChatPane + MemberPanel | BottomBar (bottom, macOS dock-style). Split view support (50/50 draggable). Home dashboard with 3 columns (Profile | Recent Conversations | Network Monitor). Friends Manager dialog (4 tabs).
+  - **Classic mode:** Discord-like 4-panel — ServerStrip (72px) | ChannelSidebar (240px) | ChatPane | MemberPanel (240px).
+  - Responsive: mobile uses bottom nav with single-panel views (unchanged).
 - **Window chrome:** `window_manager` ^0.5.1, `setAsFrameless()`, custom 32px title bar (`window_title_bar.dart`). Native Win32 changes in `windows/runner/` for dark bg brush, DWM compositing, no-flicker resize. Known issue: drag-from-maximized doesn't live-redraw until drop (Flutter engine limitation).
 - **Theme:** Dark primary (default) + light secondary. `HollowTheme.dark()`/`.light()` ThemeExtension, `HollowThemeData.dark()`/`.light()` factories. Toggle via `themeModeProvider` (Riverpod StateProvider). No persistence yet (Phase 3). Frutiger Aero theme deferred as future third option.
 - **Icons:** `lucide_icons: ^0.257.0`. All `LucideIcons.*` (camelCase). Note: v0.257.0 uses `alertTriangle`/`alertCircle` (not `triangleAlert`/`circleAlert`). No `cloudCheck` — uses `cloud`.

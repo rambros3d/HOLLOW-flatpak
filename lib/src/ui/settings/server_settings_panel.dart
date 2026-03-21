@@ -17,8 +17,9 @@ import 'package:lucide_icons/lucide_icons.dart';
 /// Tabs are gated by the local user's permissions.
 class ServerSettingsPanel extends ConsumerStatefulWidget {
   final ServerInfo server;
+  final VoidCallback? onClose;
 
-  const ServerSettingsPanel({super.key, required this.server});
+  const ServerSettingsPanel({super.key, required this.server, this.onClose});
 
   @override
   ConsumerState<ServerSettingsPanel> createState() =>
@@ -135,7 +136,11 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
                 ),
                 HollowPressable(
                   onTap: () {
-                    ref.read(serverSettingsOpenProvider.notifier).state = false;
+                    if (widget.onClose != null) {
+                      widget.onClose!();
+                    } else {
+                      ref.read(serverSettingsOpenProvider.notifier).state = false;
+                    }
                   },
                   borderRadius: BorderRadius.circular(hollow.radiusSm),
                   padding: const EdgeInsets.all(HollowSpacing.xs),
@@ -184,8 +189,12 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
               ),
               HollowPressable(
                 onTap: () {
-                  ref.read(serverSettingsOpenProvider.notifier).state =
-                      false;
+                  if (widget.onClose != null) {
+                    widget.onClose!();
+                  } else {
+                    ref.read(serverSettingsOpenProvider.notifier).state =
+                        false;
+                  }
                 },
                 borderRadius: BorderRadius.circular(hollow.radiusSm),
                 padding: const EdgeInsets.all(HollowSpacing.xs),

@@ -8,7 +8,9 @@ import 'package:hollow/src/core/providers/chat_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/models/file_attachment.dart';
 import 'package:hollow/src/core/providers/file_transfer_provider.dart';
+import 'package:hollow/src/core/providers/layout_provider.dart';
 import 'package:hollow/src/core/providers/notification_provider.dart';
+import 'package:hollow/src/core/providers/split_view_provider.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
 import 'package:hollow/src/core/providers/unread_provider.dart';
 import 'package:file_picker/file_picker.dart';
@@ -124,10 +126,12 @@ class DateSeparator extends StatelessWidget {
 
 class ChatPane extends ConsumerStatefulWidget {
   final String peerId;
+  final int? splitPaneIndex;
 
   const ChatPane({
     super.key,
     required this.peerId,
+    this.splitPaneIndex,
   });
 
   @override
@@ -135,6 +139,17 @@ class ChatPane extends ConsumerStatefulWidget {
 }
 
 class _ChatPaneState extends ConsumerState<ChatPane> {
+  void _handleSplitToggle(WidgetRef ref) {
+    final split = ref.read(splitViewProvider);
+    if (split.isSplit) {
+      ref.read(splitViewProvider.notifier).closePane(
+            widget.splitPaneIndex ?? 0,
+          );
+    } else {
+      ref.read(splitViewProvider.notifier).openSplit();
+    }
+  }
+
   final _controller = TextEditingController();
   final _itemScrollController = ItemScrollController();
   final _itemPositionsListener = ItemPositionsListener.create();
@@ -480,6 +495,27 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                   ),
                 ),
               ),
+              // Split view button (dock mode only)
+              if ((ref.watch(layoutModeProvider).valueOrNull ?? LayoutMode.dock) == LayoutMode.dock) ...[
+                const SizedBox(width: HollowSpacing.xs),
+                HollowTooltip(
+                  message: ref.watch(splitViewProvider).isSplit
+                      ? 'Close this pane'
+                      : 'Split view',
+                  child: HollowPressable(
+                    onTap: () => _handleSplitToggle(ref),
+                    borderRadius: BorderRadius.circular(hollow.radiusSm),
+                    padding: const EdgeInsets.all(HollowSpacing.xs),
+                    child: Icon(
+                      LucideIcons.columns,
+                      size: 16,
+                      color: ref.watch(splitViewProvider).isSplit
+                          ? hollow.accent
+                          : hollow.textSecondary,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

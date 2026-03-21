@@ -55,8 +55,18 @@ class _HollowTooltipState extends State<HollowTooltip>
   }
 
   @override
+  void deactivate() {
+    // Remove tooltip immediately when widget leaves the tree.
+    _entry?.remove();
+    _entry = null;
+    _hovering = false;
+    super.deactivate();
+  }
+
+  @override
   void dispose() {
-    _hideTooltip();
+    _entry?.remove();
+    _entry = null;
     _controller.dispose();
     super.dispose();
   }
