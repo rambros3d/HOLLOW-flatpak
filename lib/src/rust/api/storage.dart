@@ -438,6 +438,8 @@ class UserProfile {
   final String status;
   final String aboutMe;
   final PlatformInt64 updatedAt;
+  final Uint8List? avatarBytes;
+  final Uint8List? bannerBytes;
 
   const UserProfile({
     required this.peerId,
@@ -445,6 +447,8 @@ class UserProfile {
     required this.status,
     required this.aboutMe,
     required this.updatedAt,
+    this.avatarBytes,
+    this.bannerBytes,
   });
 
   @override
@@ -453,7 +457,9 @@ class UserProfile {
       displayName.hashCode ^
       status.hashCode ^
       aboutMe.hashCode ^
-      updatedAt.hashCode;
+      updatedAt.hashCode ^
+      avatarBytes.hashCode ^
+      bannerBytes.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -464,5 +470,7 @@ class UserProfile {
           displayName == other.displayName &&
           status == other.status &&
           aboutMe == other.aboutMe &&
-          updatedAt == other.updatedAt;
+          updatedAt == other.updatedAt &&
+          avatarBytes == other.avatarBytes &&
+          bannerBytes == other.bannerBytes;
 }

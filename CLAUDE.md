@@ -122,6 +122,9 @@ New "Dock" layout as default. Bottom bar (macOS dock-style server strip), top fr
 - Sync UI: 10s timeout, SyncCompleted reloads channels, kicked member detection, server removal on DB miss
 - Startup reveal: dock bars slide in, dashboard columns stagger, no blob jitter on reveal complete
 
+**User Avatars, Banners & Server Icons — COMPLETE (Mar 22, 2026):**
+Real image support replacing deterministic color+initials. Rust image processing (128x128 avatar, 600x200 banner, WebP). Stored as BLOBs in `user_profiles` table, broadcast via `ProfileUpdate` (base64 fields with `#[serde(default)]`). `HollowAvatar` widget updated with `imageBytes` param across 14 usage sites. Crop dialog (`image_crop_dialog.dart`) with draggable crop rect, corner resize handles, dark overlay, rule-of-thirds grid, fixed aspect ratio. User settings: stacked image rows (`Avatar ── [trash]` / `Banner ── [trash]`) below preview card. Profile card popup shows real banner. Server icons via CRDT `ServerSettingChanged` key `"server_avatar"`, cached in `server_avatar_provider.dart`, displayed in bottom bar + server strip with initials fallback. `"CLEAR"` sentinel in wire protocol for avatar/banner removal propagation.
+
 **Phase 3.5 completed so far:**
 - User profiles: Rust `user_profiles` SQLCipher table, `ProfileUpdate` HollowMessage broadcast, timestamp-gated upsert, auto-exchange on `ConnectionEstablished`, `ProfileNotifier` Dart provider, `displayNameFor()` helper used everywhere (user_bar, member_panel, channel_message_bubble, peer_card, chat_pane)
 - User settings dialog: two-column layout (live profile preview card with centered banner/avatar/name/about-me on left, edit fields + dark mode toggle on right), `showHollowDialog` glassmorphism entrance, settings gear icon replaces theme toggle in user bar

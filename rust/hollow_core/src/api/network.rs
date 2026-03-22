@@ -1029,9 +1029,16 @@ pub fn request_channel_sync(server_id: String, channel_id: String) -> Result<(),
 /// Notify all connected peers that we're shutting down gracefully.
 /// Call this before closing the app so peers can immediately update their state.
 #[frb]
-/// Update our display name, status, and about me — saves to DB and broadcasts to all connected peers.
+/// Update our display name, status, about me, and optionally avatar/banner —
+/// saves to DB and broadcasts to all connected peers.
 #[frb]
-pub fn update_profile(display_name: String, status: String, about_me: String) -> Result<(), String> {
+pub fn update_profile(
+    display_name: String,
+    status: String,
+    about_me: String,
+    avatar_bytes: Option<Vec<u8>>,
+    banner_bytes: Option<Vec<u8>>,
+) -> Result<(), String> {
     let node = get_node();
     let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
     let state = guard.as_ref().ok_or("Node is not running")?;
@@ -1042,11 +1049,25 @@ pub fn update_profile(display_name: String, status: String, about_me: String) ->
             display_name,
             status,
             about_me,
+            avatar_bytes,
+            banner_bytes,
         }),
     )
     .map_err(|e| format!("Failed to send command: {e}"))?;
 
     Ok(())
+}
+
+/// Process a raw image into avatar format (128x128 WebP). Returns processed bytes.
+#[frb]
+pub fn process_avatar(raw_bytes: Vec<u8>) -> Result<Vec<u8>, String> {
+    crate::node::image_convert::process_avatar_image(&raw_bytes)
+}
+
+/// Process a raw image into banner format (600x200 WebP). Returns processed bytes.
+#[frb]
+pub fn process_banner(raw_bytes: Vec<u8>) -> Result<Vec<u8>, String> {
+    crate::node::image_convert::process_banner_image(&raw_bytes)
 }
 
 pub fn notify_shutdown() -> Result<(), String> {

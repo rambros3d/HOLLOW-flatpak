@@ -763,7 +763,7 @@ class _PendingRequestTile extends ConsumerWidget {
         ),
         child: Row(
           children: [
-            HollowAvatar(peerId: peerId, size: 28),
+            HollowAvatar(peerId: peerId, size: 28, imageBytes: profiles[peerId]?.avatarBytes),
             const SizedBox(width: HollowSpacing.sm),
             Expanded(
               child: Column(

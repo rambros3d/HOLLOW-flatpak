@@ -119,6 +119,8 @@ pub struct UserProfile {
     pub status: String,
     pub about_me: String,
     pub updated_at: i64,
+    pub avatar_bytes: Option<Vec<u8>>,
+    pub banner_bytes: Option<Vec<u8>>,
 }
 
 /// Get a profile for a specific peer (or ourselves). Returns None if no profile stored.
@@ -135,6 +137,8 @@ pub fn get_profile(peer_id: String) -> Result<Option<UserProfile>, String> {
             status: p.status,
             about_me: p.about_me,
             updated_at: p.updated_at,
+            avatar_bytes: p.avatar_bytes,
+            banner_bytes: p.banner_bytes,
         })),
         None => Ok(None),
     }
@@ -156,6 +160,8 @@ pub fn get_all_profiles() -> Result<Vec<UserProfile>, String> {
             status: p.status,
             about_me: p.about_me,
             updated_at: p.updated_at,
+            avatar_bytes: p.avatar_bytes,
+            banner_bytes: p.banner_bytes,
         })
         .collect())
 }

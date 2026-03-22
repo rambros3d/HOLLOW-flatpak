@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/friends_provider.dart';
@@ -157,6 +159,7 @@ class FriendsBar extends ConsumerWidget {
                         isOnline: isOnline,
                         isSelected: isSelected,
                         hasUnread: hasUnread,
+                        avatarBytes: profiles[friend.peerId]?.avatarBytes,
                         onTap: () => _selectFriend(ref, friend.peerId),
                       );
                     },
@@ -515,7 +518,7 @@ class _FriendsListTab extends ConsumerWidget {
                 Stack(
                   clipBehavior: Clip.none,
                   children: [
-                    HollowAvatar(peerId: friend.peerId, size: 32),
+                    HollowAvatar(peerId: friend.peerId, size: 32, imageBytes: profiles[friend.peerId]?.avatarBytes),
                     Positioned(
                       right: -1,
                       bottom: -1,
@@ -662,7 +665,7 @@ class _RequestsTab extends ConsumerWidget {
             ),
             child: Row(
               children: [
-                HollowAvatar(peerId: req.peerId, size: 32),
+                HollowAvatar(peerId: req.peerId, size: 32, imageBytes: profiles[req.peerId]?.avatarBytes),
                 const SizedBox(width: HollowSpacing.sm),
                 Expanded(
                   child: Column(
@@ -808,6 +811,7 @@ class _FriendChip extends StatelessWidget {
   final bool isOnline;
   final bool isSelected;
   final bool hasUnread;
+  final Uint8List? avatarBytes;
   final VoidCallback onTap;
 
   const _FriendChip({
@@ -816,6 +820,7 @@ class _FriendChip extends StatelessWidget {
     required this.isOnline,
     required this.isSelected,
     required this.hasUnread,
+    this.avatarBytes,
     required this.onTap,
   });
 
@@ -844,7 +849,7 @@ class _FriendChip extends StatelessWidget {
               Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  HollowAvatar(peerId: peerId, size: 24),
+                  HollowAvatar(peerId: peerId, size: 24, imageBytes: avatarBytes),
                   Positioned(
                     right: -2,
                     bottom: -2,

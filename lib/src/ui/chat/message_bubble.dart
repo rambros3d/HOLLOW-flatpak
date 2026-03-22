@@ -201,7 +201,7 @@ class MessageBubble extends ConsumerWidget {
             children: [
               Padding(
                 padding: const EdgeInsets.only(top: 5),
-                child: HollowAvatar(peerId: senderId, size: avatarSize),
+                child: HollowAvatar(peerId: senderId, size: avatarSize, imageBytes: profiles[senderId]?.avatarBytes),
               ),
               const SizedBox(width: avatarGap),
               Expanded(

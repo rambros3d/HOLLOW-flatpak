@@ -252,7 +252,7 @@ pub(crate) enum NodeCommand {
     SetNickname { server_id: String, peer_id: String, nickname: String },
     NotifyShutdown,
     // -- Profile commands (Phase 3.5) --
-    UpdateProfile { display_name: String, status: String, about_me: String },
+    UpdateProfile { display_name: String, status: String, about_me: String, avatar_bytes: Option<Vec<u8>>, banner_bytes: Option<Vec<u8>> },
     // -- Message editing (Phase 3.5) --
     EditChannelMessage { server_id: String, channel_id: String, message_id: String, new_text: String },
     EditDmMessage { peer_id: PeerId, message_id: String, new_text: String },
@@ -457,6 +457,10 @@ enum HavenMessage {
         status: String,
         about_me: String,
         updated_at: i64,
+        #[serde(default)]
+        avatar_b64: String,
+        #[serde(default)]
+        banner_b64: String,
     },
 
     // -- Multi-peer fan-out sync (Phase 3.5) --
@@ -2857,11 +2861,24 @@ async fn run_swarm(
                             }
                         }
                     }
-                    NodeCommand::UpdateProfile { display_name, status, about_me } => {
+                    NodeCommand::UpdateProfile { display_name, status, about_me, avatar_bytes, banner_bytes } => {
                         let now = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_millis() as i64;
+
+                        use base64::Engine;
+                        // None = no change → empty string. Some(empty) = clear → "CLEAR". Some(data) = base64.
+                        let avatar_b64 = match &avatar_bytes {
+                            None => String::new(),
+                            Some(b) if b.is_empty() => "CLEAR".to_string(),
+                            Some(b) => base64::engine::general_purpose::STANDARD.encode(b),
+                        };
+                        let banner_b64 = match &banner_bytes {
+                            None => String::new(),
+                            Some(b) if b.is_empty() => "CLEAR".to_string(),
+                            Some(b) => base64::engine::general_purpose::STANDARD.encode(b),
+                        };
 
                         // Save our own profile to DB.
                         {
@@ -2870,7 +2887,10 @@ async fn run_swarm(
                             let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
                             let passphrase = hex::encode(&proto[..32.min(proto.len())]);
                             if let Ok(db) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                if let Err(e) = db.save_profile(&local_peer_str, &display_name, &status, &about_me, now) {
+                                if let Err(e) = db.save_profile(
+                                    &local_peer_str, &display_name, &status, &about_me, now,
+                                    avatar_bytes.as_deref(), banner_bytes.as_deref(),
+                                ) {
                                     hollow_log!("[HOLLOW-SWARM] Failed to save own profile: {e}");
                                 }
                             }
@@ -2882,6 +2902,8 @@ async fn run_swarm(
                             status: status.clone(),
                             about_me: about_me.clone(),
                             updated_at: now,
+                            avatar_b64: avatar_b64.clone(),
+                            banner_b64: banner_b64.clone(),
                         };
                         hollow_log!("[HOLLOW-SWARM] Broadcasting profile update to {} peers", connected_peers.len());
                         for pid in connected_peers.iter() {
@@ -5574,6 +5596,9 @@ async fn run_swarm(
                                         if let Ok(db) = crate::storage::MessageStore::open(&db_path, &passphrase) {
                                             if let Ok(Some(profile)) = db.load_profile(&local_peer_str) {
                                                 if !profile.display_name.is_empty() {
+                                                    use base64::Engine;
+                                                    let avatar_b64 = profile.avatar_bytes.as_ref().map(|b| base64::engine::general_purpose::STANDARD.encode(b)).unwrap_or_default();
+                                                    let banner_b64 = profile.banner_bytes.as_ref().map(|b| base64::engine::general_purpose::STANDARD.encode(b)).unwrap_or_default();
                                                     swarm.behaviour_mut().messaging.send_request(
                                                         &peer_id,
                                                         HavenMessage::ProfileUpdate {
@@ -5581,6 +5606,8 @@ async fn run_swarm(
                                                             status: profile.status,
                                                             about_me: profile.about_me,
                                                             updated_at: profile.updated_at,
+                                                            avatar_b64,
+                                                            banner_b64,
                                                         },
                                                     );
                                                 }
@@ -8940,7 +8967,7 @@ async fn handle_incoming_request(
             }).await;
         }
 
-        HavenMessage::ProfileUpdate { display_name, status, about_me, updated_at } => {
+        HavenMessage::ProfileUpdate { display_name, status, about_me, updated_at, avatar_b64, banner_b64 } => {
             let _ = swarm.behaviour_mut().messaging.send_response(channel, HavenMessage::Ack);
 
             // SECURITY: Truncate profile fields to prevent oversized strings from malicious peers.
@@ -8948,6 +8975,32 @@ async fn handle_incoming_request(
             let display_name = if display_name.len() > 64 { display_name[..64].to_string() } else { display_name };
             let status = if status.len() > 96 { status[..96].to_string() } else { status };
             let about_me = if about_me.len() > 256 { about_me[..256].to_string() } else { about_me };
+
+            // Decode avatar/banner from base64.
+            // Empty string = no change (None). "CLEAR" = clear (Some(empty)). Otherwise = base64 data.
+            use base64::Engine;
+            let avatar_bytes: Option<Vec<u8>> = if avatar_b64.is_empty() {
+                None
+            } else if avatar_b64 == "CLEAR" {
+                Some(vec![]) // empty = clear signal for save_profile
+            } else {
+                match base64::engine::general_purpose::STANDARD.decode(&avatar_b64) {
+                    Ok(bytes) if bytes.len() <= 100_000 => Some(bytes),
+                    Ok(_) => { hollow_log!("[HOLLOW-SWARM] Rejecting avatar from {peer_str}: too large"); None }
+                    Err(e) => { hollow_log!("[HOLLOW-SWARM] Invalid avatar base64 from {peer_str}: {e}"); None }
+                }
+            };
+            let banner_bytes: Option<Vec<u8>> = if banner_b64.is_empty() {
+                None
+            } else if banner_b64 == "CLEAR" {
+                Some(vec![]) // empty = clear signal for save_profile
+            } else {
+                match base64::engine::general_purpose::STANDARD.decode(&banner_b64) {
+                    Ok(bytes) if bytes.len() <= 200_000 => Some(bytes),
+                    Ok(_) => { hollow_log!("[HOLLOW-SWARM] Rejecting banner from {peer_str}: too large"); None }
+                    Err(e) => { hollow_log!("[HOLLOW-SWARM] Invalid banner base64 from {peer_str}: {e}"); None }
+                }
+            };
 
             hollow_log!("[HOLLOW-SWARM] ProfileUpdate from {peer_str}: name={display_name}");
 
@@ -8958,7 +9011,10 @@ async fn handle_incoming_request(
                 if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
                     let passphrase = hex::encode(&proto[..32.min(proto.len())]);
                     if let Ok(db) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                        if let Err(e) = db.save_profile(&peer_str, &display_name, &status, &about_me, updated_at) {
+                        if let Err(e) = db.save_profile(
+                            &peer_str, &display_name, &status, &about_me, updated_at,
+                            avatar_bytes.as_deref(), banner_bytes.as_deref(),
+                        ) {
                             hollow_log!("[HOLLOW-SWARM] Failed to save peer profile: {e}");
                         }
                     }

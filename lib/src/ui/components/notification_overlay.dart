@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/channel_provider.dart';
+import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/core/providers/selected_peer_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:hollow/src/core/providers/system_notification_provider.dart';
@@ -210,6 +211,7 @@ class _NotificationCardWidgetState
                         HollowAvatar(
                           peerId: card.avatarId,
                           size: 24,
+                          imageBytes: ref.watch(profileProvider)[card.avatarId]?.avatarBytes,
                         ),
                         const SizedBox(width: HollowSpacing.sm),
                         Expanded(

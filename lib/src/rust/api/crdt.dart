@@ -82,6 +82,23 @@ Future<void> updateServerSetting({
   value: value,
 );
 
+/// Set a server avatar. Processes the raw image to 128x128 WebP and stores via CRDT.
+Future<void> setServerAvatar({
+  required String serverId,
+  required List<int> rawBytes,
+}) => RustLib.instance.api.crateApiCrdtSetServerAvatar(
+  serverId: serverId,
+  rawBytes: rawBytes,
+);
+
+/// Clear a server avatar.
+Future<void> clearServerAvatar({required String serverId}) =>
+    RustLib.instance.api.crateApiCrdtClearServerAvatar(serverId: serverId);
+
+/// Get a server avatar as raw bytes. Returns None if no avatar set.
+Future<Uint8List?> getServerAvatar({required String serverId}) =>
+    RustLib.instance.api.crateApiCrdtGetServerAvatar(serverId: serverId);
+
 /// Join a server via invite link. Connects to the server's signaling room and
 /// requests membership from existing members.
 Future<void> joinServer({required String serverId}) =>

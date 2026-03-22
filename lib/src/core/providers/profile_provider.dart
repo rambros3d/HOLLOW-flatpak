@@ -36,16 +36,21 @@ class ProfileNotifier extends Notifier<Map<String, storage_api.UserProfile>> {
   }
 
   /// Update our own profile — sends command to Rust which saves + broadcasts.
+  /// Pass avatarBytes/bannerBytes to update images. null = no change. Empty Uint8List = clear.
   Future<void> updateMyProfile({
     required String displayName,
     String status = '',
     String aboutMe = '',
+    Uint8List? avatarBytes,
+    Uint8List? bannerBytes,
   }) async {
     try {
       await network_api.updateProfile(
         displayName: displayName,
         status: status,
         aboutMe: aboutMe,
+        avatarBytes: avatarBytes,
+        bannerBytes: bannerBytes,
       );
     } catch (e) {
       debugPrint('[HOLLOW] Failed to update profile: $e');

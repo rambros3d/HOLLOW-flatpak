@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/channel_provider.dart';
 import 'package:hollow/src/core/providers/selected_peer_provider.dart';
+import 'package:hollow/src/core/providers/server_avatar_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:hollow/src/core/providers/notification_provider.dart';
 import 'package:hollow/src/core/providers/unread_provider.dart';
@@ -182,14 +183,23 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
                             .state = map;
                       }
                     },
-                    child: Text(
-                      _initialsFromName(server.name),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                    child: Builder(builder: (_) {
+                      final serverAvatar = ref.watch(serverAvatarProvider)[server.serverId];
+                      if (serverAvatar != null) {
+                        return ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.memory(serverAvatar, width: 44, height: 44, fit: BoxFit.cover),
+                        );
+                      }
+                      return Text(
+                        _initialsFromName(server.name),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      );
+                    }),
                   ),
                 );
 

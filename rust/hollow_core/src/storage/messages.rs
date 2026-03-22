@@ -11,6 +11,8 @@ pub(crate) struct StoredProfile {
     pub status: String,
     pub about_me: String,
     pub updated_at: i64,
+    pub avatar_bytes: Option<Vec<u8>>,
+    pub banner_bytes: Option<Vec<u8>>,
 }
 
 /// A stored chat message.
@@ -456,6 +458,14 @@ impl MessageStore {
         ).unwrap_or(());
         conn.execute_batch(
             "ALTER TABLE channel_messages ADD COLUMN file_id TEXT;"
+        ).unwrap_or(());
+
+        // -- Migration: avatar/banner BLOB columns on user_profiles --
+        conn.execute_batch(
+            "ALTER TABLE user_profiles ADD COLUMN avatar BLOB;"
+        ).unwrap_or(());
+        conn.execute_batch(
+            "ALTER TABLE user_profiles ADD COLUMN banner BLOB;"
         ).unwrap_or(());
 
         Ok(MessageStore { conn })
@@ -1220,6 +1230,8 @@ impl MessageStore {
     // ── User Profile Persistence (Phase 3.5) ──
 
     /// Upsert a user profile (ours or a peer's).
+    /// `avatar` and `banner` are optional: `None` preserves the existing image, `Some(bytes)` overwrites
+    /// (pass empty slice to clear).
     pub fn save_profile(
         &self,
         peer_id: &str,
@@ -1227,20 +1239,45 @@ impl MessageStore {
         status: &str,
         about_me: &str,
         updated_at: i64,
+        avatar: Option<&[u8]>,
+        banner: Option<&[u8]>,
     ) -> Result<(), String> {
+        // For avatar/banner: None = no change (use COALESCE), Some(empty) = clear (store NULL), Some(data) = set.
+        // Normalize Some(empty) to an explicit NULL for SQL.
+        let avatar_val: Option<&[u8]> = avatar.and_then(|b| if b.is_empty() { None } else { Some(b) });
+        let banner_val: Option<&[u8]> = banner.and_then(|b| if b.is_empty() { None } else { Some(b) });
+        let avatar_is_clear = avatar.is_some() && avatar.unwrap().is_empty();
+        let banner_is_clear = banner.is_some() && banner.unwrap().is_empty();
+
         self.conn
             .execute(
-                "INSERT INTO user_profiles (peer_id, display_name, status, about_me, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5)
+                "INSERT INTO user_profiles (peer_id, display_name, status, about_me, updated_at, avatar, banner)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(peer_id) DO UPDATE SET
                     display_name = excluded.display_name,
                     status = excluded.status,
                     about_me = excluded.about_me,
-                    updated_at = excluded.updated_at
+                    updated_at = excluded.updated_at,
+                    avatar = COALESCE(excluded.avatar, user_profiles.avatar),
+                    banner = COALESCE(excluded.banner, user_profiles.banner)
                  WHERE excluded.updated_at >= user_profiles.updated_at",
-                params![peer_id, display_name, status, about_me, updated_at],
+                params![peer_id, display_name, status, about_me, updated_at, avatar_val, banner_val],
             )
             .map_err(|e| format!("Failed to save profile: {e}"))?;
+
+        // Explicitly clear avatar/banner if requested (COALESCE can't set NULL).
+        if avatar_is_clear {
+            self.conn.execute(
+                "UPDATE user_profiles SET avatar = NULL WHERE peer_id = ?1",
+                params![peer_id],
+            ).map_err(|e| format!("Failed to clear avatar: {e}"))?;
+        }
+        if banner_is_clear {
+            self.conn.execute(
+                "UPDATE user_profiles SET banner = NULL WHERE peer_id = ?1",
+                params![peer_id],
+            ).map_err(|e| format!("Failed to clear banner: {e}"))?;
+        }
         Ok(())
     }
 
@@ -1249,7 +1286,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT peer_id, display_name, status, about_me, updated_at
+                "SELECT peer_id, display_name, status, about_me, updated_at, avatar, banner
                  FROM user_profiles WHERE peer_id = ?1",
             )
             .map_err(|e| format!("Failed to prepare profile query: {e}"))?;
@@ -1261,6 +1298,8 @@ impl MessageStore {
                     status: row.get(2)?,
                     about_me: row.get(3)?,
                     updated_at: row.get(4)?,
+                    avatar_bytes: row.get(5)?,
+                    banner_bytes: row.get(6)?,
                 })
             })
             .map_err(|e| format!("Failed to query profile: {e}"))?;
@@ -1276,7 +1315,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT peer_id, display_name, status, about_me, updated_at
+                "SELECT peer_id, display_name, status, about_me, updated_at, avatar, banner
                  FROM user_profiles",
             )
             .map_err(|e| format!("Failed to prepare all profiles query: {e}"))?;
@@ -1288,6 +1327,8 @@ impl MessageStore {
                     status: row.get(2)?,
                     about_me: row.get(3)?,
                     updated_at: row.get(4)?,
+                    avatar_bytes: row.get(5)?,
+                    banner_bytes: row.get(6)?,
                 })
             })
             .map_err(|e| format!("Failed to query all profiles: {e}"))?;

@@ -65,7 +65,7 @@ class PeerCard extends ConsumerWidget {
               // Avatar with status dot overlay
               Stack(
                 children: [
-                  HollowAvatar(peerId: peerId, size: 36),
+                  HollowAvatar(peerId: peerId, size: 36, imageBytes: profiles[peerId]?.avatarBytes),
                   Positioned(
                     right: 0,
                     bottom: 0,

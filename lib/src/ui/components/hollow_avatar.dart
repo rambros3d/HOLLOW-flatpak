@@ -1,15 +1,20 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 
-/// Deterministic avatar generated from a peer ID hash.
+/// Avatar widget — shows a real image when available, falls back to
+/// deterministic color + initials from peer ID.
 class HollowAvatar extends StatelessWidget {
   final String peerId;
   final double size;
+  final Uint8List? imageBytes;
 
   const HollowAvatar({
     super.key,
     required this.peerId,
     this.size = 36,
+    this.imageBytes,
   });
 
   /// Deterministic color from peer ID.
@@ -24,16 +29,12 @@ class HollowAvatar extends StatelessWidget {
     return id.substring(0, 2).toUpperCase();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final hollow = HollowTheme.of(context);
-    final bgColor = _colorFromId(peerId);
-
+  Widget _buildFallback(HollowTheme hollow) {
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: bgColor,
+        color: _colorFromId(peerId),
         borderRadius: BorderRadius.circular(hollow.radiusMd),
       ),
       alignment: Alignment.center,
@@ -46,5 +47,25 @@ class HollowAvatar extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+
+    if (imageBytes != null && imageBytes!.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(hollow.radiusMd),
+        child: Image.memory(
+          imageBytes!,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _buildFallback(hollow),
+        ),
+      );
+    }
+
+    return _buildFallback(hollow);
   }
 }

@@ -196,16 +196,29 @@ Future<void> requestChannelSync({
 
 /// Notify all connected peers that we're shutting down gracefully.
 /// Call this before closing the app so peers can immediately update their state.
-/// Update our display name, status, and about me — saves to DB and broadcasts to all connected peers.
+/// Update our display name, status, about me, and optionally avatar/banner —
+/// saves to DB and broadcasts to all connected peers.
 Future<void> updateProfile({
   required String displayName,
   required String status,
   required String aboutMe,
+  Uint8List? avatarBytes,
+  Uint8List? bannerBytes,
 }) => RustLib.instance.api.crateApiNetworkUpdateProfile(
   displayName: displayName,
   status: status,
   aboutMe: aboutMe,
+  avatarBytes: avatarBytes,
+  bannerBytes: bannerBytes,
 );
+
+/// Process a raw image into avatar format (128x128 WebP). Returns processed bytes.
+Future<Uint8List> processAvatar({required List<int> rawBytes}) =>
+    RustLib.instance.api.crateApiNetworkProcessAvatar(rawBytes: rawBytes);
+
+/// Process a raw image into banner format (600x200 WebP). Returns processed bytes.
+Future<Uint8List> processBanner({required List<int> rawBytes}) =>
+    RustLib.instance.api.crateApiNetworkProcessBanner(rawBytes: rawBytes);
 
 Future<void> notifyShutdown() =>
     RustLib.instance.api.crateApiNetworkNotifyShutdown();

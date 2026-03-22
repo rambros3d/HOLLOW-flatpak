@@ -415,7 +415,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
           ),
           child: Row(
             children: [
-              HollowAvatar(peerId: widget.peerId, size: 28),
+              HollowAvatar(peerId: widget.peerId, size: 28, imageBytes: ref.watch(profileProvider)[widget.peerId]?.avatarBytes),
               const SizedBox(width: HollowSpacing.sm),
               Builder(builder: (_) {
                 final isOnline = ref.watch(peersProvider).containsKey(widget.peerId);

@@ -11,6 +11,7 @@ import 'package:hollow/src/core/providers/node_provider.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
 import 'package:hollow/src/core/providers/selected_peer_provider.dart';
 import 'package:hollow/src/core/providers/split_view_provider.dart';
+import 'package:hollow/src/core/providers/server_avatar_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:hollow/src/core/providers/service_providers.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
@@ -169,6 +170,7 @@ class EventStreamNotifier extends Notifier<bool> {
       case NetworkEvent_ServerUpdated(:final serverId):
         debugPrint('[HOLLOW] Server updated: $serverId');
         ref.read(serverListProvider.notifier).onServerUpdated(serverId);
+        ref.read(serverAvatarProvider.notifier).loadAvatar(serverId);
         // Reload channels and layout in case they changed.
         if (ref.read(selectedServerProvider) == serverId) {
           ref.read(channelListProvider.notifier).loadForServer(serverId);

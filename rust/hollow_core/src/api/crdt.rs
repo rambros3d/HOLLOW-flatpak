@@ -309,6 +309,35 @@ pub fn update_server_setting(server_id: String, key: String, value: String) -> R
     Ok(())
 }
 
+/// Set a server avatar. Processes the raw image to 128x128 WebP and stores via CRDT.
+#[frb]
+pub fn set_server_avatar(server_id: String, raw_bytes: Vec<u8>) -> Result<(), String> {
+    let processed = crate::node::image_convert::process_avatar_image(&raw_bytes)?;
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&processed);
+    update_server_setting(server_id, "server_avatar".into(), b64)
+}
+
+/// Clear a server avatar.
+#[frb]
+pub fn clear_server_avatar(server_id: String) -> Result<(), String> {
+    update_server_setting(server_id, "server_avatar".into(), String::new())
+}
+
+/// Get a server avatar as raw bytes. Returns None if no avatar set.
+#[frb]
+pub fn get_server_avatar(server_id: String) -> Result<Option<Vec<u8>>, String> {
+    let b64 = get_server_setting(server_id, "server_avatar".into())?;
+    if b64.is_empty() {
+        return Ok(None);
+    }
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&b64)
+        .map_err(|e| format!("Invalid server avatar base64: {e}"))?;
+    Ok(Some(bytes))
+}
+
 /// Join a server via invite link. Connects to the server's signaling room and
 /// requests membership from existing members.
 #[frb]

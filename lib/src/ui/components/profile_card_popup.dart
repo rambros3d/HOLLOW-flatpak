@@ -188,19 +188,37 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       // Banner
-                      Container(
-                        height: 80,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              bannerColor,
-                              bannerColor.withValues(alpha: 0.7),
-                            ],
+                      Builder(builder: (_) {
+                        final bannerBytes = profile?.bannerBytes;
+                        if (bannerBytes != null && bannerBytes.isNotEmpty) {
+                          return SizedBox(
+                            height: 80,
+                            width: double.infinity,
+                            child: Image.memory(bannerBytes, fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [bannerColor, bannerColor.withValues(alpha: 0.7)],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+                        return Container(
+                          height: 80,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [bannerColor, bannerColor.withValues(alpha: 0.7)],
+                            ),
                           ),
-                        ),
-                      ),
+                        );
+                      }),
 
                       // Content overlapping banner
                       Transform.translate(
@@ -222,7 +240,7 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                                   ),
                                 ),
                                 child: HollowAvatar(
-                                    peerId: widget.peerId, size: 64),
+                                    peerId: widget.peerId, size: 64, imageBytes: profile?.avatarBytes),
                               ),
 
                               const SizedBox(height: HollowSpacing.xs + 2),

@@ -170,7 +170,7 @@ class _ProfileColumn extends ConsumerWidget {
 
         // Avatar
         if (localPeerId != null)
-          HollowAvatar(peerId: localPeerId, size: 72)
+          HollowAvatar(peerId: localPeerId, size: 72, imageBytes: profiles[localPeerId]?.avatarBytes)
         else
           Container(
             width: 72,
@@ -510,7 +510,7 @@ class _RecentConversationsColumn extends ConsumerWidget {
                           clipBehavior: Clip.none,
                           children: [
                             HollowAvatar(
-                                peerId: conv.peerId, size: 36),
+                                peerId: conv.peerId, size: 36, imageBytes: profiles[conv.peerId]?.avatarBytes),
                             Positioned(
                               right: -1,
                               bottom: -1,
@@ -788,6 +788,7 @@ class _NetworkColumn extends ConsumerWidget {
             hollow: hollow,
             peerId: cs.peerId,
             name: displayNameFor(profiles, cs.peerId),
+            avatarBytes: profiles[cs.peerId]?.avatarBytes,
             status: cs.label,
             statusColor: cs.stage == PeerConnectionStage.failed
                 ? hollow.error
@@ -968,6 +969,7 @@ class _ConnectionRow extends StatelessWidget {
   final String status;
   final Color statusColor;
   final bool showSpinner;
+  final Uint8List? avatarBytes;
 
   const _ConnectionRow({
     required this.hollow,
@@ -976,6 +978,7 @@ class _ConnectionRow extends StatelessWidget {
     required this.status,
     required this.statusColor,
     this.showSpinner = false,
+    this.avatarBytes,
   });
 
   @override
@@ -994,7 +997,7 @@ class _ConnectionRow extends StatelessWidget {
         ),
         child: Row(
           children: [
-            HollowAvatar(peerId: peerId, size: 20),
+            HollowAvatar(peerId: peerId, size: 20, imageBytes: avatarBytes),
             const SizedBox(width: HollowSpacing.xs),
             Expanded(
               child: Text(

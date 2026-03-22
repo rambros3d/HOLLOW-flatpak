@@ -17,6 +17,7 @@ import 'package:hollow/src/core/providers/peers_provider.dart';
 import 'package:hollow/src/core/providers/friends_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/core/providers/selected_peer_provider.dart';
+import 'package:hollow/src/core/providers/server_avatar_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:hollow/src/core/providers/system_notification_provider.dart';
 import 'package:hollow/src/core/providers/unread_provider.dart';
@@ -141,6 +142,10 @@ class _HollowShellState extends ConsumerState<HollowShell>
 
     // Load servers from local DB after node starts.
     await ref.read(serverListProvider.notifier).loadFromDb();
+
+    // Load server avatars.
+    final serverIds = ref.read(serverListProvider).keys.toList();
+    ref.read(serverAvatarProvider.notifier).loadAll(serverIds);
 
     // Load cached user profiles into memory.
     await ref.read(profileProvider.notifier).loadAll();

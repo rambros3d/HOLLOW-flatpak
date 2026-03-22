@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
@@ -16,7 +18,9 @@ import 'package:hollow/src/ui/components/hollow_button.dart';
 import 'package:hollow/src/ui/components/hollow_dialog.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/ui/components/hollow_text_field.dart';
+import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/components/hollow_toggle.dart';
+import 'package:hollow/src/ui/dialogs/image_crop_dialog.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Tracks whether the settings dialog is currently open.
@@ -100,6 +104,12 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
   String _liveDisplayName = '';
   String _liveStatus = '';
 
+  // Pending avatar/banner (null = no change, empty = clear).
+  Uint8List? _pendingAvatarBytes;
+  Uint8List? _pendingBannerBytes;
+  bool _avatarChanged = false;
+  bool _bannerChanged = false;
+
   // Active tab.
   late _SettingsTab _activeTab;
 
@@ -157,6 +167,72 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
     });
   }
 
+  Future<void> _pickAvatar() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.image);
+    if (result == null || result.files.isEmpty) return;
+    final path = result.files.single.path;
+    if (path == null) return;
+    final raw = await File(path).readAsBytes();
+    if (!mounted) return;
+    // Open crop dialog (1:1 aspect for avatar)
+    final cropped = await showImageCropDialog(
+      context: context,
+      imageBytes: raw,
+      aspectRatio: 1.0,
+      title: 'Crop Avatar',
+    );
+    if (cropped == null || !mounted) return;
+    try {
+      final processed = await network_api.processAvatar(rawBytes: cropped);
+      setState(() {
+        _pendingAvatarBytes = processed;
+        _avatarChanged = true;
+      });
+    } catch (e) {
+      if (mounted) HollowToast.show(context, 'Failed to process image', type: HollowToastType.error);
+    }
+  }
+
+  void _clearAvatar() {
+    setState(() {
+      _pendingAvatarBytes = Uint8List(0);
+      _avatarChanged = true;
+    });
+  }
+
+  Future<void> _pickBanner() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.image);
+    if (result == null || result.files.isEmpty) return;
+    final path = result.files.single.path;
+    if (path == null) return;
+    final raw = await File(path).readAsBytes();
+    if (!mounted) return;
+    // Open crop dialog (3:1 aspect for banner)
+    final cropped = await showImageCropDialog(
+      context: context,
+      imageBytes: raw,
+      aspectRatio: 3.0,
+      title: 'Crop Banner',
+    );
+    if (cropped == null || !mounted) return;
+    try {
+      final processed = await network_api.processBanner(rawBytes: cropped);
+      setState(() {
+        _pendingBannerBytes = processed;
+        _bannerChanged = true;
+      });
+    } catch (e) {
+      if (mounted) HollowToast.show(context, 'Failed to process image', type: HollowToastType.error);
+    }
+  }
+
+  void _clearBanner() {
+    setState(() {
+      _pendingBannerBytes = Uint8List(0);
+      _bannerChanged = true;
+    });
+  }
+
   @override
   void dispose() {
     widget.displayNameController.removeListener(_onFieldChanged);
@@ -200,6 +276,8 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
           displayName: displayName,
           status: status,
           aboutMe: aboutMe,
+          avatarBytes: _avatarChanged ? _pendingAvatarBytes : null,
+          bannerBytes: _bannerChanged ? _pendingBannerBytes : null,
         );
 
     if (!mounted) return;
@@ -408,33 +486,55 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Profile preview card
+          // Profile preview card + image buttons
           SizedBox(
             width: 200,
-            child: Container(
-              decoration: BoxDecoration(
-                color: hollow.surface,
-                borderRadius: BorderRadius.circular(hollow.radiusMd),
-                border: Border.all(color: hollow.border),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Banner
-                  Container(
-                    height: 70,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          bannerColor,
-                          bannerColor.withValues(alpha: 0.7),
-                        ],
-                      ),
-                    ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    color: hollow.surface,
+                    borderRadius: BorderRadius.circular(hollow.radiusMd),
+                    border: Border.all(color: hollow.border),
                   ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                  // Banner
+                  Builder(builder: (_) {
+                    final savedBanner = ref.watch(profileProvider)[widget.localPeerId]?.bannerBytes;
+                    final displayBanner = _bannerChanged ? _pendingBannerBytes : savedBanner;
+                    if (displayBanner != null && displayBanner.isNotEmpty) {
+                      return SizedBox(
+                        height: 70,
+                        width: double.infinity,
+                        child: Image.memory(displayBanner, fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            height: 70,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [bannerColor, bannerColor.withValues(alpha: 0.7)],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+                    return Container(
+                      height: 70,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [bannerColor, bannerColor.withValues(alpha: 0.7)],
+                        ),
+                      ),
+                    );
+                  }),
 
                   // Avatar overlapping banner
                   Transform.translate(
@@ -456,10 +556,15 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                                 width: 3,
                               ),
                             ),
-                            child: HollowAvatar(
-                              peerId: widget.localPeerId,
-                              size: 56,
-                            ),
+                            child: Builder(builder: (_) {
+                              final savedAvatar = ref.watch(profileProvider)[widget.localPeerId]?.avatarBytes;
+                              final displayAvatar = _avatarChanged ? _pendingAvatarBytes : savedAvatar;
+                              return HollowAvatar(
+                                peerId: widget.localPeerId,
+                                size: 56,
+                                imageBytes: (displayAvatar != null && displayAvatar.isNotEmpty) ? displayAvatar : null,
+                              );
+                            }),
                           ),
 
                           const SizedBox(height: HollowSpacing.xs),
@@ -552,8 +657,40 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                       ),
                     ),
                   ),
-                ],
-              ),
+                    ],
+                  ),
+                ),
+
+                // Image management (below card)
+                const SizedBox(height: HollowSpacing.md),
+                // Avatar row
+                Builder(builder: (_) {
+                  final profile = ref.watch(profileProvider)[widget.localPeerId];
+                  final hasAvatar = _avatarChanged
+                      ? (_pendingAvatarBytes != null && _pendingAvatarBytes!.isNotEmpty)
+                      : (profile?.avatarBytes != null && profile!.avatarBytes!.isNotEmpty);
+                  return _ImageRow(
+                    label: 'Avatar',
+                    onPick: _pickAvatar,
+                    onClear: hasAvatar ? _clearAvatar : null,
+                    hollow: hollow,
+                  );
+                }),
+                const SizedBox(height: HollowSpacing.xs),
+                // Banner row
+                Builder(builder: (_) {
+                  final profile = ref.watch(profileProvider)[widget.localPeerId];
+                  final hasBanner = _bannerChanged
+                      ? (_pendingBannerBytes != null && _pendingBannerBytes!.isNotEmpty)
+                      : (profile?.bannerBytes != null && profile!.bannerBytes!.isNotEmpty);
+                  return _ImageRow(
+                    label: 'Banner',
+                    onPick: _pickBanner,
+                    onClear: hasBanner ? _clearBanner : null,
+                    hollow: hollow,
+                  );
+                }),
+              ],
             ),
           ),
 
@@ -595,6 +732,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                   maxLength: 128,
                   onChanged: (_) => setState(() {}),
                 ),
+
               ],
             ),
           ),
@@ -1078,6 +1216,74 @@ class _FieldLabel extends StatelessWidget {
         letterSpacing: 0.5,
         fontSize: 10,
       ),
+    );
+  }
+}
+
+/// Image row: "Avatar -------- [trash]" or "Banner -------- [trash]"
+class _ImageRow extends StatelessWidget {
+  final String label;
+  final VoidCallback onPick;
+  final VoidCallback? onClear;
+  final HollowTheme hollow;
+
+  const _ImageRow({
+    required this.label,
+    required this.onPick,
+    this.onClear,
+    required this.hollow,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        HollowPressable(
+          onTap: onPick,
+          subtle: true,
+          padding: const EdgeInsets.symmetric(
+            horizontal: HollowSpacing.sm,
+            vertical: HollowSpacing.xxs,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(LucideIcons.image, size: 12, color: hollow.accent),
+              const SizedBox(width: HollowSpacing.xs),
+              Text(
+                label,
+                style: HollowTypography.caption.copyWith(
+                  color: hollow.accent,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: HollowSpacing.xs),
+        Expanded(
+          child: Container(
+            height: 1,
+            color: hollow.border,
+          ),
+        ),
+        const SizedBox(width: HollowSpacing.xs),
+        AnimatedOpacity(
+          opacity: onClear != null ? 1.0 : 0.25,
+          duration: const Duration(milliseconds: 150),
+          child: HollowPressable(
+            onTap: onClear,
+            subtle: true,
+            padding: const EdgeInsets.all(HollowSpacing.xxs + 1),
+            child: Icon(
+              LucideIcons.trash2,
+              size: 13,
+              color: onClear != null ? hollow.error : hollow.textSecondary,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

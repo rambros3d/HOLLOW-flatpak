@@ -1,8 +1,12 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/models/server_info.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/server_avatar_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
@@ -10,6 +14,7 @@ import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:hollow/src/ui/components/hollow_button.dart';
 import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
+import 'package:hollow/src/ui/dialogs/image_crop_dialog.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:lucide_icons/lucide_icons.dart';
 
@@ -177,6 +182,52 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
     }
   }
 
+  Future<void> _pickServerAvatar() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.image);
+    if (result == null || result.files.isEmpty) return;
+    final path = result.files.single.path;
+    if (path == null) return;
+    final raw = await File(path).readAsBytes();
+    if (!mounted) return;
+    final cropped = await showImageCropDialog(
+      context: context,
+      imageBytes: raw,
+      aspectRatio: 1.0,
+      title: 'Crop Server Icon',
+    );
+    if (cropped == null || !mounted) return;
+    try {
+      await crdt_api.setServerAvatar(
+        serverId: widget.server.serverId,
+        rawBytes: cropped,
+      );
+      if (mounted) {
+        HollowToast.show(context, 'Server icon updated',
+            type: HollowToastType.success);
+      }
+    } catch (e) {
+      if (mounted) {
+        HollowToast.show(context, 'Failed to update icon: $e',
+            type: HollowToastType.error);
+      }
+    }
+  }
+
+  Future<void> _clearServerAvatar() async {
+    try {
+      await crdt_api.clearServerAvatar(serverId: widget.server.serverId);
+      if (mounted) {
+        HollowToast.show(context, 'Server icon removed',
+            type: HollowToastType.success);
+      }
+    } catch (e) {
+      if (mounted) {
+        HollowToast.show(context, 'Failed to remove icon: $e',
+            type: HollowToastType.error);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final hollow = HollowTheme.of(context);
@@ -195,6 +246,56 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
             ),
           ),
           const SizedBox(height: HollowSpacing.md),
+
+          // Server Avatar
+          Text(
+            'Server Icon',
+            style:
+                HollowTypography.label.copyWith(color: hollow.textSecondary),
+          ),
+          const SizedBox(height: HollowSpacing.sm),
+          Row(
+            children: [
+              Builder(builder: (_) {
+                final avatar = ref.watch(serverAvatarProvider)[widget.server.serverId];
+                if (avatar != null) {
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(hollow.radiusMd),
+                    child: Image.memory(avatar, width: 48, height: 48, fit: BoxFit.cover),
+                  );
+                }
+                return Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: hollow.elevated,
+                    borderRadius: BorderRadius.circular(hollow.radiusMd),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(LucideIcons.image, size: 20, color: hollow.textSecondary),
+                );
+              }),
+              const SizedBox(width: HollowSpacing.md),
+              HollowButton.ghost(
+                onPressed: _pickServerAvatar,
+                icon: const Icon(LucideIcons.upload, size: 14),
+                compact: true,
+                child: const Text('Upload'),
+              ),
+              const SizedBox(width: HollowSpacing.sm),
+              Builder(builder: (_) {
+                final hasAvatar = ref.watch(serverAvatarProvider).containsKey(widget.server.serverId);
+                if (!hasAvatar) return const SizedBox.shrink();
+                return HollowButton.ghost(
+                  onPressed: _clearServerAvatar,
+                  icon: const Icon(LucideIcons.trash2, size: 14),
+                  compact: true,
+                  child: const Text('Remove'),
+                );
+              }),
+            ],
+          ),
+          const SizedBox(height: HollowSpacing.lg),
 
           // Server Name
           Text(

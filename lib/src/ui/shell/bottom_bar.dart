@@ -7,6 +7,7 @@ import 'package:hollow/src/core/providers/node_provider.dart';
 import 'package:hollow/src/core/providers/notification_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/core/providers/selected_peer_provider.dart';
+import 'package:hollow/src/core/providers/server_avatar_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:hollow/src/core/providers/split_view_provider.dart';
 import 'package:hollow/src/core/providers/unread_provider.dart';
@@ -107,7 +108,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
               child: Row(
                 children: [
                   if (localPeerId != null)
-                    HollowAvatar(peerId: localPeerId, size: 28)
+                    HollowAvatar(peerId: localPeerId, size: 28, imageBytes: profiles[localPeerId]?.avatarBytes)
                   else
                     Container(
                       width: 28,
@@ -221,6 +222,8 @@ class _BottomBarState extends ConsumerState<BottomBar> {
                                       .serverUnreadCount(
                                           server.serverId);
 
+                              final serverAvatar = ref.watch(serverAvatarProvider)[server.serverId];
+
                               Widget icon = _BottomServerIcon(
                                 isSelected:
                                     isSelected || isRightPaneServer,
@@ -233,14 +236,19 @@ class _BottomBarState extends ConsumerState<BottomBar> {
                                     _colorFromId(server.serverId),
                                 onTap: () => _selectServer(
                                     ref, server.serverId),
-                                child: Text(
-                                  _initialsFromName(server.name),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
+                                child: serverAvatar != null
+                                    ? ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Image.memory(serverAvatar, width: 38, height: 38, fit: BoxFit.cover),
+                                      )
+                                    : Text(
+                                        _initialsFromName(server.name),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
                               );
 
                               if (isNew) {
