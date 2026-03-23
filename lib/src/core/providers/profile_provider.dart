@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/providers/local_nickname_provider.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
 import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 
@@ -63,12 +64,25 @@ final profileProvider =
   ProfileNotifier.new,
 );
 
+/// Static reference to local nicknames, kept in sync by LocalNicknameNotifier.
+/// Allows displayNameFor() to check local nicknames without passing them explicitly.
+Map<String, String> _localNicknames = const {};
+
+/// Called from _bootstrap to set the static reference.
+void setLocalNicknamesRef(Map<String, String> nicknames) {
+  _localNicknames = nicknames;
+}
+
 /// Get a display name for a peer. Falls back to short peer ID.
-/// Used in DM context (no nicknames).
+/// Resolution: local nickname → profile display name → short peer ID.
 String displayNameFor(
   Map<String, storage_api.UserProfile> profiles,
   String peerId,
 ) {
+  // Local nickname takes priority (user-chosen, purely local)
+  final localNick = _localNicknames[peerId];
+  if (localNick != null && localNick.isNotEmpty) return localNick;
+
   final profile = profiles[peerId];
   if (profile != null && profile.displayName.isNotEmpty) {
     return profile.displayName;
@@ -78,7 +92,7 @@ String displayNameFor(
 }
 
 /// Get a display name for a peer in a server context.
-/// Resolution order: nickname → profile display name → short peer ID.
+/// Resolution: server nickname → local nickname → profile display name → short peer ID.
 String serverDisplayNameFor(
   Map<String, storage_api.UserProfile> profiles,
   String peerId, {

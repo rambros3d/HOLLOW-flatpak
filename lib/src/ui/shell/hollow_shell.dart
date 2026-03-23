@@ -17,6 +17,9 @@ import 'package:hollow/src/core/providers/peers_provider.dart';
 import 'package:hollow/src/core/providers/friends_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/core/providers/selected_peer_provider.dart';
+import 'package:hollow/src/core/providers/accent_color_provider.dart';
+import 'package:hollow/src/core/providers/background_provider.dart';
+import 'package:hollow/src/core/providers/local_nickname_provider.dart';
 import 'package:hollow/src/core/providers/server_avatar_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:hollow/src/core/providers/server_strip_layout_provider.dart';
@@ -153,6 +156,13 @@ class _HollowShellState extends ConsumerState<HollowShell>
 
     // Load cached user profiles into memory.
     await ref.read(profileProvider.notifier).loadAll();
+
+    // Load accent color, background, local nicknames.
+    await ref.read(accentHueProvider.notifier).load();
+    await ref.read(backgroundProvider.notifier).load();
+    await ref.read(accentPresetsProvider.notifier).load();
+    await ref.read(localNicknameProvider.notifier).loadAll();
+    setLocalNicknamesRef(ref.read(localNicknameProvider));
 
     // Load friends list from local DB.
     await ref.read(friendsProvider.notifier).loadAll();
@@ -500,6 +510,9 @@ class _HollowShellState extends ConsumerState<HollowShell>
   Widget build(BuildContext context) {
     final hollow = HollowTheme.of(context);
 
+    // Keep local nicknames static ref in sync for displayNameFor().
+    setLocalNicknamesRef(ref.watch(localNicknameProvider));
+
     final nodeState = ref.watch(nodeProvider);
     final peers = ref.watch(peersProvider);
     final selectedPeerId = ref.watch(selectedPeerProvider);
@@ -590,8 +603,10 @@ class _HollowShellState extends ConsumerState<HollowShell>
           body = DragToResizeArea(child: body);
         }
 
-        return Scaffold(
-          backgroundColor: hollow.background,
+        final bg = ref.watch(backgroundProvider);
+
+        Widget scaffold = Scaffold(
+          backgroundColor: bg.hasBackground ? Colors.transparent : hollow.background,
           body: Stack(
             children: [
               body,
@@ -599,6 +614,28 @@ class _HollowShellState extends ConsumerState<HollowShell>
             ],
           ),
         );
+
+        if (bg.hasBackground) {
+          scaffold = Stack(
+            children: [
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black,
+                  child: Image.memory(
+                    bg.imageBytes!,
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true,
+                    width: double.infinity,
+                    height: double.infinity,
+                  ),
+                ),
+              ),
+              scaffold,
+            ],
+          );
+        }
+
+        return scaffold;
       },
     );
   }
@@ -772,7 +809,7 @@ class _HollowShellState extends ConsumerState<HollowShell>
 
           // Main content area
           Expanded(
-            child: Row(
+            child: ClipRect(child: Row(
               children: [
                 // Channel sidebar — animated slide in/out in dock mode
                 _DockSidebarSlider(
@@ -844,7 +881,7 @@ class _HollowShellState extends ConsumerState<HollowShell>
                                         : selectedChannelId ??
                                             selectedPeerId ??
                                             'empty'),
-                                    color: hollow.background,
+                                    color: settingsOpen ? hollow.surface : hollow.background,
                                     child: settingsOpen &&
                                             selectedServer != null
                                         ? ServerSettingsPanel(
@@ -875,7 +912,7 @@ class _HollowShellState extends ConsumerState<HollowShell>
                     serverId: effectiveServerId,
                   ),
               ],
-            ),
+            )),
           ),
 
           // Bottom bar (dock) — slides up from bottom

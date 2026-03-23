@@ -128,6 +128,9 @@ Real image support replacing deterministic color+initials. Rust image processing
 **Server Folders — COMPLETE (Mar 22, 2026):**
 Drag-and-drop server folder organization. `StripItem` sealed class (`ServerStripItem`/`FolderStripItem`), `ServerStripLayoutNotifier` provider with JSON persistence. 2x2 mini-grid `ServerFolderIcon` (LayoutBuilder adaptive). Folder popup overlay (5-column Wrap grid, server names, individual unreads, X remove, pencil rename). `LongPressDraggable` (150ms) + `DragTarget` on all items. Reorder gaps with accent indicator. `showBorder` prop separates teal border from selection indicator. Both dock and classic modes. Event-wired to server create/delete/join/kick.
 
+**Local Peer Nicknames + Custom Accent Color + Custom Background — COMPLETE (Mar 22, 2026):**
+Local nicknames: `local_nickname_provider.dart`, static ref in `displayNameFor()` (zero call-site changes), "Set Nickname" in profile card popup. Custom accent: `accent_color_provider.dart`, `HollowTheme.darkWithHue()`, rainbow hue slider + preset swatches in settings, live preview, Cancel reverts. Custom background: `background_provider.dart`, full-window image behind Scaffold, theme-level alpha on `background`/`surface`/`elevated` (chat area most transparent, sidebars darker, bars opaque via `opaqueBackground`), blob animation hidden, "Darken" slider, 16:9 crop dialog.
+
 **Phase 3.5 completed so far:**
 - User profiles: Rust `user_profiles` SQLCipher table, `ProfileUpdate` HollowMessage broadcast, timestamp-gated upsert, auto-exchange on `ConnectionEstablished`, `ProfileNotifier` Dart provider, `displayNameFor()` helper used everywhere (user_bar, member_panel, channel_message_bubble, peer_card, chat_pane)
 - User settings dialog: two-column layout (live profile preview card with centered banner/avatar/name/about-me on left, edit fields + dark mode toggle on right), `showHollowDialog` glassmorphism entrance, settings gear icon replaces theme toggle in user bar

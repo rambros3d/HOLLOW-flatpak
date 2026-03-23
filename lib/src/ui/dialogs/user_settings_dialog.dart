@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/providers/accent_color_provider.dart';
+import 'package:hollow/src/core/providers/background_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/core/providers/layout_provider.dart';
@@ -20,6 +22,7 @@ import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/components/hollow_toggle.dart';
+import 'package:hollow/src/ui/components/hollow_tooltip.dart';
 import 'package:hollow/src/ui/dialogs/image_crop_dialog.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
@@ -124,6 +127,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
   bool _pendingDockMode = true;
   bool _initialDockMode = true;
   bool _layoutInitialized = false;
+  double _initialAccentHue = defaultAccentHue;
 
   @override
   void initState() {
@@ -133,6 +137,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
     _liveStatus = widget.statusController.text;
     widget.displayNameController.addListener(_onFieldChanged);
     widget.statusController.addListener(_onFieldChanged);
+    _initialAccentHue = ref.read(accentHueProvider);
 
     _pendingDarkMode =
         ref.read(themeModeProvider) == ThemeMode.dark;
@@ -453,7 +458,11 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
                         HollowButton.ghost(
-                          onPressed: () => Navigator.of(context).pop(),
+                          onPressed: () {
+                            // Revert accent color to what it was before opening
+                            ref.read(accentHueProvider.notifier).setHue(_initialAccentHue);
+                            Navigator.of(context).pop();
+                          },
                           child: const Text('Cancel'),
                         ),
                         const SizedBox(width: HollowSpacing.sm),
@@ -765,6 +774,16 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
             onChanged: (value) =>
                 setState(() => _pendingDarkMode = value),
           ),
+
+          const SizedBox(height: HollowSpacing.lg),
+
+          // Accent color
+          _AccentColorPicker(hollow: hollow),
+
+          const SizedBox(height: HollowSpacing.lg),
+
+          // Background image
+          _BackgroundPicker(hollow: hollow),
 
           const SizedBox(height: HollowSpacing.xl),
 
@@ -1221,6 +1240,357 @@ class _FieldLabel extends StatelessWidget {
 }
 
 /// Image row: "Avatar -------- [trash]" or "Banner -------- [trash]"
+/// Background image picker + panel opacity slider.
+class _BackgroundPicker extends ConsumerWidget {
+  final HollowTheme hollow;
+  const _BackgroundPicker({required this.hollow});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final bg = ref.watch(backgroundProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Label + buttons
+        Row(
+          children: [
+            Icon(LucideIcons.image, size: 14, color: hollow.textSecondary),
+            const SizedBox(width: HollowSpacing.sm),
+            Text(
+              'Background',
+              style: HollowTypography.body.copyWith(
+                color: hollow.textPrimary,
+                fontSize: 13,
+              ),
+            ),
+            const Spacer(),
+            HollowButton.ghost(
+              onPressed: () async {
+                final result = await FilePicker.platform.pickFiles(type: FileType.image);
+                if (result == null || result.files.isEmpty) return;
+                final path = result.files.single.path;
+                if (path == null) return;
+                final raw = await File(path).readAsBytes();
+                if (!context.mounted) return;
+                final cropped = await showImageCropDialog(
+                  context: context,
+                  imageBytes: raw,
+                  aspectRatio: 16.0 / 9.0,
+                  title: 'Crop Background',
+                );
+                if (cropped != null) {
+                  ref.read(backgroundProvider.notifier).setImage(cropped);
+                }
+              },
+              compact: true,
+              child: Text(bg.hasBackground ? 'Change' : 'Set Image'),
+            ),
+            if (bg.hasBackground) ...[
+              const SizedBox(width: HollowSpacing.xs),
+              HollowButton.ghost(
+                onPressed: () => ref.read(backgroundProvider.notifier).clearImage(),
+                compact: true,
+                child: const Text('Remove'),
+              ),
+            ],
+          ],
+        ),
+
+        // Opacity slider (only when background is set)
+        if (bg.hasBackground) ...[
+          const SizedBox(height: HollowSpacing.sm),
+          Row(
+            children: [
+              Text(
+                'Darken',
+                style: HollowTypography.caption.copyWith(
+                  color: hollow.textSecondary,
+                  fontSize: 11,
+                ),
+              ),
+              const SizedBox(width: HollowSpacing.sm),
+              Expanded(
+                child: SizedBox(
+                  height: 20,
+                  child: SliderTheme(
+                    data: SliderThemeData(
+                      trackHeight: 4,
+                      thumbShape: const RoundSliderThumbShape(
+                        enabledThumbRadius: 7,
+                      ),
+                      thumbColor: Colors.white,
+                      activeTrackColor: accentFromHue(ref.watch(accentHueProvider)),
+                      inactiveTrackColor: hollow.border,
+                      overlayShape: SliderComponentShape.noOverlay,
+                    ),
+                    child: Slider(
+                      value: bg.panelOpacity,
+                      min: 0.4,
+                      max: 1.0,
+                      onChanged: (value) {
+                        ref.read(backgroundProvider.notifier).setOpacity(value);
+                      },
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: HollowSpacing.xs),
+              Text(
+                '${(bg.panelOpacity * 100).round()}%',
+                style: HollowTypography.mono.copyWith(
+                  color: hollow.textSecondary,
+                  fontSize: 10,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Accent color picker — hue slider + preset swatches.
+class _AccentColorPicker extends ConsumerStatefulWidget {
+  final HollowTheme hollow;
+
+  const _AccentColorPicker({required this.hollow});
+
+  @override
+  ConsumerState<_AccentColorPicker> createState() => _AccentColorPickerState();
+}
+
+class _AccentColorPickerState extends ConsumerState<_AccentColorPicker> {
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = widget.hollow;
+    final currentHue = ref.watch(accentHueProvider);
+    final presets = ref.watch(accentPresetsProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Label row with color preview
+        Row(
+          children: [
+            Icon(LucideIcons.palette, size: 14, color: hollow.textSecondary),
+            const SizedBox(width: HollowSpacing.sm),
+            Text(
+              'Accent Color',
+              style: HollowTypography.body.copyWith(
+                color: hollow.textPrimary,
+                fontSize: 13,
+              ),
+            ),
+            const Spacer(),
+            Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: accentFromHue(currentHue),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.2),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: HollowSpacing.sm),
+
+        // Hue slider (rainbow gradient)
+        SizedBox(
+          height: 24,
+          child: SliderTheme(
+            data: SliderThemeData(
+              trackHeight: 14,
+              thumbShape: const RoundSliderThumbShape(
+                enabledThumbRadius: 9,
+                elevation: 2,
+              ),
+              thumbColor: Colors.white,
+              overlayShape: SliderComponentShape.noOverlay,
+              trackShape: _RainbowSliderTrackShape(),
+              activeTrackColor: Colors.transparent,
+              inactiveTrackColor: Colors.transparent,
+            ),
+            child: Slider(
+              value: currentHue.clamp(0, 359),
+              min: 0,
+              max: 359,
+              onChanged: (value) {
+                ref.read(accentHueProvider.notifier).setHue(value);
+              },
+            ),
+          ),
+        ),
+
+        const SizedBox(height: HollowSpacing.sm),
+
+        // Preset swatches row
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            // Default teal
+            _ColorSwatch(
+              hue: defaultAccentHue,
+              isSelected: (currentHue - defaultAccentHue).abs() < 1,
+              label: 'Default',
+              onTap: () =>
+                  ref.read(accentHueProvider.notifier).setHue(defaultAccentHue),
+              hollow: hollow,
+            ),
+            // Saved presets
+            for (final hue in presets)
+              _ColorSwatch(
+                hue: hue,
+                isSelected: (currentHue - hue).abs() < 1,
+                onTap: () =>
+                    ref.read(accentHueProvider.notifier).setHue(hue),
+                onRemove: () =>
+                    ref.read(accentPresetsProvider.notifier).removePreset(hue),
+                hollow: hollow,
+              ),
+            // Save current button
+            if (!presets.any((h) => (h - currentHue).abs() < 1) &&
+                (currentHue - defaultAccentHue).abs() > 1)
+              GestureDetector(
+                onTap: () =>
+                    ref.read(accentPresetsProvider.notifier).addPreset(currentHue),
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                        color: hollow.textSecondary.withValues(alpha: 0.4),
+                        style: BorderStyle.solid,
+                      ),
+                    ),
+                    child: Icon(
+                      LucideIcons.plus,
+                      size: 12,
+                      color: hollow.textSecondary,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// A small color swatch for preset selection.
+class _ColorSwatch extends StatelessWidget {
+  final double hue;
+  final bool isSelected;
+  final String? label;
+  final VoidCallback onTap;
+  final VoidCallback? onRemove;
+  final HollowTheme hollow;
+
+  const _ColorSwatch({
+    required this.hue,
+    required this.isSelected,
+    this.label,
+    required this.onTap,
+    this.onRemove,
+    required this.hollow,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      onSecondaryTapUp: onRemove != null ? (_) => onRemove!() : null,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: HollowTooltip(
+          message: label ?? 'Right-click to remove',
+          child: Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              color: accentFromHue(hue),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(
+                color: isSelected
+                    ? Colors.white
+                    : Colors.white.withValues(alpha: 0.15),
+                width: isSelected ? 2 : 1,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Custom slider track that renders a rainbow hue gradient.
+class _RainbowSliderTrackShape extends SliderTrackShape {
+  @override
+  Rect getPreferredRect({
+    required RenderBox parentBox,
+    Offset offset = Offset.zero,
+    required SliderThemeData sliderTheme,
+    bool isEnabled = true,
+    bool isDiscrete = false,
+  }) {
+    final trackHeight = sliderTheme.trackHeight ?? 14;
+    final trackTop =
+        offset.dy + (parentBox.size.height - trackHeight) / 2;
+    return Rect.fromLTWH(
+      offset.dx + 8,
+      trackTop,
+      parentBox.size.width - 16,
+      trackHeight,
+    );
+  }
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset offset, {
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required Animation<double> enableAnimation,
+    required Offset thumbCenter,
+    Offset? secondaryOffset,
+    bool isEnabled = true,
+    bool isDiscrete = false,
+    required TextDirection textDirection,
+  }) {
+    final rect = getPreferredRect(
+      parentBox: parentBox,
+      offset: offset,
+      sliderTheme: sliderTheme,
+    );
+
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(7));
+
+    // Rainbow gradient across the full hue spectrum
+    final gradient = LinearGradient(
+      colors: List.generate(
+        13,
+        (i) => HSLColor.fromAHSL(1.0, i * 30.0, 0.85, 0.5).toColor(),
+      ),
+    );
+
+    final paint = Paint()
+      ..shader = gradient.createShader(rect);
+
+    context.canvas.drawRRect(rrect, paint);
+  }
+}
+
 class _ImageRow extends StatelessWidget {
   final String label;
   final VoidCallback onPick;

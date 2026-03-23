@@ -106,8 +106,8 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            hollow.background,
-            Color.lerp(hollow.background, hollow.accent, 0.08)!,
+            hollow.opaqueBackground,
+            Color.lerp(hollow.opaqueBackground, hollow.accent, 0.08)!,
           ],
         ),
         border: Border(

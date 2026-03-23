@@ -96,7 +96,7 @@ class UserBar extends ConsumerWidget {
       height: 52,
       padding: const EdgeInsets.symmetric(horizontal: HollowSpacing.sm + 2),
       decoration: BoxDecoration(
-        color: hollow.background,
+        color: hollow.opaqueBackground,
         border: Border(
           top: BorderSide(color: hollow.border),
         ),

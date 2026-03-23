@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hollow/src/core/providers/accent_color_provider.dart';
 import 'hollow_colors.dart';
 import 'hollow_spacing.dart';
 
@@ -86,6 +87,61 @@ class HollowTheme extends ThemeExtension<HollowTheme> {
         radiusLg: HollowRadius.lg,
         radiusXl: HollowRadius.xl,
       );
+
+  /// Dark theme with custom accent hue.
+  factory HollowTheme.darkWithHue(double hue) => HollowTheme(
+        background: HollowColors.background,
+        surface: HollowColors.surface,
+        elevated: HollowColors.elevated,
+        accent: accentFromHue(hue),
+        accentHover: accentHoverFromHue(hue),
+        accentMuted: accentMutedFromHue(hue),
+        textPrimary: HollowColors.textPrimary,
+        textSecondary: HollowColors.textSecondary,
+        textOnAccent: HollowColors.textOnAccent,
+        border: HollowColors.border,
+        error: HollowColors.error,
+        success: HollowColors.success,
+        warning: HollowColors.warning,
+        radiusSm: HollowRadius.sm,
+        radiusMd: HollowRadius.md,
+        radiusLg: HollowRadius.lg,
+        radiusXl: HollowRadius.xl,
+      );
+
+  /// Light theme with custom accent hue.
+  factory HollowTheme.lightWithHue(double hue) => HollowTheme(
+        background: HollowColors.backgroundLight,
+        surface: HollowColors.surfaceLight,
+        elevated: HollowColors.elevatedLight,
+        accent: accentFromHue(hue),
+        accentHover: accentHoverFromHue(hue),
+        accentMuted: accentMutedLightFromHue(hue),
+        textPrimary: HollowColors.textPrimaryLight,
+        textSecondary: HollowColors.textSecondaryLight,
+        textOnAccent: HollowColors.textOnAccentLight,
+        border: HollowColors.borderLight,
+        error: HollowColors.error,
+        success: HollowColors.success,
+        warning: HollowColors.warning,
+        radiusSm: HollowRadius.sm,
+        radiusMd: HollowRadius.md,
+        radiusLg: HollowRadius.lg,
+        radiusXl: HollowRadius.xl,
+      );
+
+  /// Returns a copy with semi-transparent panel backgrounds for custom background images.
+  /// [opacity] is 0.0 (fully transparent) to 1.0 (fully opaque).
+  HollowTheme withPanelOpacity(double opacity) {
+    return copyWith(
+      background: background.withValues(alpha: opacity),
+      surface: surface.withValues(alpha: opacity),
+      elevated: elevated.withValues(alpha: opacity),
+    );
+  }
+
+  /// Returns the background color with full opacity (for bars that should stay opaque).
+  Color get opaqueBackground => background.withValues(alpha: 1.0);
 
   /// Convenience accessor.
   static HollowTheme of(BuildContext context) =>

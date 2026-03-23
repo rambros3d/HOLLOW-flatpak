@@ -3,12 +3,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/friends_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/local_nickname_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:hollow/src/ui/components/hollow_avatar.dart';
 import 'package:hollow/src/ui/components/hollow_button.dart';
+import 'package:hollow/src/ui/components/hollow_dialog.dart';
+import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/dialogs/user_settings_dialog.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -113,6 +116,8 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
     final status = profile?.status ?? '';
     final aboutMe = profile?.aboutMe ?? '';
     final bannerColor = _bannerColorFromId(widget.peerId);
+    final localNicknames = ref.watch(localNicknameProvider);
+    final localNick = localNicknames[widget.peerId];
 
     final shownName = displayName.isNotEmpty
         ? displayName
@@ -246,12 +251,40 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                               const SizedBox(height: HollowSpacing.xs + 2),
 
                               // Name(s) — centered
-                              if (widget.nickname != null &&
-                                  widget.nickname!.isNotEmpty) ...[
-                                Text(
-                                  widget.nickname!,
-                                  style:
-                                      HollowTypography.subheading.copyWith(
+                              // Priority: local nickname → server nickname → profile name
+                              Builder(builder: (_) {
+                                final primaryName = localNick ?? widget.nickname;
+                                final hasSecondary = primaryName != null && primaryName.isNotEmpty;
+                                if (hasSecondary) {
+                                  return Column(
+                                    children: [
+                                      Text(
+                                        primaryName,
+                                        style: HollowTypography.subheading.copyWith(
+                                          color: hollow.textPrimary,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 15,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      Text(
+                                        shownName,
+                                        style: HollowTypography.caption.copyWith(
+                                          color: hollow.textSecondary,
+                                          fontSize: 11,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ],
+                                  );
+                                }
+                                return Text(
+                                  shownName,
+                                  style: HollowTypography.subheading.copyWith(
                                     color: hollow.textPrimary,
                                     fontWeight: FontWeight.w700,
                                     fontSize: 15,
@@ -259,31 +292,8 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   textAlign: TextAlign.center,
-                                ),
-                                Text(
-                                  shownName,
-                                  style: HollowTypography.caption.copyWith(
-                                    color: hollow.textSecondary,
-                                    fontSize: 11,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                ),
-                              ] else ...[
-                                Text(
-                                  shownName,
-                                  style:
-                                      HollowTypography.subheading.copyWith(
-                                    color: hollow.textPrimary,
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 15,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                ),
-                              ],
+                                );
+                              }),
 
                               // Role badge
                               if (widget.role != null &&
@@ -381,9 +391,34 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                                 ),
                               ],
 
-                              // Friend action button (non-self only)
+                              // Set Nickname + Friend action (non-self only)
                               if (!isMe) ...[
                                 const SizedBox(height: HollowSpacing.sm),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: Builder(builder: (_) {
+                                    final localNicks = ref.watch(localNicknameProvider);
+                                    final hasNick = localNicks.containsKey(widget.peerId);
+                                    return HollowButton.ghost(
+                                      onPressed: () {
+                                        final peerId = widget.peerId;
+                                        final nick = localNicks[peerId] ?? '';
+                                        final navContext = Navigator.of(context, rootNavigator: true).context;
+                                        widget.onDismiss();
+                                        _showLocalNicknameDialog(
+                                          navContext, ref, peerId,
+                                          currentNickname: nick,
+                                        );
+                                      },
+                                      compact: true,
+                                      icon: Icon(
+                                        hasNick ? LucideIcons.pencil : LucideIcons.tag,
+                                      ),
+                                      child: Text(hasNick ? 'Edit Nickname' : 'Set Nickname'),
+                                    );
+                                  }),
+                                ),
+                                const SizedBox(height: HollowSpacing.xs),
                                 _FriendActionButton(
                                   peerId: widget.peerId,
                                 ),
@@ -535,4 +570,123 @@ Color _roleColor(String role, HollowTheme hollow) {
       Color.lerp(hollow.warning, hollow.error, 0.5) ?? hollow.warning,
     _ => hollow.textSecondary,
   };
+}
+
+/// Show a dialog to set/edit/clear a local nickname for a peer.
+void _showLocalNicknameDialog(
+  BuildContext context,
+  WidgetRef ref,
+  String peerId, {
+  String currentNickname = '',
+}) {
+  showHollowDialog(
+    context: context,
+    builder: (ctx) => _LocalNicknameDialog(
+      peerId: peerId,
+      currentNickname: currentNickname,
+    ),
+  );
+}
+
+class _LocalNicknameDialog extends ConsumerStatefulWidget {
+  final String peerId;
+  final String currentNickname;
+
+  const _LocalNicknameDialog({
+    required this.peerId,
+    required this.currentNickname,
+  });
+
+  @override
+  ConsumerState<_LocalNicknameDialog> createState() =>
+      _LocalNicknameDialogState();
+}
+
+class _LocalNicknameDialogState extends ConsumerState<_LocalNicknameDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.currentNickname);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final nickname = _controller.text.trim();
+    ref.read(localNicknameProvider.notifier).setNickname(
+          widget.peerId,
+          nickname,
+        );
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+
+    return Center(
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          width: 300,
+          padding: const EdgeInsets.all(HollowSpacing.xl),
+          decoration: BoxDecoration(
+            color: hollow.surface,
+            borderRadius: BorderRadius.circular(hollow.radiusLg),
+            border: Border.all(color: hollow.border),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Set Nickname',
+                style: HollowTypography.subheading.copyWith(
+                  color: hollow.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: HollowSpacing.xs),
+              Text(
+                'Only visible to you',
+                style: HollowTypography.caption.copyWith(
+                  color: hollow.textSecondary,
+                  fontSize: 11,
+                ),
+              ),
+              const SizedBox(height: HollowSpacing.md),
+              HollowTextField(
+                controller: _controller,
+                hintText: 'Nickname (leave empty to clear)',
+                maxLength: 32,
+                autofocus: true,
+                onSubmitted: (_) => _save(),
+              ),
+              const SizedBox(height: HollowSpacing.lg),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  HollowButton.ghost(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: HollowSpacing.sm),
+                  HollowButton.filled(
+                    onPressed: _save,
+                    child: const Text('Save'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

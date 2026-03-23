@@ -7,8 +7,10 @@ import 'hollow_typography.dart';
 /// Factory for creating Flutter ThemeData with Hollow's design system.
 abstract final class HollowThemeData {
   /// Hollow's primary dark theme.
-  static ThemeData dark() {
-    final hollow = HollowTheme.dark();
+  static ThemeData dark({double? accentHue}) {
+    final hollow = accentHue != null
+        ? HollowTheme.darkWithHue(accentHue)
+        : HollowTheme.dark();
 
     return ThemeData(
       brightness: Brightness.dark,
@@ -172,8 +174,10 @@ abstract final class HollowThemeData {
   }
 
   /// Hollow's secondary light theme.
-  static ThemeData light() {
-    final hollow = HollowTheme.light();
+  static ThemeData light({double? accentHue}) {
+    final hollow = accentHue != null
+        ? HollowTheme.lightWithHue(accentHue)
+        : HollowTheme.light();
 
     return ThemeData(
       brightness: Brightness.light,

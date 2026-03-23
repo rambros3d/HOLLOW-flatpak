@@ -60,7 +60,7 @@ class FriendsBar extends ConsumerWidget {
     return Container(
       height: 44,
       decoration: BoxDecoration(
-        color: hollow.surface,
+        color: hollow.surface.withValues(alpha: 1.0),
         border: Border(
           bottom: BorderSide(color: hollow.border),
         ),

@@ -78,9 +78,9 @@ class _BottomBarState extends ConsumerState<BottomBar> {
     final splitState = ref.watch(splitViewProvider);
 
     return Container(
-      height: 58,
+      height: 59,
       decoration: BoxDecoration(
-        color: hollow.background,
+        color: hollow.opaqueBackground,
         border: Border(
           top: BorderSide(color: hollow.border),
         ),

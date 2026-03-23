@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/local_nickname_provider.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
@@ -545,8 +546,9 @@ class _ServerMemberTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final hollow = HollowTheme.of(context);
     final isSyncing = ref.watch(isPeerSyncingProvider(peerId));
-    // Resolution: nickname → profile display name → short peer ID.
+    // Resolution: local nickname → server nickname → profile display name → short peer ID.
     final profiles = ref.watch(profileProvider);
+    ref.watch(localNicknameProvider); // trigger rebuild on local nickname changes
     final resolvedName =
         serverDisplayNameFor(profiles, peerId, nickname: nickname);
 
@@ -670,6 +672,7 @@ class _MemberTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final hollow = HollowTheme.of(context);
     final profiles = ref.watch(profileProvider);
+    ref.watch(localNicknameProvider); // trigger rebuild on local nickname changes
     final peerName = displayNameFor(profiles, peerId);
 
     return HollowPressable(

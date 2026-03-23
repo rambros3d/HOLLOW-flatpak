@@ -55,7 +55,7 @@ class WindowTitleBar extends StatelessWidget {
 
     return Container(
       height: 32,
-      color: hollow.background,
+      color: hollow.opaqueBackground,
       child: Row(
         children: [
           branding,

@@ -1224,8 +1224,8 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 - [X] Rename HAVEN to HOLLOW
 - [X] Add avatars for peers and servers / Server folder organizing
-- [ ] Change locally someone else's nickname (only for you to see)
-- [ ] Custom background for the app / Custom color picker chooser
+- [X] Change locally someone else's nickname (only for you to see)
+- [X] Custom background for the app / Custom color picker chooser
 - [ ] **Scaling (deferred from Phase 4):**
   - [ ] Connection subset management (6-12 peers per server, peer scoring, rotation) — defer until scaling pain
   - [ ] Channel-level CRDT sharding (split ServerState for scale) — defer until ServerState is too large

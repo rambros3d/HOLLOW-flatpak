@@ -1,13 +1,17 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/providers/background_provider.dart';
 
 /// Very slow-drifting ambient background for the chat area.
 ///
 /// Two soft radial gradient blobs (teal + purple/blue) at low opacity
 /// drift in a slow figure-8 pattern over ~45 seconds.
-/// Rule: if you notice the animation while chatting, it's too much.
-class AmbientBackground extends StatefulWidget {
+///
+/// When a custom background image is set, blobs are hidden (image is
+/// rendered at the shell level behind everything).
+class AmbientBackground extends ConsumerStatefulWidget {
   final Color color1;
   final Color color2;
   final double opacity;
@@ -22,10 +26,10 @@ class AmbientBackground extends StatefulWidget {
   });
 
   @override
-  State<AmbientBackground> createState() => _AmbientBackgroundState();
+  ConsumerState<AmbientBackground> createState() => _AmbientBackgroundState();
 }
 
-class _AmbientBackgroundState extends State<AmbientBackground>
+class _AmbientBackgroundState extends ConsumerState<AmbientBackground>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
@@ -46,16 +50,19 @@ class _AmbientBackgroundState extends State<AmbientBackground>
 
   @override
   Widget build(BuildContext context) {
+    final hasCustomBg = ref.watch(backgroundProvider).hasBackground;
+
+    // Skip blobs when custom background is active
+    if (hasCustomBg) return widget.child;
+
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
         final t = _controller.value * 2 * math.pi;
 
-        // Figure-8 (lemniscate) path for blob 1.
         final x1 = 0.5 + 0.25 * math.sin(t);
         final y1 = 0.5 + 0.15 * math.sin(t * 2);
 
-        // Opposite phase for blob 2.
         final x2 = 0.5 - 0.2 * math.sin(t + math.pi * 0.7);
         final y2 = 0.5 - 0.2 * math.sin(t * 2 + math.pi);
 
@@ -97,7 +104,6 @@ class _AmbientPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Blob 1 — teal (wide soft fill)
     final c1 = Offset(center1.dx * size.width, center1.dy * size.height);
     final r1 = size.width * 0.55;
     final paint1 = Paint()
@@ -107,7 +113,6 @@ class _AmbientPainter extends CustomPainter {
       ).createShader(Rect.fromCircle(center: c1, radius: r1));
     canvas.drawCircle(c1, r1, paint1);
 
-    // Blob 2 — purple/blue (wide soft fill)
     final c2 = Offset(center2.dx * size.width, center2.dy * size.height);
     final r2 = size.width * 0.5;
     final paint2 = Paint()
