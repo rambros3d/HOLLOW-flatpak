@@ -405,7 +405,7 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                                         final nick = localNicks[peerId] ?? '';
                                         final navContext = Navigator.of(context, rootNavigator: true).context;
                                         widget.onDismiss();
-                                        _showLocalNicknameDialog(
+                                        showLocalNicknameDialog(
                                           navContext, ref, peerId,
                                           currentNickname: nick,
                                         );
@@ -573,7 +573,7 @@ Color _roleColor(String role, HollowTheme hollow) {
 }
 
 /// Show a dialog to set/edit/clear a local nickname for a peer.
-void _showLocalNicknameDialog(
+void showLocalNicknameDialog(
   BuildContext context,
   WidgetRef ref,
   String peerId, {

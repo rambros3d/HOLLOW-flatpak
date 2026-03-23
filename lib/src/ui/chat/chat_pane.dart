@@ -8,6 +8,7 @@ import 'package:hollow/src/core/providers/chat_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/models/file_attachment.dart';
 import 'package:hollow/src/core/providers/file_transfer_provider.dart';
+import 'package:hollow/src/core/providers/friends_provider.dart';
 import 'package:hollow/src/core/providers/connection_status_provider.dart';
 import 'package:hollow/src/core/providers/member_panel_provider.dart';
 import 'package:hollow/src/core/providers/layout_provider.dart';
@@ -16,6 +17,7 @@ import 'package:hollow/src/core/providers/split_view_provider.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
 import 'package:hollow/src/core/providers/unread_provider.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:hollow/src/core/providers/local_nickname_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/core/providers/typing_provider.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
@@ -24,8 +26,11 @@ import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:hollow/src/ui/chat/message_action_bar.dart';
 import 'package:hollow/src/ui/chat/message_bubble.dart';
 import 'package:hollow/src/ui/components/connection_progress.dart';
+import 'package:hollow/src/ui/animations/hollow_curves.dart';
 import 'package:hollow/src/ui/components/hollow_avatar.dart';
+import 'package:hollow/src/ui/components/hollow_button.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/ui/components/profile_card_popup.dart';
 import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/components/hollow_tooltip.dart';
@@ -33,6 +38,9 @@ import 'package:hollow/src/ui/components/status_dot.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
+
+/// Whether the DM profile panel is visible.
+final dmProfilePanelProvider = StateProvider<bool>((ref) => true);
 
 /// Whether two consecutive messages should be grouped (same sender, within 5 min).
 bool shouldGroup({
@@ -398,8 +406,19 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     _previousMessageCount = messages.length;
 
     final typingPeers = ref.watch(typingProvider)[widget.peerId] ?? {};
+    final showProfilePanel = ref.watch(dmProfilePanelProvider);
 
-    return Column(
+    return Row(
+      children: [
+        // DM Profile Panel (left side) with slide animation
+        _DmProfilePanelSlider(
+          visible: showProfilePanel,
+          peerId: widget.peerId,
+        ),
+
+        // Chat area
+        Expanded(
+          child: Column(
       children: [
         // Peer ID header
         Container(
@@ -483,21 +502,15 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
               }),
               const SizedBox(width: HollowSpacing.sm),
               HollowTooltip(
-                message: 'Copy peer ID',
+                message: showProfilePanel ? 'Hide profile' : 'Show profile',
                 child: HollowPressable(
                   onTap: () {
-                    Clipboard.setData(ClipboardData(text: widget.peerId));
-                    HollowToast.show(
-                      context,
-                      'Peer ID copied',
-                      type: HollowToastType.success,
-                      duration: const Duration(seconds: 1),
-                    );
+                    ref.read(dmProfilePanelProvider.notifier).state = !showProfilePanel;
                   },
                   borderRadius: BorderRadius.circular(hollow.radiusSm),
                   padding: const EdgeInsets.all(HollowSpacing.xs),
-                  child: Icon(LucideIcons.copy,
-                      size: 16, color: hollow.textSecondary),
+                  child: Icon(LucideIcons.user,
+                      size: 16, color: showProfilePanel ? hollow.accent : hollow.textSecondary),
                 ),
               ),
               const SizedBox(width: HollowSpacing.xs),
@@ -945,8 +958,366 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
           ),
         ),
       ],
+          ), // Column
+        ), // Expanded (chat area)
+      ],
+    ); // Row
+  }
+}
+
+/// Slide animation wrapper for the DM profile panel.
+class _DmProfilePanelSlider extends StatefulWidget {
+  final bool visible;
+  final String peerId;
+  const _DmProfilePanelSlider({required this.visible, required this.peerId});
+
+  @override
+  State<_DmProfilePanelSlider> createState() => _DmProfilePanelSliderState();
+}
+
+class _DmProfilePanelSliderState extends State<_DmProfilePanelSlider>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final CurvedAnimation _curved;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: HollowDurations.normal,
+      value: widget.visible ? 1.0 : 0.0,
+    );
+    _curved = CurvedAnimation(
+      parent: _controller,
+      curve: HollowCurves.enter,
+      reverseCurve: HollowCurves.exit,
     );
   }
+
+  @override
+  void didUpdateWidget(_DmProfilePanelSlider old) {
+    super.didUpdateWidget(old);
+    if (widget.visible != old.visible) {
+      widget.visible ? _controller.forward() : _controller.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _curved.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _curved,
+      builder: (context, child) {
+        if (_curved.value == 0.0) return const SizedBox.shrink();
+        return ClipRect(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            widthFactor: _curved.value,
+            child: FadeTransition(
+              opacity: _curved,
+              child: child,
+            ),
+          ),
+        );
+      },
+      child: _DmProfilePanel(peerId: widget.peerId),
+    );
+  }
+}
+
+/// Profile panel shown on the left side of DM chats.
+class _DmProfilePanel extends ConsumerWidget {
+  final String peerId;
+  const _DmProfilePanel({required this.peerId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hollow = HollowTheme.of(context);
+    final profiles = ref.watch(profileProvider);
+    final profile = profiles[peerId];
+    final localNicknames = ref.watch(localNicknameProvider);
+    final localNick = localNicknames[peerId];
+    final isOnline = ref.watch(peersProvider).containsKey(peerId);
+    final friends = ref.watch(friendsProvider);
+    final friendInfo = friends[peerId];
+
+    final displayName = profile?.displayName ?? '';
+    final status = profile?.status ?? '';
+    final aboutMe = profile?.aboutMe ?? '';
+    final bannerBytes = profile?.bannerBytes;
+    final avatarBytes = profile?.avatarBytes;
+
+    final shownName = displayName.isNotEmpty
+        ? displayName
+        : (peerId.length > 8 ? '${peerId.substring(0, 8)}...' : peerId);
+
+    final bannerColor = _bannerColorFromId(peerId);
+
+    return Container(
+      width: 240,
+      decoration: BoxDecoration(
+        color: hollow.surface,
+        border: Border(
+          right: BorderSide(color: hollow.border),
+        ),
+      ),
+      child: Column(
+        children: [
+          // Banner
+          SizedBox(
+            height: 90,
+            width: double.infinity,
+            child: bannerBytes != null && bannerBytes.isNotEmpty
+                ? Image.memory(bannerBytes, fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => _bannerGradient(bannerColor))
+                : _bannerGradient(bannerColor),
+          ),
+
+          // Avatar overlapping banner + content
+          Transform.translate(
+            offset: const Offset(0, -32),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: HollowSpacing.md),
+              child: Column(
+                children: [
+                  // Avatar with status dot
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(hollow.radiusMd + 2),
+                          border: Border.all(color: hollow.surface, width: 3),
+                        ),
+                        child: HollowAvatar(
+                          peerId: peerId,
+                          size: 64,
+                          imageBytes: avatarBytes,
+                        ),
+                      ),
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: hollow.surface,
+                            shape: BoxShape.circle,
+                          ),
+                          padding: const EdgeInsets.all(2),
+                          child: StatusDot(
+                            color: isOnline ? hollow.success : hollow.textSecondary,
+                            size: 10,
+                            pulse: isOnline,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: HollowSpacing.sm),
+
+                  // Name(s)
+                  if (localNick != null && localNick.isNotEmpty) ...[
+                    Text(
+                      localNick,
+                      style: HollowTypography.subheading.copyWith(
+                        color: hollow.textPrimary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                    Text(
+                      shownName,
+                      style: HollowTypography.caption.copyWith(
+                        color: hollow.textSecondary,
+                        fontSize: 11,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                  ] else
+                    Text(
+                      shownName,
+                      style: HollowTypography.subheading.copyWith(
+                        color: hollow.textPrimary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+
+                  // Status
+                  if (status.isNotEmpty) ...[
+                    const SizedBox(height: HollowSpacing.xxs),
+                    Text(
+                      status,
+                      style: HollowTypography.caption.copyWith(
+                        color: hollow.textSecondary,
+                        fontStyle: FontStyle.italic,
+                        fontSize: 11,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+
+          // Scrollable content
+          Expanded(
+            child: Transform.translate(
+              offset: const Offset(0, -16),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: HollowSpacing.md),
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    // About Me (in quotes, italic)
+                    if (aboutMe.isNotEmpty) ...[
+                      Container(height: 1, color: hollow.border),
+                      const SizedBox(height: HollowSpacing.sm),
+                      Text(
+                        '"$aboutMe"',
+                        style: HollowTypography.body.copyWith(
+                          color: hollow.textSecondary,
+                          fontStyle: FontStyle.italic,
+                          fontSize: 12,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: HollowSpacing.sm),
+                      Container(height: 1, color: hollow.border),
+                    ],
+
+                    const SizedBox(height: HollowSpacing.sm),
+
+                    // Set/Edit Nickname button (outline, full width, like Edit Profile)
+                    SizedBox(
+                      width: double.infinity,
+                      child: HollowButton.outline(
+                        onPressed: () {
+                          showLocalNicknameDialog(
+                            context, ref, peerId,
+                            currentNickname: localNick ?? '',
+                          );
+                        },
+                        compact: true,
+                        icon: Icon(
+                          localNick != null && localNick.isNotEmpty
+                              ? LucideIcons.pencil
+                              : LucideIcons.tag,
+                        ),
+                        child: Text(
+                          localNick != null && localNick.isNotEmpty
+                              ? 'Edit Nickname'
+                              : 'Set Nickname',
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: HollowSpacing.xs),
+
+                    // Friend status
+                    if (friendInfo != null && friendInfo.status == 'accepted')
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(LucideIcons.userCheck, size: 14, color: hollow.success),
+                          const SizedBox(width: HollowSpacing.xs),
+                          Text(
+                            'Friends',
+                            style: HollowTypography.body.copyWith(
+                              color: hollow.success,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+
+                    const SizedBox(height: HollowSpacing.sm),
+                    Container(height: 1, color: hollow.border),
+                    const SizedBox(height: HollowSpacing.sm),
+
+                    // Peer ID (copy on tap)
+                    HollowPressable(
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: peerId));
+                        HollowToast.show(
+                          context,
+                          'Peer ID copied',
+                          type: HollowToastType.success,
+                          duration: const Duration(seconds: 1),
+                        );
+                      },
+                      subtle: true,
+                      borderRadius: BorderRadius.circular(hollow.radiusSm),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: HollowSpacing.sm,
+                        vertical: HollowSpacing.xs,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(LucideIcons.copy, size: 10,
+                              color: hollow.textSecondary.withValues(alpha: 0.5)),
+                          const SizedBox(width: HollowSpacing.xs),
+                          Flexible(
+                            child: Text(
+                              peerId,
+                              style: HollowTypography.mono.copyWith(
+                                color: hollow.textSecondary.withValues(alpha: 0.5),
+                                fontSize: 8,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _bannerGradient(Color bannerColor) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [bannerColor, bannerColor.withValues(alpha: 0.7)],
+        ),
+      ),
+    );
+  }
+}
+
+/// Banner color from peer ID.
+Color _bannerColorFromId(String id) {
+  final hash = id.hashCode;
+  final hue = ((hash % 360).abs() + 40) % 360;
+  return HSLColor.fromAHSL(1.0, hue.toDouble(), 0.45, 0.35).toColor();
 }
 
 /// Typing indicator bar shown above the input area.

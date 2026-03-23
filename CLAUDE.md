@@ -131,6 +131,9 @@ Drag-and-drop server folder organization. `StripItem` sealed class (`ServerStrip
 **Local Peer Nicknames + Custom Accent Color + Custom Background — COMPLETE (Mar 22, 2026):**
 Local nicknames: `local_nickname_provider.dart`, static ref in `displayNameFor()` (zero call-site changes), "Set Nickname" in profile card popup. Custom accent: `accent_color_provider.dart`, `HollowTheme.darkWithHue()`, rainbow hue slider + preset swatches in settings, live preview, Cancel reverts. Custom background: `background_provider.dart`, full-window image behind Scaffold, theme-level alpha on `background`/`surface`/`elevated` (chat area most transparent, sidebars darker, bars opaque via `opaqueBackground`), blob animation hidden, "Darken" slider, 16:9 crop dialog.
 
+**DM Profile Panel — COMPLETE (Mar 22, 2026):**
+240px panel on left of DM chat: banner, avatar with status dot, name/nickname, status, about me in quotes, outline "Set Nickname" button, friend status, peer ID copy. `_DmProfilePanelSlider` slide animation (ClipRect+Align+Fade). Toggle via user icon in DM header. `dmProfilePanelProvider` default true.
+
 **Phase 3.5 completed so far:**
 - User profiles: Rust `user_profiles` SQLCipher table, `ProfileUpdate` HollowMessage broadcast, timestamp-gated upsert, auto-exchange on `ConnectionEstablished`, `ProfileNotifier` Dart provider, `displayNameFor()` helper used everywhere (user_bar, member_panel, channel_message_bubble, peer_card, chat_pane)
 - User settings dialog: two-column layout (live profile preview card with centered banner/avatar/name/about-me on left, edit fields + dark mode toggle on right), `showHollowDialog` glassmorphism entrance, settings gear icon replaces theme toggle in user bar
