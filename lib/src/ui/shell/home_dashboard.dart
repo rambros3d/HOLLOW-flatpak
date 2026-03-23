@@ -170,7 +170,7 @@ class _ProfileColumn extends ConsumerWidget {
 
         // Avatar
         if (localPeerId != null)
-          HollowAvatar(peerId: localPeerId, size: 72, imageBytes: profiles[localPeerId]?.avatarBytes)
+          HollowAvatar(peerId: localPeerId, size: 72, imageBytes: profiles[localPeerId]?.avatarBytes, animate: true)
         else
           Container(
             width: 72,

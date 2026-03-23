@@ -238,7 +238,7 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
         final isMergeTarget = candidateData.isNotEmpty;
         return LongPressDraggable<_StripDragData>(
           data: _StripDragData(serverId: serverId, sourceIndex: index),
-          delay: const Duration(milliseconds: 150),
+          delay: const Duration(milliseconds: 300),
           feedback: Material(
             color: Colors.transparent,
             child: AnimatedOpacity(
@@ -312,7 +312,7 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
         final isDropTarget = candidateData.isNotEmpty;
         return LongPressDraggable<_StripDragData>(
           data: _StripDragData(folderId: folder.id, sourceIndex: index),
-          delay: const Duration(milliseconds: 150),
+          delay: const Duration(milliseconds: 300),
           feedback: Material(
             color: Colors.transparent,
             child: AnimatedOpacity(

@@ -8985,7 +8985,7 @@ async fn handle_incoming_request(
                 Some(vec![]) // empty = clear signal for save_profile
             } else {
                 match base64::engine::general_purpose::STANDARD.decode(&avatar_b64) {
-                    Ok(bytes) if bytes.len() <= 100_000 => Some(bytes),
+                    Ok(bytes) if bytes.len() <= 1_000_000 => Some(bytes), // 1MB for GIF support
                     Ok(_) => { hollow_log!("[HOLLOW-SWARM] Rejecting avatar from {peer_str}: too large"); None }
                     Err(e) => { hollow_log!("[HOLLOW-SWARM] Invalid avatar base64 from {peer_str}: {e}"); None }
                 }
@@ -8996,7 +8996,7 @@ async fn handle_incoming_request(
                 Some(vec![]) // empty = clear signal for save_profile
             } else {
                 match base64::engine::general_purpose::STANDARD.decode(&banner_b64) {
-                    Ok(bytes) if bytes.len() <= 200_000 => Some(bytes),
+                    Ok(bytes) if bytes.len() <= 2_000_000 => Some(bytes), // 2MB for GIF support
                     Ok(_) => { hollow_log!("[HOLLOW-SWARM] Rejecting banner from {peer_str}: too large"); None }
                     Err(e) => { hollow_log!("[HOLLOW-SWARM] Invalid banner base64 from {peer_str}: {e}"); None }
                 }

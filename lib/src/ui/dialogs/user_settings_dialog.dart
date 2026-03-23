@@ -15,6 +15,7 @@ import 'package:hollow/src/rust/api/network.dart' as network_api;
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/components/hollow_avatar.dart';
 import 'package:hollow/src/ui/components/hollow_button.dart';
 import 'package:hollow/src/ui/components/hollow_dialog.dart';
@@ -179,6 +180,21 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
     if (path == null) return;
     final raw = await File(path).readAsBytes();
     if (!mounted) return;
+
+    final isGif = path.toLowerCase().endsWith('.gif');
+    if (isGif) {
+      // Skip crop for GIFs to preserve animation — use raw bytes directly
+      if (raw.length > 1000000) {
+        if (mounted) HollowToast.show(context, 'GIF too large (max 1MB)', type: HollowToastType.error);
+        return;
+      }
+      setState(() {
+        _pendingAvatarBytes = Uint8List.fromList(raw);
+        _avatarChanged = true;
+      });
+      return;
+    }
+
     // Open crop dialog (1:1 aspect for avatar)
     final cropped = await showImageCropDialog(
       context: context,
@@ -212,6 +228,21 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
     if (path == null) return;
     final raw = await File(path).readAsBytes();
     if (!mounted) return;
+
+    final isGif = path.toLowerCase().endsWith('.gif');
+    if (isGif) {
+      // Skip crop for GIFs to preserve animation — use raw bytes directly
+      if (raw.length > 2000000) {
+        if (mounted) HollowToast.show(context, 'GIF too large (max 2MB)', type: HollowToastType.error);
+        return;
+      }
+      setState(() {
+        _pendingBannerBytes = Uint8List.fromList(raw);
+        _bannerChanged = true;
+      });
+      return;
+    }
+
     // Open crop dialog (3:1 aspect for banner)
     final cropped = await showImageCropDialog(
       context: context,
@@ -519,8 +550,8 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                       return SizedBox(
                         height: 70,
                         width: double.infinity,
-                        child: Image.memory(displayBanner, fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
+                        child: AnimatedGifImage(bytes: displayBanner, height: 70, width: double.infinity, fit: BoxFit.cover,
+                          errorWidget: Container(
                             height: 70,
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
@@ -572,6 +603,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                                 peerId: widget.localPeerId,
                                 size: 56,
                                 imageBytes: (displayAvatar != null && displayAvatar.isNotEmpty) ? displayAvatar : null,
+                                animate: true,
                               );
                             }),
                           ),

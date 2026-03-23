@@ -560,12 +560,15 @@ class _StorageDashboardContentState
   }
 
   Widget _buildRetentionPolicy(HollowTheme hollow) {
+    final role = ref.watch(myRoleProvider(widget.serverId)).valueOrNull ?? 'member';
+    final canEdit = role == 'owner' || role == 'admin';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _retentionRow(hollow, 'Files', 'retention_files', _retentionFiles),
+        _retentionRow(hollow, 'Files', 'retention_files', _retentionFiles, canEdit: canEdit),
         const SizedBox(height: HollowSpacing.xs),
-        _retentionRow(hollow, 'Voice', 'retention_voice', _retentionVoice),
+        _retentionRow(hollow, 'Voice', 'retention_voice', _retentionVoice, canEdit: canEdit),
         const SizedBox(height: HollowSpacing.sm),
         Text(
           'Forward-only: changes affect new uploads only.',
@@ -579,9 +582,9 @@ class _StorageDashboardContentState
     );
   }
 
-  Widget _retentionRow(HollowTheme hollow, String label, String settingKey, String policy) {
+  Widget _retentionRow(HollowTheme hollow, String label, String settingKey, String policy, {bool canEdit = true}) {
     return HollowPressable(
-      onTap: () => _editRetention(hollow, settingKey, policy),
+      onTap: canEdit ? () => _editRetention(hollow, settingKey, policy) : null,
       borderRadius: BorderRadius.circular(4),
       padding: EdgeInsets.zero,
       child: Row(

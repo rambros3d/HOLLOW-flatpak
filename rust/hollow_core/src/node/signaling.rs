@@ -215,8 +215,8 @@ async fn do_register(
     let addrs: Vec<String> = addresses.iter().take(5).cloned().collect();
     let addrs_joined = addrs.join(",");
 
-    // Sign: "haven-register:{room_code}:{peer_id}:{addresses_joined}:{timestamp}"
-    let message = format!("haven-register:{room_code}:{peer_id_str}:{addrs_joined}:{timestamp}");
+    // Sign: "hollow-register:{room_code}:{peer_id}:{addresses_joined}:{timestamp}"
+    let message = format!("hollow-register:{room_code}:{peer_id_str}:{addrs_joined}:{timestamp}");
     let signature = keypair
         .sign(message.as_bytes())
         .map_err(|e| format!("Signing failed: {e}"))?;
@@ -264,8 +264,8 @@ async fn do_unregister(
         .map_err(|e| format!("Clock error: {e}"))?
         .as_secs();
 
-    // Sign: "haven-unregister:{room_code}:{peer_id}:{timestamp}"
-    let message = format!("haven-unregister:{room_code}:{peer_id_str}:{timestamp}");
+    // Sign: "hollow-unregister:{room_code}:{peer_id}:{timestamp}"
+    let message = format!("hollow-unregister:{room_code}:{peer_id_str}:{timestamp}");
     let signature = keypair
         .sign(message.as_bytes())
         .map_err(|e| format!("Signing failed: {e}"))?;

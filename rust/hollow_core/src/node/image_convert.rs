@@ -4,10 +4,11 @@ use image::imageops::FilterType;
 use image::ImageFormat;
 
 /// Extensions that should be converted to WebP on send.
+/// GIFs are excluded to preserve animation frames.
 pub fn should_convert_to_webp(ext: &str) -> bool {
     matches!(
         ext.to_lowercase().as_str(),
-        "png" | "jpg" | "jpeg" | "bmp" | "gif" | "tiff" | "tif"
+        "png" | "jpg" | "jpeg" | "bmp" | "tiff" | "tif"
     )
 }
 

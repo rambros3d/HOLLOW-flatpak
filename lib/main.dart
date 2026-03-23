@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/member_panel_provider.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
@@ -135,20 +136,47 @@ Future<void> main() async {
 }
 
 /// Show the system tray icon with context menu.
-Future<void> _showTrayIcon() async {
-  // Resolve icon path relative to the executable.
-  // During debug: exe is in build/windows/x64/runner/Debug/
-  // The ico is at windows/runner/resources/app_icon.ico from project root.
-  final exeDir = File(Platform.resolvedExecutable).parent.path;
-  String iconPath;
-  // Check if running from build dir (debug) or installed location.
-  final projectIcon = File('windows/runner/resources/app_icon.ico');
-  if (projectIcon.existsSync()) {
-    iconPath = projectIcon.absolute.path;
-  } else {
-    // Release: icon should be next to the exe.
-    iconPath = '$exeDir/app_icon.ico';
+/// Cached path to the extracted tray icon file.
+String? _trayIconPath;
+
+Future<String?> _ensureTrayIcon() async {
+  if (_trayIconPath != null && File(_trayIconPath!).existsSync()) {
+    return _trayIconPath;
   }
+
+  // Try file system locations first (faster, no extraction needed).
+  final exeDir = File(Platform.resolvedExecutable).parent.path;
+  final candidates = [
+    '$exeDir/data/flutter_assets/assets/app_icon.ico',
+    '$exeDir/app_icon.ico',
+    'windows/runner/resources/app_icon.ico',
+    '${File(Platform.resolvedExecutable).parent.parent.parent.parent.parent.path}/windows/runner/resources/app_icon.ico',
+  ];
+
+  for (final candidate in candidates) {
+    if (File(candidate).existsSync()) {
+      _trayIconPath = File(candidate).absolute.path;
+      return _trayIconPath;
+    }
+  }
+
+  // Extract from Flutter assets as last resort.
+  try {
+    final byteData = await rootBundle.load('assets/app_icon.ico');
+    final tempDir = Directory.systemTemp;
+    final iconFile = File('${tempDir.path}/hollow_tray_icon.ico');
+    await iconFile.writeAsBytes(byteData.buffer.asUint8List());
+    _trayIconPath = iconFile.path;
+    return _trayIconPath;
+  } catch (e) {
+    debugPrint('[HOLLOW] Failed to extract tray icon: $e');
+    return null;
+  }
+}
+
+Future<void> _showTrayIcon() async {
+  final iconPath = await _ensureTrayIcon();
+  if (iconPath == null) return;
   await trayManager.setIcon(iconPath);
   await trayManager.setToolTip('Hollow — Running in background');
   final menu = Menu(

@@ -445,58 +445,58 @@ class _BottomBarState extends ConsumerState<BottomBar> {
       builder: (context, candidateData, rejectedData) {
         final isMergeTarget = candidateData.isNotEmpty;
         return LongPressDraggable<_StripDragData>(
-          data: _StripDragData(serverId: serverId, sourceIndex: index),
-          delay: const Duration(milliseconds: 150),
-          onDragStarted: () => setState(() => _isDragging = true),
-          onDragEnd: (_) => setState(() => _isDragging = false),
-          onDraggableCanceled: (_, __) => setState(() => _isDragging = false),
-          feedback: Material(
-            color: Colors.transparent,
-            child: AnimatedOpacity(
-              opacity: 0.8,
-              duration: Duration.zero,
-              child: _BottomServerIcon(
-                backgroundColor: _colorFromId(serverId),
-                child: serverIconChild,
+            data: _StripDragData(serverId: serverId, sourceIndex: index),
+            delay: const Duration(milliseconds: 300),
+            onDragStarted: () => setState(() => _isDragging = true),
+            onDragEnd: (_) => setState(() => _isDragging = false),
+            onDraggableCanceled: (_, __) => setState(() => _isDragging = false),
+            feedback: Material(
+              color: Colors.transparent,
+              child: AnimatedOpacity(
+                opacity: 0.8,
+                duration: Duration.zero,
+                child: _BottomServerIcon(
+                  backgroundColor: _colorFromId(serverId),
+                  child: serverIconChild,
+                ),
               ),
             ),
-          ),
-          childWhenDragging: AnimatedOpacity(
-            opacity: 0.3,
-            duration: const Duration(milliseconds: 150),
-            child: _BottomServerIcon(
-              backgroundColor: _colorFromId(serverId),
-              child: serverIconChild,
-            ),
-          ),
-          child: AnimatedScale(
-            scale: isMergeTarget ? 1.08 : 1.0,
-            duration: const Duration(milliseconds: 150),
-            child: AnimatedContainer(
+            childWhenDragging: AnimatedOpacity(
+              opacity: 0.3,
               duration: const Duration(milliseconds: 150),
-              decoration: isMergeTarget
-                  ? BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: hollow.accent.withValues(alpha: 0.4),
-                          blurRadius: 8,
-                        ),
-                      ],
-                    )
-                  : null,
               child: _BottomServerIcon(
-                isSelected: isSelected || isRightPaneServer,
-                unreadCount:
-                    (isSelected || isRightPaneServer) ? 0 : serverUnreads,
-                tooltip: _isDragging ? null : name,
                 backgroundColor: _colorFromId(serverId),
-                onTap: () => _selectServer(ref, serverId),
                 child: serverIconChild,
               ),
             ),
-          ),
-        );
+            child: AnimatedScale(
+              scale: isMergeTarget ? 1.08 : 1.0,
+              duration: const Duration(milliseconds: 150),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                decoration: isMergeTarget
+                    ? BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: hollow.accent.withValues(alpha: 0.4),
+                            blurRadius: 8,
+                          ),
+                        ],
+                      )
+                    : null,
+                child: _BottomServerIcon(
+                  isSelected: isSelected || isRightPaneServer,
+                  unreadCount:
+                      (isSelected || isRightPaneServer) ? 0 : serverUnreads,
+                  tooltip: _isDragging ? null : name,
+                  backgroundColor: _colorFromId(serverId),
+                  onTap: () => _selectServer(ref, serverId),
+                  child: serverIconChild,
+                ),
+              ),
+            ),
+          );
       },
     );
 
@@ -546,11 +546,11 @@ class _BottomBarState extends ConsumerState<BottomBar> {
       builder: (context, candidateData, rejectedData) {
         final isDropTarget = candidateData.isNotEmpty;
         return LongPressDraggable<_StripDragData>(
-          data: _StripDragData(folderId: folder.id, sourceIndex: index),
-          delay: const Duration(milliseconds: 150),
-          onDragStarted: () => setState(() => _isDragging = true),
-          onDragEnd: (_) => setState(() => _isDragging = false),
-          onDraggableCanceled: (_, __) => setState(() => _isDragging = false),
+            data: _StripDragData(folderId: folder.id, sourceIndex: index),
+            delay: const Duration(milliseconds: 300),
+            onDragStarted: () => setState(() => _isDragging = true),
+            onDragEnd: (_) => setState(() => _isDragging = false),
+            onDraggableCanceled: (_, __) => setState(() => _isDragging = false),
           feedback: Material(
             color: Colors.transparent,
             child: AnimatedOpacity(

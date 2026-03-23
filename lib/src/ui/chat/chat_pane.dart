@@ -27,6 +27,7 @@ import 'package:hollow/src/ui/chat/message_action_bar.dart';
 import 'package:hollow/src/ui/chat/message_bubble.dart';
 import 'package:hollow/src/ui/components/connection_progress.dart';
 import 'package:hollow/src/ui/animations/hollow_curves.dart';
+import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/components/hollow_avatar.dart';
 import 'package:hollow/src/ui/components/hollow_button.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
@@ -344,8 +345,9 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     try {
       // Determine allowed extensions for save dialog.
       final isImage = attachment.isImage;
+      final isGif = attachment.fileExt.toLowerCase() == 'gif';
       final allowedExtensions = isImage
-          ? ['png', 'jpg', 'jpeg', 'webp']
+          ? ['png', 'jpg', 'jpeg', 'webp', 'gif']
           : [attachment.fileExt];
 
       // Strip extension from filename for the dialog.
@@ -355,7 +357,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
 
       final savePath = await FilePicker.platform.saveFile(
         dialogTitle: 'Save file',
-        fileName: isImage ? '$baseName.png' : attachment.fileName,
+        fileName: isImage ? (isGif ? '$baseName.gif' : '$baseName.png') : attachment.fileName,
         type: FileType.custom,
         allowedExtensions: allowedExtensions,
       );
@@ -1075,8 +1077,8 @@ class _DmProfilePanel extends ConsumerWidget {
             height: 90,
             width: double.infinity,
             child: bannerBytes != null && bannerBytes.isNotEmpty
-                ? Image.memory(bannerBytes, fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => _bannerGradient(bannerColor))
+                ? AnimatedGifImage(bytes: bannerBytes, height: 90, width: double.infinity, fit: BoxFit.cover,
+                    errorWidget: _bannerGradient(bannerColor))
                 : _bannerGradient(bannerColor),
           ),
 
@@ -1100,6 +1102,7 @@ class _DmProfilePanel extends ConsumerWidget {
                           peerId: peerId,
                           size: 64,
                           imageBytes: avatarBytes,
+                          animate: true,
                         ),
                       ),
                       Positioned(

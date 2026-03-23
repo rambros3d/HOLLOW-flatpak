@@ -1,23 +1,29 @@
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/ui/components/animated_gif_image.dart';
 
 /// Avatar widget — shows a real image when available, falls back to
 /// deterministic color + initials from peer ID.
+///
+/// Set [animate] to true for focused profile contexts (profile card,
+/// DM panel, settings preview). Defaults to false (static first frame).
 class HollowAvatar extends StatelessWidget {
   final String peerId;
   final double size;
   final Uint8List? imageBytes;
+  final bool animate;
 
   const HollowAvatar({
     super.key,
     required this.peerId,
     this.size = 36,
     this.imageBytes,
+    this.animate = false,
   });
 
-  /// Deterministic color from peer ID.
   Color _colorFromId(String id) {
     final hash = id.hashCode;
     final hue = (hash % 360).abs().toDouble();
@@ -54,18 +60,105 @@ class HollowAvatar extends StatelessWidget {
     final hollow = HollowTheme.of(context);
 
     if (imageBytes != null && imageBytes!.isNotEmpty) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(hollow.radiusMd),
-        child: Image.memory(
-          imageBytes!,
+      Widget image;
+
+      if (animate) {
+        // Animated GIF with proper frame delay handling
+        image = AnimatedGifImage(
+          bytes: imageBytes!,
           width: size,
           height: size,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _buildFallback(hollow),
-        ),
+          errorWidget: _buildFallback(hollow),
+        );
+      } else {
+        // Static — show only first frame
+        image = _StaticFirstFrame(
+          imageBytes: imageBytes!,
+          size: size,
+          fallback: _buildFallback(hollow),
+        );
+      }
+
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(hollow.radiusMd),
+        child: image,
       );
     }
 
     return _buildFallback(hollow);
+  }
+}
+
+/// Renders only the first frame of an image (freezes GIF animation).
+class _StaticFirstFrame extends StatefulWidget {
+  final Uint8List imageBytes;
+  final double size;
+  final Widget fallback;
+
+  const _StaticFirstFrame({
+    required this.imageBytes,
+    required this.size,
+    required this.fallback,
+  });
+
+  @override
+  State<_StaticFirstFrame> createState() => _StaticFirstFrameState();
+}
+
+class _StaticFirstFrameState extends State<_StaticFirstFrame> {
+  ui.Image? _frame;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _decodeFirstFrame();
+  }
+
+  @override
+  void didUpdateWidget(_StaticFirstFrame old) {
+    super.didUpdateWidget(old);
+    if (!identical(old.imageBytes, widget.imageBytes)) {
+      _frame?.dispose();
+      _frame = null;
+      _failed = false;
+      _decodeFirstFrame();
+    }
+  }
+
+  Future<void> _decodeFirstFrame() async {
+    try {
+      final codec = await ui.instantiateImageCodec(widget.imageBytes);
+      final frame = await codec.getNextFrame();
+      if (mounted) {
+        setState(() => _frame = frame.image);
+      } else {
+        frame.image.dispose();
+      }
+      codec.dispose();
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _frame?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_failed) return widget.fallback;
+    if (_frame == null) {
+      return SizedBox(width: widget.size, height: widget.size);
+    }
+    return RawImage(
+      image: _frame,
+      width: widget.size,
+      height: widget.size,
+      fit: BoxFit.cover,
+    );
   }
 }

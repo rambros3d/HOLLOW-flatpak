@@ -8,6 +8,7 @@ import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/components/hollow_avatar.dart';
 import 'package:hollow/src/ui/components/hollow_button.dart';
 import 'package:hollow/src/ui/components/hollow_dialog.dart';
@@ -199,8 +200,8 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                           return SizedBox(
                             height: 80,
                             width: double.infinity,
-                            child: Image.memory(bannerBytes, fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Container(
+                            child: AnimatedGifImage(bytes: bannerBytes, height: 80, width: double.infinity, fit: BoxFit.cover,
+                              errorWidget: Container(
                                 height: 80,
                                 decoration: BoxDecoration(
                                   gradient: LinearGradient(
@@ -245,7 +246,7 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                                   ),
                                 ),
                                 child: HollowAvatar(
-                                    peerId: widget.peerId, size: 64, imageBytes: profile?.avatarBytes),
+                                    peerId: widget.peerId, size: 64, imageBytes: profile?.avatarBytes, animate: true),
                               ),
 
                               const SizedBox(height: HollowSpacing.xs + 2),
