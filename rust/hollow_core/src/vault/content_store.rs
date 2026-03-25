@@ -1491,6 +1491,7 @@ mod tests {
             created_at,
             creator_peer_id: "peer_creator".to_string(),
             channel_id: channel_id.to_string(),
+            message_id: String::new(),
         }
     }
 

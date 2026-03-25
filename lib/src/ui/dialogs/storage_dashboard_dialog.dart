@@ -387,6 +387,8 @@ class _StorageDashboardContentState
           decoration: InputDecoration(
             suffixText: 'MB',
             suffixStyle: TextStyle(color: hollow.textSecondary),
+            hintText: 'Min 512',
+            hintStyle: TextStyle(color: hollow.textSecondary.withValues(alpha: 0.4)),
             enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: hollow.border)),
             focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: hollow.accent)),
           ),
@@ -399,7 +401,7 @@ class _StorageDashboardContentState
           TextButton(
             onPressed: () {
               final mb = int.tryParse(controller.text);
-              if (mb != null && mb > 0) Navigator.pop(ctx, mb);
+              if (mb != null && mb >= 512) Navigator.pop(ctx, mb);
             },
             child: Text('Save', style: TextStyle(color: hollow.accent)),
           ),
@@ -603,8 +605,10 @@ class _StorageDashboardContentState
               fontWeight: FontWeight.w500,
             ),
           ),
-          const SizedBox(width: HollowSpacing.xs),
-          Icon(LucideIcons.pencil, size: 11, color: hollow.textSecondary),
+          if (canEdit) ...[
+            const SizedBox(width: HollowSpacing.xs),
+            Icon(LucideIcons.pencil, size: 11, color: hollow.textSecondary),
+          ],
         ],
       ),
     );
@@ -615,15 +619,52 @@ class _StorageDashboardContentState
     VaultServerStatus? status,
     int memberCount,
   ) {
-    final health = status?.computeHealth() ?? VaultHealth.healthy;
-    final message = status?.healthMessage ?? (memberCount < 6
-        ? 'All files synced'
-        : 'No vault activity yet');
-    final color = switch (health) {
-      VaultHealth.healthy => hollow.success,
-      VaultHealth.degraded => hollow.warning,
-      VaultHealth.critical => hollow.error,
-    };
+    if (memberCount < 6) {
+      // Full replication mode — simple summary.
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              StatusDot(color: hollow.success, size: 8),
+              const SizedBox(width: HollowSpacing.sm),
+              Text(
+                'Full replication',
+                style: HollowTypography.body.copyWith(color: hollow.textPrimary),
+              ),
+            ],
+          ),
+          const SizedBox(height: HollowSpacing.xs),
+          Text(
+            'Every member stores all files. Erasure coding activates at 6+ members.',
+            style: HollowTypography.caption.copyWith(
+              color: hollow.textSecondary,
+              fontSize: 10,
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Erasure coding mode — show shard health summary.
+    final shardCount = status?.shardsStoredLocally ?? 0;
+    final activeUploads = status?.activeUploads.values
+        .where((u) => u.phase != 'complete' && u.phase != 'failed')
+        .length ?? 0;
+    final activeDownloads = status?.activeDownloads.length ?? 0;
+    final hasFailed = status?.activeUploads.values
+        .any((u) => u.phase == 'failed') ?? false;
+
+    final color = hasFailed
+        ? hollow.error
+        : (activeUploads > 0 || activeDownloads > 0)
+            ? hollow.warning
+            : hollow.success;
+    final statusText = hasFailed
+        ? 'Distribution failed'
+        : (activeUploads > 0 || activeDownloads > 0)
+            ? '${activeUploads + activeDownloads} transfer${(activeUploads + activeDownloads) > 1 ? 's' : ''} in progress'
+            : 'All shards healthy';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -633,27 +674,23 @@ class _StorageDashboardContentState
             StatusDot(
               color: color,
               size: 8,
-              pulse: health != VaultHealth.healthy,
+              pulse: activeUploads > 0 || activeDownloads > 0 || hasFailed,
             ),
             const SizedBox(width: HollowSpacing.sm),
-            Expanded(
-              child: Text(
-                message,
-                style: HollowTypography.body.copyWith(color: hollow.textPrimary),
-              ),
+            Text(
+              statusText,
+              style: HollowTypography.body.copyWith(color: hollow.textPrimary),
             ),
           ],
         ),
-        if (memberCount < 6) ...[
-          const SizedBox(height: HollowSpacing.sm),
-          Text(
-            'Every member stores all files.',
-            style: HollowTypography.caption.copyWith(
-              color: hollow.textSecondary,
-              fontSize: 10,
-            ),
+        const SizedBox(height: HollowSpacing.xs),
+        Text(
+          '$shardCount shard${shardCount != 1 ? 's' : ''} stored locally',
+          style: HollowTypography.caption.copyWith(
+            color: hollow.textSecondary,
+            fontSize: 10,
           ),
-        ],
+        ),
       ],
     );
   }

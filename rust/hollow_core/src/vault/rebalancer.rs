@@ -261,6 +261,7 @@ mod tests {
             created_at: 1000,
             creator_peer_id: "creator".into(),
             channel_id: "ch1".into(),
+            message_id: String::new(),
         }
     }
 

@@ -436,6 +436,16 @@ pub fn get_file_metadata(file_id: String) -> Result<Option<StoredFileInfo>, Stri
     Ok(ms.get_file_metadata(&file_id)?.map(stored_file_to_ffi))
 }
 
+/// Get the vault content_id linked to a file by its file_id.
+/// Returns None if no vault content_id is set (e.g. DM files, <6 member files).
+#[frb]
+pub fn get_content_id_for_file(file_id: String) -> Result<Option<String>, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+    ms.get_content_id_for_file(&file_id)
+}
+
 /// Get all files attached to a message.
 #[frb]
 pub fn get_files_for_message(message_id: String) -> Result<Vec<StoredFileInfo>, String> {

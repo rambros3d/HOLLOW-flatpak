@@ -939,6 +939,12 @@ struct SyncMessageItem {
     /// File attachment ID (optional).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     file_id: Option<String>,
+    /// File metadata for late joiners (so they can create file cards).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    file_meta: Option<SyncFileMetaItem>,
+    /// Deletion timestamp (if message was deleted).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hidden_at: Option<i64>,
     /// Reactions on this message (synced alongside the message).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     reactions: Vec<SyncReactionItem>,
@@ -954,6 +960,25 @@ struct SyncReactionItem {
     sig: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pk: Option<String>,
+}
+
+/// File metadata bundled with a sync message so late joiners can create file cards.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SyncFileMetaItem {
+    fid: String,
+    name: String,
+    ext: String,
+    mime: String,
+    size: u64,
+    img: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    w: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    h: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mid: Option<String>,
+    ts: i64,
+    sender: String,
 }
 
 /// A single DM in a DM sync batch.
@@ -983,6 +1008,12 @@ struct DmSyncItem {
     /// File attachment ID (optional).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     file_id: Option<String>,
+    /// File metadata for late joiners (so they can create file cards).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    file_meta: Option<SyncFileMetaItem>,
+    /// Deletion timestamp (if message was deleted).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hidden_at: Option<i64>,
     /// Reactions on this message (synced alongside the message).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     reactions: Vec<SyncReactionItem>,
@@ -1571,9 +1602,23 @@ pub(crate) async fn spawn_node(
     let (sig_cmd_tx, sig_event_rx) =
         signaling::spawn_signaling_task(sig_keypair, peer_id_str.clone(), proxy_enabled);
 
+    // Spawn the WebSocket relay client.
+    let ws_keypair = bundle_keypair.clone();
+    let ws_proto = ws_keypair.to_protobuf_encoding().unwrap_or_default();
+    let ws_pub_b64 = base64::engine::general_purpose::STANDARD.encode(
+        ws_keypair.public().encode_protobuf(),
+    );
+    let (ws_cmd_tx, ws_cmd_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (ws_event_tx, ws_event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let ws_relay_url = "wss://relay.anonlisten.com/ws".to_string();
+    let _ws_handle = super::ws_client::spawn_ws_client(
+        ws_relay_url, peer_id_str.clone(), ws_proto, ws_pub_b64,
+        ws_cmd_rx, ws_event_tx,
+    );
+
     let handle = tokio::spawn(run_swarm(
         swarm, event_tx, cmd_rx, olm, crypto_store, sig_cmd_tx, sig_event_rx,
-        bundle_keypair, proxy_enabled, tunnel_handles,
+        bundle_keypair, proxy_enabled, tunnel_handles, ws_cmd_tx, ws_event_rx,
     ));
 
     Ok((peer_id_str, handle))
@@ -1591,6 +1636,8 @@ async fn run_swarm(
     bundle_keypair: identity::Keypair,
     proxy_enabled: bool,
     tunnel_handles: Option<Vec<tokio::task::JoinHandle<()>>>,
+    ws_cmd_tx: tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    mut ws_event_rx: tokio::sync::mpsc::UnboundedReceiver<super::ws_client::WsEvent>,
 ) {
     // Precompute public key base64 for prekey bundle signing.
     let pub_key_proto = bundle_keypair.public().encode_protobuf();
@@ -1745,7 +1792,11 @@ async fn run_swarm(
                         match serde_json::from_str::<ServerState>(&json) {
                             Ok(mut state) => {
                                 state.set_hlc(Hlc::new(swarm.local_peer_id().to_string()));
-                                server_states.insert(server_id, state);
+                                server_states.insert(server_id.clone(), state);
+                                // Join the WS relay room for this server.
+                                let _ = ws_cmd_tx.send(super::ws_client::WsCommand::JoinRoom {
+                                    room_code: server_id,
+                                });
                             }
                             Err(e) => {
                                 hollow_log!("Failed to deserialize server {}: {}", server_id, e);
@@ -2163,6 +2214,11 @@ async fn run_swarm(
                         }
 
                         server_states.insert(server_id.clone(), state);
+
+                        // Join the WS relay room for this server.
+                        let _ = ws_cmd_tx.send(super::ws_client::WsCommand::JoinRoom {
+                            room_code: server_id.clone(),
+                        });
 
                         // Auto-pledge default storage (512 MB) for the owner
                         if let Some(state) = server_states.get_mut(&server_id) {
@@ -4198,7 +4254,7 @@ async fn run_swarm(
                                 &ciphertext, &content_id, &key, &nonce,
                                 &file_name, &mime_type, &channel_id,
                                 original_size, &local_peer,
-                                &members, &pledges,
+                                &members, &pledges, &message_id,
                             )?;
 
                             // Open ContentStore for local operations
@@ -4250,7 +4306,7 @@ async fn run_swarm(
                                     if let Ok(plan) = crate::vault::pipeline::prepare_upload(
                                         &ciphertext, &content_id, &key, &nonce,
                                         &file_name, &mime_type, &channel_id,
-                                        original_size, &local_peer, &members, &pledges,
+                                        original_size, &local_peer, &members, &pledges, &message_id,
                                     ) {
                                         // Send remote shards via streaming
                                         for placement in &plan.placements {
@@ -4310,6 +4366,17 @@ async fn run_swarm(
                                                     ).await;
                                                 }
                                             }
+                                        }
+                                    }
+
+                                    // Link vault content_id to the file record via message_id.
+                                    if !message_id.is_empty() {
+                                        let data_dir = crate::identity::data_dir().unwrap_or_default();
+                                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                        if let Ok(ms) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                            let _ = ms.set_file_content_id(&message_id, &content_id);
                                         }
                                     }
 
@@ -4527,12 +4594,23 @@ async fn run_swarm(
                         let total_chunks = 0u32; // 0 = streamed transfer
                         let final_mime = file_transfer::mime_from_ext(&final_ext);
 
-                        hollow_log!("[HOLLOW-FILE] File {file_id}: {original_name} -> {file_size} bytes (streamed)");
+                        // Determine if this is a vault server (6+ members).
+                        let member_count = if let Some(ref sid) = server_id {
+                            server_states.get(sid).map(|s| s.members.len()).unwrap_or(0)
+                        } else {
+                            0
+                        };
+                        // Store full file locally for DMs, <6 servers, or images (need local preview).
+                        let store_full_file = server_id.is_none() || member_count < 6 || is_image;
 
-                        // 6. Store file locally.
+                        hollow_log!("[HOLLOW-FILE] File {file_id}: {original_name} -> {file_size} bytes (streamed={store_full_file})");
+
+                        // 6. Store file locally (skip for non-image vault files — shards handle storage).
                         let final_path = file_transfer::final_file_path(&file_id, &final_ext);
-                        if let Err(e) = std::fs::write(&final_path, &final_data) {
-                            hollow_log!("[HOLLOW-FILE] Failed to save local file: {e}");
+                        if store_full_file {
+                            if let Err(e) = std::fs::write(&final_path, &final_data) {
+                                hollow_log!("[HOLLOW-FILE] Failed to save local file: {e}");
+                            }
                         }
 
                         let local_peer = swarm.local_peer_id().to_string();
@@ -4565,10 +4643,12 @@ async fn run_swarm(
                                     Some(&message_id), ctx_type, &ctx_id,
                                     &local_peer, true, timestamp,
                                 );
-                                let _ = store.mark_file_complete(
-                                    &file_id,
-                                    &final_path.to_string_lossy(),
-                                );
+                                if store_full_file {
+                                    let _ = store.mark_file_complete(
+                                        &file_id,
+                                        &final_path.to_string_lossy(),
+                                    );
+                                }
                             }
                         }
 
@@ -4734,7 +4814,9 @@ async fn run_swarm(
                             let member_count = server_states.get(&sid)
                                 .map(|s| s.members.len())
                                 .unwrap_or(0);
-                            let use_vault_only = member_count >= 6;
+                            // Stream images to online peers even in vault mode (instant display).
+                            // Non-image files in 6+ servers use vault shards only.
+                            let use_vault_only = member_count >= 6 && !is_image;
 
                             let encrypted = crate::vault::pipeline::aes_encrypt(&final_data);
                             if let Ok(enc) = encrypted {
@@ -6092,6 +6174,71 @@ async fn run_swarm(
                 }
             }
 
+            // -- WebSocket relay events --
+            Some(ws_event) = ws_event_rx.recv() => {
+                use super::ws_client::WsEvent;
+                match ws_event {
+                    WsEvent::Connected => {
+                        hollow_log!("[HOLLOW-WS] Relay connected — joining server rooms");
+                        // Auto-join rooms for all servers we're a member of.
+                        for server_id in server_states.keys() {
+                            let _ = ws_cmd_tx.send(super::ws_client::WsCommand::JoinRoom {
+                                room_code: server_id.clone(),
+                            });
+                        }
+                    }
+                    WsEvent::Disconnected => {
+                        hollow_log!("[HOLLOW-WS] Relay disconnected — will auto-reconnect");
+                    }
+                    WsEvent::PeerJoined { room, peer_id } => {
+                        hollow_log!("[HOLLOW-WS] Peer {peer_id} joined room {room}");
+                        if let Ok(pid) = peer_id.parse::<PeerId>() {
+                            if pid != *swarm.local_peer_id() {
+                                expected_peers.insert(pid);
+                                let _ = event_tx.send(NetworkEvent::PeerDiscovered {
+                                    peer: DiscoveredPeer {
+                                        peer_id: peer_id.clone(),
+                                        addresses: vec!["ws-relay".to_string()],
+                                    },
+                                }).await;
+                            }
+                        }
+                    }
+                    WsEvent::PeerLeft { room, peer_id } => {
+                        hollow_log!("[HOLLOW-WS] Peer {peer_id} left room {room}");
+                        if let Ok(pid) = peer_id.parse::<PeerId>() {
+                            let _ = event_tx.send(NetworkEvent::PeerDisconnected {
+                                peer_id: peer_id.clone(),
+                            }).await;
+                        }
+                    }
+                    WsEvent::RoomMembers { room, peers } => {
+                        hollow_log!("[HOLLOW-WS] Room {room}: {} members", peers.len());
+                        let local_peer = swarm.local_peer_id().to_string();
+                        for pid_str in &peers {
+                            if pid_str != &local_peer {
+                                if let Ok(pid) = pid_str.parse::<PeerId>() {
+                                    expected_peers.insert(pid);
+                                    let _ = event_tx.send(NetworkEvent::PeerDiscovered {
+                                        peer: DiscoveredPeer {
+                                            peer_id: pid_str.clone(),
+                                            addresses: vec!["ws-relay".to_string()],
+                                        },
+                                    }).await;
+                                }
+                            }
+                        }
+                    }
+                    WsEvent::Message { room, from, data } | WsEvent::DirectMessage { room, from, data } => {
+                        // Phase 5: Full message routing through WebSocket.
+                        // Currently, WS handles presence only. Messages still go through libp2p.
+                        // When full WS messaging is implemented, this will decrypt and process
+                        // the data just like the libp2p incoming message handler.
+                        hollow_log!("[HOLLOW-WS] Message in {room} from {from} ({} bytes) — routing via libp2p for now", data.len());
+                    }
+                }
+            }
+
             // Republish prekey bundle periodically to keep DHT records fresh.
             _ = prekey_timer.tick() => {
                 if prekey_published {
@@ -6509,6 +6656,58 @@ async fn send_encrypted_message(
     }
 }
 
+/// Encrypt and send a message to a room via the WebSocket relay.
+/// Used for server channel communication (all peers in the room receive it).
+/// Returns `true` on success, `false` if encryption failed.
+async fn send_encrypted_via_ws(
+    olm: &mut OlmManager,
+    crypto_store: &CryptoStore,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    peer_id_str: &str,
+    room_code: &str,
+    text: &str,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+) -> bool {
+    match olm.encrypt(peer_id_str, text.as_bytes()) {
+        Ok((msg_type, ciphertext)) => {
+            persist_crypto_state(olm, crypto_store, peer_id_str);
+
+            if msg_type == 0 {
+                hollow_log!("[HOLLOW-CRYPTO] Sending PreKey (type 0) to {peer_id_str} via WS");
+            }
+
+            let identity_key = if msg_type == 0 {
+                Some(olm.identity_key_base64())
+            } else {
+                None
+            };
+
+            let haven_msg = HavenMessage::Encrypted {
+                message_type: msg_type,
+                body: OlmManager::encode_base64(&ciphertext),
+                identity_key,
+            };
+            let json = serde_json::to_string(&haven_msg).unwrap_or_default();
+
+            let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendDirect {
+                room_code: room_code.to_string(),
+                target_peer: peer_id_str.to_string(),
+                data: json.into_bytes(),
+            });
+            true
+        }
+        Err(e) => {
+            let _ = event_tx
+                .send(NetworkEvent::MessageSendFailed {
+                    to_peer: peer_id_str.to_string(),
+                    error: format!("Encryption failed: {e}"),
+                })
+                .await;
+            false
+        }
+    }
+}
+
 /// Handle an incoming request from a peer.
 async fn handle_incoming_request(
     swarm: &mut libp2p::Swarm<HavenBehaviour>,
@@ -6858,12 +7057,14 @@ async fn handle_incoming_request(
                         if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
                             for msg in &messages {
                                 // Verify signature on each synced message.
-                                if msg.sig.is_some() {
+                                // Skip edited messages — the stored signature was created
+                                // against the original text, not the edited text.
+                                if msg.sig.is_some() && msg.edited_at.is_none() {
                                     let payload = message_signing_payload(
                                         "ch", &format!("{sid}:{cid}"), &msg.s, msg.ts, &msg.t,
                                     );
                                     if !verify_message_signature(&msg.s, msg.sig.as_deref(), msg.pk.as_deref(), &payload) {
-                                        hollow_log!("[HOLLOW-CRYPTO] Signature verification FAILED for synced message from {}", msg.s);
+                                        hollow_log!("[HOLLOW-CRYPTO] Sig verify FAILED for synced msg from {} ts={} text_len={} has_pk={}", msg.s, msg.ts, msg.t.len(), msg.pk.is_some());
                                     }
                                 }
 
@@ -6875,6 +7076,34 @@ async fn handle_incoming_request(
                                 ) {
                                     Ok(1) => { new_count += 1; }
                                     _ => {} // Duplicate or error — skip.
+                                }
+
+                                // Apply deletion if the message was hidden on the syncing peer.
+                                if let (Some(hidden_ts), Some(mid)) = (msg.hidden_at, &msg.mid) {
+                                    let _ = store.set_channel_message_hidden(mid, hidden_ts);
+                                }
+
+                                // Insert file metadata and emit FileHeaderReceived for late joiners.
+                                if let Some(ref fm) = msg.file_meta {
+                                    let ctx_id = format!("{sid}:{cid}");
+                                    let _ = store.insert_file_metadata(
+                                        &fm.fid, &fm.name, &fm.ext, &fm.mime,
+                                        fm.size, 0, fm.img, fm.w, fm.h,
+                                        fm.mid.as_deref(), "channel", &ctx_id,
+                                        &fm.sender, msg.s == local_peer, fm.ts,
+                                    );
+                                    let _ = event_tx.send(NetworkEvent::FileHeaderReceived {
+                                        file_id: fm.fid.clone(),
+                                        file_name: fm.name.clone(),
+                                        size_bytes: fm.size,
+                                        is_image: fm.img,
+                                        width: fm.w,
+                                        height: fm.h,
+                                        message_id: fm.mid.clone().unwrap_or_default(),
+                                        sender_id: fm.sender.clone(),
+                                        server_id: sid.clone(),
+                                        channel_id: cid.clone(),
+                                    }).await;
                                 }
 
                                 // Sync reactions for this message (INSERT OR IGNORE — idempotent).
@@ -6999,13 +7228,14 @@ async fn handle_incoming_request(
                                 // From our perspective, these are received messages (is_mine=false).
 
                                 // Verify signature if present.
-                                if msg.sig.is_some() {
+                                // Skip edited messages — sig was against original text.
+                                if msg.sig.is_some() && msg.edited_at.is_none() {
                                     // Sender=them, recipient=us
                                     let payload = message_signing_payload(
                                         "dm", &local_peer, &peer_str, msg.ts, &msg.t,
                                     );
                                     if !verify_message_signature(&peer_str, msg.sig.as_deref(), msg.pk.as_deref(), &payload) {
-                                        hollow_log!("[HOLLOW-CRYPTO] Signature verification FAILED for DM sync message from {peer_str}");
+                                        hollow_log!("[HOLLOW-CRYPTO] Sig verify FAILED for DM sync msg from {peer_str} ts={} text_len={} has_pk={}", msg.ts, msg.t.len(), msg.pk.is_some());
                                     }
                                 }
 
@@ -7016,6 +7246,33 @@ async fn handle_incoming_request(
                                 ) {
                                     Ok(id) if id > 0 => { new_count += 1; }
                                     _ => {} // Duplicate or error — skip.
+                                }
+
+                                // Apply deletion if the message was hidden on the syncing peer.
+                                if let (Some(hidden_ts), Some(mid)) = (msg.hidden_at, &msg.mid) {
+                                    let _ = store.set_dm_message_hidden(mid, hidden_ts);
+                                }
+
+                                // Insert file metadata and emit FileHeaderReceived for late joiners.
+                                if let Some(ref fm) = msg.file_meta {
+                                    let _ = store.insert_file_metadata(
+                                        &fm.fid, &fm.name, &fm.ext, &fm.mime,
+                                        fm.size, 0, fm.img, fm.w, fm.h,
+                                        fm.mid.as_deref(), "dm", &peer_str,
+                                        &fm.sender, false, fm.ts,
+                                    );
+                                    let _ = event_tx.send(NetworkEvent::FileHeaderReceived {
+                                        file_id: fm.fid.clone(),
+                                        file_name: fm.name.clone(),
+                                        size_bytes: fm.size,
+                                        is_image: fm.img,
+                                        width: fm.w,
+                                        height: fm.h,
+                                        message_id: fm.mid.clone().unwrap_or_default(),
+                                        sender_id: fm.sender.clone(),
+                                        server_id: String::new(),
+                                        channel_id: peer_str.clone(),
+                                    }).await;
                                 }
 
                                 // Sync reactions for this message (INSERT OR IGNORE — idempotent).
@@ -7789,6 +8046,12 @@ async fn handle_incoming_request(
                         if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
                             let _ = cs.save_manifest(&sid, &chid, &manifest_obj);
                         }
+                        // Link vault content_id to the file record via message_id.
+                        if !manifest_obj.message_id.is_empty() {
+                            if let Ok(ms) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                let _ = ms.set_file_content_id(&manifest_obj.message_id, &manifest_obj.content_id);
+                            }
+                        }
                     }
                 }
 
@@ -8430,6 +8693,22 @@ async fn handle_incoming_request(
                                     e: e.clone(), p: p.clone(), ts: *ts, sig: sig.clone(), pk: pk.clone(),
                                 }).collect())
                                 .unwrap_or_default();
+                            // Attach file metadata so late joiners can create file cards.
+                            let file_meta = m.file_id.as_ref().and_then(|fid| {
+                                store.get_file_metadata(fid).ok().flatten().map(|f| SyncFileMetaItem {
+                                    fid: f.file_id,
+                                    name: f.file_name,
+                                    ext: f.file_ext,
+                                    mime: f.mime_type,
+                                    size: f.size_bytes,
+                                    img: f.is_image,
+                                    w: f.width,
+                                    h: f.height,
+                                    mid: f.message_id,
+                                    ts: f.created_at,
+                                    sender: f.sender_id,
+                                })
+                            });
                             SyncMessageItem {
                                 s: m.sender_id.clone(),
                                 t: m.text.clone(),
@@ -8440,6 +8719,8 @@ async fn handle_incoming_request(
                                 edited_at: m.edited_at,
                                 reply_to: m.reply_to_mid.clone(),
                                 file_id: m.file_id.clone(),
+                                file_meta,
+                                hidden_at: m.hidden_at,
                                 reactions,
                             }
                         }).collect();
@@ -8594,6 +8875,21 @@ async fn handle_incoming_request(
                                     e: e.clone(), p: p.clone(), ts: *ts, sig: sig.clone(), pk: pk.clone(),
                                 }).collect())
                                 .unwrap_or_default();
+                            let file_meta = m.file_id.as_ref().and_then(|fid| {
+                                store.get_file_metadata(fid).ok().flatten().map(|f| SyncFileMetaItem {
+                                    fid: f.file_id,
+                                    name: f.file_name,
+                                    ext: f.file_ext,
+                                    mime: f.mime_type,
+                                    size: f.size_bytes,
+                                    img: f.is_image,
+                                    w: f.width,
+                                    h: f.height,
+                                    mid: f.message_id,
+                                    ts: f.created_at,
+                                    sender: f.sender_id,
+                                })
+                            });
                             DmSyncItem {
                                 t: m.text.clone(),
                                 ts: m.timestamp,
@@ -8604,6 +8900,8 @@ async fn handle_incoming_request(
                                 edited_at: m.edited_at,
                                 reply_to: m.reply_to_mid.clone(),
                                 file_id: m.file_id.clone(),
+                                file_meta,
+                                hidden_at: m.hidden_at,
                                 reactions,
                             }
                         }).collect();
@@ -9585,6 +9883,21 @@ async fn flush_pending_sync_requests(
                             e: e.clone(), p: p.clone(), ts: *ts, sig: sig.clone(), pk: pk.clone(),
                         }).collect())
                         .unwrap_or_default();
+                    let file_meta = m.file_id.as_ref().and_then(|fid| {
+                        store.get_file_metadata(fid).ok().flatten().map(|f| SyncFileMetaItem {
+                            fid: f.file_id,
+                            name: f.file_name,
+                            ext: f.file_ext,
+                            mime: f.mime_type,
+                            size: f.size_bytes,
+                            img: f.is_image,
+                            w: f.width,
+                            h: f.height,
+                            mid: f.message_id,
+                            ts: f.created_at,
+                            sender: f.sender_id,
+                        })
+                    });
                     SyncMessageItem {
                         s: m.sender_id.clone(),
                         t: m.text.clone(),
@@ -9595,6 +9908,8 @@ async fn flush_pending_sync_requests(
                         edited_at: m.edited_at,
                         reply_to: m.reply_to_mid.clone(),
                         file_id: m.file_id.clone(),
+                        file_meta,
+                        hidden_at: m.hidden_at,
                         reactions,
                     }
                 }).collect();

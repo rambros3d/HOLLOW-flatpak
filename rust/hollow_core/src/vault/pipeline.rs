@@ -27,6 +27,9 @@ pub struct VaultManifest {
     pub created_at: i64,
     pub creator_peer_id: String,
     pub channel_id: String,
+    /// Message ID linking this manifest to the file record in the files table.
+    #[serde(default)]
+    pub message_id: String,
 }
 
 /// AES-256-GCM encrypted output.
@@ -106,6 +109,7 @@ pub fn prepare_upload(
     our_peer_id: &str,
     members: &[String],
     pledges: &HashMap<String, u64>,
+    message_id: &str,
 ) -> Result<UploadPlan, String> {
     let tier = determine_tier(mime_type);
     let mode = compute_adaptive_params(members.len());
@@ -154,6 +158,7 @@ pub fn prepare_upload(
         created_at: now,
         creator_peer_id: our_peer_id.to_string(),
         channel_id: channel_id.to_string(),
+        message_id: message_id.to_string(),
     };
 
     Ok(UploadPlan {
@@ -407,7 +412,7 @@ mod tests {
         let plan = prepare_upload(
             &encrypted.ciphertext, &cid, &encrypted.key, &encrypted.nonce,
             "test.txt", "text/plain", "ch1", data.len() as u64,
-            "peer_a", &members, &pledges,
+            "peer_a", &members, &pledges, "test_msg",
         ).unwrap();
 
         // Full replication sentinels
@@ -431,7 +436,7 @@ mod tests {
         let plan = prepare_upload(
             &encrypted.ciphertext, &cid, &encrypted.key, &encrypted.nonce,
             "photo.webp", "image/webp", "ch1", data.len() as u64,
-            "peer_0", &members, &pledges,
+            "peer_0", &members, &pledges, "test_msg",
         ).unwrap();
 
         // 8 members → k=3, m=2 (standard tier, no adjustment)
@@ -453,7 +458,7 @@ mod tests {
         let plan = prepare_upload(
             &encrypted.ciphertext, &cid, &encrypted.key, &encrypted.nonce,
             "voice.mp3", "audio/mpeg", "ch1", data.len() as u64,
-            "peer_0", &members, &pledges,
+            "peer_0", &members, &pledges, "test_msg",
         ).unwrap();
 
         assert_eq!(plan.manifest.storage_tier, "low");
@@ -475,7 +480,7 @@ mod tests {
         let plan = prepare_upload(
             &encrypted.ciphertext, &cid, &encrypted.key, &encrypted.nonce,
             "test.txt", "text/plain", "ch1", data.len() as u64,
-            "peer_a", &members, &pledges,
+            "peer_a", &members, &pledges, "test_msg",
         ).unwrap();
 
         // peer_b excluded from placements (full replication, <6 members)
@@ -500,6 +505,7 @@ mod tests {
             created_at: 1710000000,
             creator_peer_id: "12D3KooW...".into(),
             channel_id: "ch1".into(),
+            message_id: "msg123".into(),
         };
         let json = serde_json::to_string(&manifest).unwrap();
         let back: VaultManifest = serde_json::from_str(&json).unwrap();
@@ -539,6 +545,7 @@ mod tests {
             created_at: 0,
             creator_peer_id: "peer".into(),
             channel_id: "ch".into(),
+            message_id: String::new(),
         };
 
         // Replication: single shard = full ciphertext
@@ -569,6 +576,7 @@ mod tests {
             created_at: 0,
             creator_peer_id: "peer".into(),
             channel_id: "ch".into(),
+            message_id: String::new(),
         };
 
         // Drop m parity shards
@@ -599,6 +607,7 @@ mod tests {
             created_at: 0,
             creator_peer_id: "peer".into(),
             channel_id: "ch".into(),
+            message_id: String::new(),
         };
 
         let shards: Vec<Option<Vec<u8>>> = vec![Some(encrypted.ciphertext)];

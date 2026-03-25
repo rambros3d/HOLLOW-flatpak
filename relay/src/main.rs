@@ -1,6 +1,7 @@
 mod config;
 mod relay_node;
 mod signaling_http;
+mod ws_router;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -38,13 +39,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Shared state for the signaling HTTP server.
     let rooms: RoomMap = Arc::new(RwLock::new(HashMap::new()));
 
+    // Shared state for the WebSocket room router.
+    let ws_state = Arc::new(ws_router::WsState::new());
+
     // Run both services concurrently. If either exits, we shut down.
     tokio::select! {
         result = relay_node::run_relay_node(keypair, &config) => {
             tracing::error!("Relay node exited: {result:?}");
         }
-        result = signaling_http::run_signaling_http(rooms, config.http_port) => {
-            tracing::error!("HTTP server exited: {result:?}");
+        result = signaling_http::run_signaling_http(rooms, ws_state, config.http_port) => {
+            tracing::error!("HTTP/WS server exited: {result:?}");
         }
         _ = tokio::signal::ctrl_c() => {
             tracing::info!("Received Ctrl+C, shutting down...");

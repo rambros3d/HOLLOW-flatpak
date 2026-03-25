@@ -610,46 +610,27 @@ class _ServerMemberTile extends ConsumerWidget {
 
             // Display name + role + pledge info
             Expanded(
-              child: Builder(builder: (context) {
-                // Check member count for vault pledge display.
-                final memberCount = serverId != null
-                    ? (ref.watch(serverMembersProvider(serverId!))
-                            .valueOrNull
-                            ?.length ??
-                        0)
-                    : 0;
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      resolvedName,
-                      style: HollowTypography.bodySmall.copyWith(
-                        color: hollow.textPrimary,
-                        fontSize: 12,
-                      ),
-                      overflow: TextOverflow.ellipsis,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    resolvedName,
+                    style: HollowTypography.bodySmall.copyWith(
+                      color: hollow.textPrimary,
+                      fontSize: 12,
                     ),
-                    if (role != 'member')
-                      Text(
-                        role[0].toUpperCase() + role.substring(1),
-                        style: HollowTypography.caption.copyWith(
-                          color: _roleLabelColor(role, hollow),
-                          fontSize: 10,
-                        ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (role != 'member')
+                    Text(
+                      role[0].toUpperCase() + role.substring(1),
+                      style: HollowTypography.caption.copyWith(
+                        color: _roleLabelColor(role, hollow),
+                        fontSize: 10,
                       ),
-                    // Show pledge info for 6+ member servers (erasure coding active).
-                    if (memberCount >= 6)
-                      Text(
-                        'Contributing',
-                        style: HollowTypography.caption.copyWith(
-                          color: hollow.accent.withValues(alpha: 0.6),
-                          fontSize: 9,
-                        ),
-                      ),
-                  ],
-                );
-              }),
+                    ),
+                ],
+              ),
             ),
           ],
         ),

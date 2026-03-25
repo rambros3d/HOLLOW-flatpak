@@ -6,7 +6,7 @@ Hollow is a fully distributed, encrypted Discord alternative. No central servers
 ## Tech Stack
 - **UI:** Flutter (Dart) — all platforms (Windows, macOS, Linux, Android, iOS, Web)
 - **Backend:** Rust via `flutter_rust_bridge` v2.11.1 FFI
-- **Networking:** libp2p 0.56 (QUIC, TCP, WSS, mDNS, Kademlia, relay, DCUtR, AutoNAT)
+- **Networking:** WebSocket relay (primary transport) + libp2p 0.56 (legacy, being phased out)
 - **E2EE:** vodozemac (Olm/Double Ratchet) for 1:1, OpenMLS 0.8 for server channels
 - **Local DB:** SQLCipher (encrypted SQLite)
 - **Identity:** Ed25519 keypairs via BIP-39 mnemonic
@@ -36,7 +36,7 @@ HOLLOW/
 │       ├── crypto/       # Olm encryption + persistence
 │       ├── identity/     # Ed25519 keypair management
 │       └── storage/      # SQLCipher message store
-├── relay/                # Combined relay + signaling server (standalone binary, deployed on OVH VPS)
+├── relay/                # Combined relay + signaling + WebSocket room router (standalone binary, deployed on OVH VPS)
 ├── rust_builder/         # flutter_rust_bridge build system (cargokit)
 ├── HOLLOW_PLAN.md         # Full architecture & design document (~1500 lines)
 └── CLAUDE.md             # This file
@@ -63,7 +63,12 @@ ssh ubuntu@141.227.186.209 "cd relay && cargo build --release && sudo systemctl 
 ```
 
 ## Current Phase
-**Phase 4: Shared Vault — IN PROGRESS.** Phases 1-3.75 all COMPLETE.
+**Phase 5: WebSocket Relay Migration — IN PROGRESS.** Phases 1-4 COMPLETE.
+
+**Phase 5 — WebSocket Relay (started Mar 25, 2026):**
+Replacing libp2p pairwise connections with a WebSocket room router. Phases 1-3 done (relay server deployed, client connected, presence working). Phases 4-5 remaining: route all messages + file transfers through WS. Requires refactoring swarm.rs. See `ws-migration-handoff.md` in memory.
+
+**Phase 4: Shared Vault — COMPLETE.** Phases 1-3.75 all COMPLETE.
 
 **Phase 4 — Shared Vault — Distributed Storage (started Mar 16, 2026):**
 Distributed file storage across server members. 14 major items, ~90 sub-tasks. Key design decisions:

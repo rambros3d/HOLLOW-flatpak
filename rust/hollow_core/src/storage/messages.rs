@@ -468,6 +468,11 @@ impl MessageStore {
             "ALTER TABLE user_profiles ADD COLUMN banner BLOB;"
         ).unwrap_or(());
 
+        // -- Migration: content_id column on files (vault ↔ file_id link) --
+        conn.execute_batch(
+            "ALTER TABLE files ADD COLUMN content_id TEXT;"
+        ).unwrap_or(());
+
         Ok(MessageStore { conn })
     }
 
@@ -1552,6 +1557,30 @@ impl MessageStore {
         Ok(rows > 0)
     }
 
+    /// Lightweight hidden_at setter for channel messages during sync.
+    /// Unlike hide_channel_message(), this does NOT preserve evidence in message_deletions
+    /// (the original deleter already did that). Used when syncing deleted messages to late joiners.
+    pub fn set_channel_message_hidden(&self, message_id: &str, hidden_at: i64) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE channel_messages SET hidden_at = ?1 WHERE message_id = ?2",
+                params![hidden_at, message_id],
+            )
+            .map_err(|e| format!("Failed to set channel message hidden_at: {e}"))?;
+        Ok(())
+    }
+
+    /// Lightweight hidden_at setter for DM messages during sync.
+    pub fn set_dm_message_hidden(&self, message_id: &str, hidden_at: i64) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE messages SET hidden_at = ?1 WHERE message_id = ?2",
+                params![hidden_at, message_id],
+            )
+            .map_err(|e| format!("Failed to set DM message hidden_at: {e}"))?;
+        Ok(())
+    }
+
     // ── Emoji Reactions (Phase 3.5) ──────────────────────────────
 
     /// Add a reaction to a message. INSERT OR IGNORE handles duplicates via UNIQUE constraint.
@@ -2222,5 +2251,29 @@ impl MessageStore {
             }
         }
         Ok(ids)
+    }
+
+    /// Link a vault content_id to a file record via its message_id.
+    /// Used when VaultUploadFile completes (sender) or VaultManifestBroadcast arrives (receiver).
+    pub fn set_file_content_id(&self, message_id: &str, content_id: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE files SET content_id = ?1 WHERE message_id = ?2",
+                params![content_id, message_id],
+            )
+            .map_err(|e| format!("Failed to set file content_id: {e}"))?;
+        Ok(())
+    }
+
+    /// Get the vault content_id for a file by its file_id.
+    /// Returns None if the file doesn't have a vault content_id (e.g. DM files, <6 member files).
+    pub fn get_content_id_for_file(&self, file_id: &str) -> Result<Option<String>, String> {
+        self.conn
+            .query_row(
+                "SELECT content_id FROM files WHERE file_id = ?1",
+                params![file_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .map_err(|e| format!("Failed to query content_id: {e}"))
     }
 }

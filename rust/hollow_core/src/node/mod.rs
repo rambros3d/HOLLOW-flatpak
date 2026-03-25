@@ -4,5 +4,6 @@ pub(crate) mod signaling;
 pub(crate) mod stream_transfer;
 mod swarm;
 pub(crate) mod tunnel;
+pub(crate) mod ws_client;
 
 pub(crate) use swarm::{spawn_node, NetworkEvent, NodeCommand};

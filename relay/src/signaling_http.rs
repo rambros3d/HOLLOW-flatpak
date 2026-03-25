@@ -245,7 +245,7 @@ async fn handle_health() -> impl IntoResponse {
 // -- Signature verification --
 
 /// Verify an Ed25519 signature using the libp2p protobuf-encoded public key.
-fn verify_signature(public_key_b64: &str, signature_b64: &str, message: &str) -> bool {
+pub fn verify_signature(public_key_b64: &str, signature_b64: &str, message: &str) -> bool {
     let b64 = base64::engine::general_purpose::STANDARD;
 
     // Decode base64 protobuf key (36 bytes: 4-byte header + 32-byte raw Ed25519 key).
@@ -318,36 +318,42 @@ pub fn spawn_cleanup_task(rooms: RoomMap) {
 // -- Router --
 
 /// Build the axum router with CORS support.
-pub fn build_router(rooms: RoomMap) -> Router {
+pub fn build_router(rooms: RoomMap, ws_state: crate::ws_router::SharedWsState) -> Router {
     use axum::http::header;
     use tower_http::cors::CorsLayer;
 
-    // We'll build CORS manually via middleware since tower-http might not be a dep.
-    // Instead, just add CORS headers in a simple layer.
     let cors = CorsLayer::new()
         .allow_origin("*".parse::<HeaderValue>().unwrap())
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers([header::CONTENT_TYPE]);
 
-    Router::new()
+    // Signaling routes use RoomMap state.
+    let signaling = Router::new()
         .route("/register", post(handle_register))
         .route("/unregister", post(handle_unregister))
         .route("/bootstrap/{room_code}", get(handle_bootstrap))
         .route("/health", get(handle_health))
-        .layer(cors)
-        .with_state(rooms)
+        .with_state(rooms);
+
+    // WebSocket route uses WsState.
+    let ws = Router::new()
+        .route("/ws", axum::routing::get(crate::ws_router::ws_upgrade))
+        .with_state(ws_state);
+
+    signaling.merge(ws).layer(cors)
 }
 
-/// Run the HTTP signaling server.
+/// Run the HTTP + WebSocket signaling server.
 pub async fn run_signaling_http(
     rooms: RoomMap,
+    ws_state: crate::ws_router::SharedWsState,
     port: u16,
 ) -> Result<(), Box<dyn std::error::Error>> {
     spawn_cleanup_task(rooms.clone());
 
-    let app = build_router(rooms);
+    let app = build_router(rooms, ws_state);
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
-    tracing::info!("Signaling HTTP server listening on port {port}");
+    tracing::info!("Signaling + WebSocket server listening on port {port}");
     axum::serve(listener, app).await?;
     Ok(())
 }

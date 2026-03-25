@@ -128,6 +128,11 @@ Future<List<StoredChannelMessage>> loadChannelMessages({
 Future<StoredFileInfo?> getFileMetadata({required String fileId}) =>
     RustLib.instance.api.crateApiStorageGetFileMetadata(fileId: fileId);
 
+/// Get the vault content_id linked to a file by its file_id.
+/// Returns None if no vault content_id is set (e.g. DM files, <6 member files).
+Future<String?> getContentIdForFile({required String fileId}) =>
+    RustLib.instance.api.crateApiStorageGetContentIdForFile(fileId: fileId);
+
 /// Get all files attached to a message.
 Future<List<StoredFileInfo>> getFilesForMessage({required String messageId}) =>
     RustLib.instance.api.crateApiStorageGetFilesForMessage(

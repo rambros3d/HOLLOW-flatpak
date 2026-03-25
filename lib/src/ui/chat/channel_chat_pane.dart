@@ -524,6 +524,113 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     }
   }
 
+  /// Download a vault file (reconstruct from shards), then open Save As dialog.
+  Future<void> _vaultDownloadAndSave(FileAttachment attachment) async {
+    if (_isPicking) return;
+    try {
+      // 1. Look up vault content_id for this file.
+      final contentId = await storage_api.getContentIdForFile(fileId: attachment.fileId);
+      if (contentId == null || contentId.isEmpty) {
+        if (mounted) {
+          HollowToast.show(context, 'File not available for vault download',
+              type: HollowToastType.error);
+        }
+        return;
+      }
+
+      if (mounted) {
+        HollowToast.show(context, 'Reconstructing file from shards...',
+            type: HollowToastType.info);
+      }
+
+      // 2. Trigger vault download (shard reconstruction).
+      final cachedPath = await crdt_api.vaultDownloadFile(
+        serverId: widget.serverId,
+        contentId: contentId,
+      );
+
+      if (cachedPath.isNotEmpty) {
+        // Cache hit — file already reconstructed. Open Save As immediately.
+        if (mounted) {
+          _saveFileFromCachePath(cachedPath, attachment);
+        }
+      } else {
+        // Async reconstruction started — wait for VaultDownloadComplete event.
+        // Poll fileTransferProvider for completion (up to 60 seconds).
+        for (int i = 0; i < 120; i++) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (!mounted) return;
+          final transfers = ref.read(fileTransferProvider);
+          // Find any transfer with matching contentId and a diskPath.
+          final match = transfers.values.where(
+            (t) => t.contentId == contentId && t.diskPath != null && t.diskPath!.isNotEmpty,
+          );
+          if (match.isNotEmpty) {
+            _saveFileFromCachePath(match.first.diskPath!, attachment);
+            return;
+          }
+        }
+        if (mounted) {
+          HollowToast.show(context, 'Download timed out — not enough peers online',
+              type: HollowToastType.error);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        HollowToast.show(context, 'Download failed: $e',
+            type: HollowToastType.error);
+      }
+    }
+  }
+
+  /// Open Save As dialog for a file at the given cache path.
+  Future<void> _saveFileFromCachePath(String cachePath, FileAttachment attachment) async {
+    if (_isPicking) return;
+    _isPicking = true;
+    try {
+      final isImage = attachment.isImage;
+      final allowedExtensions = isImage
+          ? ['png', 'jpg', 'jpeg', 'webp']
+          : [attachment.fileExt];
+
+      final baseName = attachment.fileName.contains('.')
+          ? attachment.fileName.substring(0, attachment.fileName.lastIndexOf('.'))
+          : attachment.fileName;
+
+      final savePath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save file',
+        fileName: isImage ? '$baseName.png' : attachment.fileName,
+        type: FileType.custom,
+        allowedExtensions: allowedExtensions,
+      );
+      if (savePath == null) return;
+
+      final targetExt = savePath.contains('.')
+          ? savePath.split('.').last.toLowerCase()
+          : attachment.fileExt;
+
+      if (isImage && targetExt != 'webp' && attachment.fileExt == 'webp') {
+        final converted = await network_api.convertImageFormat(
+          sourcePath: cachePath,
+          targetFormat: targetExt,
+        );
+        await File(savePath).writeAsBytes(converted);
+      } else {
+        await File(cachePath).copy(savePath);
+      }
+
+      if (mounted) {
+        HollowToast.show(context, 'File saved', type: HollowToastType.success);
+      }
+    } catch (e) {
+      if (mounted) {
+        HollowToast.show(context, 'Save failed: $e', type: HollowToastType.error);
+      }
+    } finally {
+      _isPicking = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final hollow = HollowTheme.of(context);
@@ -944,8 +1051,14 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                                 }
                               }
                             : null,
-                        onDownload: msg.fileAttachment != null && msg.fileAttachment!.diskPath != null
-                            ? () => _saveFile(msg.fileAttachment!)
+                        onDownload: msg.fileAttachment != null
+                            ? () {
+                                if (msg.fileAttachment!.diskPath != null) {
+                                  _saveFile(msg.fileAttachment!);
+                                } else {
+                                  _vaultDownloadAndSave(msg.fileAttachment!);
+                                }
+                              }
                             : null,
                         child: Builder(builder: (_) {
                           final localPeerId =
@@ -1455,8 +1568,7 @@ class _VaultHealthIndicator extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final hollow = HollowTheme.of(context);
 
-    // Only show vault health dot when erasure coding is active (6+ members).
-    // <6 members use full replication — the existing "Synced" indicator covers it.
+    // Only relevant for 6+ member servers (erasure coding).
     final memberCount = ref.watch(serverMembersProvider(serverId))
         .valueOrNull?.length ?? 0;
     if (memberCount < 6) return const SizedBox.shrink();
@@ -1464,20 +1576,26 @@ class _VaultHealthIndicator extends ConsumerWidget {
     final status = ref.watch(
       vaultStatusProvider.select((s) => s[serverId]),
     );
-    if (status == null) return const SizedBox.shrink();
 
-    final health = status.computeHealth();
-    final color = switch (health) {
-      VaultHealth.healthy => hollow.success,
-      VaultHealth.degraded => hollow.warning,
-      VaultHealth.critical => hollow.error,
-    };
+    // Only show when there are active transfers (uploads or downloads).
+    final activeUploads = status?.activeUploads.values
+        .where((u) => u.phase != 'complete' && u.phase != 'failed')
+        .length ?? 0;
+    final activeDownloads = status?.activeDownloads.length ?? 0;
+    final totalActive = activeUploads + activeDownloads;
+    if (totalActive == 0) return const SizedBox.shrink();
+
+    final tooltip = activeUploads > 0 && activeDownloads > 0
+        ? '$activeUploads uploading, $activeDownloads downloading'
+        : activeUploads > 0
+            ? '$activeUploads file${activeUploads > 1 ? 's' : ''} distributing'
+            : '$activeDownloads file${activeDownloads > 1 ? 's' : ''} downloading';
 
     return HollowTooltip(
-      message: status.healthMessage,
+      message: tooltip,
       child: Padding(
         padding: const EdgeInsets.only(left: HollowSpacing.sm),
-        child: StatusDot(color: color, size: 7, pulse: health != VaultHealth.healthy),
+        child: Icon(LucideIcons.database, size: 13, color: hollow.accent),
       ),
     );
   }
