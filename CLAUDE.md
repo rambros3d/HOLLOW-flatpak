@@ -65,7 +65,7 @@ ssh ubuntu@141.227.186.209 "cd relay && cargo build --release && sudo systemctl 
 ## Current Phase
 **Phase 5: WebSocket Relay Migration — COMPLETE.** All messages + file streaming now route through WS.
 
-**Phase 6: Pure MLS for Servers + Prekey over WS — NEXT.**
+**Phase 6: Pure MLS for Servers — Steps 1-7 DONE (Mar 26, 2026).** Steps 8-9 (DHT prekey removal, cleanup) NEXT.
 
 **Phase 5 — WebSocket Relay (Mar 25-26, 2026) — DONE:**
 All messages and file/shard streaming now route through WS relay first with libp2p fallback. Sub-phases: (1) relay deployed, (2) client connected, (3) presence working, (4) all messages WS-first, (5) file/shard binary streaming via WS.
@@ -76,8 +76,11 @@ All messages and file/shard streaming now route through WS relay first with libp
 - `synced_peers` prevents duplicate sync race between WS and libp2p
 - 183 tests pass. Relay needs redeployment for BinaryDirect.
 
-**Phase 6 — Pure MLS for Servers + Prekey over WS (PLANNED):**
-Route ALL server messages through MLS (zero Olm for servers). Move prekey from DHT to WS KeyRequest. Plan: `plans/mellow-tinkering-shamir.md` in memory. 9 steps: new envelope variants, MLS broadcast helpers, dispatcher expansion, migrate ~30 send sites, remove DHT prekey.
+**Phase 6 — Pure MLS for Servers (Mar 26, 2026) — Steps 1-7 DONE:**
+ALL server messages now route through MLS encryption via `SendToRoom` broadcast. Steps completed: (1) `target` field + 10 new envelope variants, (2) `send_mls_broadcast`/`send_mls_to_peer` helpers, (3) full MLS decrypt dispatcher with target filtering, (4) CrdtOp sends via MLS, (5) ServerDelete/MemberKick/Typing/ProfileUpdate/SyncReq/ChannelProbe via MLS, (6) ChannelSyncBatch/FileHeader/VaultManifest/ShardStore via MLS, (7) SendChannelMessage optimized to single SendToRoom.
+- Bugs fixed: MLS batch dedup, WS room join on server join, sync probe loop, MLS FileHeader missing PendingFileStream registration
+- 183 tests pass. Tested between 2 machines — messages, CRDT, files all working.
+- **Steps 8-9 remaining:** DHT prekey → WS KeyRequest, cleanup unused Olm server paths, vault shard handlers MLS migration.
 
 **Phase 4: Shared Vault — COMPLETE.** Phases 1-3.75 all COMPLETE.
 
