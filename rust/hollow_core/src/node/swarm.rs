@@ -1405,79 +1405,6 @@ impl request_response::Codec for HavenCodec {
     }
 }
 
-// -- Prekey bundle types for async key exchange via DHT --
-
-const PREKEY_BATCH_SIZE: usize = 10;
-const PREKEY_REPUBLISH_SECS: u64 = 240; // 4 minutes
-
-/// A prekey bundle published to the Kademlia DHT for async key exchange.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct PrekeyBundle {
-    peer_id: String,
-    identity_key: String,
-    one_time_keys: Vec<String>,
-    timestamp: u64,
-    public_key: String,  // Ed25519 public key as base64 protobuf
-    signature: String,
-}
-
-/// Build the canonical string that gets signed/verified for a prekey bundle.
-fn prekey_signing_payload(
-    peer_id: &str,
-    identity_key: &str,
-    otks: &[String],
-    timestamp: u64,
-) -> String {
-    let otks_joined = otks.join(",");
-    format!("haven-prekeys:{peer_id}:{identity_key}:{otks_joined}:{timestamp}")
-}
-
-/// Verify a prekey bundle's authenticity: signature, PeerId match, freshness, non-empty OTKs.
-fn verify_prekey_bundle(bundle: &PrekeyBundle) -> Result<bool, String> {
-    // Decode the Ed25519 public key from base64 protobuf.
-    let pub_key_bytes = base64::engine::general_purpose::STANDARD
-        .decode(&bundle.public_key)
-        .map_err(|e| format!("Invalid public key base64: {e}"))?;
-
-    let public_key = identity::PublicKey::try_decode_protobuf(&pub_key_bytes)
-        .map_err(|e| format!("Invalid public key protobuf: {e}"))?;
-
-    // Verify the PeerId matches the public key.
-    let expected_peer_id = PeerId::from_public_key(&public_key);
-    let claimed_peer_id: PeerId = bundle.peer_id.parse()
-        .map_err(|e| format!("Invalid peer_id: {e}"))?;
-    if expected_peer_id != claimed_peer_id {
-        return Ok(false);
-    }
-
-    // Verify the Ed25519 signature over the canonical payload.
-    let payload = prekey_signing_payload(
-        &bundle.peer_id, &bundle.identity_key, &bundle.one_time_keys, bundle.timestamp,
-    );
-    let sig_bytes = base64::engine::general_purpose::STANDARD
-        .decode(&bundle.signature)
-        .map_err(|e| format!("Invalid signature base64: {e}"))?;
-
-    if !public_key.verify(payload.as_bytes(), &sig_bytes) {
-        return Ok(false);
-    }
-
-    // Check freshness (< 10 minutes).
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    if now.saturating_sub(bundle.timestamp) > 600 {
-        return Ok(false);
-    }
-
-    if bundle.one_time_keys.is_empty() {
-        return Ok(false);
-    }
-
-    Ok(true)
-}
-
 // -- Per-message Ed25519 signing helpers --
 
 /// Build canonical payload for message signing.
@@ -1547,60 +1474,6 @@ fn verify_message_signature(
         return false;
     };
     public_key.verify(payload.as_bytes(), &sig_bytes)
-}
-
-/// Publish our prekey bundle to the Kademlia DHT.
-fn publish_prekey_bundle(
-    swarm: &mut libp2p::Swarm<HavenBehaviour>,
-    keypair: &identity::Keypair,
-    peer_id_str: &str,
-    pub_key_b64: &str,
-    olm: &mut OlmManager,
-    crypto_store: &CryptoStore,
-) -> Result<(), String> {
-    let identity_key = olm.identity_key_base64();
-    let one_time_keys = olm.generate_one_time_keys_batch(PREKEY_BATCH_SIZE);
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| format!("Clock error: {e}"))?
-        .as_secs();
-
-    let payload_str = prekey_signing_payload(peer_id_str, &identity_key, &one_time_keys, timestamp);
-    let signature = keypair
-        .sign(payload_str.as_bytes())
-        .map_err(|e| format!("Signing failed: {e}"))?;
-    let sig_b64 = base64::engine::general_purpose::STANDARD.encode(&signature);
-
-    let bundle = PrekeyBundle {
-        peer_id: peer_id_str.to_string(),
-        identity_key,
-        one_time_keys,
-        timestamp,
-        public_key: pub_key_b64.to_string(),
-        signature: sig_b64,
-    };
-
-    let value = serde_json::to_vec(&bundle)
-        .map_err(|e| format!("Failed to serialize bundle: {e}"))?;
-
-    let record_key = kad::RecordKey::new(&format!("/hollow/prekeys/{}", peer_id_str));
-    let record = kad::Record {
-        key: record_key,
-        value,
-        publisher: None,
-        expires: None,
-    };
-
-    swarm.behaviour_mut().kademlia
-        .put_record(record, kad::Quorum::One)
-        .map_err(|e| format!("DHT put_record failed: {e}"))?;
-
-    // Persist account state (OTKs were consumed).
-    if let Ok(account_json) = olm.account_pickle_json() {
-        crypto_store.save_account(account_json);
-    }
-
-    Ok(())
 }
 
 /// Our libp2p network behaviour — mDNS discovery + encrypted messaging + DHT + NAT traversal.
@@ -1864,14 +1737,12 @@ async fn run_swarm(
     let mut active_room: Option<String> = None;
 
     // Prekey bundle republish timer (4 min interval).
-    let mut prekey_timer = tokio::time::interval(Duration::from_secs(PREKEY_REPUBLISH_SECS));
-    prekey_timer.tick().await; // consume immediate first tick
-    let mut prekey_published = false;
+    // DHT prekey timer removed — Olm sessions now established via KeyRequest over WS.
 
     // Track pending DHT prekey fetches: query_id → target peer_id string.
-    let mut pending_prekey_fetches: HashMap<kad::QueryId, String> = HashMap::new();
+    // pending_prekey_fetches removed — Olm sessions now via WS KeyRequest.
     // Peers for whom a DHT prekey fetch is in flight.
-    let mut dht_fetch_in_flight: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // dht_fetch_in_flight removed — no more DHT prekey fetches.
 
     // Track the original message text for outbound encrypted messages so we can
     // re-queue on delivery failure. Maps request_id → (peer_id_str, text).
@@ -2057,6 +1928,10 @@ async fn run_swarm(
     let mut sync_dispatch_timer = tokio::time::interval(Duration::from_millis(100));
     sync_dispatch_timer.tick().await; // consume immediate first tick
 
+    // Channel sync dedup: tracks (server_id:channel_id) → last sync request time.
+    // Prevents the same channel from being sync-requested multiple times in quick succession.
+    let mut channel_sync_sent: HashMap<String, std::time::Instant> = HashMap::new();
+
     // SECURITY: Per-peer rate limiter — token bucket (100 burst, refill 20/sec).
     // Prevents message flooding from malicious peers.
     let mut peer_rate_tokens: HashMap<PeerId, (u32, std::time::Instant)> = HashMap::new();
@@ -2193,22 +2068,18 @@ async fn run_swarm(
                                 .or_default()
                                 .push(envelope_json);
 
-                            if !key_request_in_flight.contains(&peer_id_str)
-                                && !dht_fetch_in_flight.contains(&peer_id_str)
-                            {
-                                // Try DHT prekey fetch before falling back to KeyRequest.
-                                hollow_log!("[HOLLOW-SWARM] No session for {peer_id_str}, starting DHT prekey fetch");
-                                let record_key = kad::RecordKey::new(
-                                    &format!("/hollow/prekeys/{}", peer_id_str),
-                                );
-                                let query_id = swarm.behaviour_mut().kademlia
-                                    .get_record(record_key);
-                                pending_prekey_fetches.insert(query_id, peer_id_str.clone());
-                                dht_fetch_in_flight.insert(peer_id_str.clone());
-
-                                let _ = event_tx.send(NetworkEvent::Error {
-                                    message: format!("[DHT] Fetching prekeys for {peer_id_str}"),
-                                }).await;
+                            if !key_request_in_flight.contains(&peer_id_str) {
+                                // Send KeyRequest via WS to establish Olm session.
+                                hollow_log!("[HOLLOW-SWARM] No session for {peer_id_str}, sending KeyRequest");
+                                if let Ok(pid) = peer_id_str.parse::<PeerId>() {
+                                    if peer_is_reachable(&ws_room_peers, &connected_peers, &pid, &peer_id_str) {
+                                        send_message_to_peer(
+                                            &mut swarm, &ws_cmd_tx, &ws_room_peers, &connected_peers,
+                                            &pid, &peer_id_str, HavenMessage::KeyRequest,
+                                        );
+                                        key_request_in_flight.insert(peer_id_str.clone());
+                                    }
+                                }
                             }
                         }
                     }
@@ -3087,6 +2958,12 @@ async fn run_swarm(
 
                     NodeCommand::RequestChannelSync { server_id, channel_id } => {
                         // On-demand sync when user opens a channel.
+                        // Dedup: skip if already synced this channel recently.
+                        let dedup_key = format!("{server_id}:{channel_id}");
+                        if channel_sync_sent.get(&dedup_key).is_some_and(|t| t.elapsed() < Duration::from_secs(5)) {
+                            continue;
+                        }
+                        channel_sync_sent.insert(dedup_key, std::time::Instant::now());
                         if let Some(state) = server_states.get(&server_id) {
                             let data_dir = crate::identity::data_dir().unwrap_or_default();
                             let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
@@ -5245,24 +5122,6 @@ async fn run_swarm(
                                     }
                                 }
 
-                                // Publish prekey bundle to DHT now that we're routable.
-                                let peer_id_str = swarm.local_peer_id().to_string();
-                                match publish_prekey_bundle(
-                                    &mut swarm, &bundle_keypair, &peer_id_str, &pub_key_b64,
-                                    &mut olm, &crypto_store,
-                                ) {
-                                    Ok(()) => {
-                                        prekey_published = true;
-                                        let _ = event_tx.send(NetworkEvent::Error {
-                                            message: "[DHT] Prekey bundle published".to_string(),
-                                        }).await;
-                                    }
-                                    Err(e) => {
-                                        let _ = event_tx.send(NetworkEvent::Error {
-                                            message: format!("[DHT] Prekey publish failed: {e}"),
-                                        }).await;
-                                    }
-                                }
                             }
                         }
                         let _ = event_tx
@@ -5363,6 +5222,7 @@ async fn run_swarm(
                                             &mut mls_decrypt_failures,
                                             &ws_cmd_tx,
                                             &ws_room_peers,
+                                            &mut channel_sync_sent,
                                             peer,
                                             request,
                                             Some(channel),
@@ -5489,167 +5349,8 @@ async fn run_swarm(
                                             message: format!("[DHT] put_record failed: {e:?}"),
                                         }).await;
                                     }
-                                    kad::QueryResult::GetRecord(Ok(
-                                        kad::GetRecordOk::FoundRecord(kad::PeerRecord { record, .. })
-                                    )) => {
-                                        // Check if this is a prekey fetch we initiated.
-                                        hollow_log!("[HOLLOW-SWARM] GetRecord FoundRecord for query {:?}", id);
-                                        if let Some(target_peer) = pending_prekey_fetches.remove(&id) {
-                                            hollow_log!("[HOLLOW-SWARM] Found prekey record for {target_peer}");
-                                            dht_fetch_in_flight.remove(&target_peer);
-                                            let _ = event_tx.send(NetworkEvent::KeyExchangeProgress {
-                                                peer_id: target_peer.clone(),
-                                                stage: "prekey_found".to_string(),
-                                            }).await;
-
-                                            let mut used = false;
-                                            if let Ok(bundle) = serde_json::from_slice::<PrekeyBundle>(&record.value)
-                                                && bundle.peer_id == target_peer
-                                            {
-                                                match verify_prekey_bundle(&bundle) {
-                                                    Ok(true) => {
-                                                        // Pick a random OTK to reduce collisions.
-                                                        let idx = (std::time::SystemTime::now()
-                                                            .duration_since(std::time::UNIX_EPOCH)
-                                                            .unwrap_or_default()
-                                                            .subsec_nanos() as usize)
-                                                            % bundle.one_time_keys.len();
-                                                        let otk = &bundle.one_time_keys[idx];
-
-                                                        // Guard: don't overwrite an existing session
-                                                        // (e.g. inbound session from peer's PreKey that
-                                                        // arrived while our DHT fetch was in flight).
-                                                        if olm.has_session(&target_peer) {
-                                                            hollow_log!("[HOLLOW-SWARM] Session already exists for {target_peer}, skipping DHT prekey session creation");
-                                                            used = true;
-                                                        } else {
-                                                        let _ = event_tx.send(NetworkEvent::KeyExchangeProgress {
-                                                            peer_id: target_peer.clone(),
-                                                            stage: "establishing_session".to_string(),
-                                                        }).await;
-                                                        match olm.create_outbound_session(
-                                                            &target_peer,
-                                                            &bundle.identity_key,
-                                                            otk,
-                                                        ) {
-                                                            Ok(()) => {
-                                                                persist_crypto_state(&olm, &crypto_store, &target_peer);
-                                                                let _ = event_tx.send(NetworkEvent::KeyExchangeProgress {
-                                                                    peer_id: target_peer.clone(),
-                                                                    stage: "session_created".to_string(),
-                                                                }).await;
-                                                                let _ = event_tx.send(NetworkEvent::SessionEstablished {
-                                                                    peer_id: target_peer.clone(),
-                                                                }).await;
-                                                                let _ = event_tx.send(NetworkEvent::Error {
-                                                                    message: format!("[DHT] Session established from prekey for {target_peer}"),
-                                                                }).await;
-
-                                                                // Flush pending messages.
-                                                                if let Some(queued) = pending_messages.remove(&target_peer)
-                                                                    && let Ok(pid) = target_peer.parse::<PeerId>()
-                                                                {
-                                                                    for text in queued {
-                                                                        send_encrypted_message(
-                                                                            &mut swarm, &mut olm, &crypto_store,
-                                                                            &mut pending_requests, &mut outbound_message_text,
-                                                                            &pid, &target_peer, &text, &event_tx,
-                                                                                                                                                &ws_cmd_tx, &ws_room_peers, &connected_peers,
-                                                                        ).await;
-                                                                    }
-                                                                }
-                                                                // Retry failed sync batches after re-key.
-                                                                if let Ok(pid) = target_peer.parse::<PeerId>() {
-                                                                    flush_pending_sync_requests(
-                                                                        &mut pending_sync_requests, &target_peer, &pid,
-                                                                        &mut swarm, &mut olm, &crypto_store,
-                                                                        &mut pending_requests, &mut outbound_message_text,
-                                                                        &bundle_keypair, &event_tx,
-                                                                        &ws_cmd_tx, &ws_room_peers, &connected_peers,
-                                                                    ).await;
-                                                                }
-                                                                used = true;
-                                                            }
-                                                            Err(e) => {
-                                                                let _ = event_tx.send(NetworkEvent::Error {
-                                                                    message: format!("[DHT] Prekey session creation failed: {e}"),
-                                                                }).await;
-                                                            }
-                                                        }
-                                                        }
-                                                    }
-                                                    Ok(false) => {
-                                                        let _ = event_tx.send(NetworkEvent::Error {
-                                                            message: format!("[DHT] Prekey bundle invalid/expired for {target_peer}"),
-                                                        }).await;
-                                                    }
-                                                    Err(e) => {
-                                                        let _ = event_tx.send(NetworkEvent::Error {
-                                                            message: format!("[DHT] Prekey verification error: {e}"),
-                                                        }).await;
-                                                    }
-                                                }
-                                            }
-
-                                            // If DHT bundle wasn't used, fall back to KeyRequest.
-                                            if !used && !olm.has_session(&target_peer)
-                                                && let Ok(pid) = target_peer.parse::<PeerId>()
-                                                && !key_request_in_flight.contains(&target_peer)
-                                            {
-                                                key_request_in_flight.insert(target_peer.clone());
-                                                send_message_to_peer(
-                                                    &mut swarm, &ws_cmd_tx, &ws_room_peers, &connected_peers,
-                                                    &pid, &target_peer, HavenMessage::KeyRequest,
-                                                );
-                                            }
-                                        }
-                                    }
-                                    kad::QueryResult::GetRecord(Ok(
-                                        kad::GetRecordOk::FinishedWithNoAdditionalRecord { .. }
-                                    )) => {
-                                        // If this query is still pending (no FoundRecord came), fall back.
-                                        hollow_log!("[HOLLOW-SWARM] GetRecord FinishedWithNoAdditionalRecord for query {:?}", id);
-                                        if let Some(target_peer) = pending_prekey_fetches.remove(&id) {
-                                            hollow_log!("[HOLLOW-SWARM] No prekey record found for {target_peer}, falling back");
-                                            dht_fetch_in_flight.remove(&target_peer);
-                                            let _ = event_tx.send(NetworkEvent::Error {
-                                                message: format!("[DHT] No prekey found for {target_peer}, falling back to KeyRequest"),
-                                            }).await;
-
-                                            if !olm.has_session(&target_peer)
-                                                && let Ok(pid) = target_peer.parse::<PeerId>()
-                                                && !key_request_in_flight.contains(&target_peer)
-                                            {
-                                                key_request_in_flight.insert(target_peer.clone());
-                                                send_message_to_peer(
-                                                    &mut swarm, &ws_cmd_tx, &ws_room_peers, &connected_peers,
-                                                    &pid, &target_peer, HavenMessage::KeyRequest,
-                                                );
-                                            }
-                                        }
-                                    }
-                                    kad::QueryResult::GetRecord(Err(e)) => {
-                                        // DHT fetch failed — fall back to KeyRequest.
-                                        hollow_log!("[HOLLOW-SWARM] GetRecord Error for query {:?}: {e:?}", id);
-                                        if let Some(target_peer) = pending_prekey_fetches.remove(&id) {
-                                            hollow_log!("[HOLLOW-SWARM] GetRecord failed for {target_peer}, falling back");
-                                            dht_fetch_in_flight.remove(&target_peer);
-                                            let _ = event_tx.send(NetworkEvent::Error {
-                                                message: format!("[DHT] Prekey fetch failed for {target_peer}: {e:?}"),
-                                            }).await;
-
-                                            if !olm.has_session(&target_peer)
-                                                && let Ok(pid) = target_peer.parse::<PeerId>()
-                                                && !key_request_in_flight.contains(&target_peer)
-                                            {
-                                                key_request_in_flight.insert(target_peer.clone());
-                                                send_message_to_peer(
-                                                    &mut swarm, &ws_cmd_tx, &ws_room_peers, &connected_peers,
-                                                    &pid, &target_peer, HavenMessage::KeyRequest,
-                                                );
-                                            }
-                                        }
-                                    }
+                                    // DHT GetRecord results — prekey fetch removed, Olm sessions now via WS KeyRequest.
+                                    kad::QueryResult::GetRecord(..) => {}
                                     _ => {}
                                 }
                             }
@@ -5840,26 +5541,14 @@ async fn run_swarm(
                                         &bundle_keypair, &event_tx,
                                         &ws_cmd_tx, &ws_room_peers, &connected_peers,
                                     ).await;
-                                } else if !key_request_in_flight.contains(&peer_id_str)
-                                    && !dht_fetch_in_flight.contains(&peer_id_str)
-                                {
-                                    // No Olm session — proactively start key exchange
-                                    // so encryption is ready before the first message.
+                                } else if !key_request_in_flight.contains(&peer_id_str) {
+                                    // No Olm session — send KeyRequest via WS.
                                     hollow_log!("[HOLLOW-SWARM] Proactive key exchange for {peer_id_str}");
-                                    let _ = event_tx.send(NetworkEvent::KeyExchangeStarted {
-                                        peer_id: peer_id_str.clone(),
-                                    }).await;
-                                    let _ = event_tx.send(NetworkEvent::KeyExchangeProgress {
-                                        peer_id: peer_id_str.clone(),
-                                        stage: "fetching_prekey".to_string(),
-                                    }).await;
-                                    let record_key = kad::RecordKey::new(
-                                        &format!("/hollow/prekeys/{}", peer_id_str),
+                                    send_message_to_peer(
+                                        &mut swarm, &ws_cmd_tx, &ws_room_peers, &connected_peers,
+                                        &peer_id, &peer_id_str, HavenMessage::KeyRequest,
                                     );
-                                    let query_id = swarm.behaviour_mut().kademlia
-                                        .get_record(record_key);
-                                    pending_prekey_fetches.insert(query_id, peer_id_str.clone());
-                                    dht_fetch_in_flight.insert(peer_id_str);
+                                    key_request_in_flight.insert(peer_id_str);
                                 }
                             }
 
@@ -6077,18 +5766,14 @@ async fn run_swarm(
                                             ).await;
                                         }
                                     }
-                                } else if !key_request_in_flight.contains(&peer_str)
-                                    && !dht_fetch_in_flight.contains(&peer_str)
-                                {
-                                    // No session — try DHT prekey fetch first.
-                                    let record_key = kad::RecordKey::new(
-                                        &format!("/hollow/prekeys/{}", peer_str),
+                                } else if !key_request_in_flight.contains(&peer_str) {
+                                    // No session — send KeyRequest via WS.
+                                    hollow_log!("[HOLLOW-SWARM] Sending KeyRequest to {peer_str}");
+                                    send_message_to_peer(
+                                        &mut swarm, &ws_cmd_tx, &ws_room_peers, &connected_peers,
+                                        &peer_id, &peer_str, HavenMessage::KeyRequest,
                                     );
-                                    let query_id = swarm.behaviour_mut().kademlia
-                                        .get_record(record_key);
-                                    pending_prekey_fetches.insert(query_id, peer_str.clone());
-                                    dht_fetch_in_flight.insert(peer_str.clone());
-                                    hollow_log!("[HOLLOW-SWARM] Starting DHT prekey fetch for {peer_str}");
+                                    key_request_in_flight.insert(peer_str.clone());
                                 }
                             }
                         }
@@ -6371,20 +6056,14 @@ async fn run_swarm(
                                             &bundle_keypair, &event_tx,
                                             &ws_cmd_tx, &ws_room_peers, &connected_peers,
                                         ).await;
-                                    } else if !key_request_in_flight.contains(&peer_id)
-                                        && !dht_fetch_in_flight.contains(&peer_id)
-                                    {
+                                    } else if !key_request_in_flight.contains(&peer_id) {
+                                        // No Olm session — send KeyRequest via WS.
                                         hollow_log!("[HOLLOW-WS] Proactive key exchange for {peer_id}");
-                                        let _ = event_tx.send(NetworkEvent::KeyExchangeStarted {
-                                            peer_id: peer_id.clone(),
-                                        }).await;
-                                        let record_key = kad::RecordKey::new(
-                                            &format!("/hollow/prekeys/{}", peer_id),
+                                        send_message_to_peer(
+                                            &mut swarm, &ws_cmd_tx, &ws_room_peers, &connected_peers,
+                                            &pid, &peer_id, HavenMessage::KeyRequest,
                                         );
-                                        let query_id = swarm.behaviour_mut().kademlia
-                                            .get_record(record_key);
-                                        pending_prekey_fetches.insert(query_id, peer_id.clone());
-                                        dht_fetch_in_flight.insert(peer_id.clone());
+                                        key_request_in_flight.insert(peer_id.clone());
                                     }
 
                                     // CRDT sync + message sync for shared servers.
@@ -6580,6 +6259,7 @@ async fn run_swarm(
                                         &mut pending_shard_streams, &mut decrypt_fail_cooldown,
                                         &mut pending_mls_key_packages, &mut mls_decrypt_failures,
                                         &ws_cmd_tx, &ws_room_peers,
+                                        &mut channel_sync_sent,
                                         peer, msg,
                                         None, // No response channel for WS messages
                                     ).await;
@@ -6587,28 +6267,6 @@ async fn run_swarm(
                             } else {
                                 hollow_log!("[HOLLOW-WS] Failed to parse HavenMessage from {from} in {room}");
                             }
-                        }
-                    }
-                }
-            }
-
-            // Republish prekey bundle periodically to keep DHT records fresh.
-            _ = prekey_timer.tick() => {
-                if prekey_published {
-                    let peer_id_str = swarm.local_peer_id().to_string();
-                    match publish_prekey_bundle(
-                        &mut swarm, &bundle_keypair, &peer_id_str, &pub_key_b64,
-                        &mut olm, &crypto_store,
-                    ) {
-                        Ok(()) => {
-                            let _ = event_tx.send(NetworkEvent::Error {
-                                message: "[DHT] Prekey bundle republished".to_string(),
-                            }).await;
-                        }
-                        Err(e) => {
-                            let _ = event_tx.send(NetworkEvent::Error {
-                                message: format!("[DHT] Prekey republish failed: {e}"),
-                            }).await;
                         }
                     }
                 }
@@ -6759,6 +6417,15 @@ async fn run_swarm(
                     for (peer, channels) in assignments {
                         let peer_str = peer.to_string();
                         for (channel_id, our_latest) in channels {
+                            // Dedup: skip if we already sent a sync probe for this channel recently.
+                            let dedup_key = format!("{server_id}:{channel_id}");
+                            if let Some(last) = channel_sync_sent.get(&dedup_key) {
+                                if last.elapsed() < Duration::from_secs(5) {
+                                    continue;
+                                }
+                            }
+                            channel_sync_sent.insert(dedup_key, std::time::Instant::now());
+
                             let msg_count = sync_store.as_ref()
                                 .map(|s| s.count_channel_messages(server_id, channel_id))
                                 .unwrap_or(0);
@@ -7372,6 +7039,7 @@ async fn handle_incoming_request(
     mls_decrypt_failures: &mut HashMap<String, u32>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    channel_sync_sent: &mut HashMap<String, std::time::Instant>,
     peer: PeerId,
     request: HavenMessage,
     mut channel: Option<request_response::ResponseChannel<HavenMessage>>,
@@ -9360,13 +9028,22 @@ async fn handle_incoming_request(
         }
 
         HavenMessage::ChannelSyncRequest { server_id, channel_id, since_timestamp, sender_timestamps } => {
-            hollow_log!("[HOLLOW-SYNC] ChannelSyncRequest from {peer_str} for {channel_id} in {server_id} since {since_timestamp} (per-sender: {} entries)", sender_timestamps.len());
             if let Some(ch) = channel.take() { let _ = swarm.behaviour_mut().messaging.send_response(ch, HavenMessage::Ack); }
 
             // Room gating: only respond for servers we're a member of.
             if !server_states.contains_key(&server_id) {
                 return;
             }
+
+            // Dedup: if we already responded to this peer+channel within 2s, skip.
+            // Prevents flood from multiple parallel sync triggers on the requester's side.
+            let resp_dedup_key = format!("{server_id}:{channel_id}:resp:{peer_str}");
+            if channel_sync_sent.get(&resp_dedup_key).is_some_and(|t| t.elapsed() < Duration::from_secs(2)) {
+                return;
+            }
+            channel_sync_sent.insert(resp_dedup_key, std::time::Instant::now());
+
+            hollow_log!("[HOLLOW-SYNC] ChannelSyncRequest from {peer_str} for {channel_id} in {server_id} since {since_timestamp} (per-sender: {} entries)", sender_timestamps.len());
 
             let data_dir = crate::identity::data_dir().unwrap_or_default();
             let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
@@ -9452,25 +9129,25 @@ async fn handle_incoming_request(
                             target: None,
                         };
 
-                        // Send via MLS first, Olm fallback.
-                        let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+                        // Send via MLS if peer is in the group, otherwise Olm fallback.
+                        // Don't use MLS if peer hasn't joined yet (they sent plaintext request
+                        // before receiving Welcome) — they can't decrypt the MLS response.
+                        let mls_ok = mls.as_ref().is_some_and(|m| {
+                            m.has_group(&server_id) && m.group_members(&server_id).contains(&peer_str)
+                        });
                         if mls_ok {
                             if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &peer_str, &envelope, bundle_keypair) {
                                 hollow_log!("[HOLLOW-MLS] ChannelSyncBatch targeted send failed: {e}");
                             }
                         } else {
                             let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
-                            let ok = send_encrypted_message(
+                            let _ok = send_encrypted_message(
                                 swarm, olm, crypto_store,
                                 pending_requests, outbound_message_text,
                                 &peer, &peer_str, &envelope_json, event_tx,
                             ws_cmd_tx, ws_room_peers, connected_peers,
                             ).await;
-
-                        if !ok {
-                            hollow_log!("[HOLLOW-SYNC] Encryption failed for sync batch to {peer_str}");
                         }
-                        } // else (Olm fallback)
                     }
                 }
             }
@@ -9530,10 +9207,13 @@ async fn handle_incoming_request(
                         .unwrap_or(0);
                     let our_msg_count = store.count_channel_messages(&server_id, &channel_id);
 
-                    // Sync if: peer has newer messages (timestamp check only — count-based
-                    // comparison can cause loops with >= query returning same-timestamp duplicates).
-                    if their_latest > our_latest {
-                        // Peer has newer messages or count mismatch — fire full sync request.
+                    // Sync if: peer has newer messages (timestamp check only).
+                    // Dedup: skip if already syncing this channel recently.
+                    let dedup_key = format!("{server_id}:{channel_id}");
+                    let recently_synced = channel_sync_sent.get(&dedup_key)
+                        .is_some_and(|t| t.elapsed() < Duration::from_secs(5));
+                    if their_latest > our_latest && !recently_synced {
+                        channel_sync_sent.insert(dedup_key, std::time::Instant::now());
                         let sender_ts = store
                             .get_per_sender_timestamps(&server_id, &channel_id)
                             .unwrap_or_default();
@@ -10325,6 +10005,11 @@ async fn handle_incoming_request(
 
                             MessageEnvelope::ChannelProbeResp { sid, cid, their_latest, msg_count, .. } => {
                                 // Same as HavenMessage::ChannelSyncProbeResponse handler.
+                                // Dedup: skip if already syncing this channel recently.
+                                let dedup_key = format!("{sid}:{cid}");
+                                if channel_sync_sent.get(&dedup_key).is_some_and(|t| t.elapsed() < Duration::from_secs(5)) {
+                                    return;
+                                }
                                 let data_dir = crate::identity::data_dir().unwrap_or_default();
                                 let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
                                 let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
@@ -10334,6 +10019,7 @@ async fn handle_incoming_request(
                                         .unwrap_or(None).unwrap_or(0);
                                     let our_count = store.count_channel_messages(&sid, &cid);
                                     if their_latest > our_latest {
+                                        channel_sync_sent.insert(dedup_key, std::time::Instant::now());
                                         let per_sender = store.get_per_sender_timestamps(&sid, &cid)
                                             .unwrap_or_default();
                                         let req = MessageEnvelope::ChannelSyncReq {
@@ -10568,7 +10254,7 @@ async fn handle_incoming_request(
                         mls_bootstrap_requested.remove(&server_id);
                         hollow_log!("[HOLLOW-MLS] Joined MLS group for server {server_id}");
 
-                        // Now that MLS is established, trigger channel sync for any messages
+                        // Now that MLS is established, send direct sync requests for channels
                         // we missed (the initial sync attempt may have failed without Olm/MLS).
                         if let Some(state) = server_states.get(&server_id) {
                             let data_dir = crate::identity::data_dir().unwrap_or_default();
@@ -10579,16 +10265,20 @@ async fn handle_incoming_request(
                                 for cid in state.channels.keys() {
                                     let our_latest = store.get_latest_channel_timestamp(&server_id, cid)
                                         .unwrap_or(None).unwrap_or(0);
-                                    let our_count = store.count_channel_messages(&server_id, cid);
-                                    let probe = MessageEnvelope::ChannelProbe {
-                                        sid: server_id.clone(),
-                                        cid: cid.clone(),
-                                        our_latest,
-                                        msg_count: our_count,
-                                        target: None,
-                                    };
-                                    if let Err(e) = send_mls_to_peer(mls_mgr, ws_cmd_tx, &server_id, &peer_str, &probe, bundle_keypair) {
-                                        hollow_log!("[HOLLOW-MLS] Post-Welcome sync probe failed: {e}");
+                                    // Only request if we have no messages for this channel.
+                                    if our_latest == 0 {
+                                        let sender_ts = store.get_per_sender_timestamps(&server_id, cid)
+                                            .unwrap_or_default();
+                                        let req = MessageEnvelope::ChannelSyncReq {
+                                            sid: server_id.clone(),
+                                            cid: cid.clone(),
+                                            since_timestamp: 0,
+                                            sender_timestamps: sender_ts,
+                                            target: None,
+                                        };
+                                        if let Err(e) = send_mls_to_peer(mls_mgr, ws_cmd_tx, &server_id, &peer_str, &req, bundle_keypair) {
+                                            hollow_log!("[HOLLOW-MLS] Post-Welcome sync request failed: {e}");
+                                        }
                                     }
                                 }
                             }

@@ -145,9 +145,18 @@ async fn ws_client_loop(
                     track_room_change(&state, &cmd).await;
                 }
 
-                // Main message loop.
+                // Main message loop with periodic keepalive ping.
+                let mut ping_timer = tokio::time::interval(Duration::from_secs(30));
+                ping_timer.tick().await; // consume immediate first tick
                 loop {
                     tokio::select! {
+                        // Keepalive ping — prevents Nginx/proxy/relay from closing idle connections.
+                        _ = ping_timer.tick() => {
+                            if let Err(e) = ws_write.send(Message::Ping(vec![0x01].into())).await {
+                                hollow_log!("[HOLLOW-WS] Ping failed: {e}");
+                                break; // Connection dead, trigger reconnect.
+                            }
+                        }
                         // Incoming from relay.
                         msg = ws_read.next() => {
                             match msg {
