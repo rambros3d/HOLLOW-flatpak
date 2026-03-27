@@ -1,6 +1,6 @@
 # Hollow — A Fully Distributed, Encrypted Discord Alternative
 
-> **Status:** Active Development — Phases 1-3.75 Complete. Phase 4 (Shared Vault — Distributed Storage) Up Next.
+> **Status:** Active Development — Phases 1-4 Complete. Phase 5 (WebSocket Relay) & Phase 6 (Pure MLS) Complete. Vault health system & libp2p removal next.
 > **Author:** Designed through technical discussion, February 2026.
 > **Philosophy:** No central servers. No Electron. No Node.js hosting. The members ARE the server.
 
@@ -64,38 +64,51 @@ A communication platform where **every member collectively hosts the server they
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────────┐  │
 │  │ UI Layer │  │  E2EE    │  │  CRDT    │  │  Storage       │  │
 │  │ (Flutter │  │  Engine  │  │  Sync    │  │  Engine        │  │
-│  │  Widgets)│  │          │  │  Engine  │  │  (Chunks +     │  │
-│  │          │  │ Signal/  │  │          │  │   Erasure      │  │
-│  │          │  │ MLS      │  │ Automerge│  │   Coding)      │  │
+│  │  Widgets)│  │          │  │  Engine  │  │  (Vault +      │  │
+│  │          │  │ Olm(DM)/ │  │ (Custom) │  │   Erasure      │  │
+│  │          │  │ MLS(Srv) │  │          │  │   Coding)      │  │
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └───────┬────────┘  │
 │       │              │             │                │            │
 │  ┌────┴──────────────┴─────────────┴────────────────┴────────┐  │
-│  │                    libp2p (via Rust FFI)                   │  │
-│  │  ┌─────────┐  ┌──────────┐  ┌────────┐  ┌─────────────┐  │  │
-│  │  │Transport│  │  NAT     │  │  DHT   │  │  Relay /    │  │  │
-│  │  │(QUIC/   │  │ Traversal│  │(Kademlia│  │  Hole Punch │  │  │
-│  │  │ TCP/WS) │  │ (DCUtR)  │  │        │  │  (DCUtR)    │  │  │
-│  │  └─────────┘  └──────────┘  └────────┘  └─────────────┘  │  │
+│  │              Rust Backend (via flutter_rust_bridge FFI)    │  │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐ │  │
+│  │  │ WS Client    │  │ MLS Manager  │  │ Olm Manager     │ │  │
+│  │  │ (WSS Relay)  │  │ (OpenMLS)    │  │ (vodozemac)     │ │  │
+│  │  └──────────────┘  └──────────────┘  └─────────────────┘ │  │
 │  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
           │                    │                    │
           ▼                    ▼                    ▼
-    ┌──────────┐        ┌──────────┐        ┌──────────┐
-    │ Member A │◄──────►│ Member B │◄──────►│ Member C │
-    │(stores   │        │(stores   │        │(stores   │
-    │chunks    │        │chunks    │        │chunks    │
-    │1,3,5)    │        │2,3,6)    │        │1,4,5)    │
-    └──────────┘        └──────────┘        └──────────┘
+    ┌──────────┐  WSS   ┌──────────────┐  WSS   ┌──────────┐
+    │ Member A │◄──────►│  WS Relay    │◄──────►│ Member C │
+    │(stores   │        │  (VPS)       │        │(stores   │
+    │shards    │        │ Room Router  │        │shards    │
+    │1,3,5)    │        │ + Signaling  │        │1,4,5)    │
+    └──────────┘        └──────────────┘        └──────────┘
+                               ▲
+                               │ WSS
+                        ┌──────────┐
+                        │ Member B │
+                        │(stores   │
+                        │shards    │
+                        │2,3,6)    │
+                        └──────────┘
 ```
 
-**Data flow for sending a message:**
+**Data flow for sending a server channel message:**
 1. User types message in Flutter UI
-2. Message is encrypted with the channel's group key (E2EE Engine)
-3. Encrypted message is wrapped in a CRDT operation (CRDT Sync Engine)
-4. CRDT operation is broadcast to online peers via libp2p
-5. Peers apply the CRDT operation to their local state
-6. The encrypted message is also erasure-coded and stored across members (Storage Engine)
-7. When offline members come back, they sync missing CRDT operations from peers
+2. Message is signed with Ed25519 and wrapped in a `MessageEnvelope`
+3. Envelope is MLS-encrypted (one encrypt operation for the entire server group)
+4. Encrypted ciphertext is sent via `SendToRoom` to the WSS relay
+5. Relay broadcasts to all room members (single WS send, relay fans out)
+6. Each member decrypts via MLS, verifies signature, stores in SQLCipher
+7. When offline members reconnect, they sync missing messages via MLS-encrypted channel probes
+
+**Data flow for sending a DM:**
+1. Message is signed and wrapped in a `MessageEnvelope`
+2. Envelope is Olm-encrypted (Double Ratchet, per-session keys)
+3. Sent to the peer via WS relay (direct message, not broadcast)
+4. Peer decrypts via Olm, stores locally
 
 ---
 
@@ -104,24 +117,25 @@ A communication platform where **every member collectively hosts the server they
 | Layer | Technology | Why |
 |---|---|---|
 | **Client Framework** | Flutter (Dart) | Single codebase → native Windows, macOS, Linux, Android, iOS, Web. No Electron. |
-| **P2P Networking** | rust-libp2p via `flutter_rust_bridge` FFI | Most mature P2P networking stack. No Dart implementation exists, but the Rust lib is excellent and FFI bridging is well-supported in Flutter. |
-| **Data Sync** | Automerge (Rust) via FFI | Best CRDT library. Handles merging concurrent edits, message ordering, channel state. Rust implementation is fast. |
-| **Distributed Storage** | Adaptive Reed-Solomon erasure coding + full replication | <6 members: full replication (every member gets every file). 6+: adaptive erasure coding — k/m scale with member count (1.5x overhead). Files/media only. |
-| **E2EE (Messages)** | vodozemac (Olm/Double Ratchet) via Rust FFI for 1:1, MLS for groups | vodozemac is Matrix's audited Olm implementation (X3DH-like + Double Ratchet). MLS (RFC 9420) for group channels — scales O(log n) on member changes. |
-| **E2EE (Calls)** | DTLS-SRTP + SFrame | WebRTC native encryption + inner E2EE layer via SFrame for group calls through relay. |
-| **Voice/Video** | flutter_webrtc + LiveKit protocol | Mature WebRTC for Flutter. Mesh for small calls (2-4), SFU-like "super peer" for larger groups. |
-| **Cryptography** | `cryptography` (Dart) + libsodium (FFI) | `cryptography` for platform-accelerated primitives, libsodium for security-critical operations (constant-time, audited). |
-| **Local Database** | SQLite (encrypted via SQLCipher) | All local data encrypted at rest. Fast, embedded, no server needed. |
-| **DHT** | Kademlia (via libp2p) | Peer discovery, prekey bundle storage, content routing. O(log n) lookups. |
-| **Identity** | Ed25519 keypairs | Public key = identity. No phone numbers, no email. Mnemonic phrase backup. |
+| **Transport** | WebSocket Relay (WSS) via `tokio-tungstenite` | Single persistent WSS connection per client to relay server. Room-based broadcast for servers, direct messages for DMs. Binary frames for file/shard streaming. 30s keepalive ping. |
+| **Relay Server** | Axum (Rust) — HTTP signaling + WebSocket room router | Deployed on VPS (relay.anonlisten.com:443 via Nginx TLS). Stateless encrypted pipe — sees only ciphertext. Room join/leave, message broadcast, binary forwarding, presence notifications. |
+| **Data Sync** | Custom CRDTs (Rust) | Custom CRDT types: LWW-Register (roles, settings), OR-Set-like (channels, members), op-log with HLC ordering. State vectors for delta sync. No Automerge dependency. |
+| **Distributed Storage** | Adaptive Reed-Solomon erasure coding + full replication | <6 members: full replication (P2P streaming). 6+: adaptive erasure coding — k/m scale with member count (1.5x overhead). Files/media only. Vault shards distributed via MLS metadata + WS binary streaming. |
+| **E2EE (Servers)** | OpenMLS 0.8 (MLS RFC 9420) via Rust FFI | ALL server messages: MLS group encrypt → `SendToRoom` broadcast. One encrypt, relay fans out. Target filtering for peer-specific messages (all decrypt for ratchet sync, only target processes). Scales O(log n) on member changes. |
+| **E2EE (DMs)** | vodozemac (Olm/Double Ratchet) via Rust FFI | 1:1 DMs: Olm encryption with Double Ratchet. Key exchange via `KeyRequest`/`KeyBundle` over WS (no DHT). Forward secrecy + post-compromise security. |
+| **E2EE (Calls)** | DTLS-SRTP + SFrame | WebRTC native encryption + inner E2EE layer via SFrame for group calls. (Planned — not yet implemented.) |
+| **Voice/Video** | flutter_webrtc + LiveKit protocol | Mature WebRTC for Flutter. Mesh for small calls (2-4), SFU-like "super peer" for larger groups. (Planned — not yet implemented.) |
+| **Local Database** | SQLite (encrypted via SQLCipher) | All local data encrypted at rest. Fast, embedded, no server needed. `rusqlite` with `bundled-sqlcipher` feature. |
+| **Identity** | Ed25519 keypairs (via libp2p, migrating to ed25519-dalek) | Public key = identity. PeerId derived as `base58btc(multihash(sha256(protobuf(pubkey))))`. BIP-39 mnemonic backup. No phone numbers, no email. |
+| **Legacy (being removed)** | libp2p 0.56 | Originally the core networking stack. Now fallback-only — all real traffic flows through WSS relay. Scheduled for full removal (see plan-libp2p-removal.md). |
 
 ### Why Rust FFI Instead of Pure Dart
 
-libp2p and Automerge don't have Dart implementations. Writing them from scratch would take years. The Rust ecosystem has battle-tested implementations. `flutter_rust_bridge` provides ergonomic, type-safe FFI between Dart and Rust with async support, so:
+The networking, crypto, and storage layers require battle-tested implementations that don't exist in Dart. `flutter_rust_bridge` v2.11.1 provides ergonomic, type-safe FFI between Dart and Rust with async support:
 
-- **Dart** handles UI, app logic, state management (what it's great at)
-- **Rust** handles networking, crypto, storage engine, CRDTs (what it's great at)
-- **FFI bridge** connects them with minimal overhead
+- **Dart** handles UI, app logic, state management (Riverpod)
+- **Rust** handles networking (WS client), crypto (Olm, MLS, AES), storage engine (SQLCipher, vault), CRDTs
+- **FFI bridge** connects them with minimal overhead — event streaming via `StreamSink`
 
 This is the same pattern used by major apps (e.g., Signal uses Rust for its crypto library across all platforms).
 
@@ -202,16 +216,19 @@ This provides:
 - **Integrity verification** — detect corrupt or tampered shards
 - **Location-independent addressing** — find data by hash, not by "which server it's on"
 
-#### 4.4 Shard Placement via DHT
+#### 4.4 Deterministic Shard Placement (XOR Distance)
 
-The Kademlia DHT determines which members store which shards:
+Shard placement is deterministic — all peers compute the same placements independently using XOR distance:
 
 1. Compute `content_id = SHA-256(encrypted_data)`
-2. For each shard `i` of the content, compute `shard_key = SHA-256(content_id || i)`
-3. Find the `k` closest peers to `shard_key` in the DHT
-4. Store the shard on those peers
+2. For each shard `i`, compute `shard_key = SHA-256(content_id || i_as_u16_be)`
+3. For each peer, compute `distance = XOR(shard_key, SHA-256(peer_id))` (256-bit keyspace)
+4. Sort peers by distance (ascending), assign shard to closest peer with available capacity
+5. Weighted by storage pledge: `per_peer_cap = ceil(n * peer_pledge / total_pledge)`
 
-To retrieve: query the DHT for each `shard_key`, collect at least `k` shards, reconstruct.
+**Key property:** Any peer can recompute placements using the same algorithm (content_id + member list + pledges from CRDT). Non-uploaders can determine where shards live without needing a central directory.
+
+To retrieve: recompute placements → request missing shards from their assigned peers via MLS → reconstruct from any k of k+m shards.
 
 #### 4.5 Rebalancing
 
@@ -249,63 +266,87 @@ Each member also maintains a local cache of recently accessed files (outside the
 
 ---
 
-## 5. Networking Layer — Peer-to-Peer
+## 5. Networking Layer — WebSocket Relay
 
-### 5.1 Transport Protocols (via libp2p)
+### 5.1 Architecture: Hub-and-Spoke via WSS Relay
 
-libp2p supports multiple transports, negotiated automatically:
+Hollow uses a **WebSocket relay server** as the primary (and currently sole) transport. Every client maintains ONE persistent WSS connection to the relay. The relay is a stateless encrypted pipe — it routes messages between room members but cannot read any content (all payloads are MLS or Olm encrypted).
 
-- **QUIC** — Primary transport. UDP-based, built-in TLS 1.3, multiplexed streams, fast connection establishment. Handles NAT traversal better than TCP.
-- **TCP + Noise** — Fallback for networks that block UDP. Noise Protocol Framework for encryption (faster than TLS handshake for P2P).
-- **WebSocket** — For Flutter Web clients that can't use raw TCP/QUIC. Connects through a WebSocket relay.
-- **WebTransport** — Modern alternative to WebSocket, based on QUIC. Better for web clients long-term.
+```
+Client A ──WSS──► ┌─────────────────┐ ◄──WSS── Client B
+                  │   WS Relay      │
+                  │  (Axum/Rust)    │
+                  │                 │
+                  │  Room Router:   │
+                  │  - Join/Leave   │
+                  │  - Broadcast    │
+                  │  - Direct msg   │
+                  │  - Binary fwd   │
+                  │  - Presence     │
+Client C ──WSS──► │                 │ ◄──WSS── Client D
+                  └─────────────────┘
+```
 
-### 5.2 NAT Traversal
+**Why relay instead of direct P2P:**
+- NAT traversal is unreliable (~80% success for hole punching, 0% behind symmetric NAT)
+- libp2p connection churn caused sync failures, prekey storms, transport cycling
+- Single WSS connection is simpler, faster to establish, works through any firewall
+- TLS on port 443 looks like normal HTTPS traffic (harder to censor)
+- Relay sees only encrypted ciphertext — zero trust compromise
 
-Most users are behind home routers (NAT). Connecting two NATted peers directly is the biggest networking challenge.
+### 5.2 Transport Details
 
-**Strategy (layered):**
+**WSS Connection:**
+- URL: `wss://relay.anonlisten.com/ws` (Nginx TLS termination on port 443)
+- Authentication: Ed25519 signature (`hollow-ws-auth:{peer_id}:{timestamp}`)
+- Auto-reconnect with exponential backoff (1s → 2s → 4s → ... → 30s max)
+- 30-second keepalive ping prevents idle connection drops
+- Re-joins all rooms on reconnect
 
-1. **UPnP/NAT-PMP** — Ask the router to open a port. Works on many home routers automatically. Try this first.
+**Message types (JSON text frames):**
+- `Auth` — authenticate with peer_id + signature
+- `Join/Leave` — room membership
+- `Msg` — broadcast to room (base64-encoded MLS ciphertext)
+- `Direct` — send to specific peer in room
 
-2. **STUN-like hole punching (libp2p AutoNAT + DCUtR):**
-   - Each peer discovers its public IP and port mapping via AutoNAT (like STUN).
-   - When two NATted peers want to connect, they coordinate through a relay node.
-   - Both peers simultaneously send packets to each other's public endpoints (UDP hole punching).
-   - If successful, they have a direct connection. ~80% success rate on typical home networks.
+**Binary frames (for file/shard streaming):**
+- `0x02` prefix — `BinaryDirect` frame: `[0x02][room\0][target\0][payload]`
+- 256KB chunk size for large transfers
+- Relay swaps target→sender in header before forwarding
+- Used for AES-encrypted file bytes and vault shard data
 
-3. **Circuit Relay (TURN-like fallback):**
-   - If hole punching fails, traffic relays through a member that IS publicly reachable.
-   - Any member with a public IP (or successful UPnP) can volunteer as a relay.
-   - Relayed traffic is still E2EE — the relay sees only encrypted bytes.
-   - This is the fallback that ensures connectivity always works.
+### 5.3 Room-Based Routing
 
-**Lightweight Signaling Service:**
+Each server has a room (room_code = server_id). Each DM pair has a room (room_code = sorted hash of both peer IDs). The relay tracks room membership and routes accordingly:
 
-The ONE piece of minimal infrastructure. A tiny, stateless signaling service helps with initial peer discovery:
+- **`SendToRoom`** — broadcast to all room members except sender. Used for MLS-encrypted server messages.
+- **`SendDirect`** — send to one specific peer in a room. Used for Olm DMs and targeted shard requests.
+- **`BinaryDirect`** — binary frame forwarded to one peer. Used for file/shard streaming.
+- **Presence** — relay emits `PeerJoined`/`PeerLeft` events when members join/leave rooms.
 
-- New peers need to find at least one existing member to bootstrap into the network
-- The signaling service stores: `server_id → list of known peer addresses`
-- It does NOT store messages, user data, or keys — only connection endpoints
-- Can be hosted for free (Cloudflare Workers, a free-tier VM, or even embedded in the invite link as a static list)
-- Multiple redundant signaling services can exist — anyone can run one
-- Once connected to one peer, the DHT provides discovery of all other peers
+### 5.4 Signaling Service
 
-### 5.3 Peer Discovery Within a Server
+A lightweight HTTP signaling service runs alongside the WS relay on the same VPS. It provides initial peer discovery:
 
-Once connected to the network:
+- Peers register their addresses for each room they belong to
+- New peers bootstrap by querying the signaling service for known peers in a room
+- Heartbeat: 120-second keepalive, 3-minute stale cleanup
+- NOT used for message routing — only for initial connection bootstrapping
+- Ed25519 signed requests prevent impersonation
 
-1. **DHT lookup** — Query for peers belonging to the same `server_id`
-2. **Gossip protocol** — Each peer shares its known peer list with connected peers
-3. **mDNS** — Discover peers on the same local network (great for LAN parties, offices)
-4. **Peer exchange (PEX)** — When connected to peer A, ask "who else do you know in this server?"
+### 5.5 Connection Lifecycle
 
-### 5.4 Connection Management
+1. App starts → WS client connects to relay → authenticates
+2. Joins rooms for all known servers + DM friends
+3. Relay emits `PeerJoined` for each room member already present
+4. Peer discovery triggers CRDT sync + MLS key exchange
+5. All messages flow through WS relay from this point
+6. On disconnect → relay notifies room members via `PeerLeft`
+7. Client auto-reconnects and re-joins all rooms
 
-- Maintain persistent connections to a subset of server members (e.g., 6-12 peers)
-- Prefer peers with: high uptime, low latency, good bandwidth
-- Rotate connections periodically to maintain a diverse view of the network
-- Prioritize connections to peers holding shards you frequently access
+### 5.6 Legacy: libp2p (Being Removed)
+
+libp2p 0.56 still exists as a fallback transport but is scheduled for full removal. It was the original networking stack (QUIC, TCP, mDNS, Kademlia DHT, relay circuit, hole punching). All real traffic now flows through WSS. The libp2p components generate noise (failed dial attempts to stale peers) and add ~30-40% to binary size. See `plan-libp2p-removal.md` for the removal plan.
 
 ---
 
@@ -355,30 +396,32 @@ When two peers connect (or reconnect after being offline):
 
 This is efficient — after initial sync, only new operations are exchanged. A member returning after a week offline receives only the operations that happened during that week, not the entire history.
 
-### 6.5 Automerge Integration
+### 6.5 Custom CRDT Implementation
 
-Automerge (Rust implementation) handles the CRDT complexity:
+Hollow uses custom CRDT types (not Automerge) implemented in Rust:
 
-```dart
-// Dart side (via FFI bridge)
-final doc = await AutomergeDoc.create();
+- **ServerState** — the root CRDT document per server, containing all sub-CRDTs
+- **op_log** — append-only log of `CrdtOp` operations, each with HLC timestamp + author + payload
+- **StateVector** — compact summary `{peer_id: latest_hlc}` for delta sync
+- **AdminLwwReg<T>** — LWW-Register where admin/owner writes always win conflicts
 
-// Send a message (local operation)
-await doc.change((d) {
-  d.getList('messages').push({
-    'id': hlc.now(),
-    'author': myPeerId,
-    'content': encryptedContent,  // Already E2EE
-    'timestamp': DateTime.now().toUtc().toIso8601String(),
-  });
-});
+**CRDT operations are broadcast via MLS** (for servers) or plaintext (during join bootstrap):
+```rust
+// Rust side — creating and broadcasting a CRDT op
+let op = state.create_op(CrdtPayload::ChannelAdded { channel_id, name });
+let _ = state.apply_op(&op);
 
-// Sync with a peer
-final syncMessage = await doc.generateSyncMessage(peerState);
-// Send syncMessage to peer via libp2p
-// Receive peer's sync message and apply it
-await doc.receiveSyncMessage(peerSyncMessage);
+// Broadcast via MLS (single encrypt → SendToRoom → relay fans out)
+let envelope = MessageEnvelope::CrdtOp { sid: server_id, op_json };
+send_mls_broadcast(mls, ws_cmd_tx, &server_id, &envelope, keypair);
 ```
+
+**Sync protocol:**
+1. On peer connect: exchange `StateVector` (latest HLC per author)
+2. Compute delta: `compute_delta(our_op_log, their_state_vector) → Vec<CrdtOp>`
+3. Send missing ops via MLS `SyncResp` envelope
+4. Receiver merges: `merge_ops(state, incoming_ops)` — commutative, idempotent
+5. Fan-out sync coordinator: distributes channel sync probes across available peers with 5-second dedup
 
 ---
 
@@ -410,17 +453,19 @@ await doc.receiveSyncMessage(peerSyncMessage);
 **Layer 2** protects against device theft / storage compromise.
 **Layer 3** protects against EVERYONE except intended recipients — including relay nodes, storage nodes, and compromised peers.
 
-### 7.2 Direct Messages (1:1) — Signal Protocol
+### 7.2 Direct Messages (1:1) — Olm (Double Ratchet)
 
-Uses the gold-standard Double Ratchet algorithm:
+Uses vodozemac (Matrix's audited Olm implementation) for the Double Ratchet:
 
-**Initial Key Exchange (X3DH — Extended Triple Diffie-Hellman):**
-- Each user publishes a "prekey bundle" to the DHT:
-  - Identity Key (IK) — long-term Ed25519/X25519 keypair
-  - Signed Prekey (SPK) — rotated weekly, signed by IK
-  - One-Time Prekeys (OPKs) — batch of single-use keys
-- Alice fetches Bob's bundle from DHT, computes shared secret via 3-4 DH operations
-- Alice can send the first message even if Bob is offline
+**Key Exchange (via WS relay — no DHT):**
+- When Peer A wants to message Peer B for the first time:
+  1. A sends `KeyRequest` to B via WS relay (plaintext `HavenMessage`)
+  2. B generates a one-time key, responds with `KeyBundle { identity_key, one_time_key }`
+  3. A creates an outbound Olm session using B's keys
+  4. First message is a "PreKey message" (type 0) — B creates an inbound session from it
+  5. `SessionAck` handshake upgrades both sides to Normal (type 1) ratchet
+- Key exchange is nearly instant (one WS round-trip vs seconds for DHT lookup)
+- Works even if B is online but not yet in the same WS room (routed via any shared room or direct connection)
 
 **Double Ratchet (ongoing messages):**
 - Every message uses a unique encryption key
@@ -479,13 +524,15 @@ Peers storing the file shards hold only encrypted data. They can't decrypt witho
 
 ### 7.6 Crypto Libraries (Actual Implementation)
 
-**1:1 E2EE:** `vodozemac` v0.9 (Rust, via FFI) — Matrix's audited Olm implementation. Handles X3DH-like key exchange + Double Ratchet for DMs. Two identity systems coexist: libp2p Ed25519 (transport) and vodozemac Curve25519 (E2EE).
+**DM E2EE:** `vodozemac` v0.9 (Rust, via FFI) — Matrix's audited Olm implementation. Double Ratchet for DMs. Key exchange via `KeyRequest`/`KeyBundle` over WS relay (no DHT). Two identity systems coexist: Ed25519 (transport/signing) and vodozemac Curve25519 (Olm sessions).
 
-**Group E2EE:** OpenMLS (Rust, via FFI) — for MLS group encryption in channels. To be integrated in Phase 3.
+**Server E2EE:** OpenMLS 0.8 (Rust, via FFI) — MLS (RFC 9420) group encryption for ALL server messages. Single-committer model (server owner processes KeyPackages). Batch member addition (2-second timer, dedup by peer_id). `send_mls_broadcast()` → one encrypt → `SendToRoom` → relay fans out. `send_mls_to_peer()` → targeted messages with `target` field (all decrypt for ratchet sync, only target processes). 183 tests passing.
 
-**Local storage encryption:** SQLCipher (AES-256-CBC) — via `rusqlite` with `bundled-sqlcipher` feature, using system OpenSSL on Windows.
+**File encryption:** AES-256-GCM (via `aes-gcm` crate) — per-file random key. Key transmitted in MLS-encrypted `FileHeader` envelope. File bytes streamed separately via WS binary frames.
 
-**Identity:** `ed25519-dalek` v2.2 (via libp2p) — Ed25519 keypair generation and signing. BIP-39 mnemonic for backup/restore.
+**Local storage encryption:** SQLCipher (AES-256-CBC) — via `rusqlite` with `bundled-sqlcipher` feature.
+
+**Identity:** `ed25519-dalek` v2.2 (currently via libp2p, migrating to direct dependency) — Ed25519 keypair generation, message signing, peer ID derivation. BIP-39 mnemonic for backup/restore.
 
 **Flutter Web (future):** Web Crypto API via `webcrypto` package + WASM-compiled crypto primitives.
 
@@ -1227,6 +1274,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [X] Change locally someone else's nickname (only for you to see)
 - [X] Custom background for the app / Custom color picker chooser
 - [X] GIF support for chats and as animated avatars/banners for Profiles
+- [ ] Copying messages / Paste images into the input bar
 - [ ] Different fonts/elements like hearts or sparkles on Profile and maybe nicknames
 - [ ] **Scaling (deferred from Phase 4):**
   - [ ] Connection subset management (6-12 peers per server, peer scoring, rotation) — defer until scaling pain
