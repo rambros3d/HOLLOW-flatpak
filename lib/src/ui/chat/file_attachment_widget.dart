@@ -33,17 +33,13 @@ class FileAttachmentWidget extends ConsumerWidget {
     );
 
     // Use attachment's own state if it's already complete (e.g., sender's optimistic message).
-    // Only override from transfer provider if it provides better info.
     final isComplete = attachment.isComplete || (transfer?.isComplete ?? false);
     final diskPath = attachment.diskPath ?? transfer?.diskPath;
-    // Only show downloading if transfer is actively in progress.
-    // If the file is already complete (from sync or prior transfer), don't show downloading.
     final isDownloading = !isComplete && (transfer?.isDownloading ?? false);
     final vaultPhase = transfer?.vaultPhase;
     final progress = (transfer != null && transfer.progress > 0)
         ? transfer.progress
         : attachment.progress;
-    // Bytes received for streamed transfers (chunks = MB).
     final bytesReceived = (transfer != null && transfer.totalChunks > 0)
         ? transfer.chunksReceived * 1024 * 1024
         : 0;

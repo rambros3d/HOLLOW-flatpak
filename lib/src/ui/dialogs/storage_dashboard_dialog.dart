@@ -130,6 +130,18 @@ class _StorageDashboardContentState
     return 'Erasure Coding (k=20/m=10)';
   }
 
+  /// Returns (k, m) for the current member count.
+  /// Used to compute the redundancy overhead factor: (k+m)/k.
+  (int, int) _vaultParams(int memberCount) {
+    if (memberCount <= 8) return (3, 2);
+    if (memberCount <= 15) return (5, 3);
+    if (memberCount <= 30) return (8, 4);
+    if (memberCount <= 60) return (10, 5);
+    if (memberCount <= 150) return (12, 6);
+    if (memberCount <= 500) return (16, 8);
+    return (20, 10);
+  }
+
   @override
   Widget build(BuildContext context) {
     final hollow = HollowTheme.of(context);
@@ -340,9 +352,13 @@ class _StorageDashboardContentState
       );
     }
 
-    // Erasure coding (6+) — bar shows server data vs total pledged.
+    // Erasure coding (6+) — bar shows server data vs effective usable capacity.
+    // Effective capacity = total pledged × k / (k + m) to account for redundancy overhead.
     final totalPledged = stats?.totalPledgedBytes.toDouble() ?? 0;
-    final fraction = totalPledged > 0 ? totalUsed / totalPledged : 0.0;
+    final (k, m) = _vaultParams(memberCount);
+    final redundancyFactor = k > 0 ? (k + m) / k : 1.0;
+    final effectiveCapacity = totalPledged / redundancyFactor;
+    final fraction = effectiveCapacity > 0 ? totalUsed / effectiveCapacity : 0.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -355,15 +371,24 @@ class _StorageDashboardContentState
           ),
         ),
         const SizedBox(height: HollowSpacing.sm),
-        _storageBar(fraction, hollow.accent, hollow),
+        _storageBar(fraction.clamp(0.0, 1.0), hollow.accent, hollow),
         const SizedBox(height: HollowSpacing.xs),
-        Text(
-          '${_formatBytes(stats?.totalUsedBytes ?? BigInt.zero)} / ${_formatBytes(stats?.totalPledgedBytes ?? BigInt.zero)}',
-          style: HollowTypography.caption.copyWith(color: hollow.textSecondary),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${_formatBytes(stats?.totalUsedBytes ?? BigInt.zero)} / ${_formatBytes(BigInt.from(effectiveCapacity.toInt()))}',
+              style: HollowTypography.caption.copyWith(color: hollow.textSecondary),
+            ),
+            Text(
+              '${redundancyFactor.toStringAsFixed(1)}x overhead',
+              style: HollowTypography.caption.copyWith(color: hollow.textSecondary.withValues(alpha: 0.6), fontSize: 11),
+            ),
+          ],
         ),
         const SizedBox(height: 2),
         Text(
-          '$memberCount members',
+          '$memberCount members · ${_formatBytes(stats?.totalPledgedBytes ?? BigInt.zero)} raw capacity',
           style: HollowTypography.caption.copyWith(color: hollow.textSecondary),
         ),
       ],

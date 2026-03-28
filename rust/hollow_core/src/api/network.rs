@@ -113,6 +113,8 @@ pub enum NetworkEvent {
     RebalanceStarted { server_id: String, shards_to_move: u32 },
     RebalanceProgress { server_id: String, moved: u32, total: u32 },
     RebalanceCompleted { server_id: String },
+    // -- Vault guard events --
+    VaultUploadReplicationFallback { server_id: String, content_id: String, online: usize, needed: usize },
     // -- Connection status events --
     KeyExchangeStarted { peer_id: String },
     KeyExchangeProgress { peer_id: String, stage: String },
@@ -467,6 +469,9 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::RebalanceCompleted { server_id } => {
             NetworkEvent::RebalanceCompleted { server_id }
+        }
+        node::NetworkEvent::VaultUploadReplicationFallback { server_id, content_id, online, needed } => {
+            NetworkEvent::VaultUploadReplicationFallback { server_id, content_id, online, needed }
         }
         node::NetworkEvent::KeyExchangeStarted { peer_id } => {
             NetworkEvent::KeyExchangeStarted { peer_id }

@@ -2253,6 +2253,34 @@ impl MessageStore {
         Ok(ids)
     }
 
+    /// Get file_ids for missing *image* files in a specific server.
+    /// Used for late-joiner image sync in 6+ member servers where non-image files
+    /// use vault erasure shards instead of P2P streaming.
+    pub fn get_missing_image_file_ids_for_server(&self, server_id: &str) -> Result<Vec<String>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT DISTINCT cm.file_id FROM channel_messages cm
+                 JOIN files f ON cm.file_id = f.file_id
+                 WHERE cm.server_id = ?1
+                 AND f.is_image = 1
+                 AND f.completed_at IS NULL",
+            )
+            .map_err(|e| format!("Failed to prepare missing image files query: {e}"))?;
+
+        let rows = stmt
+            .query_map([server_id], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("Failed to query missing image files: {e}"))?;
+
+        let mut ids = Vec::new();
+        for row in rows {
+            if let Ok(id) = row {
+                ids.push(id);
+            }
+        }
+        Ok(ids)
+    }
+
     /// Link a vault content_id to a file record via its message_id.
     /// Used when VaultUploadFile completes (sender) or VaultManifestBroadcast arrives (receiver).
     pub fn set_file_content_id(&self, message_id: &str, content_id: &str) -> Result<(), String> {
@@ -2276,4 +2304,5 @@ impl MessageStore {
             )
             .map_err(|e| format!("Failed to query content_id: {e}"))
     }
+
 }

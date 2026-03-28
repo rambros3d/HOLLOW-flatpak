@@ -185,6 +185,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   UserProfile dco_decode_user_profile(dynamic raw);
 
   @protected
+  BigInt dco_decode_usize(dynamic raw);
+
+  @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
 
   @protected
@@ -363,6 +366,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   UserProfile sse_decode_user_profile(SseDeserializer deserializer);
+
+  @protected
+  BigInt sse_decode_usize(SseDeserializer deserializer);
 
   @protected
   void sse_encode_AnyhowException(
@@ -606,6 +612,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_user_profile(UserProfile self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_usize(BigInt self, SseSerializer serializer);
 }
 
 // Section: wire_class

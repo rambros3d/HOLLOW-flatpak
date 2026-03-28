@@ -590,6 +590,12 @@ class EventStreamNotifier extends Notifier<bool> {
         ref
             .read(connectionStatusProvider.notifier)
             .onKeyExchangeProgress(peerId, stage);
+
+      // -- Vault guard events --
+      case NetworkEvent_VaultUploadReplicationFallback(
+            :final serverId, :final contentId, :final online, :final needed):
+        debugPrint('[HOLLOW] Vault upload fallback: $online online < $needed needed for $contentId in $serverId — using replication');
+
     }
     } catch (e, st) {
       debugPrint('[HOLLOW] Unhandled dispatch error: $e\n$st');
@@ -598,43 +604,56 @@ class EventStreamNotifier extends Notifier<bool> {
 
   /// Request missing files after message sync completes.
   /// Queries messages with file_id that have no completed file on disk.
-  /// Delayed by 2 seconds to let sync pipeline settle.
-  /// Skipped for 6+ member servers (erasure coding handles file data via shards).
+  /// Delayed to let sync pipeline settle.
+  /// For 6+ member servers: only auto-requests images (non-images use vault shards).
   Future<void> _requestMissingFiles(String serverId) async {
-    // In erasure coding mode (6+ members), file data is in vault shards —
-    // don't auto-request full files via P2P streaming.
     final memberCount = ref.read(serverMembersProvider(serverId)).valueOrNull?.length ?? 0;
-    if (memberCount >= 6) return;
 
-    await Future.delayed(const Duration(seconds: 2));
-    try {
-      final missingIds = await storage_api.getMissingFileIds();
-      if (missingIds.isEmpty) return;
-      // Skip files that already have an active stream transfer in flight.
-      final activeTransfers = ref.read(fileTransferProvider);
-      final toRequest = missingIds.where((id) {
-        final t = activeTransfers[id];
-        return t == null || (!t.isDownloading && !t.isComplete);
-      }).toList();
-      if (toRequest.isEmpty) return;
-      debugPrint('[HOLLOW] ${toRequest.length} missing files found, requesting...');
-      final peers = ref.read(peersProvider);
-      if (peers.isEmpty) return;
-      for (final fileId in toRequest) {
-        for (final peerId in peers.keys) {
-          try {
-            await requestFileFromPeer(
-              fileId: fileId,
-              peerId: peerId,
-              chunks: [],
-            );
-            break;
-          } catch (_) {}
-        }
-        await Future.delayed(const Duration(milliseconds: 500));
+    List<String> missingIds;
+    if (memberCount >= 6) {
+      // For 6+ servers, only auto-request images via P2P streaming.
+      // Non-image files use vault erasure shards and are fetched via VaultDownloadFile.
+      await Future.delayed(const Duration(seconds: 3));
+      try {
+        missingIds = await storage_api.getMissingImageFileIdsForServer(serverId: serverId);
+      } catch (e) {
+        debugPrint('[HOLLOW] Failed to get missing image file ids: $e');
+        return;
       }
-    } catch (e) {
-      debugPrint('[HOLLOW] Failed to request missing files: $e');
+    } else {
+      await Future.delayed(const Duration(seconds: 2));
+      try {
+        missingIds = await storage_api.getMissingFileIds();
+      } catch (e) {
+        debugPrint('[HOLLOW] Failed to get missing file ids: $e');
+        return;
+      }
+    }
+
+    if (missingIds.isEmpty) return;
+
+    // Skip files that already have an active stream transfer in flight.
+    final activeTransfers = ref.read(fileTransferProvider);
+    final toRequest = missingIds.where((id) {
+      final t = activeTransfers[id];
+      return t == null || (!t.isDownloading && !t.isComplete);
+    }).toList();
+    if (toRequest.isEmpty) return;
+    debugPrint('[HOLLOW] ${toRequest.length} missing files found, requesting...');
+    final peers = ref.read(peersProvider);
+    if (peers.isEmpty) return;
+    for (final fileId in toRequest) {
+      for (final peerId in peers.keys) {
+        try {
+          await requestFileFromPeer(
+            fileId: fileId,
+            peerId: peerId,
+            chunks: [],
+          );
+          break;
+        } catch (_) {}
+      }
+      await Future.delayed(const Duration(milliseconds: 500));
     }
   }
 

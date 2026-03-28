@@ -148,6 +148,14 @@ Future<List<StoredFileInfo>> getIncompleteFiles() =>
 Future<List<String>> getMissingFileIds() =>
     RustLib.instance.api.crateApiStorageGetMissingFileIds();
 
+/// Get file IDs for missing images in a specific server.
+/// Used for late-joiner image sync in 6+ member servers.
+Future<List<String>> getMissingImageFileIdsForServer({
+  required String serverId,
+}) => RustLib.instance.api.crateApiStorageGetMissingImageFileIdsForServer(
+  serverId: serverId,
+);
+
 /// A friend entry returned to Dart.
 class FriendFfi {
   final String peerId;

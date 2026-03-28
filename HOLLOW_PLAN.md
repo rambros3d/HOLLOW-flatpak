@@ -1215,9 +1215,6 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [X] Rebalance event dispatch: 3 case branches (RebalanceStarted/Progress/Completed) in event_provider.dart
   - [X] Uses existing `getStorageStats()` FFI + `getServerSetting()` for data
   - [X] Dart UI integration for vault upload: wire vault_upload_file() into channel file send flow — deferred to follow-up
-  - [ ] Per-file indicators in chat — deferred to follow-up
-  - [ ] Vault status in member panel — deferred to follow-up
-  - [ ] VaultFileWidget shimmer — deferred to follow-up
   - [X] Sync UI fixes: "Syncing..." indicator timeout (clear after 10s if no progress), CRDT server state changes (rename/delete) refresh Dart UI on SyncCompleted
 
 - [ ] **Multi-relay server support** — distribute load across multiple WSS relay servers for scale and redundancy

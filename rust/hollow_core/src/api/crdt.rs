@@ -826,3 +826,5 @@ pub fn vault_download_file(server_id: String, content_id: String) -> Result<Stri
 
     Ok(String::new()) // Async — Dart watches VaultDownloadComplete event
 }
+
+

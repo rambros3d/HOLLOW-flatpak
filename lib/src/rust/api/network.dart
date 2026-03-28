@@ -581,6 +581,12 @@ sealed class NetworkEvent with _$NetworkEvent {
   }) = NetworkEvent_RebalanceProgress;
   const factory NetworkEvent.rebalanceCompleted({required String serverId}) =
       NetworkEvent_RebalanceCompleted;
+  const factory NetworkEvent.vaultUploadReplicationFallback({
+    required String serverId,
+    required String contentId,
+    required BigInt online,
+    required BigInt needed,
+  }) = NetworkEvent_VaultUploadReplicationFallback;
   const factory NetworkEvent.keyExchangeStarted({required String peerId}) =
       NetworkEvent_KeyExchangeStarted;
   const factory NetworkEvent.keyExchangeProgress({

@@ -216,3 +216,4 @@ final vaultStatusProvider =
     NotifierProvider<VaultStatusNotifier, Map<String, VaultServerStatus>>(
   VaultStatusNotifier.new,
 );
+

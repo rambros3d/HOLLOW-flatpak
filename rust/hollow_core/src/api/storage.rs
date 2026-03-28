@@ -479,3 +479,13 @@ pub fn get_missing_file_ids() -> Result<Vec<String>, String> {
     let ms = guard.as_ref().ok_or("Message store is not open")?;
     ms.get_missing_file_ids()
 }
+
+/// Get file IDs for missing images in a specific server.
+/// Used for late-joiner image sync in 6+ member servers.
+#[frb]
+pub fn get_missing_image_file_ids_for_server(server_id: String) -> Result<Vec<String>, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+    ms.get_missing_image_file_ids_for_server(&server_id)
+}

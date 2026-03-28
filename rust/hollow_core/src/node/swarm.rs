@@ -128,6 +128,8 @@ pub(crate) enum NetworkEvent {
     RebalanceStarted { server_id: String, shards_to_move: u32 },
     RebalanceProgress { server_id: String, moved: u32, total: u32 },
     RebalanceCompleted { server_id: String },
+    // -- Vault guard events --
+    VaultUploadReplicationFallback { server_id: String, content_id: String, online: usize, needed: usize },
     // -- Connection status events --
     KeyExchangeStarted { peer_id: String },
     KeyExchangeProgress { peer_id: String, stage: String },
@@ -3702,17 +3704,37 @@ async fn run_event_loop(
                         let aes_key_copy = aes_key.clone();
                         let aes_nonce_copy = aes_nonce.clone();
 
+                        let mut upload_fallback_info: Option<(usize, usize)> = None;
                         let upload_result: Result<(), String> = (|| {
                             let state = server_states.get(&server_id)
                                 .ok_or_else(|| format!("Server {server_id} not found"))?;
                             let local_peer = local_peer_str.to_string();
 
                             // Build members + pledges from server state
-                            let members: Vec<String> = state.members.keys().cloned().collect();
+                            let all_members: Vec<String> = state.members.keys().cloned().collect();
                             let pledges: std::collections::HashMap<String, u64> = state.storage_pledges
                                 .iter()
                                 .map(|(k, v)| (k.clone(), *v.read()))
                                 .collect();
+
+                            // Upload guard: if not enough peers are online for erasure coding,
+                            // fall back to replication among online peers only.
+                            let online_members: Vec<String> = all_members.iter()
+                                .filter(|m| *m == &local_peer || peer_is_reachable(&ws_room_peers, m))
+                                .cloned()
+                                .collect();
+                            let mode = crate::vault::adaptive::compute_adaptive_params(all_members.len());
+                            let use_fallback = if let crate::vault::adaptive::VaultMode::ErasureCoding { k, m } = &mode {
+                                online_members.len() < *k + *m
+                            } else {
+                                false
+                            };
+                            let members = if use_fallback {
+                                hollow_log!("[HOLLOW-VAULT] Upload guard: {} online < k+m for {} total members — falling back to replication", online_members.len(), all_members.len());
+                                online_members.clone()
+                            } else {
+                                all_members.clone()
+                            };
 
                             // Prepare upload plan
                             let key: [u8; 32] = aes_key.try_into().map_err(|_| "Invalid AES key length")?;
@@ -3750,8 +3772,14 @@ async fn run_event_loop(
                             let _ = cs.save_placements(&server_id, &content_id, &plan.placements);
                             let _ = cs.save_manifest(&server_id, &channel_id, &plan.manifest);
 
-                            Ok(plan)
-                        })().map(|_| ());
+                            if use_fallback {
+                                if let crate::vault::adaptive::VaultMode::ErasureCoding { k, m } = &mode {
+                                    upload_fallback_info = Some((online_members.len(), *k + *m));
+                                }
+                            }
+
+                            Ok(())
+                        })();
 
                         match upload_result {
                             Err(e) => {
@@ -3761,12 +3789,27 @@ async fn run_event_loop(
                                 }).await;
                             }
                             Ok(()) => {
+                                // Emit replication fallback event if upload guard triggered.
+                                if let Some((online, needed)) = upload_fallback_info {
+                                    let _ = event_tx.send(NetworkEvent::VaultUploadReplicationFallback {
+                                        server_id: server_id.clone(), content_id: content_id.clone(),
+                                        online, needed,
+                                    }).await;
+                                }
                                 // Re-prepare plan for shard distribution (need the data again)
                                 if let Some(state) = server_states.get(&server_id) {
                                     let local_peer = local_peer_str.to_string();
-                                    let members: Vec<String> = state.members.keys().cloned().collect();
+                                    let all_members: Vec<String> = state.members.keys().cloned().collect();
                                     let pledges: std::collections::HashMap<String, u64> = state.storage_pledges
                                         .iter().map(|(k, v)| (k.clone(), *v.read())).collect();
+                                    // Use same fallback logic as initial prepare
+                                    let online_members: Vec<String> = all_members.iter()
+                                        .filter(|m| *m == &local_peer || peer_is_reachable(&ws_room_peers, m))
+                                        .cloned().collect();
+                                    let mode = crate::vault::adaptive::compute_adaptive_params(all_members.len());
+                                    let members = if let crate::vault::adaptive::VaultMode::ErasureCoding { k, m } = &mode {
+                                        if online_members.len() < *k + *m { online_members } else { all_members }
+                                    } else { all_members };
 
                                     let key: [u8; 32] = aes_key_copy.try_into().unwrap_or([0u8; 32]);
                                     let nonce: [u8; 12] = aes_nonce_copy.try_into().unwrap_or([0u8; 12]);
@@ -4638,6 +4681,54 @@ async fn run_event_loop(
                                                         since_timestamp: since,
                                                     },
                                                 );
+                                            }
+                                        }
+                                    }
+
+                                    // Auto-retry pending vault downloads if this peer holds needed shards.
+                                    if !pending_vault_downloads.is_empty() {
+                                        let data_dir = crate::identity::data_dir().unwrap_or_default();
+                                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                        let vault_dir = data_dir.join("vault");
+                                        if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                                            let pass = hex::encode(&proto[..32.min(proto.len())]);
+                                            if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &pass, &vault_dir) {
+                                                let mut to_request: Vec<(String, String, u16, String)> = Vec::new();
+                                                for (cid, (sid, _k, _)) in pending_vault_downloads.iter() {
+                                                    if let Ok(placements) = cs.load_placements(cid) {
+                                                        let local_shards = cs.list_content_shards(sid, cid).unwrap_or_default();
+                                                        let local_indices: std::collections::HashSet<u16> = local_shards.iter().map(|s| s.shard_index).collect();
+                                                        for p in &placements {
+                                                            if p.target_peer == peer_id && !local_indices.contains(&(p.shard_index as u16)) {
+                                                                to_request.push((sid.clone(), cid.clone(), p.shard_index as u16, p.shard_key.clone()));
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                for (sid, cid, si, sk) in to_request {
+                                                    let envelope = MessageEnvelope::ShardRequest {
+                                                        sid: sid.clone(), cid: cid.clone(), si, sk, target: None,
+                                                    };
+                                                    let mls_ok = mls.as_ref().is_some_and(|m| {
+                                                        m.has_group(&sid) && m.group_members(&sid).contains(&peer_id)
+                                                    });
+                                                    if mls_ok {
+                                                        let _ = send_mls_to_peer(mls.as_mut().unwrap(), &ws_cmd_tx, &sid, &peer_id, &envelope, &bundle_keypair);
+                                                    } else {
+                                                        let json = serde_json::to_string(&envelope).unwrap_or_default();
+                                                        send_encrypted_message(
+                                                            &mut olm, &crypto_store,
+                                                            &peer_id, &json, &event_tx,
+                                                            &ws_cmd_tx, &ws_room_peers,
+                                                        ).await;
+                                                    }
+                                                    hollow_log!("[HOLLOW-VAULT] Auto-requesting shard si={si} for {cid} from newly joined {peer_id}");
+                                                    let _ = event_tx.send(NetworkEvent::VaultDownloadProgress {
+                                                        server_id: sid, content_id: cid,
+                                                        phase: "Peer came online, requesting shards...".into(),
+                                                        progress: 0.15,
+                                                    }).await;
+                                                }
                                             }
                                         }
                                     }
