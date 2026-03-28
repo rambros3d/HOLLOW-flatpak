@@ -3667,7 +3667,9 @@ async fn run_event_loop(
                                         }
                                     }
 
-                                    if requested > 0 {
+                                    let total_available = available + requested;
+                                    if total_available >= k && requested > 0 {
+                                        // Enough shards reachable — request and wait for them.
                                         pending_vault_downloads.insert(
                                             content_id.clone(),
                                             (server_id.clone(), k, requested),
@@ -3679,9 +3681,11 @@ async fn run_event_loop(
                                             progress: 0.1,
                                         }).await;
                                     } else {
+                                        // Not enough shard holders online — fail fast.
+                                        let online_holders = available + requested;
                                         let _ = event_tx.send(NetworkEvent::VaultDownloadFailed {
                                             server_id, content_id,
-                                            error: format!("Not enough shards: have {available}, need {k}. No connected peers have the missing shards."),
+                                            error: format!("{online_holders}/{k} shard holders online, need at least {k}. Try again later."),
                                         }).await;
                                     }
                                 }
@@ -4685,53 +4689,6 @@ async fn run_event_loop(
                                         }
                                     }
 
-                                    // Auto-retry pending vault downloads if this peer holds needed shards.
-                                    if !pending_vault_downloads.is_empty() {
-                                        let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                        let vault_dir = data_dir.join("vault");
-                                        if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
-                                            let pass = hex::encode(&proto[..32.min(proto.len())]);
-                                            if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &pass, &vault_dir) {
-                                                let mut to_request: Vec<(String, String, u16, String)> = Vec::new();
-                                                for (cid, (sid, _k, _)) in pending_vault_downloads.iter() {
-                                                    if let Ok(placements) = cs.load_placements(cid) {
-                                                        let local_shards = cs.list_content_shards(sid, cid).unwrap_or_default();
-                                                        let local_indices: std::collections::HashSet<u16> = local_shards.iter().map(|s| s.shard_index).collect();
-                                                        for p in &placements {
-                                                            if p.target_peer == peer_id && !local_indices.contains(&(p.shard_index as u16)) {
-                                                                to_request.push((sid.clone(), cid.clone(), p.shard_index as u16, p.shard_key.clone()));
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                for (sid, cid, si, sk) in to_request {
-                                                    let envelope = MessageEnvelope::ShardRequest {
-                                                        sid: sid.clone(), cid: cid.clone(), si, sk, target: None,
-                                                    };
-                                                    let mls_ok = mls.as_ref().is_some_and(|m| {
-                                                        m.has_group(&sid) && m.group_members(&sid).contains(&peer_id)
-                                                    });
-                                                    if mls_ok {
-                                                        let _ = send_mls_to_peer(mls.as_mut().unwrap(), &ws_cmd_tx, &sid, &peer_id, &envelope, &bundle_keypair);
-                                                    } else {
-                                                        let json = serde_json::to_string(&envelope).unwrap_or_default();
-                                                        send_encrypted_message(
-                                                            &mut olm, &crypto_store,
-                                                            &peer_id, &json, &event_tx,
-                                                            &ws_cmd_tx, &ws_room_peers,
-                                                        ).await;
-                                                    }
-                                                    hollow_log!("[HOLLOW-VAULT] Auto-requesting shard si={si} for {cid} from newly joined {peer_id}");
-                                                    let _ = event_tx.send(NetworkEvent::VaultDownloadProgress {
-                                                        server_id: sid, content_id: cid,
-                                                        phase: "Peer came online, requesting shards...".into(),
-                                                        progress: 0.15,
-                                                    }).await;
-                                                }
-                                            }
-                                        }
-                                    }
                                 }
                             }
                     }
