@@ -1406,7 +1406,6 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] Fix "Encrypting..." / "Connecting..." labels on Network column and DMs header (ConnectionStatus provider not transitioning properly after key exchange)
 - [ ] Fix server join double-click bug (first JoinServer command joins WS room but doesn't send ServerJoinRequest — second click needed)
 - [ ] Export/import friend profile data (avatars, statuses, about) — either export to .hollow backup or trigger sync on import to pull from friends
-- [ ] Evaluate WebP → AVIF for image compression (AVIF is 27.8% smaller than WebP at same quality — check Rust `image` crate AVIF support + Flutter AVIF decoding)
 - [ ] Copying messages / Paste images into the input bar
 - [ ] Different fonts/elements like hearts or sparkles on Profile and maybe nicknames
 - [ ] **Scaling (deferred from Phase 4):**
