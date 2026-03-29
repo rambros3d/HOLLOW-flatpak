@@ -1217,6 +1217,8 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [X] Dart UI integration for vault upload: wire vault_upload_file() into channel file send flow — deferred to follow-up
   - [X] Sync UI fixes: "Syncing..." indicator timeout (clear after 10s if no progress), CRDT server state changes (rename/delete) refresh Dart UI on SyncCompleted
 
+- [ ] Rebalancer
+
 - [ ] **Multi-relay server support** — distribute load across multiple WSS relay servers for scale and redundancy
   - [ ] Relay discovery: list of relay URLs stored in app config (default: relay.anonlisten.com). Users/admins can add backup relays.
   - [ ] Load balancing: client measures latency to each relay, picks lowest. Fallback to next relay on disconnect.
@@ -1306,8 +1308,8 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [ ] No changes to placement algorithm or manifest format — only the transport layer changes
 
 - [ ] **Remove 34 MB default relay cap**
-  - [ ] Once data channels handle file bytes, relay carries only signaling — 34 MB cap becomes unnecessary
-  - [ ] Restore configurable file size limit (1–500 MB) for all servers regardless of relay
+  - [X] Once data channels handle file bytes, relay carries only signaling — 34 MB cap becomes unnecessary
+  - [X] Restore configurable file size limit (1–500 MB) for all servers regardless of relay
   - [ ] Keep a sensible default (50 MB?) to prevent abuse, configurable by server owner
 
 - [ ] **Connection quality indicators**

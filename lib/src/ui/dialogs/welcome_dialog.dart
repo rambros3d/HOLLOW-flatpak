@@ -77,7 +77,7 @@ class _WelcomeContentState extends State<_WelcomeContent> {
     final result = await FilePicker.platform.pickFiles(
       dialogTitle: 'Select Backup File',
       type: FileType.custom,
-      allowedExtensions: ['hollow', 'zip'],
+      allowedExtensions: ['hollow'],
     );
     if (result == null || result.files.isEmpty || !mounted) return;
     final path = result.files.single.path;

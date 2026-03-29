@@ -1484,6 +1484,9 @@ async fn run_event_loop(
 
     // Track server_ids we're trying to join (waiting for SyncResponse from existing members).
     let mut pending_server_joins: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Pending friend requests: peer_id → requested_at timestamp.
+    // Queued when peer isn't reachable (no shared rooms), sent when they appear.
+    let mut pending_friend_requests: HashMap<String, i64> = HashMap::new();
 
     // Track failed sync requests per peer — retried after session re-establishment.
     // Maps peer_id_str → Vec<(server_id, channel_id, since_timestamp)>
@@ -3197,12 +3200,25 @@ async fn run_event_loop(
                             room_code: room,
                         });
 
-                        // Send to peer if connected or reachable via WS.
+                        // Send via the target peer's inbox room (every peer joins inbox:{peer_id} on startup).
+                        // Join their inbox temporarily to send the request.
+                        let inbox_room = format!("inbox:{}", peer_id_str);
+                        let _ = ws_cmd_tx.send(super::ws_client::WsCommand::JoinRoom {
+                            room_code: inbox_room.clone(),
+                        });
+
+                        // Try to send immediately if peer is already reachable (shared server or inbox).
                         if peer_is_reachable(&ws_room_peers, &peer_id_str) {
                             send_message_to_peer(
                                 &ws_cmd_tx, &ws_room_peers,
                                 &peer_id_str, HavenMessage::FriendRequest { requested_at: now },
                             );
+                        } else {
+                            // Peer not in any WS room yet — queue the request.
+                            // It will be sent when the peer appears via PeerJoined/RoomMembers
+                            // (e.g., when we join their inbox room and the relay confirms).
+                            pending_friend_requests.insert(peer_id_str.clone(), now);
+                            hollow_log!("[HOLLOW-FRIENDS] Peer {peer_id_str} not reachable yet, queued friend request for inbox delivery");
                         }
 
                         let _ = event_tx.send(NetworkEvent::FriendRequestReceived {
@@ -4542,7 +4558,11 @@ async fn run_event_loop(
                 use super::ws_client::WsEvent;
                 match ws_event {
                     WsEvent::Connected => {
-                        hollow_log!("[HOLLOW-WS] Relay connected — joining server + DM rooms");
+                        hollow_log!("[HOLLOW-WS] Relay connected — joining inbox + server + DM rooms");
+                        // Join personal inbox room (for receiving friend requests from strangers).
+                        let _ = ws_cmd_tx.send(super::ws_client::WsCommand::JoinRoom {
+                            room_code: format!("inbox:{}", local_peer_str),
+                        });
                         // Auto-join rooms for all servers we're a member of.
                         for server_id in server_states.keys() {
                             let _ = ws_cmd_tx.send(super::ws_client::WsCommand::JoinRoom {
@@ -4568,7 +4588,30 @@ async fn run_event_loop(
                                 }
                             }
                         }
+                        // Verify local shard integrity on startup.
+                    // Removes DB records for shards whose files are missing or corrupt.
+                    {
+                        let data_dir = crate::identity::data_dir().unwrap_or_default();
+                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                        let vault_dir = data_dir.join("vault");
+                        if let Ok(proto) = bundle_keypair.to_protobuf_encoding() {
+                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                            if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+                                for server_id in server_states.keys() {
+                                    if let Ok(bad_keys) = cs.verify_server_shards(server_id) {
+                                        if !bad_keys.is_empty() {
+                                            hollow_log!("[HOLLOW-VAULT] {} corrupt/missing shards in {server_id}, cleaning DB records", bad_keys.len());
+                                            for key in &bad_keys {
+                                                let _ = cs.delete_shard(server_id, key);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
+                    }
+
                     WsEvent::Disconnected => {
                         hollow_log!("[HOLLOW-WS] Relay disconnected — will auto-reconnect");
                         ws_room_peers.clear();
@@ -4596,6 +4639,15 @@ async fn run_event_loop(
                                         addresses: vec!["ws-relay".to_string()],
                                     },
                                 }).await;
+
+                                // Drain pending friend requests for this peer.
+                                if let Some(requested_at) = pending_friend_requests.remove(&peer_id) {
+                                    hollow_log!("[HOLLOW-FRIENDS] Peer {peer_id} appeared, sending queued friend request");
+                                    send_message_to_peer(
+                                        &ws_cmd_tx, &ws_room_peers,
+                                        &peer_id, HavenMessage::FriendRequest { requested_at },
+                                    );
+                                }
 
                                 if is_new {
                                     // Proactive key exchange if no Olm session.
@@ -4781,6 +4833,15 @@ async fn run_event_loop(
                                                 }
                                             }
                                         }
+                                    }
+
+                                    // Drain pending friend requests for this peer.
+                                    if let Some(requested_at) = pending_friend_requests.remove(pid_str) {
+                                        hollow_log!("[HOLLOW-FRIENDS] Peer {pid_str} appeared in RoomMembers, sending queued friend request");
+                                        send_message_to_peer(
+                                            &ws_cmd_tx, &ws_room_peers,
+                                            pid_str, HavenMessage::FriendRequest { requested_at },
+                                        );
                                     }
 
                                     // Send join request if this room matches a pending server join.
@@ -5081,7 +5142,80 @@ async fn run_event_loop(
                         }
                     }
 
-                    // 3. Cache eviction (1GB default limit)
+                    // 3. Shard health: detect under-replicated content and request repairs via MLS.
+                    let online_peers: std::collections::HashSet<String> = ws_room_peers.values()
+                        .flat_map(|peers| peers.iter().cloned())
+                        .collect();
+
+                    for (server_id, state) in &server_states {
+                        if state.members.len() < 6 { continue; } // Only erasure-coded servers
+
+                        let manifests = cs.list_manifests(server_id).unwrap_or_default();
+                        if manifests.is_empty() { continue; }
+
+                        let mut placements_map: HashMap<String, Vec<crate::vault::content_store::PlacementRecord>> = HashMap::new();
+                        for manifest in &manifests {
+                            if let Ok(p) = cs.load_placements(&manifest.content_id) {
+                                placements_map.insert(manifest.content_id.clone(), p);
+                            }
+                        }
+
+                        let under_rep = crate::vault::rebalancer::scan_under_replicated(
+                            &manifests, &placements_map, &online_peers,
+                        );
+                        if under_rep.is_empty() { continue; }
+
+                        hollow_log!("[HOLLOW-VAULT] Found {} under-replicated items in {server_id}", under_rep.len());
+
+                        let members: Vec<String> = state.members.keys().cloned().collect();
+                        let pledges: HashMap<String, u64> = state.storage_pledges.iter()
+                            .map(|(k, v)| (k.clone(), *v.read()))
+                            .collect();
+
+                        let mut total_requested = 0u32;
+                        for item in &under_rep {
+                            let manifest = manifests.iter().find(|m| m.content_id == item.content_id);
+                            let placements = placements_map.get(&item.content_id);
+                            if let (Some(manifest), Some(placements)) = (manifest, placements) {
+                                if let Some(plan) = crate::vault::rebalancer::compute_repair_plan(
+                                    manifest, placements, &online_peers, &members, &pledges,
+                                ) {
+                                    // Request missing shards from available holders via MLS.
+                                    for (shard_idx, source_peer) in &plan.available_shards {
+                                        if plan.missing_indices.contains(shard_idx) {
+                                            let shard_key = placements.iter()
+                                                .find(|p| p.shard_index as u16 == *shard_idx)
+                                                .map(|p| p.shard_key.clone())
+                                                .unwrap_or_default();
+                                            let envelope = MessageEnvelope::ShardRequest {
+                                                sid: server_id.clone(),
+                                                cid: item.content_id.clone(),
+                                                si: *shard_idx,
+                                                sk: shard_key,
+                                                target: None,
+                                            };
+                                            if let Some(ref mut mls_mgr) = mls {
+                                                if mls_mgr.has_group(server_id) {
+                                                    let _ = send_mls_to_peer(mls_mgr, &ws_cmd_tx, server_id, source_peer, &envelope, &bundle_keypair);
+                                                    total_requested += 1;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if total_requested > 0 {
+                            hollow_log!("[HOLLOW-VAULT] Requested {total_requested} repair shards for {server_id}");
+                            let _ = event_tx.send(NetworkEvent::RebalanceStarted {
+                                server_id: server_id.clone(),
+                                shards_to_move: total_requested,
+                            }).await;
+                        }
+                    }
+
+                    // 4. Cache eviction (1GB default limit)
                     if let Ok(freed) = crate::vault::pipeline::evict_cache_if_needed(1024 * 1024 * 1024) {
                         if freed > 0 {
                             hollow_log!("[HOLLOW-VAULT] Cache eviction freed {} bytes", freed);

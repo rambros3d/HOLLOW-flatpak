@@ -896,9 +896,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
           const SizedBox(height: HollowSpacing.lg),
 
           // Sub-section: Chat Input
-          Padding(
-            padding: const EdgeInsets.only(left: HollowSpacing.xs),
-            child: Text(
+          Text(
               'CHAT INPUT',
               style: HollowTypography.caption.copyWith(
                 color: hollow.textSecondary.withValues(alpha: 0.5),
@@ -906,7 +904,6 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
                 letterSpacing: 0.5,
                 fontSize: 9,
               ),
-            ),
           ),
           const SizedBox(height: HollowSpacing.sm),
 
@@ -1105,12 +1102,44 @@ class _SecurityTabState extends State<_SecurityTab> {
               style: HollowTypography.body.copyWith(color: hollow.error),
             )
           else if (_mnemonic == null)
-            Text(
-              'No recovery phrase stored. This identity may have been restored from a backup.',
-              style: HollowTypography.body.copyWith(color: hollow.textSecondary),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'No recovery phrase stored. If you have your 24 words, you can enter them below.',
+                  style: HollowTypography.body.copyWith(color: hollow.textSecondary, fontSize: 12),
+                ),
+                const SizedBox(height: HollowSpacing.sm),
+                SizedBox(
+                  width: 300,
+                  child: HollowTextField(
+                    controller: TextEditingController(),
+                    hintText: 'Enter 24-word recovery phrase',
+                    isDense: true,
+                    style: HollowTypography.body.copyWith(color: hollow.textPrimary, fontSize: 12),
+                    borderRadius: hollow.radiusSm,
+                    onSubmitted: (val) async {
+                      final words = val.trim().split(RegExp(r'\s+'));
+                      if (words.length != 24) {
+                        HollowToast.show(context, 'Must be exactly 24 words', type: HollowToastType.error);
+                        return;
+                      }
+                      try {
+                        await storage_api.saveMnemonic(mnemonic: val.trim());
+                        if (mounted) {
+                          setState(() => _mnemonic = val.trim());
+                          HollowToast.show(context, 'Recovery phrase saved', type: HollowToastType.success);
+                        }
+                      } catch (e) {
+                        if (mounted) HollowToast.show(context, 'Failed to save: $e', type: HollowToastType.error);
+                      }
+                    },
+                  ),
+                ),
+              ],
             )
           else ...[
-            // Mnemonic container — blurred when hidden
+            // Mnemonic container
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(HollowSpacing.md),
@@ -1123,34 +1152,20 @@ class _SecurityTabState extends State<_SecurityTab> {
                       : hollow.border,
                 ),
               ),
-              child: AnimatedOpacity(
-                opacity: _revealed ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 200),
-                child: _revealed
-                    ? _buildWordGrid(hollow)
-                    : const SizedBox(height: 72),
-              ),
-            ),
-
-            if (!_revealed) ...[
-              // Show placeholder text when hidden
-              Transform.translate(
-                offset: const Offset(0, -76),
-                child: Container(
-                  width: double.infinity,
-                  height: 72 + HollowSpacing.md * 2,
-                  alignment: Alignment.center,
-                  child: Text(
-                    'Hidden for security',
-                    style: HollowTypography.body.copyWith(
-                      color: hollow.textSecondary.withValues(alpha: 0.5),
+              child: _revealed
+                  ? _buildWordGrid(hollow)
+                  : Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: HollowSpacing.lg),
+                        child: Text(
+                          'Hidden for security',
+                          style: HollowTypography.body.copyWith(
+                            color: hollow.textSecondary.withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ),
-              // Compensate for transform
-              const SizedBox(height: 0),
-            ],
+            ),
 
             const SizedBox(height: HollowSpacing.sm),
 
@@ -1273,28 +1288,30 @@ class _SecurityTabState extends State<_SecurityTab> {
 
   Widget _buildWordGrid(HollowTheme hollow) {
     final words = _mnemonic!.split(' ');
-    // 4 rows x 6 columns
+    // 6 rows x 4 columns (easier to read, less cramped)
+    const cols = 4;
+    final rows = (words.length / cols).ceil();
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        for (int row = 0; row < 4; row++)
+        for (int row = 0; row < rows; row++)
           Padding(
             padding: EdgeInsets.only(
-              bottom: row < 3 ? HollowSpacing.xs : 0,
+              bottom: row < rows - 1 ? HollowSpacing.xs : 0,
             ),
             child: Row(
               children: [
-                for (int col = 0; col < 6; col++) ...[
-                  if (col > 0) const SizedBox(width: HollowSpacing.xs),
+                for (int col = 0; col < cols; col++) ...[
+                  if (col > 0) const SizedBox(width: HollowSpacing.sm),
                   Expanded(
                     child: Builder(builder: (context) {
-                      final index = row * 6 + col;
+                      final index = row * cols + col;
                       if (index >= words.length) return const SizedBox();
                       return RichText(
                         text: TextSpan(
                           children: [
                             TextSpan(
-                              text: '${index + 1}. ',
+                              text: '${(index + 1).toString().padLeft(2)}. ',
                               style: HollowTypography.mono.copyWith(
                                 color: hollow.textSecondary.withValues(alpha: 0.5),
                                 fontSize: 10,
@@ -1522,9 +1539,7 @@ class _SectionLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hollow = HollowTheme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(left: HollowSpacing.xs),
-      child: Text(
+    return Text(
         label,
         style: HollowTypography.caption.copyWith(
           color: hollow.textSecondary,
@@ -1532,7 +1547,6 @@ class _SectionLabel extends StatelessWidget {
           letterSpacing: 0.5,
           fontSize: 10,
         ),
-      ),
     );
   }
 }
