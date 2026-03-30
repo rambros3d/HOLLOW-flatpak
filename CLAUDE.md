@@ -63,6 +63,12 @@ ssh ubuntu@141.227.186.209 "cd relay && cargo build --release && sudo systemctl 
 ```
 
 ## Current Phase
+**Phase 5B: Voice & Video — IN PROGRESS (Mar 30, 2026).**
+- **1:1 voice calls: DONE.** Separate RTCPeerConnection for voice. Full call flow (invite/accept/reject/end/busy). VoiceService + CallNotifier. Incoming call overlay + active call bar. Tested P2P.
+- **TURN server: DEPLOYED.** Coturn on VPS. HMAC-SHA1 credentials via relay `/turn-credentials`. IceConfigProvider refreshes every 50 min.
+- **ICE config:** Own coturn STUN + Cloudflare + Google STUN + TURN (UDP/TCP/TLS).
+- **Next:** Video calls, voice channels, device selection, quality presets, screen sharing.
+
 **Phase 5A: WebRTC Data Channels — COMPLETE (Mar 29, 2026).** P2P file/shard streaming via WebRTC data channels. flutter_webrtc 1.4.1 (libwebrtc m144). ~9 MB/s throughput, tested up to 131MB. 85-90% of heavy transfers bypass relay. STUN only (no TURN yet). WSS relay fallback for symmetric NAT. Keepalive pings (30s), auto-reconnect, early-arrival handling, `getBufferedAmount()` backpressure.
 
 **Phase 7: libp2p Full Removal — COMPLETE (Mar 27-28, 2026).** libp2p fully removed. WSS relay is sole transport. ed25519-dalek replaces libp2p identity. Relay server simplified (signaling + WS only). 184 tests pass.
@@ -150,7 +156,8 @@ All UI uses custom Hollow widgets — no Material defaults.
 - **Icons:** `lucide_icons: ^0.257.0`. All `LucideIcons.*` (camelCase). v0.257.0 uses `alertTriangle`/`alertCircle`. No `cloudCheck` — uses `cloud`.
 - `hollow_log!` macro logs to stderr + `hollow_debug.log` (works in release builds, rotates at 10MB)
 - Relay: OVH VPS 141.227.186.209, Nginx TLS on 443 → WS 127.0.0.1:9001. Domain: relay.anonlisten.com
-- **Transport:** WSS connection to relay (signaling + text/CRDT/MLS) + WebRTC data channels for files/shards (85-90% P2P, WSS fallback).
+- **Transport:** WSS connection to relay (signaling + text/CRDT/MLS) + WebRTC data channels for files/shards (85-90% P2P, WSS fallback) + WebRTC audio for voice calls (separate RTCPeerConnection per call).
+- **TURN:** Coturn on VPS (141.227.186.209:3478). Relay `/turn-credentials` generates HMAC-SHA1 creds. `IceConfigProvider` in Dart fetches + auto-refreshes.
 
 ## Coding Conventions
 - Dart: follow standard `flutter_lints` / `analysis_options.yaml`

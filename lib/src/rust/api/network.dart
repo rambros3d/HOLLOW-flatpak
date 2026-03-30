@@ -335,6 +335,17 @@ Future<void> webrtcTransferFailed({
   error: error,
 );
 
+/// Send a voice call signaling message to a peer (Phase 5B).
+Future<void> callSendSignal({
+  required String peerId,
+  required String signalType,
+  required String payload,
+}) => RustLib.instance.api.crateApiNetworkCallSendSignal(
+  peerId: peerId,
+  signalType: signalType,
+  payload: payload,
+);
+
 /// A discovered peer on the local network.
 class DiscoveredPeer {
   final String peerId;
@@ -671,4 +682,11 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String kind,
     required int shardIndex,
   }) = NetworkEvent_WebRtcSendFile;
+
+  /// Forward incoming voice call signaling message to Dart.
+  const factory NetworkEvent.callSignal({
+    required String peerId,
+    required String signalType,
+    required String payload,
+  }) = NetworkEvent_CallSignal;
 }

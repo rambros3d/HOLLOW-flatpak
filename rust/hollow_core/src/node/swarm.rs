@@ -138,6 +138,9 @@ pub(crate) enum NetworkEvent {
     WebRtcSignal { peer_id: String, signal_type: String, payload: String, conn_id: String },
     /// Tell Dart to send a file over WebRTC data channel.
     WebRtcSendFile { peer_id: String, transfer_id: String, file_path: String, total_size: u64, kind: String, shard_index: u16 },
+    // -- Voice call events (Phase 5B) --
+    /// Forward incoming voice call signaling message to Dart.
+    CallSignal { peer_id: String, signal_type: String, payload: String },
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
@@ -229,6 +232,8 @@ pub(crate) enum NodeCommand {
     WebRtcTransferComplete { transfer_id: String, temp_path: String, sender_peer_id: String, kind: String, shard_index: u16 },
     WebRtcSendComplete { transfer_id: String },
     WebRtcTransferFailed { transfer_id: String, peer_id: String, error: String },
+    // -- Voice call commands (Phase 5B) --
+    CallSendSignal { peer_id: String, signal_type: String, payload: String },
     StoreShardOnPeer {
         server_id: String,
         content_id: String,
@@ -480,6 +485,45 @@ enum HavenMessage {
         sdp_mid: String,
         sdp_mline_index: u32,
         conn_id: String,
+    },
+
+    // -- Voice call signaling (Phase 5B) --
+
+    /// Invite a peer to a voice call.
+    #[serde(rename = "call_invite")]
+    CallInvite { call_id: String },
+
+    /// Accept a voice call invitation.
+    #[serde(rename = "call_accept")]
+    CallAccept { call_id: String },
+
+    /// Reject a voice call invitation.
+    #[serde(rename = "call_reject")]
+    CallReject { call_id: String },
+
+    /// End an active voice call.
+    #[serde(rename = "call_end")]
+    CallEnd { call_id: String },
+
+    /// Signal that we're already in a call.
+    #[serde(rename = "call_busy")]
+    CallBusy { call_id: String },
+
+    /// SDP offer for voice call WebRTC connection.
+    #[serde(rename = "call_sdp_offer")]
+    CallSdpOffer { call_id: String, sdp: String },
+
+    /// SDP answer for voice call WebRTC connection.
+    #[serde(rename = "call_sdp_answer")]
+    CallSdpAnswer { call_id: String, sdp: String },
+
+    /// ICE candidate for voice call WebRTC connection.
+    #[serde(rename = "call_ice")]
+    CallIceCandidate {
+        call_id: String,
+        candidate: String,
+        sdp_mid: String,
+        sdp_mline_index: u32,
     },
 }
 
@@ -4641,6 +4685,57 @@ async fn run_event_loop(
                                 },
                             );
                         }
+                    }
+
+                    // -- Voice call signaling (Phase 5B) --
+                    NodeCommand::CallSendSignal { peer_id, signal_type, payload } => {
+                        let msg = match signal_type.as_str() {
+                            "invite" => HavenMessage::CallInvite { call_id: payload },
+                            "accept" => HavenMessage::CallAccept { call_id: payload },
+                            "reject" => HavenMessage::CallReject { call_id: payload },
+                            "end" => HavenMessage::CallEnd { call_id: payload },
+                            "busy" => HavenMessage::CallBusy { call_id: payload },
+                            "sdp_offer" => {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) {
+                                    HavenMessage::CallSdpOffer {
+                                        call_id: v["call_id"].as_str().unwrap_or("").to_string(),
+                                        sdp: v["sdp"].as_str().unwrap_or("").to_string(),
+                                    }
+                                } else {
+                                    hollow_log!("[HOLLOW-CALL] Failed to parse sdp_offer payload");
+                                    continue;
+                                }
+                            }
+                            "sdp_answer" => {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) {
+                                    HavenMessage::CallSdpAnswer {
+                                        call_id: v["call_id"].as_str().unwrap_or("").to_string(),
+                                        sdp: v["sdp"].as_str().unwrap_or("").to_string(),
+                                    }
+                                } else {
+                                    hollow_log!("[HOLLOW-CALL] Failed to parse sdp_answer payload");
+                                    continue;
+                                }
+                            }
+                            "ice" => {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) {
+                                    HavenMessage::CallIceCandidate {
+                                        call_id: v["call_id"].as_str().unwrap_or("").to_string(),
+                                        candidate: v["candidate"].as_str().unwrap_or("").to_string(),
+                                        sdp_mid: v["sdpMid"].as_str().unwrap_or("").to_string(),
+                                        sdp_mline_index: v["sdpMLineIndex"].as_u64().unwrap_or(0) as u32,
+                                    }
+                                } else {
+                                    hollow_log!("[HOLLOW-CALL] Failed to parse ICE payload");
+                                    continue;
+                                }
+                            }
+                            _ => {
+                                hollow_log!("[HOLLOW-CALL] Unknown call signal type: {signal_type}");
+                                continue;
+                            }
+                        };
+                        send_message_to_peer(&ws_cmd_tx, &ws_room_peers, &peer_id, msg);
                     }
 
                     NodeCommand::NotifyShutdown => {
@@ -9705,6 +9800,86 @@ async fn handle_incoming_request(
                 signal_type: "ice".to_string(),
                 payload,
                 conn_id,
+            }).await;
+        }
+
+        // -- Voice call signaling (Phase 5B) --
+        HavenMessage::CallInvite { call_id } => {
+            hollow_log!("[HOLLOW-CALL] CallInvite from {peer_str} call={call_id}");
+            let _ = event_tx.send(NetworkEvent::CallSignal {
+                peer_id: peer_str.to_string(),
+                signal_type: "invite".to_string(),
+                payload: call_id,
+            }).await;
+        }
+        HavenMessage::CallAccept { call_id } => {
+            hollow_log!("[HOLLOW-CALL] CallAccept from {peer_str} call={call_id}");
+            let _ = event_tx.send(NetworkEvent::CallSignal {
+                peer_id: peer_str.to_string(),
+                signal_type: "accept".to_string(),
+                payload: call_id,
+            }).await;
+        }
+        HavenMessage::CallReject { call_id } => {
+            hollow_log!("[HOLLOW-CALL] CallReject from {peer_str} call={call_id}");
+            let _ = event_tx.send(NetworkEvent::CallSignal {
+                peer_id: peer_str.to_string(),
+                signal_type: "reject".to_string(),
+                payload: call_id,
+            }).await;
+        }
+        HavenMessage::CallEnd { call_id } => {
+            hollow_log!("[HOLLOW-CALL] CallEnd from {peer_str} call={call_id}");
+            let _ = event_tx.send(NetworkEvent::CallSignal {
+                peer_id: peer_str.to_string(),
+                signal_type: "end".to_string(),
+                payload: call_id,
+            }).await;
+        }
+        HavenMessage::CallBusy { call_id } => {
+            hollow_log!("[HOLLOW-CALL] CallBusy from {peer_str} call={call_id}");
+            let _ = event_tx.send(NetworkEvent::CallSignal {
+                peer_id: peer_str.to_string(),
+                signal_type: "busy".to_string(),
+                payload: call_id,
+            }).await;
+        }
+        HavenMessage::CallSdpOffer { call_id, sdp } => {
+            hollow_log!("[HOLLOW-CALL] CallSdpOffer from {peer_str} call={call_id}");
+            let payload = serde_json::json!({
+                "call_id": call_id,
+                "sdp": sdp,
+            }).to_string();
+            let _ = event_tx.send(NetworkEvent::CallSignal {
+                peer_id: peer_str.to_string(),
+                signal_type: "sdp_offer".to_string(),
+                payload,
+            }).await;
+        }
+        HavenMessage::CallSdpAnswer { call_id, sdp } => {
+            hollow_log!("[HOLLOW-CALL] CallSdpAnswer from {peer_str} call={call_id}");
+            let payload = serde_json::json!({
+                "call_id": call_id,
+                "sdp": sdp,
+            }).to_string();
+            let _ = event_tx.send(NetworkEvent::CallSignal {
+                peer_id: peer_str.to_string(),
+                signal_type: "sdp_answer".to_string(),
+                payload,
+            }).await;
+        }
+        HavenMessage::CallIceCandidate { call_id, candidate, sdp_mid, sdp_mline_index } => {
+            hollow_log!("[HOLLOW-CALL] CallIceCandidate from {peer_str} call={call_id}");
+            let payload = serde_json::json!({
+                "call_id": call_id,
+                "candidate": candidate,
+                "sdpMid": sdp_mid,
+                "sdpMLineIndex": sdp_mline_index,
+            }).to_string();
+            let _ = event_tx.send(NetworkEvent::CallSignal {
+                peer_id: peer_str.to_string(),
+                signal_type: "ice".to_string(),
+                payload,
             }).await;
         }
 

@@ -123,6 +123,9 @@ pub enum NetworkEvent {
     WebRtcSignal { peer_id: String, signal_type: String, payload: String, conn_id: String },
     /// Tell Dart to send a file over WebRTC data channel.
     WebRtcSendFile { peer_id: String, transfer_id: String, file_path: String, total_size: u64, kind: String, shard_index: u16 },
+    // -- Voice call events (Phase 5B) --
+    /// Forward incoming voice call signaling message to Dart.
+    CallSignal { peer_id: String, signal_type: String, payload: String },
 }
 
 /// Holds all mutable state for the running node.
@@ -293,6 +296,9 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::WebRtcSendFile { peer_id, transfer_id, total_size, .. } => {
             hollow_log!("[HOLLOW-WEBRTC] SendFile {transfer_id} to {peer_id} ({total_size} bytes)");
+        }
+        node::NetworkEvent::CallSignal { peer_id, signal_type, .. } => {
+            hollow_log!("[HOLLOW-CALL] Signal {signal_type} from {peer_id}");
         }
         _ => {}
     }
@@ -496,6 +502,10 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::WebRtcSendFile { peer_id, transfer_id, file_path, total_size, kind, shard_index } => {
             NetworkEvent::WebRtcSendFile { peer_id, transfer_id, file_path, total_size, kind, shard_index }
+        }
+        // -- Voice call events (Phase 5B) --
+        node::NetworkEvent::CallSignal { peer_id, signal_type, payload } => {
+            NetworkEvent::CallSignal { peer_id, signal_type, payload }
         }
     }
 }
@@ -1278,6 +1288,24 @@ pub fn webrtc_transfer_failed(
     let rt = get_runtime();
     rt.block_on(state.cmd_tx.send(node::NodeCommand::WebRtcTransferFailed {
         transfer_id, peer_id, error,
+    }))
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+    Ok(())
+}
+
+/// Send a voice call signaling message to a peer (Phase 5B).
+#[frb]
+pub fn call_send_signal(
+    peer_id: String,
+    signal_type: String,
+    payload: String,
+) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+    let rt = get_runtime();
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::CallSendSignal {
+        peer_id, signal_type, payload,
     }))
     .map_err(|e| format!("Failed to send command: {e}"))?;
     Ok(())

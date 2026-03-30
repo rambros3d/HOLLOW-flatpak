@@ -242,6 +242,49 @@ async fn handle_health() -> impl IntoResponse {
     }))
 }
 
+/// Generate time-limited TURN credentials using HMAC-SHA1 shared secret.
+/// Coturn's `use-auth-secret` expects: username = "expiry_timestamp:arbitrary_id",
+/// password = Base64(HMAC-SHA1(secret, username)).
+/// TTL = 1 hour. No authentication required — the credentials themselves are
+/// time-limited and only useful for TURN relay allocation.
+async fn handle_turn_credentials() -> impl IntoResponse {
+    use hmac::{Hmac, Mac};
+    use sha1::Sha1;
+
+    let secret = match std::env::var("TURN_SECRET") {
+        Ok(s) if !s.is_empty() => s,
+        _ => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": "TURN not configured"})),
+            );
+        }
+    };
+
+    let ttl: u64 = 3600; // 1 hour
+    let expiry = now_unix_secs() + ttl;
+    let username = format!("{expiry}:hollow");
+
+    let mut mac = Hmac::<Sha1>::new_from_slice(secret.as_bytes())
+        .expect("HMAC can take key of any size");
+    mac.update(username.as_bytes());
+    let password = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "username": username,
+            "password": password,
+            "ttl": ttl,
+            "uris": [
+                "turn:relay.anonlisten.com:3478",
+                "turn:relay.anonlisten.com:3478?transport=tcp",
+                "turns:relay.anonlisten.com:5349"
+            ]
+        })),
+    )
+}
+
 // -- Signature verification --
 
 /// Verify an Ed25519 signature using the libp2p protobuf-encoded public key.
@@ -335,12 +378,16 @@ pub fn build_router(rooms: RoomMap, ws_state: crate::ws_router::SharedWsState) -
         .route("/health", get(handle_health))
         .with_state(rooms);
 
+    // TURN credential route (no shared state needed).
+    let turn = Router::new()
+        .route("/turn-credentials", get(handle_turn_credentials));
+
     // WebSocket route uses WsState.
     let ws = Router::new()
         .route("/ws", axum::routing::get(crate::ws_router::ws_upgrade))
         .with_state(ws_state);
 
-    signaling.merge(ws).layer(cors)
+    signaling.merge(ws).merge(turn).layer(cors)
 }
 
 /// Run the HTTP + WebSocket signaling server.

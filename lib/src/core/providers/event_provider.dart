@@ -27,6 +27,7 @@ import 'package:hollow/src/core/providers/vault_status_provider.dart';
 import 'package:hollow/src/core/providers/notification_provider.dart';
 import 'package:hollow/src/core/providers/system_notification_provider.dart';
 import 'package:hollow/src/core/providers/webrtc_provider.dart';
+import 'package:hollow/src/core/providers/call_provider.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:hollow/src/rust/api/network.dart';
 import 'package:hollow/src/rust/api/storage.dart' as storage_api;
@@ -84,6 +85,7 @@ class EventStreamNotifier extends Notifier<bool> {
         ref.read(peersProvider.notifier).removePeer(peerId);
         ref.read(connectionStatusProvider.notifier).onPeerDisconnected(peerId);
         ref.read(webRtcProvider.notifier).disconnectPeer(peerId);
+        ref.read(callProvider.notifier).handlePeerDisconnected(peerId);
         // Don't deselect — friends stay visible when offline.
 
       case NetworkEvent_RoomCleared():
@@ -612,6 +614,12 @@ class EventStreamNotifier extends Notifier<bool> {
             :final totalSize, :final kind, :final shardIndex):
         ref.read(webRtcProvider.notifier).handleSendFile(
               peerId, transferId, filePath, totalSize.toInt(), kind, shardIndex);
+
+      // -- Voice call events (Phase 5B) --
+      case NetworkEvent_CallSignal(
+            :final peerId, :final signalType, :final payload):
+        ref.read(callProvider.notifier).handleCallSignal(
+              peerId, signalType, payload);
 
     }
     } catch (e, st) {

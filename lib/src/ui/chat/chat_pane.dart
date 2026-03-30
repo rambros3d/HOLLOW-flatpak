@@ -15,6 +15,7 @@ import 'package:hollow/src/core/providers/layout_provider.dart';
 import 'package:hollow/src/core/providers/notification_provider.dart';
 import 'package:hollow/src/core/providers/split_view_provider.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
+import 'package:hollow/src/core/providers/call_provider.dart';
 import 'package:hollow/src/core/providers/unread_provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:hollow/src/core/providers/local_nickname_provider.dart';
@@ -519,6 +520,36 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                 );
               }),
               const SizedBox(width: HollowSpacing.sm),
+              // Voice call button
+              Builder(builder: (_) {
+                final call = ref.watch(callProvider);
+                final isOnline = ref.watch(peersProvider).containsKey(widget.peerId);
+                final isInCall = call.status != CallStatus.idle;
+                final isCallWithThisPeer = call.peerId == widget.peerId && isInCall;
+
+                return HollowTooltip(
+                  message: isCallWithThisPeer
+                      ? 'In call'
+                      : (isOnline && !isInCall ? 'Start voice call' : 'Voice call'),
+                  child: HollowPressable(
+                    onTap: isOnline && !isInCall
+                        ? () => ref.read(callProvider.notifier).startCall(widget.peerId)
+                        : null,
+                    borderRadius: BorderRadius.circular(hollow.radiusSm),
+                    padding: const EdgeInsets.all(HollowSpacing.xs),
+                    child: Icon(
+                      isCallWithThisPeer ? LucideIcons.phoneCall : LucideIcons.phone,
+                      size: 16,
+                      color: isCallWithThisPeer
+                          ? hollow.success
+                          : (isOnline && !isInCall
+                              ? hollow.textSecondary
+                              : hollow.textSecondary.withValues(alpha: 0.3)),
+                    ),
+                  ),
+                );
+              }),
+              const SizedBox(width: HollowSpacing.xs),
               HollowTooltip(
                 message: showProfilePanel ? 'Hide profile' : 'Show profile',
                 child: HollowPressable(

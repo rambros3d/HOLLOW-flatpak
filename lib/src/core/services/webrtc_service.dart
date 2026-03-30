@@ -29,11 +29,12 @@ const _kIdleTimeout = Duration(seconds: 90);
 /// Keepalive ping interval — keeps the data channel alive.
 const _kKeepaliveInterval = Duration(seconds: 30);
 
-/// ICE servers (STUN only for Phase 5A, no TURN).
-final _iceServers = {
+/// Default ICE servers (STUN only — used if no config injected).
+final _defaultIceServers = {
   'iceServers': [
+    {'urls': 'stun:relay.anonlisten.com:3478'},
+    {'urls': 'stun:stun.cloudflare.com:3478'},
     {'urls': 'stun:stun.l.google.com:19302'},
-    {'urls': 'stun:stun1.l.google.com:19302'},
   ],
 };
 
@@ -45,6 +46,9 @@ void _log(String msg) {
 /// Manages WebRTC peer connections and data channel file streaming.
 class WebRtcService {
   final String localPeerId;
+
+  /// ICE configuration (STUN + TURN). Updated by IceConfigProvider.
+  Map<String, dynamic> iceServers;
 
   /// Active peer connections: peer_id -> _PeerConn
   final Map<String, _PeerConn> _connections = {};
@@ -72,7 +76,8 @@ class WebRtcService {
   void Function(String transferId, String tempPath, String senderPeerId,
       String kind, int shardIndex)? onReceiveComplete;
 
-  WebRtcService({required this.localPeerId});
+  WebRtcService({required this.localPeerId, Map<String, dynamic>? iceServers})
+      : iceServers = iceServers ?? _defaultIceServers;
 
   /// Check if a peer has an active data channel.
   bool hasPeerChannel(String peerId) {
@@ -90,7 +95,7 @@ class WebRtcService {
     final connId = _generateConnId();
     _log('[HOLLOW-WEBRTC-DART] Connecting to $peerId (conn=$connId, local=$localPeerId)');
 
-    final pc = await createPeerConnection(_iceServers);
+    final pc = await createPeerConnection(iceServers);
     final conn = _PeerConn(
       pc: pc,
       connId: connId,
@@ -313,7 +318,7 @@ class WebRtcService {
 
     _log('[HOLLOW-WEBRTC-DART] Handling offer from $peerId (conn=$connId)');
 
-    final pc = await createPeerConnection(_iceServers);
+    final pc = await createPeerConnection(iceServers);
     final conn = _PeerConn(
       pc: pc,
       connId: connId, // Use THEIR connId — answers must match

@@ -1350,11 +1350,11 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [ ] coturn validates credentials against same shared secret as hollow-relay
 
 - [ ] **Testing & verification**
-  - [ ] Test 1: Two peers on same LAN → should use local ICE candidate (fastest)
-  - [ ] Test 2: Two peers on different networks → should use STUN-mapped direct connection
-  - [ ] Test 3: Peer behind symmetric NAT (mobile hotspot) → should fall back to WSS relay
-  - [ ] Test 4: Transfer 100MB file over data channel → verify speed, progress, and completion
-  - [ ] Test 5: Disconnect mid-transfer → verify WSS relay fallback completes the transfer
+  - [X] Test 1: Two peers on same LAN → should use local ICE candidate (fastest)
+  - [X] Test 2: Two peers on different networks → should use STUN-mapped direct connection
+  - [X] Test 3: Peer behind symmetric NAT (mobile hotspot) → should fall back to WSS relay
+  - [X] Test 4: Transfer 100MB file over data channel → verify speed, progress, and completion
+  - [X] Test 5: Disconnect mid-transfer → verify WSS relay fallback completes the transfer
   - [ ] Test 6: Vault shard upload with 6 peers → verify shards go P2P, not through relay
 
 **Actual scope (completed Mar 29, 2026):**
@@ -1375,24 +1375,77 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 ### Phase 5B: Voice & Video
 
-**Goal:** Real-time calls with E2EE.
+**Goal:** Real-time calls with E2EE. No central media server — peers forward audio/video to each other using the same WebRTC connections from Phase 5A.
 
-**Dependencies:** flutter_webrtc 1.4.1 already integrated (Phase 5A). RTCPeerConnection already established per peer. Need coturn TURN server for voice/video (can't fall back to WSS for real-time media).
+**Dependencies:** flutter_webrtc 1.4.1 already integrated (Phase 5A). RTCPeerConnection already established per peer. Need coturn TURN server for ~10-15% behind symmetric NAT (can't fall back to WSS for real-time media).
+
+**Architecture:** No traditional SFU. Instead, gossip-tree forwarding — each peer receives audio/video and forwards to their connected subset (~3-6 peers). This distributes the load across all participants rather than burdening a single "super peer" or the VPS. Same topology as Phase 6's connection subset management for file broadcast, but applied to real-time media.
+
+**How it scales:**
+- **1:1 calls:** Direct P2P (already have the connection from 5A). ~100 kbps audio, ~2.5 Mbps video.
+- **Small group (2-5):** Full mesh — everyone connects to everyone. Each peer sends to 4 others. Trivial bandwidth.
+- **Medium group (5-20):** Partial mesh via gossip — each peer connected to ~6 others. Audio forwarded through 1-2 hops (~100-200ms latency). Each peer: ~600 kbps in + ~1.8 Mbps out for 6 speakers. Fine for any home connection.
+- **Large group (20-1000+):** Same gossip tree, 2-3 hops. Each peer still only handles ~6 connections. 1000 listeners covered in 3 hops with ~150-300ms latency. Perfect for "one speaker addressing an audience" or voice channels.
+- **VPS involvement:** Zero for media. Only TURN relay for the ~10-15% who can't P2P.
+
+---
 
 - [X] flutter_webrtc integration (done in Phase 5A)
-- [ ] Deploy coturn (TURN server) on VPS — needed for ~10-15% of users behind symmetric NAT
-- [ ] TURN credential management: hollow-relay generates time-limited HMAC-SHA1 credentials, 1-hour TTL
-- [ ] 1:1 voice calls (direct P2P, add audio track to existing RTCPeerConnection)
-- [ ] 1:1 video calls (add video track)
-- [ ] Small group calls (mesh topology, 2-5 participants)
-- [ ] Super peer SFU for larger groups
-- [ ] SFrame/DataPacketCryptor E2EE for group calls (flutter_webrtc 1.4.1 supports this on Windows/Linux)
-- [ ] Screen sharing
-- [ ] Voice channels (persistent, join/leave). 🎞️ Animate: join/leave transitions, voice activity ring pulse around avatar
-- [ ] Audio processing (echo cancellation, noise suppression)
-- [ ] Call UI (grid view, controls, indicators). 🎞️ Animate: participant grid rearrange, mute/unmute feedback, speaking indicator glow, call connect/disconnect transitions
+- [X] **TURN server deployment** *(Mar 30, 2026)*
+  - [X] Deploy coturn on VPS — needed for ~10-15% behind symmetric NAT
+  - [X] TURN credential management: hollow-relay `/turn-credentials` endpoint generates time-limited HMAC-SHA1 credentials, 1-hour TTL
+  - [X] Client refreshes credentials every 50 minutes via `IceConfigProvider` (Dart)
+  - [X] TURN + STUN (own coturn + Cloudflare + Google) in ICE config for both `WebRtcService` and `VoiceService`
+- [X] **1:1 voice calls** *(Mar 30, 2026)*
+  - [X] Separate RTCPeerConnection for voice (cleaner than reusing data channel connection — different lifecycle, no idle timeout)
+  - [X] Microphone capture via flutter_webrtc `navigator.mediaDevices.getUserMedia()` with echo cancellation, noise suppression, AGC
+  - [X] Mute/unmute toggle
+  - [ ] DataPacketCryptor E2EE on audio track (flutter_webrtc 1.4.1 supports on Windows/Linux)
+  - [X] Call signaling: `HavenMessage::CallInvite/Accept/Reject/End/Busy` + `CallSdpOffer/SdpAnswer/IceCandidate` via WSS relay
+  - [X] Incoming call overlay (slide-down card with accept/decline, 30s auto-reject)
+  - [X] Active call bar (floating pill: peer name, MM:SS timer, mute toggle, end call)
+  - [X] Call button in DM header (phone icon, disabled when offline/in-call)
+  - [X] Glare handling (lexicographic peer ID, polite-peer protocol)
+  - [X] Auto-end on peer disconnect, auto-busy when already in call, 30s ring timeout
+- [ ] **1:1 video calls**
+  - [ ] Add video track to RTCPeerConnection
+  - [ ] Camera capture + camera switch (front/back on mobile)
+  - [ ] Video mute (camera off, audio continues)
+- [ ] **Small group calls (2-5, mesh)**
+  - [ ] Multiple RTCPeerConnection with audio/video tracks (one per participant)
+  - [ ] Participant list synced via MLS-encrypted `CallState` messages
+  - [ ] Mesh topology: everyone sends to everyone
+- [ ] **Gossip-tree forwarding for larger groups (5+)**
+  - [ ] Each peer forwards received audio to their connected WebRTC subset (minus source)
+  - [ ] Audio deduplication via stream ID (same audio may arrive from multiple paths)
+  - [ ] TTL/hop limit on forwarded audio (3-4 hops max)
+  - [ ] Adaptive: below 6 participants → full mesh, 6+ → gossip forwarding
+  - [ ] Same connection subset as Phase 6 scaling (peer scoring, rotation, 6-12 peers per server)
+- [ ] **Screen sharing**
+  - [ ] `getDisplayMedia()` for screen/window capture
+  - [ ] Share as video track on existing RTCPeerConnection
+  - [ ] Viewer-only mode (screen share without camera)
+  - [ ] Quality/FPS picker: Resolution — 360p, 480p, 720p, 1080p (default), 1440p, 4K. FPS — 5, 15, 30, 60 (default). Set via `getDisplayMedia` constraints + SDP bandwidth caps. 360p for low-bandwidth users, 15fps for text/code sharing
+- [ ] **Voice channels (persistent, join/leave)**
+  - [ ] Server-level voice channels in CRDT (like text channels but for voice)
+  - [ ] Join/leave mechanics: add/remove audio track, update channel member list via CRDT
+  - [ ] 🎞️ Animate: join/leave transitions, voice activity ring pulse around avatar
+- [ ] **Audio/video device & quality settings**
+  - [ ] Device selection: enumerate mic/camera/speaker via `navigator.mediaDevices.enumerateDevices()`, pass `deviceId` to `getUserMedia`. Persist selection
+  - [ ] Mic input gain (boost/reduce) — adjustable slider, useful for quiet microphones
+  - [ ] Per-peer speaker volume — `setVolume()` on remote audio track, slider in call UI
+  - [ ] Audio quality preset: "Voice" (Opus 32 kbps mono, optimized for speech) vs "Music" (Opus 128 kbps stereo, for instruments/singing). Set via SDP munging (`maxaveragebitrate`, `stereo`, `cbr` Opus params)
+- [ ] **Audio processing**
+  - [X] Echo cancellation (built into WebRTC/libwebrtc — enabled via getUserMedia constraints)
+  - [X] Noise suppression (built into WebRTC/libwebrtc — enabled via getUserMedia constraints)
+  - [ ] Voice activity detection (VAD) — show speaking indicator, suppress silence
+- [ ] **Call UI**
+  - [ ] Grid view for video participants
+  - [ ] Controls bar: mute, camera, screen share, leave
+  - [ ] Speaking indicator (glow around avatar)
+  - [ ] 🎞️ Animate: participant grid rearrange, mute/unmute feedback, speaking indicator glow, call connect/disconnect transitions
 
-**Deliverable:** Full voice/video/screen-share with E2EE.
+**Deliverable:** Full voice/video/screen-share with E2EE. No central media server. Gossip-tree forwarding scales to 1000+ participants with zero VPS bandwidth for media.
 
 ### Phase 6: Polish & Launch Prep
 
@@ -1406,10 +1459,10 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] Fix "Encrypting..." / "Connecting..." labels on Network column and DMs header (ConnectionStatus provider not transitioning properly after key exchange)
 - [ ] Fix server join double-click bug (first JoinServer command joins WS room but doesn't send ServerJoinRequest — second click needed)
 - [ ] Export/import friend profile data (avatars, statuses, about) — either export to .hollow backup or trigger sync on import to pull from friends
-- [ ] Copying messages / Paste images into the input bar
+- [ ] Copying messages / Paste + drag-and-drop images into the input bar
 - [ ] Different fonts/elements like hearts or sparkles on Profile and maybe nicknames
 - [ ] **Scaling (deferred from Phase 4):**
-  - [ ] Connection subset management (6-12 peers per server, peer scoring, rotation) — defer until scaling pain
+  - [ ] Connection subset management + gossip relay tree — shared with Phase 5B voice forwarding. Full spec at Phase 4 section (line ~1229). Defer until scaling pain or when 5B gossip forwarding is implemented
   - [ ] Channel-level CRDT sharding (split ServerState for scale) — defer until ServerState is too large
 - [ ] **File deduplication** — content-addressable dedup via SHA-256 hash. If the same file is sent multiple times, store once on disk, point all file_ids to the same path. Reference counting for cleanup.
 - [X] Unread message indicator: floating pill above chat input with arrow-down icon + unread count, click to scroll to newest, auto-dismiss on scroll — also fix channel chat auto-reload when MessageSyncCompleted fires for currently-viewed channel
