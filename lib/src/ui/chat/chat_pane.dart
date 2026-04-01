@@ -550,6 +550,31 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                 );
               }),
               const SizedBox(width: HollowSpacing.xs),
+              // Video call button
+              Builder(builder: (_) {
+                final call = ref.watch(callProvider);
+                final isOnline = ref.watch(peersProvider).containsKey(widget.peerId);
+                final isInCall = call.status != CallStatus.idle;
+
+                return HollowTooltip(
+                  message: 'Start video call',
+                  child: HollowPressable(
+                    onTap: isOnline && !isInCall
+                        ? () => ref.read(callProvider.notifier).startCall(widget.peerId, withVideo: true)
+                        : null,
+                    borderRadius: BorderRadius.circular(hollow.radiusSm),
+                    padding: const EdgeInsets.all(HollowSpacing.xs),
+                    child: Icon(
+                      LucideIcons.video,
+                      size: 16,
+                      color: isOnline && !isInCall
+                          ? hollow.textSecondary
+                          : hollow.textSecondary.withValues(alpha: 0.3),
+                    ),
+                  ),
+                );
+              }),
+              const SizedBox(width: HollowSpacing.xs),
               HollowTooltip(
                 message: showProfilePanel ? 'Hide profile' : 'Show profile',
                 child: HollowPressable(

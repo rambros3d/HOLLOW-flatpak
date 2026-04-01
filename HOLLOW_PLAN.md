@@ -1456,6 +1456,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [X] Change locally someone else's nickname (only for you to see)
 - [X] Custom background for the app / Custom color picker chooser
 - [X] GIF support for chats and as animated avatars/banners for Profiles
+- [ ] Fix tooltip freezing on the call buttonss
 - [ ] Fix "Encrypting..." / "Connecting..." labels on Network column and DMs header (ConnectionStatus provider not transitioning properly after key exchange)
 - [ ] Fix server join double-click bug (first JoinServer command joins WS room but doesn't send ServerJoinRequest — second click needed)
 - [ ] Export/import friend profile data (avatars, statuses, about) — either export to .hollow backup or trigger sync on import to pull from friends
@@ -1469,7 +1470,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] Proper roles on the server and editing of permissions
 - [ ] Video preview in chats
 - [ ] Link previews (URL metadata fetch + embed card rendering)
-- [ ] Discord import system (full implementation — parse GDPR export ZIP, map servers/channels/roles/messages, placeholder identities, member claiming)
+- [ ] Discord import system (full implementation — parse GDPR export ZIP, map servers/channels/roles/messages, placeholder identities, member claiming) == reflect to the discord_migration_plan.md
 - [ ] Data export system (messages, files, identity — verifiable with Ed25519 signatures)
 - [ ] Server template export/import (share server structures)
 - [ ] Evidence Recovery UI tool (cooperative shard gathering for ex-members) — depends on Phase 4 shard system

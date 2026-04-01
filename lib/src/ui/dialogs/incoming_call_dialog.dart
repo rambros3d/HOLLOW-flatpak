@@ -122,7 +122,9 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
                   ),
                   const SizedBox(height: HollowSpacing.xs),
                   Text(
-                    'Incoming voice call...',
+                    call.isVideoCall
+                        ? 'Incoming video call...'
+                        : 'Incoming voice call...',
                     style: HollowTypography.caption.copyWith(
                       color: hollow.textSecondary,
                     ),
@@ -143,7 +145,10 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
                         onPressed: () {
                           ref.read(callProvider.notifier).acceptCall();
                         },
-                        icon: Icon(LucideIcons.phone, size: 16),
+                        icon: Icon(
+                          call.isVideoCall ? LucideIcons.video : LucideIcons.phone,
+                          size: 16,
+                        ),
                         child: const Text('Accept'),
                       ),
                     ],

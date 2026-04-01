@@ -304,8 +304,41 @@ class WebRtcService {
 
     final existing = _connections[peerId];
     if (existing != null) {
-      // Glare: both peers sent offers simultaneously.
-      // Peer with lexicographically smaller ID is "polite" — drops own, accepts theirs.
+      // Same connId = renegotiation on existing connection (media track change).
+      if (existing.connId == connId) {
+        _log('[HOLLOW-WEBRTC-DART] Renegotiation offer from $peerId (conn=$connId)');
+
+        // Handle renegotiation glare: if we also sent a renegotiation offer,
+        // polite peer rolls back.
+        final signalingState = existing.pc.signalingState;
+        if (signalingState == RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
+          if (localPeerId.compareTo(peerId) < 0) {
+            _log('[HOLLOW-WEBRTC-DART] Renegotiation glare: rolling back');
+            await existing.pc.setLocalDescription(
+                RTCSessionDescription(null, 'rollback'));
+          } else {
+            _log('[HOLLOW-WEBRTC-DART] Renegotiation glare: ignoring theirs');
+            return;
+          }
+        }
+
+        await existing.pc.setRemoteDescription(
+            RTCSessionDescription(sdp, 'offer'));
+
+        final answer = await existing.pc.createAnswer();
+        await existing.pc.setLocalDescription(answer);
+
+        await network_api.webrtcSendSignal(
+          peerId: peerId,
+          signalType: 'answer',
+          payload: answer.sdp!,
+          connId: connId,
+        );
+        _log('[HOLLOW-WEBRTC-DART] Sent renegotiation answer to $peerId');
+        return;
+      }
+
+      // Different connId = glare (initial connection collision).
       if (localPeerId.compareTo(peerId) < 0) {
         _log('[HOLLOW-WEBRTC-DART] Glare: we are polite, dropping our connection to $peerId');
         await disconnectPeer(peerId);

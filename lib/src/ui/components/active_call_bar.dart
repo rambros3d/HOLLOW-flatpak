@@ -24,6 +24,7 @@ class ActiveCallBar extends ConsumerStatefulWidget {
 class _ActiveCallBarState extends ConsumerState<ActiveCallBar> {
   Timer? _durationTimer;
   Duration _duration = Duration.zero;
+  Offset _dragOffset = Offset.zero;
 
   @override
   void dispose() {
@@ -59,7 +60,8 @@ class _ActiveCallBarState extends ConsumerState<ActiveCallBar> {
 
     // Only show during active or connecting states.
     final isVisible =
-        call.status == CallStatus.active || call.status == CallStatus.connecting;
+        call.status == CallStatus.active ||
+        call.status == CallStatus.connecting;
 
     if (!isVisible) {
       if (_durationTimer != null) _stopTimer();
@@ -76,96 +78,149 @@ class _ActiveCallBarState extends ConsumerState<ActiveCallBar> {
 
     final hollow = HollowTheme.of(context);
     final peerId = call.peerId ?? '';
-    final displayName =
-        displayNameFor(ref.watch(profileProvider), peerId);
+    final displayName = displayNameFor(ref.watch(profileProvider), peerId);
 
     return Positioned(
       top: 32, // below title bar
       left: 0,
       right: 0,
-      child: Center(
-        child: Container(
-          height: 36,
-          padding: const EdgeInsets.symmetric(horizontal: HollowSpacing.md),
-          decoration: BoxDecoration(
-            color: hollow.elevated,
-            borderRadius: BorderRadius.circular(hollow.radiusLg),
-            border: Border.all(color: hollow.success.withValues(alpha: 0.3)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.2),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              StatusDot(
-                color: hollow.success,
-                size: 8,
-                pulse: true,
-              ),
-              const SizedBox(width: HollowSpacing.sm),
-              if (call.status == CallStatus.connecting)
-                Text(
-                  'Connecting...',
-                  style: HollowTypography.caption.copyWith(
-                    color: hollow.textSecondary,
-                    fontSize: 12,
-                  ),
-                )
-              else ...[
-                Text(
-                  displayName,
-                  style: HollowTypography.caption.copyWith(
-                    color: hollow.textPrimary,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12,
-                  ),
+      child: Transform.translate(
+        offset: _dragOffset,
+        child: Center(
+          child: GestureDetector(
+            onPanUpdate: (details) {
+              setState(() {
+                _dragOffset += details.delta;
+              });
+            },
+            child: MouseRegion(
+              cursor: SystemMouseCursors.move,
+              child: Container(
+                height: 36,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: HollowSpacing.md,
                 ),
-                const SizedBox(width: HollowSpacing.sm),
-                Text(
-                  _formatDuration(_duration),
-                  style: HollowTypography.caption.copyWith(
-                    color: hollow.textSecondary,
-                    fontSize: 12,
-                    fontFeatures: [const FontFeature.tabularFigures()],
+                decoration: BoxDecoration(
+                  color: hollow.elevated,
+                  borderRadius: BorderRadius.circular(hollow.radiusLg),
+                  border: Border.all(
+                    color: hollow.success.withValues(alpha: 0.3),
                   ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-              ],
-              const SizedBox(width: HollowSpacing.md),
-              // Mute toggle
-              HollowTooltip(
-                message: call.isMuted ? 'Unmute' : 'Mute',
-                child: HollowPressable(
-                  onTap: () => ref.read(callProvider.notifier).toggleMute(),
-                  borderRadius: BorderRadius.circular(hollow.radiusSm),
-                  padding: const EdgeInsets.all(HollowSpacing.xs),
-                  child: Icon(
-                    call.isMuted ? LucideIcons.micOff : LucideIcons.mic,
-                    size: 14,
-                    color: call.isMuted ? hollow.error : hollow.textSecondary,
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    StatusDot(color: hollow.success, size: 8, pulse: true),
+                    const SizedBox(width: HollowSpacing.sm),
+                    if (call.status == CallStatus.connecting)
+                      Text(
+                        'Connecting...',
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.textSecondary,
+                          fontSize: 12,
+                        ),
+                      )
+                    else ...[
+                      Text(
+                        displayName,
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.textPrimary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(width: HollowSpacing.sm),
+                      Text(
+                        _formatDuration(_duration),
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.textSecondary,
+                          fontSize: 12,
+                          fontFeatures: [const FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(width: HollowSpacing.md),
+                    HollowTooltip(
+                      message: call.isMuted ? 'Unmute' : 'Mute',
+                      child: HollowPressable(
+                        onTap: () =>
+                            ref.read(callProvider.notifier).toggleMute(),
+                        borderRadius: BorderRadius.circular(hollow.radiusSm),
+                        padding: const EdgeInsets.all(HollowSpacing.xs),
+                        child: Icon(
+                          call.isMuted ? LucideIcons.micOff : LucideIcons.mic,
+                          size: 14,
+                          color: call.isMuted
+                              ? hollow.error
+                              : hollow.textSecondary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: HollowSpacing.xs),
+                    HollowTooltip(
+                      message: call.isVideoEnabled
+                          ? 'Turn off camera'
+                          : 'Turn on camera',
+                      child: HollowPressable(
+                        onTap: call.status == CallStatus.active
+                            ? () =>
+                                  ref.read(callProvider.notifier).toggleVideo()
+                            : null,
+                        borderRadius: BorderRadius.circular(hollow.radiusSm),
+                        padding: const EdgeInsets.all(HollowSpacing.xs),
+                        child: Icon(
+                          call.isVideoEnabled
+                              ? LucideIcons.video
+                              : LucideIcons.videoOff,
+                          size: 14,
+                          color: call.isVideoEnabled
+                              ? hollow.accent
+                              : hollow.textSecondary,
+                        ),
+                      ),
+                    ),
+                    if (call.isVideoEnabled) ...[
+                      const SizedBox(width: HollowSpacing.xs),
+                      HollowTooltip(
+                        message: 'Switch camera',
+                        child: HollowPressable(
+                          onTap: () =>
+                              ref.read(callProvider.notifier).switchCamera(),
+                          borderRadius: BorderRadius.circular(hollow.radiusSm),
+                          padding: const EdgeInsets.all(HollowSpacing.xs),
+                          child: Icon(
+                            LucideIcons.switchCamera,
+                            size: 14,
+                            color: hollow.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(width: HollowSpacing.xs),
+                    HollowTooltip(
+                      message: 'End call',
+                      child: HollowPressable(
+                        onTap: () => ref.read(callProvider.notifier).endCall(),
+                        borderRadius: BorderRadius.circular(hollow.radiusSm),
+                        padding: const EdgeInsets.all(HollowSpacing.xs),
+                        child: Icon(
+                          LucideIcons.phoneOff,
+                          size: 14,
+                          color: hollow.error,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: HollowSpacing.xs),
-              // End call
-              HollowTooltip(
-                message: 'End call',
-                child: HollowPressable(
-                  onTap: () => ref.read(callProvider.notifier).endCall(),
-                  borderRadius: BorderRadius.circular(hollow.radiusSm),
-                  padding: const EdgeInsets.all(HollowSpacing.xs),
-                  child: Icon(
-                    LucideIcons.phoneOff,
-                    size: 14,
-                    color: hollow.error,
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),

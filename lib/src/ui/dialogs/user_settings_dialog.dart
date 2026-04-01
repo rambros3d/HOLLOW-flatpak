@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -5,6 +6,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart' as webrtc;
+import 'package:record/record.dart' as rec;
+import 'package:win32audio/win32audio.dart' as win32audio;
 import 'package:hollow/src/core/providers/accent_color_provider.dart';
 import 'package:hollow/src/core/providers/background_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
@@ -864,6 +868,13 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
 
           const SizedBox(height: HollowSpacing.xl),
 
+          // ── Voice & Video ──
+          _SectionLabel(label: 'VOICE & VIDEO'),
+          const SizedBox(height: HollowSpacing.sm),
+          const _AudioDeviceSettings(),
+
+          const SizedBox(height: HollowSpacing.xl),
+
           // ── Keyboard Shortcuts ──
           _SectionLabel(label: 'KEYBOARD SHORTCUTS'),
           const SizedBox(height: HollowSpacing.sm),
@@ -1547,6 +1558,340 @@ class _SectionLabel extends StatelessWidget {
           letterSpacing: 0.5,
           fontSize: 10,
         ),
+    );
+  }
+}
+
+/// Audio device selection + mic test for the System tab.
+class _AudioDeviceSettings extends ConsumerStatefulWidget {
+  const _AudioDeviceSettings();
+
+  @override
+  ConsumerState<_AudioDeviceSettings> createState() =>
+      _AudioDeviceSettingsState();
+}
+
+class _AudioDeviceSettingsState extends ConsumerState<_AudioDeviceSettings> {
+  List<rec.InputDevice> _audioInputs = [];
+  List<win32audio.AudioDevice> _audioOutputs = [];
+  bool _loading = true;
+  rec.AudioRecorder? _recorder;
+  StreamSubscription<rec.Amplitude>? _ampSub;
+  bool _micTesting = false;
+  double _micLevel = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDevices();
+  }
+
+  @override
+  void dispose() {
+    _stopMicTest();
+    super.dispose();
+  }
+
+  Future<void> _loadDevices() async {
+    try {
+      final recorder = rec.AudioRecorder();
+
+      // Enumerate input devices via record package (no permission needed).
+      final inputs = await recorder.listInputDevices();
+      await recorder.dispose();
+
+      // Enumerate output devices via win32audio (reliable on Windows,
+      // unlike flutter_webrtc's enumerateDevices which returns empty).
+      List<win32audio.AudioDevice> outputs = [];
+      try {
+        final devices = await win32audio.Audio.enumDevices(
+            win32audio.AudioDeviceType.output);
+        outputs = devices ?? [];
+      } catch (e) {
+        debugPrint('[HOLLOW] Output device enumeration failed: $e');
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _audioInputs = inputs;
+        _audioOutputs = outputs;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _startMicTest() async {
+    final selectedInput =
+        ref.read(audioInputDeviceProvider).valueOrNull;
+
+    try {
+      _recorder = rec.AudioRecorder();
+
+      // Start a stream recording (data is discarded — we just need the
+      // session active for amplitude monitoring).
+      final stream = await _recorder!.startStream(
+        rec.RecordConfig(
+          encoder: rec.AudioEncoder.pcm16bits,
+          numChannels: 1,
+          sampleRate: 16000,
+          device: selectedInput != null
+              ? rec.InputDevice(id: selectedInput, label: '')
+              : null,
+        ),
+      );
+
+      // Drain the PCM stream so it doesn't buffer.
+      stream.listen((_) {});
+
+      if (!mounted) return;
+      setState(() => _micTesting = true);
+
+      // Listen for amplitude updates.
+      _ampSub = _recorder!
+          .onAmplitudeChanged(const Duration(milliseconds: 100))
+          .listen((amp) {
+        if (!mounted) return;
+        // Normalize dBFS (-60..0) to 0.0..1.0 for the level bar.
+        const minDb = -60.0;
+        final clamped = amp.current.clamp(minDb, 0.0);
+        final level = (clamped - minDb) / (0.0 - minDb);
+        setState(() => _micLevel = level);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      HollowToast.show(context, 'Microphone error: $e',
+          type: HollowToastType.error);
+    }
+  }
+
+  void _stopMicTest() {
+    _ampSub?.cancel();
+    _ampSub = null;
+
+    if (_recorder != null) {
+      _recorder!.stop();
+      _recorder!.dispose();
+      _recorder = null;
+    }
+
+    _micLevel = 0.0;
+    if (mounted) setState(() => _micTesting = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+    final selectedInput =
+        ref.watch(audioInputDeviceProvider).valueOrNull;
+    final selectedOutput =
+        ref.watch(audioOutputDeviceProvider).valueOrNull;
+
+    if (_loading) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: HollowSpacing.md),
+        child: Text(
+          'Loading devices...',
+          style: HollowTypography.caption.copyWith(
+            color: hollow.textSecondary,
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Microphone input (uses record package InputDevice)
+        _buildDeviceRow(
+          hollow: hollow,
+          icon: LucideIcons.mic,
+          label: 'Microphone',
+          items: [
+            const DropdownMenuItem<String?>(
+              value: null,
+              child: Text('System Default'),
+            ),
+            ..._audioInputs.map((d) => DropdownMenuItem<String?>(
+                  value: d.id,
+                  child: Text(
+                    d.label.isNotEmpty ? d.label : 'Device ${d.id.substring(0, 8.clamp(0, d.id.length))}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                )),
+          ],
+          selectedValue: _resolveInputValue(selectedInput),
+          onChanged: (deviceId) {
+            ref.read(audioInputDeviceProvider.notifier).setDevice(deviceId);
+          },
+        ),
+        const SizedBox(height: HollowSpacing.md),
+
+        // Speaker output (uses win32audio AudioDevice)
+        _buildDeviceRow(
+          hollow: hollow,
+          icon: LucideIcons.volume2,
+          label: 'Speaker',
+          items: [
+            const DropdownMenuItem<String?>(
+              value: null,
+              child: Text('System Default'),
+            ),
+            ..._audioOutputs.map((d) => DropdownMenuItem<String?>(
+                  value: d.id,
+                  child: Text(
+                    d.name.isNotEmpty ? d.name : 'Device ${d.id.substring(0, 8.clamp(0, d.id.length))}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                )),
+          ],
+          selectedValue: _resolveOutputValue(selectedOutput),
+          onChanged: (deviceId) {
+            ref.read(audioOutputDeviceProvider.notifier).setDevice(deviceId);
+            if (deviceId != null) {
+              debugPrint('[HOLLOW] Selected output device: $deviceId');
+              webrtc.Helper.selectAudioOutput(deviceId).catchError((e) {
+                debugPrint('[HOLLOW] selectAudioOutput failed: $e');
+              });
+            }
+          },
+        ),
+        const SizedBox(height: HollowSpacing.md),
+
+        // Mic test button + volume meter
+        Row(
+          children: [
+            Icon(
+              _micTesting ? LucideIcons.micOff : LucideIcons.mic,
+              size: 14,
+              color: hollow.textSecondary,
+            ),
+            const SizedBox(width: HollowSpacing.sm),
+            HollowButton.ghost(
+              onPressed: _micTesting ? _stopMicTest : _startMicTest,
+              compact: true,
+              child: Text(_micTesting ? 'Stop Test' : 'Test Microphone'),
+            ),
+            if (_micTesting) ...[
+              const SizedBox(width: HollowSpacing.md),
+              // Volume meter bar
+              Expanded(
+                child: SizedBox(
+                  height: 8,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: Stack(
+                      children: [
+                        // Background
+                        Container(
+                          color: hollow.border,
+                        ),
+                        // Level fill
+                        FractionallySizedBox(
+                          widthFactor: _micLevel.clamp(0.0, 1.0),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 80),
+                            decoration: BoxDecoration(
+                              color: _micLevel > 0.5
+                                  ? hollow.success
+                                  : _micLevel > 0.02
+                                      ? hollow.accent
+                                      : hollow.textSecondary
+                                          .withValues(alpha: 0.3),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: HollowSpacing.xs),
+
+        // Refresh devices
+        Row(
+          children: [
+            Icon(LucideIcons.refreshCw, size: 14, color: hollow.textSecondary),
+            const SizedBox(width: HollowSpacing.sm),
+            HollowButton.ghost(
+              onPressed: () {
+                setState(() => _loading = true);
+                _loadDevices();
+              },
+              compact: true,
+              child: const Text('Refresh Devices'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  String? _resolveInputValue(String? savedId) {
+    if (savedId == null) return null;
+    return _audioInputs.any((d) => d.id == savedId) ? savedId : null;
+  }
+
+  String? _resolveOutputValue(String? savedId) {
+    if (savedId == null) return null;
+    return _audioOutputs.any((d) => d.id == savedId) ? savedId : null;
+  }
+
+  Widget _buildDeviceRow({
+    required HollowTheme hollow,
+    required IconData icon,
+    required String label,
+    required List<DropdownMenuItem<String?>> items,
+    required String? selectedValue,
+    required void Function(String?) onChanged,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: hollow.textSecondary),
+        const SizedBox(width: HollowSpacing.sm),
+        SizedBox(
+          width: 80,
+          child: Text(
+            label,
+            style: HollowTypography.caption.copyWith(
+              color: hollow.textPrimary,
+              fontSize: 12,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Container(
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: HollowSpacing.sm),
+            decoration: BoxDecoration(
+              color: hollow.elevated,
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
+              border: Border.all(color: hollow.border),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String?>(
+                value: selectedValue,
+                isExpanded: true,
+                dropdownColor: hollow.elevated,
+                style: HollowTypography.caption.copyWith(
+                  color: hollow.textPrimary,
+                  fontSize: 12,
+                ),
+                icon: Icon(LucideIcons.chevronDown,
+                    size: 14, color: hollow.textSecondary),
+                items: items,
+                onChanged: onChanged,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

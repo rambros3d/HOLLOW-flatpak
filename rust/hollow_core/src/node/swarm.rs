@@ -489,9 +489,9 @@ enum HavenMessage {
 
     // -- Voice call signaling (Phase 5B) --
 
-    /// Invite a peer to a voice call.
+    /// Invite a peer to a voice/video call.
     #[serde(rename = "call_invite")]
-    CallInvite { call_id: String },
+    CallInvite { call_id: String, #[serde(default)] video: bool },
 
     /// Accept a voice call invitation.
     #[serde(rename = "call_accept")]
@@ -525,6 +525,10 @@ enum HavenMessage {
         sdp_mid: String,
         sdp_mline_index: u32,
     },
+
+    /// Video state change during a call (camera on/off).
+    #[serde(rename = "call_video_state")]
+    CallVideoState { call_id: String, enabled: bool },
 }
 
 /// Envelope for the plaintext body inside an Encrypted message.
@@ -4690,7 +4694,17 @@ async fn run_event_loop(
                     // -- Voice call signaling (Phase 5B) --
                     NodeCommand::CallSendSignal { peer_id, signal_type, payload } => {
                         let msg = match signal_type.as_str() {
-                            "invite" => HavenMessage::CallInvite { call_id: payload },
+                            "invite" => {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) {
+                                    HavenMessage::CallInvite {
+                                        call_id: v["call_id"].as_str().unwrap_or("").to_string(),
+                                        video: v["video"].as_bool().unwrap_or(false),
+                                    }
+                                } else {
+                                    // Backward compat: raw string is just call_id, no video.
+                                    HavenMessage::CallInvite { call_id: payload, video: false }
+                                }
+                            }
                             "accept" => HavenMessage::CallAccept { call_id: payload },
                             "reject" => HavenMessage::CallReject { call_id: payload },
                             "end" => HavenMessage::CallEnd { call_id: payload },
@@ -4727,6 +4741,17 @@ async fn run_event_loop(
                                     }
                                 } else {
                                     hollow_log!("[HOLLOW-CALL] Failed to parse ICE payload");
+                                    continue;
+                                }
+                            }
+                            "video_state" => {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) {
+                                    HavenMessage::CallVideoState {
+                                        call_id: v["call_id"].as_str().unwrap_or("").to_string(),
+                                        enabled: v["enabled"].as_bool().unwrap_or(false),
+                                    }
+                                } else {
+                                    hollow_log!("[HOLLOW-CALL] Failed to parse video_state payload");
                                     continue;
                                 }
                             }
@@ -9804,12 +9829,16 @@ async fn handle_incoming_request(
         }
 
         // -- Voice call signaling (Phase 5B) --
-        HavenMessage::CallInvite { call_id } => {
-            hollow_log!("[HOLLOW-CALL] CallInvite from {peer_str} call={call_id}");
+        HavenMessage::CallInvite { call_id, video } => {
+            hollow_log!("[HOLLOW-CALL] CallInvite from {peer_str} call={call_id} video={video}");
+            let payload = serde_json::json!({
+                "call_id": call_id,
+                "video": video,
+            }).to_string();
             let _ = event_tx.send(NetworkEvent::CallSignal {
                 peer_id: peer_str.to_string(),
                 signal_type: "invite".to_string(),
-                payload: call_id,
+                payload,
             }).await;
         }
         HavenMessage::CallAccept { call_id } => {
@@ -9879,6 +9908,18 @@ async fn handle_incoming_request(
             let _ = event_tx.send(NetworkEvent::CallSignal {
                 peer_id: peer_str.to_string(),
                 signal_type: "ice".to_string(),
+                payload,
+            }).await;
+        }
+        HavenMessage::CallVideoState { call_id, enabled } => {
+            hollow_log!("[HOLLOW-CALL] CallVideoState from {peer_str} call={call_id} enabled={enabled}");
+            let payload = serde_json::json!({
+                "call_id": call_id,
+                "enabled": enabled,
+            }).to_string();
+            let _ = event_tx.send(NetworkEvent::CallSignal {
+                peer_id: peer_str.to_string(),
+                signal_type: "video_state".to_string(),
                 payload,
             }).await;
         }

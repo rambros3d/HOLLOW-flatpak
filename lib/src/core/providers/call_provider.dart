@@ -6,9 +6,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/ice_config_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/settings_provider.dart';
 import 'package:hollow/src/core/services/voice_service.dart';
 
 import '../../rust/api/network.dart' as network_api;
+
+/// Log to hollow_debug.log (visible in release builds).
+void _callLog(String msg) {
+  network_api.logFromDart(message: msg);
+}
 
 /// Status of the current call.
 enum CallStatus { idle, ringing, connecting, active }
@@ -24,6 +30,9 @@ class CallState {
   final CallDirection? direction;
   final bool isMuted;
   final DateTime? startedAt;
+  final bool isVideoEnabled;
+  final bool remoteVideoEnabled;
+  final bool isVideoCall;
 
   const CallState({
     this.status = CallStatus.idle,
@@ -32,6 +41,9 @@ class CallState {
     this.direction,
     this.isMuted = false,
     this.startedAt,
+    this.isVideoEnabled = false,
+    this.remoteVideoEnabled = false,
+    this.isVideoCall = false,
   });
 
   CallState copyWith({
@@ -41,6 +53,9 @@ class CallState {
     CallDirection? direction,
     bool? isMuted,
     DateTime? startedAt,
+    bool? isVideoEnabled,
+    bool? remoteVideoEnabled,
+    bool? isVideoCall,
   }) =>
       CallState(
         status: status ?? this.status,
@@ -49,6 +64,9 @@ class CallState {
         direction: direction ?? this.direction,
         isMuted: isMuted ?? this.isMuted,
         startedAt: startedAt ?? this.startedAt,
+        isVideoEnabled: isVideoEnabled ?? this.isVideoEnabled,
+        remoteVideoEnabled: remoteVideoEnabled ?? this.remoteVideoEnabled,
+        isVideoCall: isVideoCall ?? this.isVideoCall,
       );
 
   static const idle = CallState();
@@ -57,19 +75,29 @@ class CallState {
 class CallNotifier extends Notifier<CallState> {
   VoiceService? _voiceService;
   Timer? _ringTimer;
+  Timer? _statsTimer;
 
   VoiceService get _service {
     if (_voiceService == null) {
       final localPeerId = ref.read(identityProvider).peerId ?? '';
       final iceConfig = ref.read(iceConfigProvider);
-      _voiceService = VoiceService(localPeerId: localPeerId, iceServers: iceConfig);
+      _voiceService = VoiceService(
+          localPeerId: localPeerId, iceServers: iceConfig);
       _wireCallbacks();
     } else {
       // Keep ICE config up to date (TURN credentials refresh).
       _voiceService!.iceServers = ref.read(iceConfigProvider);
     }
+    // Keep device preferences up to date.
+    _voiceService!.preferredAudioInputDeviceId =
+        ref.read(audioInputDeviceProvider).valueOrNull;
+    _voiceService!.preferredAudioOutputDeviceId =
+        ref.read(audioOutputDeviceProvider).valueOrNull;
     return _voiceService!;
   }
+
+  /// Expose the VoiceService so UI can access video renderers.
+  VoiceService? get voiceService => _voiceService;
 
   @override
   CallState build() => const CallState();
@@ -77,25 +105,38 @@ class CallNotifier extends Notifier<CallState> {
   void _wireCallbacks() {
     _voiceService!.onConnected = (peerId) {
       debugPrint('[HOLLOW-CALL] Voice connected with $peerId');
-      state = state.copyWith(
-        status: CallStatus.active,
-        startedAt: DateTime.now(),
-      );
+      if (state.status == CallStatus.connecting) {
+        state = state.copyWith(
+          status: CallStatus.active,
+          startedAt: DateTime.now(),
+        );
+        _scheduleStatsDump(peerId);
+      }
     };
 
     _voiceService!.onDisconnected = (peerId) {
       debugPrint('[HOLLOW-CALL] Voice disconnected from $peerId');
       if (state.status == CallStatus.active ||
           state.status == CallStatus.connecting) {
-        // Connection dropped unexpectedly — send end signal.
         _sendSignal(peerId, 'end', state.callId ?? '');
         _cleanup();
       }
     };
+
+    _voiceService!.onRemoteVideoTrack = (peerId) {
+      debugPrint('[HOLLOW-CALL] Remote video track/renderer ready for $peerId');
+      if (state.remoteVideoEnabled) {
+        state = state.copyWith(); // Force UI rebuild
+      }
+    };
   }
 
+  // ---------------------------------------------------------------------------
+  // Call actions
+  // ---------------------------------------------------------------------------
+
   /// Start an outgoing call to a peer.
-  void startCall(String peerId) {
+  void startCall(String peerId, {bool withVideo = false}) {
     if (state.status != CallStatus.idle) return;
 
     final callId = _generateCallId();
@@ -104,9 +145,12 @@ class CallNotifier extends Notifier<CallState> {
       peerId: peerId,
       callId: callId,
       direction: CallDirection.outgoing,
+      isVideoCall: withVideo,
+      isVideoEnabled: withVideo,
     );
 
-    _sendSignal(peerId, 'invite', callId);
+    final payload = jsonEncode({'call_id': callId, 'video': withVideo});
+    _sendSignal(peerId, 'invite', payload);
 
     // 30-second ring timeout.
     _ringTimer?.cancel();
@@ -169,6 +213,34 @@ class CallNotifier extends Notifier<CallState> {
     state = state.copyWith(isMuted: _service.isMuted);
   }
 
+  /// Toggle camera on/off.
+  Future<void> toggleVideo() async {
+    if (state.status != CallStatus.active) return;
+
+    final enabled = await _service.toggleVideo();
+    state = state.copyWith(isVideoEnabled: enabled);
+
+    final peerId = state.peerId;
+    final callId = state.callId;
+    if (peerId == null || callId == null) return;
+
+    // Send video_state notification.
+    final videoStatePayload = jsonEncode({
+      'call_id': callId,
+      'enabled': enabled,
+    });
+    _sendSignal(peerId, 'video_state', videoStatePayload);
+
+    // Renegotiate SDP to add/remove video track.
+    // TODO: implement voice PC renegotiation for video toggle
+  }
+
+  /// Switch between front and back camera.
+  Future<void> switchCamera() async {
+    if (state.status != CallStatus.active || !state.isVideoEnabled) return;
+    await _service.switchCamera();
+  }
+
   /// Master dispatcher for incoming call signals from Rust events.
   Future<void> handleCallSignal(
       String peerId, String signalType, String payload) async {
@@ -190,6 +262,8 @@ class CallNotifier extends Notifier<CallState> {
           await _handleSdpAnswer(peerId, payload);
         case 'ice':
           await _handleIce(peerId, payload);
+        case 'video_state':
+          _handleVideoState(peerId, payload);
       }
     } catch (e) {
       debugPrint('[HOLLOW-CALL] Signal error ($signalType from $peerId): $e');
@@ -208,17 +282,81 @@ class CallNotifier extends Notifier<CallState> {
   /// Dispose (app shutdown).
   Future<void> disposeAll() async {
     _ringTimer?.cancel();
+    _statsTimer?.cancel();
     await _voiceService?.dispose();
     state = const CallState();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Stats diagnostic
+  // ---------------------------------------------------------------------------
+
+  /// Schedule a getStats() dump 5 seconds after call goes active.
+  void _scheduleStatsDump(String peerId) {
+    _statsTimer?.cancel();
+    _statsTimer = Timer(const Duration(seconds: 5), () async {
+      final pc = _voiceService?.peerConnection;
+      if (pc == null) {
+        _callLog('[HOLLOW-STATS] No voice PC — cannot get stats');
+        return;
+      }
+
+      _callLog('[HOLLOW-STATS] === AUDIO STATS 5s after call active ===');
+
+      try {
+        final stats = await pc.getStats();
+        for (final report in stats) {
+          final type = report.type;
+          final values = report.values;
+
+          if (type == 'outbound-rtp' && values['kind'] == 'audio') {
+            _callLog('[HOLLOW-STATS] OUTBOUND-AUDIO: '
+                'bytesSent=${values['bytesSent']}, '
+                'packetsSent=${values['packetsSent']}, '
+                'codec=${values['codecId']}');
+          }
+
+          if (type == 'inbound-rtp' && values['kind'] == 'audio') {
+            _callLog('[HOLLOW-STATS] INBOUND-AUDIO: '
+                'bytesReceived=${values['bytesReceived']}, '
+                'packetsReceived=${values['packetsReceived']}, '
+                'packetsLost=${values['packetsLost']}, '
+                'codec=${values['codecId']}');
+          }
+
+          if (type == 'candidate-pair' && values['state'] == 'succeeded') {
+            _callLog('[HOLLOW-STATS] ICE-PAIR: '
+                'localCandidateId=${values['localCandidateId']}, '
+                'remoteCandidateId=${values['remoteCandidateId']}, '
+                'bytesSent=${values['bytesSent']}, '
+                'bytesReceived=${values['bytesReceived']}');
+          }
+        }
+      } catch (e) {
+        _callLog('[HOLLOW-STATS] getStats failed: $e');
+      }
+
+      _callLog('[HOLLOW-STATS] === END STATS ===');
+    });
   }
 
   // ---------------------------------------------------------------------------
   // Signal handlers
   // ---------------------------------------------------------------------------
 
-  void _handleInvite(String peerId, String callId) {
+  void _handleInvite(String peerId, String payload) {
+    // Parse JSON payload {call_id, video} with fallback for raw string.
+    String callId;
+    bool withVideo = false;
+    if (payload.startsWith('{')) {
+      final json = jsonDecode(payload) as Map<String, dynamic>;
+      callId = json['call_id'] as String;
+      withVideo = json['video'] as bool? ?? false;
+    } else {
+      callId = payload;
+    }
+
     if (state.status != CallStatus.idle) {
-      // Already in a call — send busy.
       debugPrint('[HOLLOW-CALL] Busy, rejecting invite from $peerId');
       _sendSignal(peerId, 'busy', callId);
       return;
@@ -228,7 +366,6 @@ class CallNotifier extends Notifier<CallState> {
     if (state.status == CallStatus.ringing &&
         state.direction == CallDirection.outgoing &&
         state.peerId == peerId) {
-      // Polite peer (smaller ID) drops their outgoing invite and accepts.
       if (localPeerId.compareTo(peerId) < 0) {
         debugPrint('[HOLLOW-CALL] Glare: we are polite, accepting theirs');
         _ringTimer?.cancel();
@@ -237,10 +374,10 @@ class CallNotifier extends Notifier<CallState> {
           peerId: peerId,
           callId: callId,
           direction: CallDirection.incoming,
+          isVideoCall: withVideo,
         );
         return;
       } else {
-        // We are impolite — ignore their invite, keep ours.
         debugPrint('[HOLLOW-CALL] Glare: we are impolite, ignoring theirs');
         return;
       }
@@ -251,6 +388,7 @@ class CallNotifier extends Notifier<CallState> {
       peerId: peerId,
       callId: callId,
       direction: CallDirection.incoming,
+      isVideoCall: withVideo,
     );
 
     // 30-second auto-reject timeout.
@@ -275,10 +413,14 @@ class CallNotifier extends Notifier<CallState> {
     _ringTimer?.cancel();
     state = state.copyWith(status: CallStatus.connecting);
 
-    // We are the caller — create offer and send it.
-    final sdp = await _service.createOffer(peerId, callId);
-    final payload = jsonEncode({'call_id': callId, 'sdp': sdp});
-    _sendSignal(peerId, 'sdp_offer', payload);
+    // We are the caller — create a dedicated voice PC, capture audio, create offer.
+    final sdp = await _service.createOffer(
+      peerId,
+      callId,
+      withVideo: state.isVideoCall,
+    );
+    final sdpPayload = jsonEncode({'call_id': callId, 'sdp': sdp});
+    _sendSignal(peerId, 'sdp_offer', sdpPayload);
   }
 
   void _handleReject(String peerId, String callId) {
@@ -307,9 +449,14 @@ class CallNotifier extends Notifier<CallState> {
 
     if (state.callId != callId) return;
 
-    final answerSdp = await _service.handleOffer(peerId, callId, sdp);
-    final answerPayload =
-        jsonEncode({'call_id': callId, 'sdp': answerSdp});
+    // We are the callee — create a dedicated voice PC, capture audio, answer.
+    final answerSdp = await _service.handleOffer(
+      peerId,
+      callId,
+      sdp,
+      withVideo: state.isVideoCall,
+    );
+    final answerPayload = jsonEncode({'call_id': callId, 'sdp': answerSdp});
     _sendSignal(peerId, 'sdp_answer', answerPayload);
   }
 
@@ -336,6 +483,18 @@ class CallNotifier extends Notifier<CallState> {
     );
   }
 
+  void _handleVideoState(String peerId, String payload) {
+    final json = jsonDecode(payload) as Map<String, dynamic>;
+    final callId = json['call_id'] as String;
+    final enabled = json['enabled'] as bool;
+
+    if (state.callId != callId) return;
+
+    debugPrint(
+        '[HOLLOW-CALL] Remote video state: enabled=$enabled from $peerId');
+    state = state.copyWith(remoteVideoEnabled: enabled);
+  }
+
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
@@ -353,6 +512,8 @@ class CallNotifier extends Notifier<CallState> {
   void _cleanup() {
     _ringTimer?.cancel();
     _ringTimer = null;
+    _statsTimer?.cancel();
+    _statsTimer = null;
     state = const CallState();
   }
 

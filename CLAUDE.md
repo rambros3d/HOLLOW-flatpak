@@ -63,11 +63,14 @@ ssh ubuntu@141.227.186.209 "cd relay && cargo build --release && sudo systemctl 
 ```
 
 ## Current Phase
-**Phase 5B: Voice & Video — IN PROGRESS (Mar 30, 2026).**
-- **1:1 voice calls: DONE.** Separate RTCPeerConnection for voice. Full call flow (invite/accept/reject/end/busy). VoiceService + CallNotifier. Incoming call overlay + active call bar. Tested P2P.
+**Phase 5B: Voice & Video — IN PROGRESS (Apr 1, 2026).**
+- **1:1 voice calls: DONE.** Separate RTCPeerConnection for voice (reusing data channel PC was tried and failed — inactive m-lines). Full call flow. SDP/ICE signaling through `CallSendSignal` (Olm DM path). Audio confirmed flowing via getStats(). Diagnostic SDP dumps + stats in code.
+- **"No audio" mystery: SOLVED.** Was never a code bug — libwebrtc plays to Windows "Default Device" (green checkmark), not taskbar selection. Fixed with explicit device selection.
+- **Device selection: FIXED.** Input: `sourceId` constraint (not `deviceId` — flutter_webrtc Windows quirk). Output: `win32audio` package for enumeration, `Helper.selectAudioOutput()` for routing. Both use Windows Core Audio endpoint IDs.
+- **1:1 video calls: CODE WRITTEN, AWAITING TEST.** Video UI done (CallVideoView, toggles, camera switch).
 - **TURN server: DEPLOYED.** Coturn on VPS. HMAC-SHA1 credentials via relay `/turn-credentials`. IceConfigProvider refreshes every 50 min.
 - **ICE config:** Own coturn STUN + Cloudflare + Google STUN + TURN (UDP/TCP/TLS).
-- **Next:** Video calls, voice channels, device selection, quality presets, screen sharing.
+- **Next:** Confirm voice cross-internet, test video, then voice channels, quality presets, screen sharing.
 
 **Phase 5A: WebRTC Data Channels — COMPLETE (Mar 29, 2026).** P2P file/shard streaming via WebRTC data channels. flutter_webrtc 1.4.1 (libwebrtc m144). ~9 MB/s throughput, tested up to 131MB. 85-90% of heavy transfers bypass relay. STUN only (no TURN yet). WSS relay fallback for symmetric NAT. Keepalive pings (30s), auto-reconnect, early-arrival handling, `getBufferedAmount()` backpressure.
 

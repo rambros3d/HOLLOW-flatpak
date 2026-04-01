@@ -5,8 +5,10 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   flutter_webrtc
   local_notifier
+  record_windows
   screen_retriever_windows
   tray_manager
+  win32audio
   window_manager
 )
 
