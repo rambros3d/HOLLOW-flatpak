@@ -8,6 +8,10 @@ import 'package:hollow/src/theme/hollow_typography.dart';
 /// Appears after 400ms hover delay. Fades in 100ms + slides from 4px offset.
 /// Edge-aware: automatically repositions to stay within window bounds.
 /// Replaces Material Tooltip everywhere.
+///
+/// IMPORTANT: Hide always removes the overlay entry immediately (no reverse
+/// animation). This prevents orphaned tooltips when parent widgets rebuild
+/// or leave the tree during hover (e.g., call bar buttons disappearing).
 class HollowTooltip extends StatefulWidget {
   final String message;
   final Widget child;
@@ -39,7 +43,6 @@ class _HollowTooltipState extends State<HollowTooltip>
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 100),
-      reverseDuration: const Duration(milliseconds: 80),
     );
     _opacity = CurvedAnimation(
       parent: _controller,
@@ -55,20 +58,33 @@ class _HollowTooltipState extends State<HollowTooltip>
   }
 
   @override
+  void didUpdateWidget(covariant HollowTooltip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.message != widget.message) {
+      _dismiss();
+    }
+  }
+
+  @override
   void deactivate() {
-    // Remove tooltip immediately when widget leaves the tree.
-    _entry?.remove();
-    _entry = null;
-    _hovering = false;
+    _dismiss();
     super.deactivate();
   }
 
   @override
   void dispose() {
-    _entry?.remove();
-    _entry = null;
+    _dismiss();
     _controller.dispose();
     super.dispose();
+  }
+
+  /// Immediately kill the tooltip overlay — no animation, no delay.
+  void _dismiss() {
+    _hovering = false;
+    _controller.stop();
+    _controller.reset();
+    _entry?.remove();
+    _entry = null;
   }
 
   void _showTooltip() {
@@ -107,10 +123,8 @@ class _HollowTooltipState extends State<HollowTooltip>
 
         final bool showBelow;
         if (widget.preferBelow) {
-          // Show below unless it would go off-screen.
           showBelow = belowY + tooltipHeight <= screenSize.height - padding;
         } else {
-          // Show above unless it would go off-screen.
           showBelow = aboveY - tooltipHeight < padding;
         }
 
@@ -162,19 +176,6 @@ class _HollowTooltipState extends State<HollowTooltip>
     _controller.forward();
   }
 
-  void _hideTooltip() {
-    if (_entry == null) return;
-    final entryToRemove = _entry;
-    _entry = null;
-    if (_controller.isAnimating || _controller.isCompleted) {
-      _controller.reverse().then((_) {
-        entryToRemove?.remove();
-      });
-    } else {
-      entryToRemove?.remove();
-    }
-  }
-
   void _onHoverStart() {
     _hovering = true;
     Future.delayed(const Duration(milliseconds: 400), () {
@@ -184,7 +185,7 @@ class _HollowTooltipState extends State<HollowTooltip>
 
   void _onHoverEnd() {
     _hovering = false;
-    _hideTooltip();
+    _dismiss();
   }
 
   @override

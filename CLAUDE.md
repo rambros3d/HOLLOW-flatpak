@@ -171,6 +171,7 @@ All UI uses custom Hollow widgets — no Material defaults.
 - Use `AnimatedOpacity` (GPU-composited) for per-item opacity. Never use the `Opacity` widget.
 - **Keep Flutter updated:** Windows animation jank was a Flutter engine bug (3.38.5), fixed in 3.41.4. `windows/runner/main.cpp` is stock.
 - **CRITICAL — Backward-compatible DB schema:** ALWAYS add `#[serde(default)]` to ANY new field added to a persisted Rust struct (e.g., `ServerState`, any struct stored as JSON in SQLCipher). Without it, old data lacking the new field will fail to deserialize and silently disappear (servers vanish, data lost).
+- **HollowTooltip: always use `_dismiss()` pattern** — tooltip hide must remove the overlay entry immediately (no reverse animation). Animated hide causes orphaned tooltips when parent widgets rebuild or leave the tree (e.g., call bar buttons disappearing on call end). The `_dismiss()` method must: set `_hovering = false`, stop + reset the animation controller, then `_entry?.remove()` + null. This applies to ALL `HollowTooltip` usages across the app.
 
 ## Rules
 - Never commit secrets, keys, or credentials

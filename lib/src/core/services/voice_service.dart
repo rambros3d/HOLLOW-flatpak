@@ -28,8 +28,9 @@ class VoiceService {
   String? _activeCallId;
   bool _isMuted = false;
 
-  /// ICE candidates received before the peer connection is ready.
+  /// ICE candidates received before setRemoteDescription is called.
   final List<RTCIceCandidate> _pendingCandidates = [];
+  bool _remoteDescriptionSet = false;
 
   // -- Video state --
   MediaStream? _localVideoStream;
@@ -64,7 +65,10 @@ class VoiceService {
   // SDP: offer / answer / ICE
   // ---------------------------------------------------------------------------
 
-  /// Start mic capture, create RTCPeerConnection, and generate an SDP offer.
+  /// Start mic + camera capture, create RTCPeerConnection, and generate an SDP offer.
+  /// Camera is always captured so the video transceiver is in the initial SDP —
+  /// this avoids the streams=0 problem when adding video via renegotiation later.
+  /// If [withVideo] is false, the camera track is immediately disabled (no data flows).
   /// Returns the SDP offer string.
   Future<String> createOffer(
     String peerId,
@@ -77,7 +81,20 @@ class VoiceService {
 
     await _initPeerConnection(peerId, callId);
     await _startLocalAudio();
-    if (withVideo) await _startCamera(_pc!);
+
+    // Always capture camera so video m-line is in the initial SDP.
+    final cameraOk = await _startCamera(_pc!);
+    if (cameraOk) {
+      if (withVideo) {
+        _isVideoEnabled = true;
+        await _initLocalRenderer();
+      } else {
+        // Audio-only: stop the camera hardware (turns off the light) but keep
+        // the transceiver in the SDP. We'll recapture when user enables video.
+        _isVideoEnabled = false;
+        await _releaseCamera();
+      }
+    }
 
     final offer = await _pc!.createOffer();
     await _pc!.setLocalDescription(offer);
@@ -87,7 +104,7 @@ class VoiceService {
     return offer.sdp!;
   }
 
-  /// Handle an incoming SDP offer (answerer side). Creates PC, starts mic,
+  /// Handle an incoming SDP offer (answerer side). Creates PC, starts mic + camera,
   /// sets remote description, creates answer. Returns the SDP answer string.
   Future<String> handleOffer(
     String peerId,
@@ -103,9 +120,21 @@ class VoiceService {
 
     await _initPeerConnection(peerId, callId);
     await _startLocalAudio();
-    if (withVideo) await _startCamera(_pc!);
+
+    // Always capture camera so video m-line is in the answer SDP.
+    final cameraOk = await _startCamera(_pc!);
+    if (cameraOk) {
+      if (withVideo) {
+        _isVideoEnabled = true;
+        await _initLocalRenderer();
+      } else {
+        _isVideoEnabled = false;
+        await _releaseCamera();
+      }
+    }
 
     await _pc!.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
+    _remoteDescriptionSet = true;
     await _flushPendingCandidates();
 
     final answer = await _pc!.createAnswer();
@@ -113,6 +142,43 @@ class VoiceService {
 
     _log('[HOLLOW-VOICE] Answer created, SDP length=${answer.sdp?.length}');
     _dumpSdp('ANSWER-OUT', answer.sdp!);
+    return answer.sdp!;
+  }
+
+  /// Create a renegotiation offer on an existing voice PC (e.g., adding/removing video).
+  /// Returns the SDP offer string, or null if no PC exists.
+  Future<String?> createRenegotiationOffer() async {
+    if (_pc == null) {
+      _log('[HOLLOW-VOICE] createRenegotiationOffer: no PC');
+      return null;
+    }
+
+    final offer = await _pc!.createOffer();
+    await _pc!.setLocalDescription(offer);
+
+    _log('[HOLLOW-VOICE] Renegotiation offer created, SDP length=${offer.sdp?.length}');
+    _dumpSdp('RENEG-OFFER-OUT', offer.sdp!);
+    return offer.sdp!;
+  }
+
+  /// Handle a renegotiation offer on an existing voice PC (e.g., remote added video).
+  /// Returns the SDP answer string, or null if no PC exists.
+  Future<String?> handleRenegotiationOffer(String sdp) async {
+    if (_pc == null) {
+      _log('[HOLLOW-VOICE] handleRenegotiationOffer: no PC');
+      return null;
+    }
+
+    _dumpSdp('RENEG-OFFER-IN', sdp);
+
+    await _pc!.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
+    _remoteDescriptionSet = true;
+
+    final answer = await _pc!.createAnswer();
+    await _pc!.setLocalDescription(answer);
+
+    _log('[HOLLOW-VOICE] Renegotiation answer created, SDP length=${answer.sdp?.length}');
+    _dumpSdp('RENEG-ANSWER-OUT', answer.sdp!);
     return answer.sdp!;
   }
 
@@ -125,15 +191,19 @@ class VoiceService {
     _dumpSdp('ANSWER-IN', sdp);
     _log('[HOLLOW-VOICE] Setting remote description (answer)');
     await _pc!.setRemoteDescription(RTCSessionDescription(sdp, 'answer'));
+    _remoteDescriptionSet = true;
     await _flushPendingCandidates();
   }
 
   /// Handle incoming ICE candidate.
+  /// Candidates are queued until setRemoteDescription has been called — adding
+  /// them before that causes silent rejection by libwebrtc (the native layer
+  /// returns an error if there's no remote description yet).
   Future<void> handleIceCandidate(
       String candidate, String? sdpMid, int? sdpMLineIndex) async {
     final iceCandidate = RTCIceCandidate(candidate, sdpMid, sdpMLineIndex);
 
-    if (_pc == null) {
+    if (!_remoteDescriptionSet || _pc == null) {
       _pendingCandidates.add(iceCandidate);
       return;
     }
@@ -160,12 +230,63 @@ class VoiceService {
   }
 
   /// Toggle camera on/off. Returns the new state.
+  /// The video transceiver was set up during call init — toggling recaptures
+  /// the camera (turning the light on) or releases it (turning it off).
+  /// No SDP renegotiation needed since the transceiver is already in the SDP.
   Future<bool> toggleVideo() async {
-    if (_pc == null) return _isVideoEnabled;
+    if (_pc == null) return false;
+
     if (_isVideoEnabled) {
-      await _stopCamera(_pc!);
+      // Turn off: release camera hardware.
+      _isVideoEnabled = false;
+      await _releaseCamera();
+      if (_localRenderer != null) {
+        _localRenderer!.srcObject = null;
+        await _localRenderer!.dispose();
+        _localRenderer = null;
+      }
+      _log('[HOLLOW-VOICE] Video disabled, camera released');
     } else {
-      await _startCamera(_pc!);
+      // Turn on: recapture camera and replace the sender's null track.
+      _log('[HOLLOW-VOICE] Recapturing camera for video enable');
+      try {
+        final constraints = {
+          'audio': false,
+          'video': {
+            'facingMode': _useFrontCamera ? 'user' : 'environment',
+            'width': {'ideal': 640},
+            'height': {'ideal': 480},
+            'frameRate': {'ideal': 30},
+          },
+        };
+        _localVideoStream =
+            await navigator.mediaDevices.getUserMedia(constraints);
+        final videoTracks = _localVideoStream!.getVideoTracks();
+        if (videoTracks.isEmpty) {
+          _log('[HOLLOW-VOICE] No camera available');
+          await _localVideoStream!.dispose();
+          _localVideoStream = null;
+          return false;
+        }
+        final videoTrack = videoTracks.first;
+
+        // Replace the sender's null track with the new camera track.
+        final senders = await _pc!.getSenders();
+        for (final s in senders) {
+          if (s.track == null || s.track?.kind == 'video') {
+            await s.replaceTrack(videoTrack);
+            _log('[HOLLOW-VOICE] Replaced sender track with camera');
+            break;
+          }
+        }
+
+        _isVideoEnabled = true;
+        await _initLocalRenderer();
+        _log('[HOLLOW-VOICE] Video enabled, camera active');
+      } catch (e) {
+        _log('[HOLLOW-VOICE] Failed to recapture camera: $e');
+        return false;
+      }
     }
     return _isVideoEnabled;
   }
@@ -227,6 +348,7 @@ class VoiceService {
     _activeCallId = null;
     _isMuted = false;
     _isVideoEnabled = false;
+    _remoteDescriptionSet = false;
     _useFrontCamera = true;
   }
 
@@ -243,6 +365,7 @@ class VoiceService {
       _pc = null;
     }
     _pendingCandidates.clear();
+    _remoteDescriptionSet = false;
 
     final pc = await createPeerConnection(iceServers);
     _pc = pc;
@@ -334,6 +457,7 @@ class VoiceService {
           _log('[HOLLOW-VOICE] Failed to set audio output: $e');
         }
       }
+
     } catch (e) {
       _log('[HOLLOW-VOICE] Failed to get microphone: $e');
       rethrow;
@@ -344,7 +468,8 @@ class VoiceService {
   // Private — Video
   // ---------------------------------------------------------------------------
 
-  Future<void> _startCamera(RTCPeerConnection pc) async {
+  /// Start camera. Returns true if successful, false if no camera available.
+  Future<bool> _startCamera(RTCPeerConnection pc) async {
     _log('[HOLLOW-VOICE] Starting camera (front=$_useFrontCamera)');
     final constraints = {
       'audio': false,
@@ -358,7 +483,14 @@ class VoiceService {
 
     try {
       _localVideoStream = await navigator.mediaDevices.getUserMedia(constraints);
-      final videoTrack = _localVideoStream!.getVideoTracks().first;
+      final videoTracks = _localVideoStream!.getVideoTracks();
+      if (videoTracks.isEmpty) {
+        _log('[HOLLOW-VOICE] No video tracks — camera not available');
+        await _localVideoStream!.dispose();
+        _localVideoStream = null;
+        return false;
+      }
+      final videoTrack = videoTracks.first;
       _log('[HOLLOW-VOICE] Got camera track: ${videoTrack.id}');
 
       // Try to reuse an existing stopped video transceiver.
@@ -379,58 +511,81 @@ class VoiceService {
         _log('[HOLLOW-VOICE] Added new video track via addTrack');
       }
 
-      _isVideoEnabled = true;
-      await _initLocalRenderer();
+      // Don't set _isVideoEnabled here — let the caller control it.
+      // _startCamera only captures and adds the track to the PC.
+      return true;
     } catch (e) {
       _log('[HOLLOW-VOICE] Failed to start camera: $e');
-      rethrow;
+      // Don't rethrow — camera failure shouldn't break the call.
+      // Audio-only call continues.
+      return false;
     }
   }
 
-  Future<void> _stopCamera(RTCPeerConnection pc) async {
-    _log('[HOLLOW-VOICE] Stopping camera');
-
-    final transceivers = await pc.getTransceivers();
-    for (final t in transceivers) {
-      if (t.sender.track?.kind == 'video') {
-        await t.sender.replaceTrack(null);
-        await t.setDirection(TransceiverDirection.RecvOnly);
-        _log('[HOLLOW-VOICE] Cleared video transceiver mid=${t.mid}');
-        break;
+  /// Release camera hardware (stop tracks, dispose stream) without removing
+  /// the transceiver from the PC. Turns off the camera light.
+  Future<void> _releaseCamera() async {
+    if (_localVideoStream == null) return;
+    // Replace the sender's track with null — keeps transceiver alive.
+    if (_pc != null) {
+      final senders = await _pc!.getSenders();
+      for (final s in senders) {
+        if (s.track?.kind == 'video') {
+          await s.replaceTrack(null);
+          break;
+        }
       }
     }
-
-    if (_localVideoStream != null) {
-      for (final track in _localVideoStream!.getTracks()) {
-        await track.stop();
-      }
-      await _localVideoStream!.dispose();
-      _localVideoStream = null;
+    // Stop the physical camera.
+    for (final track in _localVideoStream!.getVideoTracks()) {
+      await track.stop();
     }
-
-    if (_localRenderer != null) {
-      _localRenderer!.srcObject = null;
-      await _localRenderer!.dispose();
-      _localRenderer = null;
-    }
-
-    _isVideoEnabled = false;
+    await _localVideoStream!.dispose();
+    _localVideoStream = null;
+    _log('[HOLLOW-VOICE] Camera released (light off)');
   }
 
   Future<void> _handleRemoteVideoTrack(
       String peerId, RTCTrackEvent event) async {
     if (event.streams.isNotEmpty) {
       _remoteStream = event.streams.first;
+      _log('[HOLLOW-VOICE] Using stream from onTrack event (streams=${event.streams.length})');
     } else {
-      // Windows/libwebrtc may fire onTrack with streams=0.
-      _remoteStream?.dispose();
+      // Windows/libwebrtc fires onTrack with streams=0 during renegotiation.
+      // Get the stream from the receiver's track instead.
+      _log('[HOLLOW-VOICE] onTrack fired with streams=0, getting stream from PC receivers');
+      if (_pc != null) {
+        final receivers = await _pc!.getReceivers();
+        for (final r in receivers) {
+          if (r.track?.kind == 'video' && r.track?.id == event.track.id) {
+            // Found the receiver — but it doesn't have a stream either.
+            // Fall back to creating a MediaStream.
+            break;
+          }
+        }
+      }
       _remoteStream = await createLocalMediaStream(
         'remote-video-${event.track.id}',
       );
       _remoteStream!.addTrack(event.track);
-      _log('[HOLLOW-VOICE] Created stream from onTrack video track');
+      _log('[HOLLOW-VOICE] Created synthetic stream for video track');
     }
-    await _initRemoteRenderer();
+
+    // Initialize renderer — dispose old one first to force RTCVideoView rebuild.
+    if (_remoteRenderer != null) {
+      _remoteRenderer!.srcObject = null;
+      await _remoteRenderer!.dispose();
+      _remoteRenderer = null;
+    }
+
+    _remoteRenderer = RTCVideoRenderer();
+    await _remoteRenderer!.initialize();
+    _remoteRenderer!.srcObject = _remoteStream;
+    _log('[HOLLOW-VOICE] Remote video renderer initialized, '
+        'track=${event.track.id}, stream=${_remoteStream?.id}');
+
+    // Notify UI — slight delay to ensure renderer is ready for RTCVideoView.
+    await Future.delayed(const Duration(milliseconds: 100));
     onRemoteVideoTrack?.call(peerId);
   }
 
@@ -442,13 +597,7 @@ class VoiceService {
     _log('[HOLLOW-VOICE] Local video renderer initialized');
   }
 
-  Future<void> _initRemoteRenderer() async {
-    _remoteRenderer?.dispose();
-    _remoteRenderer = RTCVideoRenderer();
-    await _remoteRenderer!.initialize();
-    _remoteRenderer!.srcObject = _remoteStream;
-    _log('[HOLLOW-VOICE] Remote video renderer initialized');
-  }
+  // _initRemoteRenderer is inlined into _handleRemoteVideoTrack above.
 
   // ---------------------------------------------------------------------------
   // Private — Helpers

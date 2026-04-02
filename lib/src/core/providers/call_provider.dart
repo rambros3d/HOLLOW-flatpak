@@ -89,6 +89,8 @@ class CallNotifier extends Notifier<CallState> {
       _voiceService!.iceServers = ref.read(iceConfigProvider);
     }
     // Keep device preferences up to date.
+    // Use .valueOrNull — async providers may still be loading on first access.
+    // _ensureDevicePreferences() awaits them before the first call.
     _voiceService!.preferredAudioInputDeviceId =
         ref.read(audioInputDeviceProvider).valueOrNull;
     _voiceService!.preferredAudioOutputDeviceId =
@@ -109,6 +111,9 @@ class CallNotifier extends Notifier<CallState> {
         state = state.copyWith(
           status: CallStatus.active,
           startedAt: DateTime.now(),
+          // If this is a video call, assume remote video is on initially.
+          // The video_state signal will correct this if needed.
+          remoteVideoEnabled: state.isVideoCall,
         );
         _scheduleStatsDump(peerId);
       }
@@ -125,10 +130,25 @@ class CallNotifier extends Notifier<CallState> {
 
     _voiceService!.onRemoteVideoTrack = (peerId) {
       debugPrint('[HOLLOW-CALL] Remote video track/renderer ready for $peerId');
+      // Don't set remoteVideoEnabled here — that's controlled by the
+      // video_state signal. The track always arrives (it's in the initial SDP)
+      // but the remote user's camera may be disabled.
       if (state.remoteVideoEnabled) {
-        state = state.copyWith(); // Force UI rebuild
+        state = state.copyWith(); // Force UI rebuild if already enabled
       }
     };
+  }
+
+  /// Ensure audio device preferences are loaded from SQLCipher before starting
+  /// a call. On first access after app launch, the async providers may not have
+  /// completed yet, causing the call to use system defaults (wrong device).
+  Future<void> _ensureDevicePreferences() async {
+    try {
+      final input = await ref.read(audioInputDeviceProvider.future);
+      final output = await ref.read(audioOutputDeviceProvider.future);
+      _voiceService?.preferredAudioInputDeviceId = input;
+      _voiceService?.preferredAudioOutputDeviceId = output;
+    } catch (_) {}
   }
 
   // ---------------------------------------------------------------------------
@@ -224,15 +244,13 @@ class CallNotifier extends Notifier<CallState> {
     final callId = state.callId;
     if (peerId == null || callId == null) return;
 
-    // Send video_state notification.
+    // Send video_state notification so remote UI knows.
+    // No SDP renegotiation needed — video track was in the initial SDP.
     final videoStatePayload = jsonEncode({
       'call_id': callId,
       'enabled': enabled,
     });
     _sendSignal(peerId, 'video_state', videoStatePayload);
-
-    // Renegotiate SDP to add/remove video track.
-    // TODO: implement voice PC renegotiation for video toggle
   }
 
   /// Switch between front and back camera.
@@ -413,6 +431,9 @@ class CallNotifier extends Notifier<CallState> {
     _ringTimer?.cancel();
     state = state.copyWith(status: CallStatus.connecting);
 
+    // Ensure device preferences are loaded before starting media.
+    await _ensureDevicePreferences();
+
     // We are the caller — create a dedicated voice PC, capture audio, create offer.
     final sdp = await _service.createOffer(
       peerId,
@@ -449,15 +470,26 @@ class CallNotifier extends Notifier<CallState> {
 
     if (state.callId != callId) return;
 
-    // We are the callee — create a dedicated voice PC, capture audio, answer.
-    final answerSdp = await _service.handleOffer(
-      peerId,
-      callId,
-      sdp,
-      withVideo: state.isVideoCall,
-    );
-    final answerPayload = jsonEncode({'call_id': callId, 'sdp': answerSdp});
-    _sendSignal(peerId, 'sdp_answer', answerPayload);
+    if (state.status == CallStatus.active && _service.hasActiveCall) {
+      // Renegotiation on existing voice PC (e.g., remote toggled video).
+      final answerSdp = await _service.handleRenegotiationOffer(sdp);
+      if (answerSdp != null) {
+        final answerPayload = jsonEncode({'call_id': callId, 'sdp': answerSdp});
+        _sendSignal(peerId, 'sdp_answer', answerPayload);
+      }
+    } else {
+      // Ensure device preferences are loaded before starting media.
+      await _ensureDevicePreferences();
+      // Initial call setup — create a dedicated voice PC, capture audio, answer.
+      final answerSdp = await _service.handleOffer(
+        peerId,
+        callId,
+        sdp,
+        withVideo: state.isVideoCall,
+      );
+      final answerPayload = jsonEncode({'call_id': callId, 'sdp': answerSdp});
+      _sendSignal(peerId, 'sdp_answer', answerPayload);
+    }
   }
 
   Future<void> _handleSdpAnswer(String peerId, String payload) async {

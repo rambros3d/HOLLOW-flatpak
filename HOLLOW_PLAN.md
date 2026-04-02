@@ -1407,10 +1407,12 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [X] Call button in DM header (phone icon, disabled when offline/in-call)
   - [X] Glare handling (lexicographic peer ID, polite-peer protocol)
   - [X] Auto-end on peer disconnect, auto-busy when already in call, 30s ring timeout
-- [ ] **1:1 video calls**
-  - [ ] Add video track to RTCPeerConnection
-  - [ ] Camera capture + camera switch (front/back on mobile)
-  - [ ] Video mute (camera off, audio continues)
+- [X] **1:1 video calls**
+  - [X] Add video track to RTCPeerConnection (pre-filled in initial SDP, no renegotiation needed)
+  - [X] Camera capture + camera switch (front/back on mobile)
+  - [X] Video mute (camera off via track.enabled, camera light turns off via _releaseCamera)
+  - [X] CallVideoView: draggable floating panel with remote video + local PiP
+  - [X] Video toggle + camera switch in ActiveCallBar
 - [ ] **Small group calls (2-5, mesh)**
   - [ ] Multiple RTCPeerConnection with audio/video tracks (one per participant)
   - [ ] Participant list synced via MLS-encrypted `CallState` messages
@@ -1431,7 +1433,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [ ] Join/leave mechanics: add/remove audio track, update channel member list via CRDT
   - [ ] 🎞️ Animate: join/leave transitions, voice activity ring pulse around avatar
 - [ ] **Audio/video device & quality settings**
-  - [ ] Device selection: enumerate mic/camera/speaker via `navigator.mediaDevices.enumerateDevices()`, pass `deviceId` to `getUserMedia`. Persist selection
+  - [X] Device selection: mic via `record` package + `sourceId` constraint, speaker via `win32audio` + `Helper.selectAudioOutput()`. Persisted in SQLCipher. Loaded via `_ensureDevicePreferences()` before each call
   - [ ] Mic input gain (boost/reduce) — adjustable slider, useful for quiet microphones
   - [ ] Per-peer speaker volume — `setVolume()` on remote audio track, slider in call UI
   - [ ] Audio quality preset: "Voice" (Opus 32 kbps mono, optimized for speech) vs "Music" (Opus 128 kbps stereo, for instruments/singing). Set via SDP munging (`maxaveragebitrate`, `stereo`, `cbr` Opus params)
@@ -1456,7 +1458,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [X] Change locally someone else's nickname (only for you to see)
 - [X] Custom background for the app / Custom color picker chooser
 - [X] GIF support for chats and as animated avatars/banners for Profiles
-- [ ] Fix tooltip freezing on the call buttonss
+- [X] Fix tooltip freezing on the call buttons (HollowTooltip _dismiss() pattern — immediate overlay removal, no animated reverse)
 - [ ] Fix "Encrypting..." / "Connecting..." labels on Network column and DMs header (ConnectionStatus provider not transitioning properly after key exchange)
 - [ ] Fix server join double-click bug (first JoinServer command joins WS room but doesn't send ServerJoinRequest — second click needed)
 - [ ] Export/import friend profile data (avatars, statuses, about) — either export to .hollow backup or trigger sync on import to pull from friends
