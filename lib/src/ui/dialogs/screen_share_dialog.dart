@@ -1,0 +1,433 @@
+import 'dart:async';
+import 'dart:typed_data';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:hollow/src/theme/hollow_spacing.dart';
+import 'package:hollow/src/theme/hollow_theme.dart';
+import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/components/hollow_button.dart';
+import 'package:hollow/src/ui/components/hollow_dialog.dart';
+
+/// Resolution presets for screen sharing.
+enum ScreenShareResolution {
+  p360(640, 360, '360p'),
+  p480(854, 480, '480p'),
+  p720(1280, 720, '720p'),
+  p1080(1920, 1080, '1080p'),
+  p1440(2560, 1440, '1440p'),
+  p4k(3840, 2160, '4K');
+
+  final int width, height;
+  final String label;
+  const ScreenShareResolution(this.width, this.height, this.label);
+}
+
+/// FPS presets for screen sharing.
+enum ScreenShareFps {
+  fps5(5, '5 FPS'),
+  fps15(15, '15 FPS'),
+  fps30(30, '30 FPS'),
+  fps60(60, '60 FPS');
+
+  final int value;
+  final String label;
+  const ScreenShareFps(this.value, this.label);
+}
+
+/// Result from the screen share dialog.
+class ScreenShareSelection {
+  final String sourceId;
+  final int width;
+  final int height;
+  final int fps;
+
+  const ScreenShareSelection({
+    required this.sourceId,
+    required this.width,
+    required this.height,
+    required this.fps,
+  });
+}
+
+/// Show the screen share picker dialog.
+/// Returns [ScreenShareSelection] if user confirms, null if cancelled.
+Future<ScreenShareSelection?> showScreenShareDialog(
+    BuildContext context) async {
+  return showHollowDialog<ScreenShareSelection>(
+    context: context,
+    builder: (context) => const _ScreenShareDialog(),
+  );
+}
+
+class _ScreenShareDialog extends StatefulWidget {
+  const _ScreenShareDialog();
+
+  @override
+  State<_ScreenShareDialog> createState() => _ScreenShareDialogState();
+}
+
+class _ScreenShareDialogState extends State<_ScreenShareDialog> {
+  final Map<String, DesktopCapturerSource> _sources = {};
+  String? _selectedSourceId;
+  ScreenShareResolution _resolution = ScreenShareResolution.p1080;
+  ScreenShareFps _fps = ScreenShareFps.fps30;
+  bool _loading = true;
+  bool _showScreens = true; // true = screens tab, false = windows tab
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSources();
+
+    // Listen for source changes.
+    desktopCapturer.onAdded.stream.listen((source) {
+      if (mounted) setState(() => _sources[source.id] = source);
+    });
+    desktopCapturer.onRemoved.stream.listen((source) {
+      if (mounted) setState(() => _sources.remove(source.id));
+    });
+    desktopCapturer.onThumbnailChanged.stream.listen((source) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadSources() async {
+    try {
+      final sources = await desktopCapturer.getSources(
+        types: [SourceType.Screen, SourceType.Window],
+      );
+      if (!mounted) return;
+
+      setState(() {
+        for (final s in sources) {
+          _sources[s.id] = s;
+        }
+        _loading = false;
+      });
+
+      // Refresh thumbnails periodically.
+      _refreshTimer?.cancel();
+      _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+        desktopCapturer.updateSources(
+            types: [SourceType.Screen, SourceType.Window]);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  List<DesktopCapturerSource> get _filteredSources {
+    final type = _showScreens ? SourceType.Screen : SourceType.Window;
+    return _sources.values.where((s) => s.type == type).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+    final radius = BorderRadius.circular(hollow.radiusLg);
+    final sources = _filteredSources;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(HollowSpacing.xl),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: 680,
+            maxHeight: 560,
+            minWidth: 400,
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.all(HollowSpacing.xl),
+              decoration: BoxDecoration(
+                color: hollow.elevated.withValues(alpha: 0.95),
+                borderRadius: radius,
+                border: Border.all(
+                    color: hollow.accent.withValues(alpha: 0.15)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 24,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Title
+                  Text(
+                    'Share Your Screen',
+                    style: HollowTypography.heading.copyWith(
+                      color: hollow.textPrimary,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: HollowSpacing.md),
+
+                  // Tabs: Screens / Windows
+                  Row(
+                    children: [
+                      _buildTab(hollow, 'Screens', _showScreens, () {
+                        setState(() => _showScreens = true);
+                      }),
+                      const SizedBox(width: HollowSpacing.sm),
+                      _buildTab(hollow, 'Windows', !_showScreens, () {
+                        setState(() => _showScreens = false);
+                      }),
+                    ],
+                  ),
+                  const SizedBox(height: HollowSpacing.md),
+
+                  // Source grid
+                  Expanded(
+                    child: _loading
+                        ? Center(
+                            child: CircularProgressIndicator(
+                              color: hollow.accent,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : sources.isEmpty
+                            ? Center(
+                                child: Text(
+                                  _showScreens
+                                      ? 'No screens found'
+                                      : 'No windows found',
+                                  style: HollowTypography.body.copyWith(
+                                    color: hollow.textSecondary,
+                                  ),
+                                ),
+                              )
+                            : GridView.builder(
+                                gridDelegate:
+                                    SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: _showScreens ? 2 : 3,
+                                  mainAxisSpacing: HollowSpacing.sm,
+                                  crossAxisSpacing: HollowSpacing.sm,
+                                  childAspectRatio: 16 / 10,
+                                ),
+                                itemCount: sources.length,
+                                itemBuilder: (context, index) {
+                                  final source = sources[index];
+                                  final isSelected =
+                                      source.id == _selectedSourceId;
+                                  return _buildSourceTile(
+                                      hollow, source, isSelected);
+                                },
+                              ),
+                  ),
+                  const SizedBox(height: HollowSpacing.md),
+
+                  // Quality: resolution pills
+                  Row(
+                    children: [
+                      Text(
+                        'Resolution',
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(width: HollowSpacing.sm),
+                      ...ScreenShareResolution.values.map((r) =>
+                          _buildPill(hollow, r.label, r == _resolution,
+                              () => setState(() => _resolution = r))),
+                    ],
+                  ),
+                  const SizedBox(height: HollowSpacing.sm),
+                  // Quality: FPS pills
+                  Row(
+                    children: [
+                      Text(
+                        'Frame Rate',
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(width: HollowSpacing.sm),
+                      ...ScreenShareFps.values.map((f) =>
+                          _buildPill(hollow, f.label, f == _fps,
+                              () => setState(() => _fps = f))),
+                    ],
+                  ),
+                  const SizedBox(height: HollowSpacing.lg),
+
+                  // Actions
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      HollowButton.ghost(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: HollowSpacing.sm),
+                      HollowButton.filled(
+                        onPressed: _selectedSourceId != null
+                            ? () {
+                                Navigator.pop(
+                                  context,
+                                  ScreenShareSelection(
+                                    sourceId: _selectedSourceId!,
+                                    width: _resolution.width,
+                                    height: _resolution.height,
+                                    fps: _fps.value,
+                                  ),
+                                );
+                              }
+                            : null,
+                        child: const Text('Share'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTab(
+      HollowTheme hollow, String label, bool active, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: HollowSpacing.md,
+          vertical: HollowSpacing.xs + 2,
+        ),
+        decoration: BoxDecoration(
+          color: active
+              ? hollow.accent.withValues(alpha: 0.15)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(hollow.radiusSm),
+          border: active
+              ? Border.all(color: hollow.accent.withValues(alpha: 0.3))
+              : null,
+        ),
+        child: Text(
+          label,
+          style: HollowTypography.caption.copyWith(
+            color: active ? hollow.accent : hollow.textSecondary,
+            fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSourceTile(
+      HollowTheme hollow, DesktopCapturerSource source, bool isSelected) {
+    final thumbnail = source.thumbnail;
+
+    return GestureDetector(
+      onTap: () => setState(() => _selectedSourceId = source.id),
+      child: Container(
+        decoration: BoxDecoration(
+          color: hollow.surface,
+          borderRadius: BorderRadius.circular(hollow.radiusSm),
+          border: Border.all(
+            color: isSelected
+                ? hollow.accent
+                : hollow.border,
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Thumbnail
+            Expanded(
+              child: thumbnail != null && thumbnail.isNotEmpty
+                  ? Image.memory(
+                      Uint8List.fromList(thumbnail),
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true,
+                    )
+                  : Container(
+                      color: hollow.elevated,
+                      child: Icon(
+                        Icons.desktop_windows_outlined,
+                        color: hollow.textSecondary.withValues(alpha: 0.3),
+                        size: 32,
+                      ),
+                    ),
+            ),
+            // Name
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: HollowSpacing.xs + 2,
+                vertical: HollowSpacing.xs,
+              ),
+              color: isSelected
+                  ? hollow.accent.withValues(alpha: 0.1)
+                  : hollow.elevated,
+              child: Text(
+                source.name,
+                style: HollowTypography.caption.copyWith(
+                  color: isSelected
+                      ? hollow.accent
+                      : hollow.textPrimary,
+                  fontSize: 11,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPill(
+      HollowTheme hollow, String label, bool active, VoidCallback onTap) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: HollowSpacing.sm,
+            vertical: HollowSpacing.xs,
+          ),
+          decoration: BoxDecoration(
+            color: active
+                ? hollow.accent.withValues(alpha: 0.15)
+                : hollow.surface,
+            borderRadius: BorderRadius.circular(hollow.radiusSm),
+            border: Border.all(
+              color: active
+                  ? hollow.accent.withValues(alpha: 0.4)
+                  : hollow.border,
+            ),
+          ),
+          child: Text(
+            label,
+            style: HollowTypography.caption.copyWith(
+              color: active ? hollow.accent : hollow.textSecondary,
+              fontSize: 11,
+              fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

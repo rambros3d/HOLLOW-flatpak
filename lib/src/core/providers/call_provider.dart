@@ -33,6 +33,8 @@ class CallState {
   final bool isVideoEnabled;
   final bool remoteVideoEnabled;
   final bool isVideoCall;
+  final bool isScreenSharing;
+  final bool remoteScreenSharing;
 
   const CallState({
     this.status = CallStatus.idle,
@@ -44,6 +46,8 @@ class CallState {
     this.isVideoEnabled = false,
     this.remoteVideoEnabled = false,
     this.isVideoCall = false,
+    this.isScreenSharing = false,
+    this.remoteScreenSharing = false,
   });
 
   CallState copyWith({
@@ -56,6 +60,8 @@ class CallState {
     bool? isVideoEnabled,
     bool? remoteVideoEnabled,
     bool? isVideoCall,
+    bool? isScreenSharing,
+    bool? remoteScreenSharing,
   }) =>
       CallState(
         status: status ?? this.status,
@@ -67,6 +73,8 @@ class CallState {
         isVideoEnabled: isVideoEnabled ?? this.isVideoEnabled,
         remoteVideoEnabled: remoteVideoEnabled ?? this.remoteVideoEnabled,
         isVideoCall: isVideoCall ?? this.isVideoCall,
+        isScreenSharing: isScreenSharing ?? this.isScreenSharing,
+        remoteScreenSharing: remoteScreenSharing ?? this.remoteScreenSharing,
       );
 
   static const idle = CallState();
@@ -132,6 +140,13 @@ class CallNotifier extends Notifier<CallState> {
       // but the remote user's camera may be disabled.
       if (state.remoteVideoEnabled) {
         state = state.copyWith(); // Force UI rebuild if already enabled
+      }
+    };
+
+    _voiceService!.onScreenShareEnded = () {
+      debugPrint('[HOLLOW-CALL] Screen share track ended');
+      if (state.isScreenSharing) {
+        stopScreenShare();
       }
     };
   }
@@ -256,6 +271,53 @@ class CallNotifier extends Notifier<CallState> {
     await _service.switchCamera();
   }
 
+  /// Start screen sharing. Replaces the camera track.
+  Future<void> startScreenShare({
+    required String sourceId,
+    required int width,
+    required int height,
+    required int fps,
+  }) async {
+    if (state.status != CallStatus.active) return;
+
+    // Disable camera first (screen share replaces it).
+    if (state.isVideoEnabled) {
+      await _service.toggleVideo();
+      state = state.copyWith(isVideoEnabled: false);
+      final peerId = state.peerId;
+      final callId = state.callId;
+      if (peerId != null && callId != null) {
+        _sendSignal(peerId, 'video_state',
+            jsonEncode({'call_id': callId, 'enabled': false}));
+      }
+    }
+
+    final ok = await _service.startScreenShare(sourceId, width, height, fps);
+    if (!ok) return;
+
+    state = state.copyWith(isScreenSharing: true);
+
+    final peerId = state.peerId;
+    final callId = state.callId;
+    if (peerId != null && callId != null) {
+      _sendSignal(peerId, 'screen_state',
+          jsonEncode({'call_id': callId, 'enabled': true}));
+    }
+  }
+
+  /// Stop screen sharing.
+  Future<void> stopScreenShare() async {
+    await _service.stopScreenShare();
+    state = state.copyWith(isScreenSharing: false);
+
+    final peerId = state.peerId;
+    final callId = state.callId;
+    if (peerId != null && callId != null) {
+      _sendSignal(peerId, 'screen_state',
+          jsonEncode({'call_id': callId, 'enabled': false}));
+    }
+  }
+
   /// Master dispatcher for incoming call signals from Rust events.
   Future<void> handleCallSignal(
       String peerId, String signalType, String payload) async {
@@ -279,6 +341,8 @@ class CallNotifier extends Notifier<CallState> {
           await _handleIce(peerId, payload);
         case 'video_state':
           _handleVideoState(peerId, payload);
+        case 'screen_state':
+          _handleScreenState(peerId, payload);
       }
     } catch (e) {
       debugPrint('[HOLLOW-CALL] Signal error ($signalType from $peerId): $e');
@@ -522,6 +586,18 @@ class CallNotifier extends Notifier<CallState> {
     debugPrint(
         '[HOLLOW-CALL] Remote video state: enabled=$enabled from $peerId');
     state = state.copyWith(remoteVideoEnabled: enabled);
+  }
+
+  void _handleScreenState(String peerId, String payload) {
+    final json = jsonDecode(payload) as Map<String, dynamic>;
+    final callId = json['call_id'] as String;
+    final enabled = json['enabled'] as bool;
+
+    if (state.callId != callId) return;
+
+    debugPrint(
+        '[HOLLOW-CALL] Remote screen share: enabled=$enabled from $peerId');
+    state = state.copyWith(remoteScreenSharing: enabled);
   }
 
   // ---------------------------------------------------------------------------

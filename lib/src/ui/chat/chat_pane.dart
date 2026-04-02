@@ -39,6 +39,7 @@ import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/components/hollow_tooltip.dart';
 import 'package:hollow/src/ui/components/status_dot.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:hollow/src/ui/dialogs/screen_share_dialog.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
@@ -429,11 +430,16 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     final typingPeers = ref.watch(typingProvider)[widget.peerId] ?? {};
     final showProfilePanel = ref.watch(dmProfilePanelProvider);
 
+    // Auto-hide profile panel during screen share for more space.
+    final call = ref.watch(callProvider);
+    final isScreenShareActive =
+        call.isScreenSharing || call.remoteScreenSharing;
+
     return Row(
       children: [
         // DM Profile Panel (left side) with slide animation
         _DmProfilePanelSlider(
-          visible: showProfilePanel,
+          visible: showProfilePanel && !isScreenShareActive,
           peerId: widget.peerId,
         ),
 
@@ -644,11 +650,18 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
           ),
         ),
 
-        // Inline call panel (slides down when in call with this peer)
-        _InlineCallPanelSlider(peerId: widget.peerId),
+        // Inline call panel
+        if (isScreenShareActive)
+          Expanded(
+            flex: 3,
+            child: _InlineCallPanel(peerId: widget.peerId),
+          )
+        else
+          _InlineCallPanelSlider(peerId: widget.peerId),
 
         // Messages list + unread pill overlay
         Expanded(
+          flex: isScreenShareActive ? 1 : 3,
           child: Stack(
             children: [
           MessageActionBarScope(
@@ -1183,6 +1196,8 @@ class _InlineCallPanelState extends ConsumerState<_InlineCallPanel> {
     final hasRemoteVideo = call.remoteVideoEnabled;
     final hasLocalVideo = call.isVideoEnabled;
     final hasAnyVideo = hasRemoteVideo || hasLocalVideo;
+    final isScreenShare = call.isScreenSharing || call.remoteScreenSharing;
+    final hasVideoArea = hasAnyVideo || isScreenShare;
     final voiceService = ref.read(callProvider.notifier).voiceService;
     final remoteRenderer = voiceService?.remoteRenderer;
     final localRenderer = voiceService?.localRenderer;
@@ -1194,7 +1209,7 @@ class _InlineCallPanelState extends ConsumerState<_InlineCallPanel> {
 
     // Max video height: leave room for controls + input bar.
     final screenHeight = MediaQuery.of(context).size.height;
-    final maxH = (screenHeight * 0.5).clamp(_minVideoHeight, _maxVideoHeight);
+    final maxH = (screenHeight * 0.7).clamp(_minVideoHeight, _maxVideoHeight);
 
     return Container(
       decoration: BoxDecoration(
@@ -1204,23 +1219,30 @@ class _InlineCallPanelState extends ConsumerState<_InlineCallPanel> {
         ),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: isScreenShare ? MainAxisSize.max : MainAxisSize.min,
         children: [
-          // Video area (only when cameras active)
-          if (hasAnyVideo) ...[
-            SizedBox(
-              height: _videoHeight,
-              child: _expandedRenderer != null
-                  ? _buildFullscreenVideo(
-                      hollow, displayName, remoteAvatar, localAvatar,
-                      remoteRenderer, localRenderer,
-                      hasRemoteVideo, hasLocalVideo)
-                  : _buildSideBySideVideo(
-                      hollow, displayName, remoteAvatar, localAvatar,
-                      remoteRenderer, localRenderer,
-                      hasRemoteVideo, hasLocalVideo),
-            ),
-            // Resize handle for video
+          // Video / screen share area
+          if (hasVideoArea) ...[
+            // Screen share fills available space; camera uses fixed height.
+            if (isScreenShare)
+              Expanded(
+                child: _buildScreenShareView(call, hollow, remoteRenderer),
+              )
+            else
+              SizedBox(
+                height: _videoHeight,
+                child: _expandedRenderer != null
+                    ? _buildFullscreenVideo(
+                        hollow, displayName, remoteAvatar, localAvatar,
+                        remoteRenderer, localRenderer,
+                        hasRemoteVideo, hasLocalVideo)
+                    : _buildSideBySideVideo(
+                        hollow, displayName, remoteAvatar, localAvatar,
+                        remoteRenderer, localRenderer,
+                        hasRemoteVideo, hasLocalVideo),
+              ),
+            // Resize handle for video (not needed during screen share — it fills Expanded)
+            if (!isScreenShare)
             MouseRegion(
               cursor: SystemMouseCursors.resizeRow,
               child: GestureDetector(
@@ -1498,7 +1520,130 @@ class _InlineCallPanelState extends ConsumerState<_InlineCallPanel> {
     );
   }
 
-  /// Shared row of call controls: mute, camera, end call.
+  /// Screen share view: handles local sharing, remote sharing, and both sharing.
+  Widget _buildScreenShareView(
+      CallState call, HollowTheme hollow, RTCVideoRenderer? remoteRenderer) {
+    final bothSharing = call.isScreenSharing && call.remoteScreenSharing;
+
+    if (bothSharing) {
+      // Both sharing — stacked: remote top, local banner bottom.
+      return Column(
+        children: [
+          // Remote screen (top, takes most space)
+          Expanded(
+            flex: 3,
+            child: Container(
+              color: Colors.black,
+              child: remoteRenderer != null
+                  ? RTCVideoView(
+                      remoteRenderer,
+                      mirror: false,
+                      objectFit:
+                          RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ),
+          // Local banner (bottom, compact)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: HollowSpacing.sm),
+            color: hollow.elevated,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(LucideIcons.monitor,
+                    size: 16, color: hollow.accent.withValues(alpha: 0.6)),
+                const SizedBox(width: HollowSpacing.sm),
+                Text(
+                  'You are also sharing',
+                  style: HollowTypography.caption.copyWith(
+                    color: hollow.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(width: HollowSpacing.md),
+                HollowButton.danger(
+                  onPressed: () =>
+                      ref.read(callProvider.notifier).stopScreenShare(),
+                  compact: true,
+                  child: const Text('Stop'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    } else if (call.isScreenSharing) {
+      // Only local sharing — show banner.
+      return Container(
+        color: hollow.elevated,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                LucideIcons.monitor,
+                size: 40,
+                color: hollow.accent.withValues(alpha: 0.6),
+              ),
+              const SizedBox(height: HollowSpacing.md),
+              Text(
+                'You are sharing your screen',
+                style: HollowTypography.body.copyWith(
+                  color: hollow.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: HollowSpacing.md),
+              HollowButton.danger(
+                onPressed: () =>
+                    ref.read(callProvider.notifier).stopScreenShare(),
+                compact: true,
+                child: const Text('Stop Sharing'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } else {
+      // Only remote sharing — show their screen (Contain, never mirror).
+      return Container(
+        color: Colors.black,
+        child: remoteRenderer != null
+            ? RTCVideoView(
+                remoteRenderer,
+                mirror: false,
+                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+              )
+            : Center(
+                child: Text(
+                  'Waiting for screen share...',
+                  style: HollowTypography.caption.copyWith(
+                    color: hollow.textSecondary,
+                  ),
+                ),
+              ),
+      );
+    }
+  }
+
+  Future<void> _handleScreenShareToggle(CallState call) async {
+    if (call.isScreenSharing) {
+      ref.read(callProvider.notifier).stopScreenShare();
+    } else {
+      final selection = await showScreenShareDialog(context);
+      if (selection != null && mounted) {
+        ref.read(callProvider.notifier).startScreenShare(
+              sourceId: selection.sourceId,
+              width: selection.width,
+              height: selection.height,
+              fps: selection.fps,
+            );
+      }
+    }
+  }
+
+  /// Shared row of call controls: mute, camera, screen share, end call.
   Widget _buildControls(CallState call, HollowTheme hollow) {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -1518,11 +1663,15 @@ class _InlineCallPanelState extends ConsumerState<_InlineCallPanel> {
         ),
         const SizedBox(width: HollowSpacing.xs),
         HollowTooltip(
-          message: call.isVideoEnabled
-              ? 'Turn off camera'
-              : 'Turn on camera',
+          message: (call.isScreenSharing || call.remoteScreenSharing)
+              ? 'Camera disabled during screen share'
+              : (call.isVideoEnabled
+                  ? 'Turn off camera'
+                  : 'Turn on camera'),
           child: HollowPressable(
-            onTap: call.status == CallStatus.active
+            onTap: call.status == CallStatus.active &&
+                    !call.isScreenSharing &&
+                    !call.remoteScreenSharing
                 ? () => ref.read(callProvider.notifier).toggleVideo()
                 : null,
             borderRadius: BorderRadius.circular(hollow.radiusSm),
@@ -1532,12 +1681,39 @@ class _InlineCallPanelState extends ConsumerState<_InlineCallPanel> {
                   ? LucideIcons.video
                   : LucideIcons.videoOff,
               size: 16,
-              color: call.isVideoEnabled
-                  ? hollow.accent
-                  : hollow.textSecondary,
+              color: (call.isScreenSharing || call.remoteScreenSharing)
+                  ? hollow.textSecondary.withValues(alpha: 0.3)
+                  : (call.isVideoEnabled
+                      ? hollow.accent
+                      : hollow.textSecondary),
             ),
           ),
         ),
+        // Screen share (desktop only)
+        if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) ...[
+          const SizedBox(width: HollowSpacing.xs),
+          HollowTooltip(
+            message: call.isScreenSharing
+                ? 'Stop sharing'
+                : 'Share screen',
+            child: HollowPressable(
+              onTap: call.status == CallStatus.active
+                  ? () => _handleScreenShareToggle(call)
+                  : null,
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
+              padding: const EdgeInsets.all(HollowSpacing.xs),
+              child: Icon(
+                call.isScreenSharing
+                    ? LucideIcons.monitorOff
+                    : LucideIcons.monitor,
+                size: 16,
+                color: call.isScreenSharing
+                    ? hollow.accent
+                    : hollow.textSecondary,
+              ),
+            ),
+          ),
+        ],
         const SizedBox(width: HollowSpacing.sm),
         HollowTooltip(
           message: 'End call',

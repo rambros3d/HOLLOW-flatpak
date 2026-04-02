@@ -529,6 +529,15 @@ enum HavenMessage {
     /// Video state change during a call (camera on/off).
     #[serde(rename = "call_video_state")]
     CallVideoState { call_id: String, enabled: bool },
+
+    /// Screen share state change during a call (on/off).
+    #[serde(rename = "call_screen_state")]
+    CallScreenState {
+        #[serde(default)]
+        call_id: String,
+        #[serde(default)]
+        enabled: bool,
+    },
 }
 
 /// Envelope for the plaintext body inside an Encrypted message.
@@ -4752,6 +4761,17 @@ async fn run_event_loop(
                                     }
                                 } else {
                                     hollow_log!("[HOLLOW-CALL] Failed to parse video_state payload");
+                                    continue;
+                                }
+                            }
+                            "screen_state" => {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) {
+                                    HavenMessage::CallScreenState {
+                                        call_id: v["call_id"].as_str().unwrap_or("").to_string(),
+                                        enabled: v["enabled"].as_bool().unwrap_or(false),
+                                    }
+                                } else {
+                                    hollow_log!("[HOLLOW-CALL] Failed to parse screen_state payload");
                                     continue;
                                 }
                             }
@@ -9920,6 +9940,18 @@ async fn handle_incoming_request(
             let _ = event_tx.send(NetworkEvent::CallSignal {
                 peer_id: peer_str.to_string(),
                 signal_type: "video_state".to_string(),
+                payload,
+            }).await;
+        }
+        HavenMessage::CallScreenState { call_id, enabled } => {
+            hollow_log!("[HOLLOW-CALL] CallScreenState from {peer_str} call={call_id} enabled={enabled}");
+            let payload = serde_json::json!({
+                "call_id": call_id,
+                "enabled": enabled,
+            }).to_string();
+            let _ = event_tx.send(NetworkEvent::CallSignal {
+                peer_id: peer_str.to_string(),
+                signal_type: "screen_state".to_string(),
                 payload,
             }).await;
         }

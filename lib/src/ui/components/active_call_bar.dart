@@ -193,23 +193,31 @@ class _ActiveCallBarState extends ConsumerState<ActiveCallBar> {
                         ),
                       ),
                     ),
-                    // Switch camera — mobile only (desktop has one camera).
-                    if (call.isVideoEnabled &&
-                        !Platform.isWindows &&
-                        !Platform.isLinux &&
-                        !Platform.isMacOS) ...[
+                    // Screen share indicator (desktop only).
+                    if (Platform.isWindows ||
+                        Platform.isLinux ||
+                        Platform.isMacOS) ...[
                       const SizedBox(width: HollowSpacing.xs),
                       HollowTooltip(
-                        message: 'Switch camera',
+                        message: call.isScreenSharing
+                            ? 'Stop sharing'
+                            : 'Sharing screen',
                         child: HollowPressable(
-                          onTap: () =>
-                              ref.read(callProvider.notifier).switchCamera(),
+                          onTap: call.isScreenSharing
+                              ? () => ref
+                                  .read(callProvider.notifier)
+                                  .stopScreenShare()
+                              : null,
                           borderRadius: BorderRadius.circular(hollow.radiusSm),
                           padding: const EdgeInsets.all(HollowSpacing.xs),
                           child: Icon(
-                            LucideIcons.switchCamera,
+                            call.isScreenSharing
+                                ? LucideIcons.monitorOff
+                                : LucideIcons.monitor,
                             size: 14,
-                            color: hollow.textSecondary,
+                            color: call.isScreenSharing
+                                ? hollow.accent
+                                : hollow.textSecondary.withValues(alpha: 0.4),
                           ),
                         ),
                       ),

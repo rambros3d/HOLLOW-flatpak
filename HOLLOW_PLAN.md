@@ -1423,11 +1423,14 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [ ] TTL/hop limit on forwarded audio (3-4 hops max)
   - [ ] Adaptive: below 6 participants → full mesh, 6+ → gossip forwarding
   - [ ] Same connection subset as Phase 6 scaling (peer scoring, rotation, 6-12 peers per server)
-- [ ] **Screen sharing**
-  - [ ] `getDisplayMedia()` for screen/window capture
-  - [ ] Share as video track on existing RTCPeerConnection
-  - [ ] Viewer-only mode (screen share without camera)
-  - [ ] Quality/FPS picker: Resolution — 360p, 480p, 720p, 1080p (default), 1440p, 4K. FPS — 5, 15, 30, 60 (default). Set via `getDisplayMedia` constraints + SDP bandwidth caps. 360p for low-bandwidth users, 15fps for text/code sharing
+- [X] **Screen sharing**
+  - [X] `getDisplayMedia()` for screen/window capture + source picker (Screens/Windows tabs with thumbnails)
+  - [X] Share as video track on existing RTCPeerConnection via `replaceTrack()` (no renegotiation)
+  - [X] Viewer-only mode (screen share without camera — camera auto-disabled during share)
+  - [X] Quality/FPS picker: Resolution — 360p, 480p, 720p, 1080p (default), 1440p, 4K. FPS — 5, 15, 30, 60 (default). Pill-style selector in picker dialog
+  - [X] Both-sharing handled (stacked view: remote top, local banner bottom)
+  - [X] Rust `CallScreenState` signal + 2s poll for shared window close detection
+  - [ ] Screen share layout redesign: fullscreen with overlay chat/controls on hover
 - [ ] **Voice channels (persistent, join/leave)**
   - [ ] Server-level voice channels in CRDT (like text channels but for voice)
   - [ ] Join/leave mechanics: add/remove audio track, update channel member list via CRDT
