@@ -538,6 +538,24 @@ enum HavenMessage {
         #[serde(default)]
         enabled: bool,
     },
+
+    /// SDP offer for screen share WebRTC connection (separate PC).
+    #[serde(rename = "call_screen_offer")]
+    CallScreenOffer { call_id: String, sdp: String },
+
+    /// SDP answer for screen share WebRTC connection (separate PC).
+    #[serde(rename = "call_screen_answer")]
+    CallScreenAnswer { call_id: String, sdp: String },
+
+    /// ICE candidate for screen share WebRTC connection (separate PC).
+    #[serde(rename = "call_screen_ice")]
+    CallScreenIce {
+        call_id: String,
+        candidate: String,
+        sdp_mid: String,
+        sdp_mline_index: u32,
+        role: String,
+    },
 }
 
 /// Envelope for the plaintext body inside an Encrypted message.
@@ -4772,6 +4790,42 @@ async fn run_event_loop(
                                     }
                                 } else {
                                     hollow_log!("[HOLLOW-CALL] Failed to parse screen_state payload");
+                                    continue;
+                                }
+                            }
+                            "screen_offer" => {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) {
+                                    HavenMessage::CallScreenOffer {
+                                        call_id: v["call_id"].as_str().unwrap_or("").to_string(),
+                                        sdp: v["sdp"].as_str().unwrap_or("").to_string(),
+                                    }
+                                } else {
+                                    hollow_log!("[HOLLOW-CALL] Failed to parse screen_offer payload");
+                                    continue;
+                                }
+                            }
+                            "screen_answer" => {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) {
+                                    HavenMessage::CallScreenAnswer {
+                                        call_id: v["call_id"].as_str().unwrap_or("").to_string(),
+                                        sdp: v["sdp"].as_str().unwrap_or("").to_string(),
+                                    }
+                                } else {
+                                    hollow_log!("[HOLLOW-CALL] Failed to parse screen_answer payload");
+                                    continue;
+                                }
+                            }
+                            "screen_ice" => {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) {
+                                    HavenMessage::CallScreenIce {
+                                        call_id: v["call_id"].as_str().unwrap_or("").to_string(),
+                                        candidate: v["candidate"].as_str().unwrap_or("").to_string(),
+                                        sdp_mid: v["sdpMid"].as_str().unwrap_or("").to_string(),
+                                        sdp_mline_index: v["sdpMLineIndex"].as_u64().unwrap_or(0) as u32,
+                                        role: v["role"].as_str().unwrap_or("").to_string(),
+                                    }
+                                } else {
+                                    hollow_log!("[HOLLOW-CALL] Failed to parse screen_ice payload");
                                     continue;
                                 }
                             }
@@ -9952,6 +10006,45 @@ async fn handle_incoming_request(
             let _ = event_tx.send(NetworkEvent::CallSignal {
                 peer_id: peer_str.to_string(),
                 signal_type: "screen_state".to_string(),
+                payload,
+            }).await;
+        }
+        HavenMessage::CallScreenOffer { call_id, sdp } => {
+            hollow_log!("[HOLLOW-CALL] CallScreenOffer from {peer_str} call={call_id}");
+            let payload = serde_json::json!({
+                "call_id": call_id,
+                "sdp": sdp,
+            }).to_string();
+            let _ = event_tx.send(NetworkEvent::CallSignal {
+                peer_id: peer_str.to_string(),
+                signal_type: "screen_offer".to_string(),
+                payload,
+            }).await;
+        }
+        HavenMessage::CallScreenAnswer { call_id, sdp } => {
+            hollow_log!("[HOLLOW-CALL] CallScreenAnswer from {peer_str} call={call_id}");
+            let payload = serde_json::json!({
+                "call_id": call_id,
+                "sdp": sdp,
+            }).to_string();
+            let _ = event_tx.send(NetworkEvent::CallSignal {
+                peer_id: peer_str.to_string(),
+                signal_type: "screen_answer".to_string(),
+                payload,
+            }).await;
+        }
+        HavenMessage::CallScreenIce { call_id, candidate, sdp_mid, sdp_mline_index, role } => {
+            hollow_log!("[HOLLOW-CALL] CallScreenIce from {peer_str} call={call_id} role={role}");
+            let payload = serde_json::json!({
+                "call_id": call_id,
+                "candidate": candidate,
+                "sdpMid": sdp_mid,
+                "sdpMLineIndex": sdp_mline_index,
+                "role": role,
+            }).to_string();
+            let _ = event_tx.send(NetworkEvent::CallSignal {
+                peer_id: peer_str.to_string(),
+                signal_type: "screen_ice".to_string(),
                 payload,
             }).await;
         }

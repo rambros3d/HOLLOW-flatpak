@@ -71,7 +71,7 @@ class _ScreenShareDialogState extends State<_ScreenShareDialog> {
   final Map<String, DesktopCapturerSource> _sources = {};
   String? _selectedSourceId;
   ScreenShareResolution _resolution = ScreenShareResolution.p1080;
-  ScreenShareFps _fps = ScreenShareFps.fps30;
+  ScreenShareFps _fps = ScreenShareFps.fps60;
   bool _loading = true;
   bool _showScreens = true; // true = screens tab, false = windows tab
   Timer? _refreshTimer;

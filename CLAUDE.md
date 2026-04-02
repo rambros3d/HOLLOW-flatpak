@@ -63,14 +63,15 @@ ssh ubuntu@141.227.186.209 "cd relay && cargo build --release && sudo systemctl 
 ```
 
 ## Current Phase
-**Phase 5B: Voice & Video — IN PROGRESS (Apr 1, 2026).**
-- **1:1 voice calls: DONE.** Separate RTCPeerConnection for voice (reusing data channel PC was tried and failed — inactive m-lines). Full call flow. SDP/ICE signaling through `CallSendSignal` (Olm DM path). Audio confirmed flowing via getStats(). Diagnostic SDP dumps + stats in code.
-- **"No audio" mystery: SOLVED.** Was never a code bug — libwebrtc plays to Windows "Default Device" (green checkmark), not taskbar selection. Fixed with explicit device selection.
-- **Device selection: FIXED.** Input: `sourceId` constraint (not `deviceId` — flutter_webrtc Windows quirk). Output: `win32audio` package for enumeration, `Helper.selectAudioOutput()` for routing. Both use Windows Core Audio endpoint IDs.
-- **1:1 video calls: CODE WRITTEN, AWAITING TEST.** Video UI done (CallVideoView, toggles, camera switch).
+**Phase 5B: Voice & Video — IN PROGRESS (Apr 2, 2026).**
+- **1:1 voice calls: DONE.** Separate RTCPeerConnection for voice. Full call flow + signaling. Tested cross-internet.
+- **Device selection: DONE.** Input: `sourceId` constraint. Output: `win32audio` + `Helper.selectAudioOutput()`.
+- **1:1 video calls: DONE.** Side-by-side + fullscreen. Tested cross-internet.
+- **Screen sharing: DONE.** Separate `RTCPeerConnection` per direction (`ScreenShareService`). `getDisplayMedia()` + `addTrack()` on fresh PC. Quality picker (360p-4K, 5-60 FPS, default 1080p60). Camera independent (stays on voice PC). Bidirectional sharing works. 3 Rust signal types: `screen_offer/answer/ice`.
+- **Screen share layout: DONE.** Full-bleed screen fills entire chat pane. Chat overlay (360px right, toggleable) + controls pill (bottom center) auto-fade after 1s inactivity. Pinned while hovering/typing.
 - **TURN server: DEPLOYED.** Coturn on VPS. HMAC-SHA1 credentials via relay `/turn-credentials`. IceConfigProvider refreshes every 50 min.
 - **ICE config:** Own coturn STUN + Cloudflare + Google STUN + TURN (UDP/TCP/TLS).
-- **Next:** Confirm voice cross-internet, test video, then voice channels, quality presets, screen sharing.
+- **Next:** Voice channels, group calls, audio quality presets.
 
 **Phase 5A: WebRTC Data Channels — COMPLETE (Mar 29, 2026).** P2P file/shard streaming via WebRTC data channels. flutter_webrtc 1.4.1 (libwebrtc m144). ~9 MB/s throughput, tested up to 131MB. 85-90% of heavy transfers bypass relay. STUN only (no TURN yet). WSS relay fallback for symmetric NAT. Keepalive pings (30s), auto-reconnect, early-arrival handling, `getBufferedAmount()` backpressure.
 

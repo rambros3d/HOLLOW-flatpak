@@ -4,9 +4,11 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:hollow/src/core/providers/ice_config_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/providers/settings_provider.dart';
+import 'package:hollow/src/core/services/screen_share_service.dart';
 import 'package:hollow/src/core/services/voice_service.dart';
 
 import '../../rust/api/network.dart' as network_api;
@@ -85,6 +87,14 @@ class CallNotifier extends Notifier<CallState> {
   Timer? _ringTimer;
   Timer? _statsTimer;
 
+  /// Separate PCs for screen sharing (one per direction).
+  ScreenShareService? _outgoingScreenShare; // We share our screen to them
+  ScreenShareService? _incomingScreenShare; // They share their screen to us
+
+  /// Renderer for the incoming remote screen share. Used by UI.
+  RTCVideoRenderer? get screenShareRenderer =>
+      _incomingScreenShare?.remoteRenderer;
+
   VoiceService get _service {
     if (_voiceService == null) {
       final localPeerId = ref.read(identityProvider).peerId ?? '';
@@ -140,13 +150,6 @@ class CallNotifier extends Notifier<CallState> {
       // but the remote user's camera may be disabled.
       if (state.remoteVideoEnabled) {
         state = state.copyWith(); // Force UI rebuild if already enabled
-      }
-    };
-
-    _voiceService!.onScreenShareEnded = () {
-      debugPrint('[HOLLOW-CALL] Screen share track ended');
-      if (state.isScreenSharing) {
-        stopScreenShare();
       }
     };
   }
@@ -234,6 +237,12 @@ class CallNotifier extends Notifier<CallState> {
       _sendSignal(peerId, 'end', callId);
     }
 
+    // Tear down screen share PCs.
+    await _outgoingScreenShare?.close();
+    _outgoingScreenShare = null;
+    await _incomingScreenShare?.close();
+    _incomingScreenShare = null;
+
     await _service.endCall();
     _cleanup();
   }
@@ -271,7 +280,7 @@ class CallNotifier extends Notifier<CallState> {
     await _service.switchCamera();
   }
 
-  /// Start screen sharing. Replaces the camera track.
+  /// Start screen sharing via a dedicated RTCPeerConnection.
   Future<void> startScreenShare({
     required String sourceId,
     required int width,
@@ -280,34 +289,55 @@ class CallNotifier extends Notifier<CallState> {
   }) async {
     if (state.status != CallStatus.active) return;
 
-    // Disable camera first (screen share replaces it).
-    if (state.isVideoEnabled) {
-      await _service.toggleVideo();
-      state = state.copyWith(isVideoEnabled: false);
-      final peerId = state.peerId;
-      final callId = state.callId;
-      if (peerId != null && callId != null) {
-        _sendSignal(peerId, 'video_state',
-            jsonEncode({'call_id': callId, 'enabled': false}));
+    final peerId = state.peerId!;
+    final callId = state.callId!;
+    final iceConfig = ref.read(iceConfigProvider);
+
+    // Create outgoing screen share service (separate PC).
+    _outgoingScreenShare = ScreenShareService(
+      localPeerId: localPeerId,
+      iceServers: iceConfig,
+    );
+
+    // Wire ICE callback to send screen_ice signals.
+    _outgoingScreenShare!.onIceCandidate = (candidate) {
+      _sendSignal(peerId, 'screen_ice', jsonEncode({
+        'call_id': callId,
+        'candidate': candidate.candidate,
+        'sdpMid': candidate.sdpMid,
+        'sdpMLineIndex': candidate.sdpMLineIndex,
+        'role': 'offerer',
+      }));
+    };
+
+    _outgoingScreenShare!.onScreenShareEnded = () {
+      if (state.isScreenSharing) {
+        stopScreenShare();
       }
-    }
+    };
 
-    final ok = await _service.startScreenShare(sourceId, width, height, fps);
-    if (!ok) return;
+    try {
+      final offerSdp = await _outgoingScreenShare!.createOffer(
+        sourceId, width, height, fps,
+      );
 
-    state = state.copyWith(isScreenSharing: true);
+      state = state.copyWith(isScreenSharing: true);
 
-    final peerId = state.peerId;
-    final callId = state.callId;
-    if (peerId != null && callId != null) {
+      _sendSignal(peerId, 'screen_offer',
+          jsonEncode({'call_id': callId, 'sdp': offerSdp}));
       _sendSignal(peerId, 'screen_state',
           jsonEncode({'call_id': callId, 'enabled': true}));
+    } catch (e) {
+      debugPrint('[HOLLOW-CALL] Failed to start screen share: $e');
+      await _outgoingScreenShare?.close();
+      _outgoingScreenShare = null;
     }
   }
 
   /// Stop screen sharing.
   Future<void> stopScreenShare() async {
-    await _service.stopScreenShare();
+    await _outgoingScreenShare?.close();
+    _outgoingScreenShare = null;
     state = state.copyWith(isScreenSharing: false);
 
     final peerId = state.peerId;
@@ -343,6 +373,12 @@ class CallNotifier extends Notifier<CallState> {
           _handleVideoState(peerId, payload);
         case 'screen_state':
           _handleScreenState(peerId, payload);
+        case 'screen_offer':
+          await _handleScreenOffer(peerId, payload);
+        case 'screen_answer':
+          await _handleScreenAnswer(peerId, payload);
+        case 'screen_ice':
+          await _handleScreenIce(peerId, payload);
       }
     } catch (e) {
       debugPrint('[HOLLOW-CALL] Signal error ($signalType from $peerId): $e');
@@ -514,6 +550,10 @@ class CallNotifier extends Notifier<CallState> {
   Future<void> _handleEnd(String peerId, String callId) async {
     if (state.callId != callId) return;
     debugPrint('[HOLLOW-CALL] Call ended by $peerId');
+    await _outgoingScreenShare?.close();
+    _outgoingScreenShare = null;
+    await _incomingScreenShare?.close();
+    _incomingScreenShare = null;
     await _service.endCall();
     _cleanup();
   }
@@ -597,7 +637,87 @@ class CallNotifier extends Notifier<CallState> {
 
     debugPrint(
         '[HOLLOW-CALL] Remote screen share: enabled=$enabled from $peerId');
+
+    if (!enabled) {
+      // Remote stopped sharing — tear down the incoming screen share PC.
+      _incomingScreenShare?.close();
+      _incomingScreenShare = null;
+    }
+
     state = state.copyWith(remoteScreenSharing: enabled);
+  }
+
+  Future<void> _handleScreenOffer(String peerId, String payload) async {
+    final json = jsonDecode(payload) as Map<String, dynamic>;
+    final callId = json['call_id'] as String;
+    final sdp = json['sdp'] as String;
+
+    if (state.callId != callId) return;
+
+    debugPrint('[HOLLOW-CALL] Screen offer from $peerId');
+
+    final iceConfig = ref.read(iceConfigProvider);
+
+    // Create incoming screen share service (separate PC to receive their screen).
+    _incomingScreenShare = ScreenShareService(
+      localPeerId: localPeerId,
+      iceServers: iceConfig,
+    );
+
+    // Wire ICE callback.
+    _incomingScreenShare!.onIceCandidate = (candidate) {
+      _sendSignal(peerId, 'screen_ice', jsonEncode({
+        'call_id': callId,
+        'candidate': candidate.candidate,
+        'sdpMid': candidate.sdpMid,
+        'sdpMLineIndex': candidate.sdpMLineIndex,
+        'role': 'answerer',
+      }));
+    };
+
+    _incomingScreenShare!.onRemoteTrackReady = () {
+      // Force UI rebuild so RTCVideoView picks up the renderer.
+      debugPrint('[HOLLOW-CALL] Screen share remote track ready');
+      state = state.copyWith();
+    };
+
+    // Handle the offer and send answer.
+    final answerSdp = await _incomingScreenShare!.handleOffer(sdp);
+    _sendSignal(peerId, 'screen_answer',
+        jsonEncode({'call_id': callId, 'sdp': answerSdp}));
+  }
+
+  Future<void> _handleScreenAnswer(String peerId, String payload) async {
+    final json = jsonDecode(payload) as Map<String, dynamic>;
+    final callId = json['call_id'] as String;
+    final sdp = json['sdp'] as String;
+
+    if (state.callId != callId || _outgoingScreenShare == null) return;
+
+    debugPrint('[HOLLOW-CALL] Screen answer from $peerId');
+    await _outgoingScreenShare!.handleAnswer(sdp);
+  }
+
+  Future<void> _handleScreenIce(String peerId, String payload) async {
+    final json = jsonDecode(payload) as Map<String, dynamic>;
+    final callId = json['call_id'] as String;
+
+    if (state.callId != callId) return;
+
+    final candidate = json['candidate'] as String;
+    final sdpMid = json['sdpMid'] as String?;
+    final sdpMLineIndex = (json['sdpMLineIndex'] as num?)?.toInt();
+    final role = json['role'] as String;
+
+    // Route to the opposite PC: offerer's candidates go to our incoming PC,
+    // answerer's candidates go to our outgoing PC.
+    if (role == 'offerer') {
+      await _incomingScreenShare?.handleIceCandidate(
+          candidate, sdpMid, sdpMLineIndex);
+    } else {
+      await _outgoingScreenShare?.handleIceCandidate(
+          candidate, sdpMid, sdpMLineIndex);
+    }
   }
 
   // ---------------------------------------------------------------------------

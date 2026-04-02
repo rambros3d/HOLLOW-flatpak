@@ -41,16 +41,10 @@ class VoiceService {
   RTCVideoRenderer? _remoteRenderer;
   MediaStream? _remoteStream;
 
-  // -- Screen share state --
-  MediaStream? _screenStream;
-  bool _isScreenSharing = false;
-  Timer? _screenTrackPoller;
-
   // Callbacks
   void Function(String peerId)? onConnected;
   void Function(String peerId)? onDisconnected;
   void Function(String peerId)? onRemoteVideoTrack;
-  void Function()? onScreenShareEnded;
 
   /// Preferred device IDs (set by CallNotifier from settings providers).
   String? preferredAudioInputDeviceId;
@@ -64,7 +58,6 @@ class VoiceService {
   String? get activePeerId => _activePeerId;
   String? get activeCallId => _activeCallId;
   bool get isVideoEnabled => _isVideoEnabled;
-  bool get isScreenSharing => _isScreenSharing;
   RTCVideoRenderer? get localRenderer => _localRenderer;
   RTCVideoRenderer? get remoteRenderer => _remoteRenderer;
   RTCPeerConnection? get peerConnection => _pc;
@@ -313,104 +306,6 @@ class VoiceService {
   // Screen sharing
   // ---------------------------------------------------------------------------
 
-  /// Get available screen/window sources for the picker dialog.
-  static Future<List<DesktopCapturerSource>> getDesktopSources() async {
-    return desktopCapturer.getSources(
-      types: [SourceType.Screen, SourceType.Window],
-    );
-  }
-
-  /// Start sharing a screen/window. Replaces the camera track on the video sender.
-  Future<bool> startScreenShare(
-      String sourceId, int width, int height, int fps) async {
-    if (_pc == null) return false;
-
-    _log('[HOLLOW-VOICE] Starting screen share: source=$sourceId '
-        '${width}x$height @ ${fps}fps');
-
-    try {
-      // MUST call getSources first to populate the internal source list.
-      await desktopCapturer.getSources(
-          types: [SourceType.Screen, SourceType.Window]);
-
-      _screenStream = await navigator.mediaDevices.getDisplayMedia({
-        'video': {
-          'deviceId': {'exact': sourceId},
-          'mandatory': {'frameRate': fps.toDouble()},
-        },
-        'audio': false,
-      });
-
-      final screenTrack = _screenStream!.getVideoTracks().first;
-      _log('[HOLLOW-VOICE] Got screen track: ${screenTrack.id}');
-
-      // Replace the video sender's track with the screen track.
-      final senders = await _pc!.getSenders();
-      for (final s in senders) {
-        if (s.track?.kind == 'video' || s.track == null) {
-          await s.replaceTrack(screenTrack);
-          _log('[HOLLOW-VOICE] Replaced video sender with screen track');
-          break;
-        }
-      }
-
-      _isScreenSharing = true;
-
-      // Poll for track ending (onEnded not wired on native desktop).
-      _screenTrackPoller?.cancel();
-      _screenTrackPoller = Timer.periodic(
-        const Duration(seconds: 2),
-        (_) {
-          if (_screenStream == null) {
-            _screenTrackPoller?.cancel();
-            return;
-          }
-          final tracks = _screenStream!.getVideoTracks();
-          if (tracks.isEmpty || !tracks.first.enabled) {
-            _log('[HOLLOW-VOICE] Screen track ended (window closed?)');
-            stopScreenShare();
-            onScreenShareEnded?.call();
-          }
-        },
-      );
-
-      return true;
-    } catch (e) {
-      _log('[HOLLOW-VOICE] Failed to start screen share: $e');
-      return false;
-    }
-  }
-
-  /// Stop sharing the screen. Replaces the sender track with null.
-  Future<void> stopScreenShare() async {
-    _log('[HOLLOW-VOICE] Stopping screen share');
-
-    _screenTrackPoller?.cancel();
-    _screenTrackPoller = null;
-
-    // Replace the video sender's track with null.
-    if (_pc != null) {
-      final senders = await _pc!.getSenders();
-      for (final s in senders) {
-        if (s.track?.kind == 'video') {
-          await s.replaceTrack(null);
-          break;
-        }
-      }
-    }
-
-    // Stop and dispose the screen stream.
-    if (_screenStream != null) {
-      for (final track in _screenStream!.getVideoTracks()) {
-        await track.stop();
-      }
-      await _screenStream!.dispose();
-      _screenStream = null;
-    }
-
-    _isScreenSharing = false;
-  }
-
   /// End the current call — close PC, stop streams, dispose renderers.
   Future<void> endCall() async {
     _log('[HOLLOW-VOICE] Ending call with $_activePeerId');
@@ -431,11 +326,6 @@ class VoiceService {
       }
       await _localVideoStream!.dispose();
       _localVideoStream = null;
-    }
-
-    // Stop screen share.
-    if (_isScreenSharing) {
-      await stopScreenShare();
     }
 
     // Dispose renderers.
@@ -584,6 +474,9 @@ class VoiceService {
   // ---------------------------------------------------------------------------
 
   /// Start camera. Returns true if successful, false if no camera available.
+  /// When the camera is unavailable, a sendrecv video transceiver is still
+  /// added (with null track) so the SDP always has a video m-line — this is
+  /// required for screen sharing to work on devices without cameras.
   Future<bool> _startCamera(RTCPeerConnection pc) async {
     _log('[HOLLOW-VOICE] Starting camera (front=$_useFrontCamera)');
     final constraints = {
