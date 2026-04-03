@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../rust/api/network.dart' as network_api;
+import 'frame_cryptor_service.dart';
 
 /// Log to hollow_debug.log (visible in release builds).
 void _log(String msg) {
@@ -49,6 +51,9 @@ class VoiceService {
   /// Preferred device IDs (set by CallNotifier from settings providers).
   String? preferredAudioInputDeviceId;
   String? preferredAudioOutputDeviceId;
+
+  /// SFrame encryption service for DM call E2EE.
+  FrameCryptorService? _frameCryptor;
 
   VoiceService({required this.localPeerId, Map<String, dynamic>? iceServers})
       : iceServers = iceServers ?? _defaultIceServers;
@@ -372,6 +377,10 @@ class VoiceService {
       _pc = null;
     }
 
+    // Dispose SFrame encryption.
+    await _frameCryptor?.dispose();
+    _frameCryptor = null;
+
     _pendingCandidates.clear();
     _activePeerId = null;
     _activeCallId = null;
@@ -379,6 +388,47 @@ class VoiceService {
     _isVideoEnabled = false;
     _remoteDescriptionSet = false;
     _useFrontCamera = true;
+  }
+
+  /// Set the SFrame encryption key for this DM call.
+  /// Called by CallNotifier after key exchange via signaling.
+  Future<void> setSframeKey(String peerId, Uint8List key) async {
+    if (_pc == null) return;
+
+    // Initialize FrameCryptorService if not already done.
+    _frameCryptor ??= FrameCryptorService();
+    if (!_frameCryptor!.isEnabled) {
+      await _frameCryptor!.init(sharedKey: true);
+    }
+    await _frameCryptor!.setSharedKey(0, key);
+
+    // Enable on sender (outgoing audio).
+    try {
+      final senders = await _pc!.getSenders();
+      for (final sender in senders) {
+        if (sender.track?.kind == 'audio') {
+          await _frameCryptor!.enableForSender(peerId, sender);
+          break;
+        }
+      }
+    } catch (e) {
+      _log('[HOLLOW-VOICE] Failed to enable SFrame sender: $e');
+    }
+
+    // Enable on receiver (incoming audio).
+    try {
+      final receivers = await _pc!.getReceivers();
+      for (final receiver in receivers) {
+        if (receiver.track?.kind == 'audio') {
+          await _frameCryptor!.enableForReceiver(peerId, receiver);
+          break;
+        }
+      }
+    } catch (e) {
+      _log('[HOLLOW-VOICE] Failed to enable SFrame receiver: $e');
+    }
+
+    _log('[HOLLOW-VOICE] SFrame E2EE enabled for DM call with $peerId');
   }
 
   Future<void> dispose() async => endCall();

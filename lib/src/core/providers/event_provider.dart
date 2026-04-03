@@ -687,6 +687,11 @@ class EventStreamNotifier extends Notifier<bool> {
         ref.read(voiceChannelProvider.notifier).onModeChanged(
               serverId, channelId, mode, gossipNeighbors);
 
+      case NetworkEvent_MlsEpochChanged(
+            :final serverId, :final epoch, :final sframeKey):
+        ref.read(voiceChannelProvider.notifier).onEpochChanged(
+              serverId, epoch.toInt(), Uint8List.fromList(sframeKey));
+
     }
     } catch (e, st) {
       debugPrint('[HOLLOW] Unhandled dispatch error: $e\n$st');

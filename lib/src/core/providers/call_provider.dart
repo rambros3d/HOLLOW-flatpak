@@ -37,6 +37,7 @@ class CallState {
   final bool isVideoCall;
   final bool isScreenSharing;
   final bool remoteScreenSharing;
+  final String sframeKey; // hex-encoded 32-byte SFrame key for E2EE
 
   const CallState({
     this.status = CallStatus.idle,
@@ -50,6 +51,7 @@ class CallState {
     this.isVideoCall = false,
     this.isScreenSharing = false,
     this.remoteScreenSharing = false,
+    this.sframeKey = '',
   });
 
   CallState copyWith({
@@ -64,6 +66,7 @@ class CallState {
     bool? isVideoCall,
     bool? isScreenSharing,
     bool? remoteScreenSharing,
+    String? sframeKey,
   }) =>
       CallState(
         status: status ?? this.status,
@@ -77,6 +80,7 @@ class CallState {
         isVideoCall: isVideoCall ?? this.isVideoCall,
         isScreenSharing: isScreenSharing ?? this.isScreenSharing,
         remoteScreenSharing: remoteScreenSharing ?? this.remoteScreenSharing,
+        sframeKey: sframeKey ?? this.sframeKey,
       );
 
   static const idle = CallState();
@@ -186,6 +190,7 @@ class CallNotifier extends Notifier<CallState> {
     if (state.status != CallStatus.idle) return;
 
     final callId = _generateCallId();
+    final sframeKey = _generateSframeKey();
     state = CallState(
       status: CallStatus.ringing,
       peerId: peerId,
@@ -193,9 +198,14 @@ class CallNotifier extends Notifier<CallState> {
       direction: CallDirection.outgoing,
       isVideoCall: withVideo,
       isVideoEnabled: withVideo,
+      sframeKey: sframeKey,
     );
 
-    final payload = jsonEncode({'call_id': callId, 'video': withVideo});
+    final payload = jsonEncode({
+      'call_id': callId,
+      'video': withVideo,
+      'sframe_key': sframeKey,
+    });
     _sendSignal(peerId, 'invite', payload);
 
     // 30-second ring timeout.
@@ -224,7 +234,11 @@ class CallNotifier extends Notifier<CallState> {
     state = state.copyWith(status: CallStatus.connecting);
 
     // Tell caller we accepted — they will send SDP offer.
-    _sendSignal(peerId, 'accept', callId);
+    final acceptPayload = jsonEncode({
+      'call_id': callId,
+      'sframe_key': state.sframeKey,
+    });
+    _sendSignal(peerId, 'accept', acceptPayload);
   }
 
   /// Reject an incoming call.
@@ -473,13 +487,15 @@ class CallNotifier extends Notifier<CallState> {
   // ---------------------------------------------------------------------------
 
   void _handleInvite(String peerId, String payload) {
-    // Parse JSON payload {call_id, video} with fallback for raw string.
+    // Parse JSON payload {call_id, video, sframe_key}.
     String callId;
     bool withVideo = false;
+    String sframeKey = '';
     if (payload.startsWith('{')) {
       final json = jsonDecode(payload) as Map<String, dynamic>;
       callId = json['call_id'] as String;
       withVideo = json['video'] as bool? ?? false;
+      sframeKey = json['sframe_key'] as String? ?? '';
     } else {
       callId = payload;
     }
@@ -503,6 +519,7 @@ class CallNotifier extends Notifier<CallState> {
           callId: callId,
           direction: CallDirection.incoming,
           isVideoCall: withVideo,
+          sframeKey: sframeKey,
         );
         return;
       } else {
@@ -517,6 +534,7 @@ class CallNotifier extends Notifier<CallState> {
       callId: callId,
       direction: CallDirection.incoming,
       isVideoCall: withVideo,
+      sframeKey: sframeKey,
     );
 
     // 30-second auto-reject timeout.
@@ -531,7 +549,16 @@ class CallNotifier extends Notifier<CallState> {
     });
   }
 
-  Future<void> _handleAccept(String peerId, String callId) async {
+  Future<void> _handleAccept(String peerId, String payload) async {
+    // Parse JSON payload to extract call_id.
+    String callId;
+    try {
+      final v = jsonDecode(payload);
+      callId = v['call_id'] as String? ?? payload;
+    } catch (_) {
+      callId = payload;
+    }
+
     if (state.status != CallStatus.ringing ||
         state.direction != CallDirection.outgoing ||
         state.callId != callId) {
@@ -550,6 +577,14 @@ class CallNotifier extends Notifier<CallState> {
       callId,
       withVideo: state.isVideoCall,
     );
+
+    // Enable SFrame E2EE using the key we generated in startCall.
+    final keyHex = state.sframeKey;
+    if (keyHex.isNotEmpty) {
+      final keyBytes = _hexToBytes(keyHex);
+      await _service.setSframeKey(peerId, keyBytes);
+    }
+
     final sdpPayload = jsonEncode({'call_id': callId, 'sdp': sdp});
     _sendSignal(peerId, 'sdp_offer', sdpPayload);
   }
@@ -601,6 +636,14 @@ class CallNotifier extends Notifier<CallState> {
         sdp,
         withVideo: state.isVideoCall,
       );
+
+      // Enable SFrame E2EE using the key from the invite.
+      final keyHex = state.sframeKey;
+      if (keyHex.isNotEmpty) {
+        final keyBytes = _hexToBytes(keyHex);
+        await _service.setSframeKey(peerId, keyBytes);
+      }
+
       final answerPayload = jsonEncode({'call_id': callId, 'sdp': answerSdp});
       _sendSignal(peerId, 'sdp_answer', answerPayload);
     }
@@ -766,6 +809,23 @@ class CallNotifier extends Notifier<CallState> {
     return List.generate(
             16, (_) => r.nextInt(256).toRadixString(16).padLeft(2, '0'))
         .join();
+  }
+
+  /// Generate a random 32-byte SFrame key (hex-encoded).
+  String _generateSframeKey() {
+    final r = Random.secure();
+    return List.generate(
+            32, (_) => r.nextInt(256).toRadixString(16).padLeft(2, '0'))
+        .join();
+  }
+
+  /// Convert hex string to Uint8List.
+  Uint8List _hexToBytes(String hex) {
+    final result = Uint8List(hex.length ~/ 2);
+    for (var i = 0; i < result.length; i++) {
+      result[i] = int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16);
+    }
+    return result;
   }
 }
 

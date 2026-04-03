@@ -449,6 +449,29 @@ impl MlsManager {
             .unwrap_or(0)
     }
 
+    /// Export an epoch secret for SFrame key derivation.
+    /// Label should be "sframe" for media encryption keys.
+    pub fn export_secret(
+        &self,
+        server_id: &str,
+        label: &str,
+        context: &[u8],
+        key_length: usize,
+    ) -> Result<Vec<u8>, String> {
+        let group = self.groups.get(server_id)
+            .ok_or_else(|| format!("No MLS group for server {server_id}"))?;
+        group
+            .export_secret(self.provider.crypto(), label, context, key_length)
+            .map_err(|e| format!("Failed to export secret: {e:?}"))
+    }
+
+    /// Get the current epoch number for a server's MLS group.
+    pub fn epoch(&self, server_id: &str) -> Result<u64, String> {
+        let group = self.groups.get(server_id)
+            .ok_or_else(|| format!("No MLS group for server {server_id}"))?;
+        Ok(group.epoch().as_u64())
+    }
+
     /// Remove MLS group for a server (on server delete/leave).
     pub fn remove_group(&mut self, server_id: &str) {
         self.groups.remove(server_id);
@@ -791,5 +814,70 @@ mod tests {
             assert_eq!(dec, owner_msg.to_vec());
             assert_eq!(sender, "12D3KooWOwner");
         }
+    }
+
+    #[test]
+    fn test_export_sframe_secret() {
+        let mut owner = MlsManager::new("12D3KooWOwner").unwrap();
+        let mut peer = MlsManager::new("12D3KooWPeer1").unwrap();
+
+        owner.create_group("server1").unwrap();
+
+        // Add peer to group.
+        let kp = peer.generate_key_package().unwrap();
+        let (commit, welcome) = owner.add_member("server1", &kp).unwrap();
+        owner.merge_pending_commit("server1").unwrap();
+        peer.join_from_welcome("server1", &welcome).unwrap();
+
+        // Both export the same SFrame key.
+        let owner_key = owner.export_secret("server1", "sframe", b"", 32).unwrap();
+        let peer_key = peer.export_secret("server1", "sframe", b"", 32).unwrap();
+
+        assert_eq!(owner_key.len(), 32);
+        assert_eq!(peer_key.len(), 32);
+        assert_eq!(owner_key, peer_key, "Both members should derive the same SFrame key");
+
+        // Epoch should be consistent.
+        let owner_epoch = owner.epoch("server1").unwrap();
+        let peer_epoch = peer.epoch("server1").unwrap();
+        assert_eq!(owner_epoch, peer_epoch);
+        assert!(owner_epoch > 0);
+    }
+
+    #[test]
+    fn test_sframe_key_rotates_on_membership_change() {
+        let mut owner = MlsManager::new("12D3KooWOwner").unwrap();
+        let mut peer1 = MlsManager::new("12D3KooWPeer1").unwrap();
+        let mut peer2 = MlsManager::new("12D3KooWPeer2").unwrap();
+
+        owner.create_group("server1").unwrap();
+
+        // Add peer1.
+        let kp1 = peer1.generate_key_package().unwrap();
+        let (_, welcome1) = owner.add_member("server1", &kp1).unwrap();
+        owner.merge_pending_commit("server1").unwrap();
+        peer1.join_from_welcome("server1", &welcome1).unwrap();
+
+        let key_epoch1 = owner.export_secret("server1", "sframe", b"", 32).unwrap();
+        let epoch1 = owner.epoch("server1").unwrap();
+
+        // Add peer2 — epoch changes, key should rotate.
+        let kp2 = peer2.generate_key_package().unwrap();
+        let (commit2, welcome2) = owner.add_member("server1", &kp2).unwrap();
+        owner.merge_pending_commit("server1").unwrap();
+        peer1.process_commit("server1", &commit2).unwrap();
+        peer2.join_from_welcome("server1", &welcome2).unwrap();
+
+        let key_epoch2 = owner.export_secret("server1", "sframe", b"", 32).unwrap();
+        let epoch2 = owner.epoch("server1").unwrap();
+
+        assert_ne!(key_epoch1, key_epoch2, "SFrame key must change when membership changes");
+        assert!(epoch2 > epoch1, "Epoch must increase");
+
+        // All three members should have the same new key.
+        let peer1_key = peer1.export_secret("server1", "sframe", b"", 32).unwrap();
+        let peer2_key = peer2.export_secret("server1", "sframe", b"", 32).unwrap();
+        assert_eq!(key_epoch2, peer1_key);
+        assert_eq!(key_epoch2, peer2_key);
     }
 }

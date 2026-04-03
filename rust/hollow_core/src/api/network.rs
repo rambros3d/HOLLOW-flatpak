@@ -151,6 +151,12 @@ pub enum NetworkEvent {
         mode: String,
         gossip_neighbors: Vec<String>,
     },
+    /// MLS epoch changed — SFrame key for voice E2EE.
+    MlsEpochChanged {
+        server_id: String,
+        epoch: u64,
+        sframe_key: Vec<u8>,
+    },
 }
 
 /// Holds all mutable state for the running node.
@@ -554,6 +560,9 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::VoiceChannelModeChanged { server_id, channel_id, mode, gossip_neighbors } => {
             NetworkEvent::VoiceChannelModeChanged { server_id, channel_id, mode, gossip_neighbors }
+        }
+        node::NetworkEvent::MlsEpochChanged { server_id, epoch, sframe_key } => {
+            NetworkEvent::MlsEpochChanged { server_id, epoch, sframe_key }
         }
     }
 }

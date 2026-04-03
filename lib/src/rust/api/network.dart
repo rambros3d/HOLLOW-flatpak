@@ -792,4 +792,11 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String mode,
     required List<String> gossipNeighbors,
   }) = NetworkEvent_VoiceChannelModeChanged;
+
+  /// MLS epoch changed — SFrame key for voice E2EE.
+  const factory NetworkEvent.mlsEpochChanged({
+    required String serverId,
+    required BigInt epoch,
+    required Uint8List sframeKey,
+  }) = NetworkEvent_MlsEpochChanged;
 }

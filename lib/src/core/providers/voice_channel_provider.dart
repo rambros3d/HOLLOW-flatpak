@@ -355,6 +355,17 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     } catch (_) {}
   }
 
+  /// Handle MLS epoch change — rotate SFrame key for voice E2EE.
+  Future<void> onEpochChanged(
+      String serverId, int epoch, Uint8List sframeKey) async {
+    if (!state.isInVoiceChannel) return;
+    if (state.currentServerId != serverId) return;
+    if (_service == null) return;
+
+    debugPrint('[HOLLOW-VC] MLS epoch changed: $epoch — rotating SFrame key');
+    await _service!.setSframeKey(epoch, sframeKey);
+  }
+
   /// Handle voice channel mode change (mesh <-> gossip).
   /// Called by event_provider when Rust emits VoiceChannelModeChanged.
   Future<void> onModeChanged(

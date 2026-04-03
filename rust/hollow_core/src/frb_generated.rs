@@ -4751,6 +4751,16 @@ impl SseDecode for crate::api::network::NetworkEvent {
                     gossip_neighbors: var_gossipNeighbors,
                 };
             }
+            75 => {
+                let mut var_serverId = <String>::sse_decode(deserializer);
+                let mut var_epoch = <u64>::sse_decode(deserializer);
+                let mut var_sframeKey = <Vec<u8>>::sse_decode(deserializer);
+                return crate::api::network::NetworkEvent::MlsEpochChanged {
+                    server_id: var_serverId,
+                    epoch: var_epoch,
+                    sframe_key: var_sframeKey,
+                };
+            }
             _ => {
                 unimplemented!("");
             }
@@ -6130,6 +6140,17 @@ impl flutter_rust_bridge::IntoDart for crate::api::network::NetworkEvent {
                 gossip_neighbors.into_into_dart().into_dart(),
             ]
             .into_dart(),
+            crate::api::network::NetworkEvent::MlsEpochChanged {
+                server_id,
+                epoch,
+                sframe_key,
+            } => [
+                75.into_dart(),
+                server_id.into_into_dart().into_dart(),
+                epoch.into_into_dart().into_dart(),
+                sframe_key.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
             _ => {
                 unimplemented!("");
             }
@@ -7243,6 +7264,16 @@ impl SseEncode for crate::api::network::NetworkEvent {
                 <String>::sse_encode(channel_id, serializer);
                 <String>::sse_encode(mode, serializer);
                 <Vec<String>>::sse_encode(gossip_neighbors, serializer);
+            }
+            crate::api::network::NetworkEvent::MlsEpochChanged {
+                server_id,
+                epoch,
+                sframe_key,
+            } => {
+                <i32>::sse_encode(75, serializer);
+                <String>::sse_encode(server_id, serializer);
+                <u64>::sse_encode(epoch, serializer);
+                <Vec<u8>>::sse_encode(sframe_key, serializer);
             }
             _ => {
                 unimplemented!("");

@@ -4693,6 +4693,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           mode: dco_decode_String(raw[3]),
           gossipNeighbors: dco_decode_list_String(raw[4]),
         );
+      case 75:
+        return NetworkEvent_MlsEpochChanged(
+          serverId: dco_decode_String(raw[1]),
+          epoch: dco_decode_u_64(raw[2]),
+          sframeKey: dco_decode_list_prim_u_8_strict(raw[3]),
+        );
       default:
         throw Exception("unreachable");
     }
@@ -5856,6 +5862,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           channelId: var_channelId,
           mode: var_mode,
           gossipNeighbors: var_gossipNeighbors,
+        );
+      case 75:
+        var var_serverId = sse_decode_String(deserializer);
+        var var_epoch = sse_decode_u_64(deserializer);
+        var var_sframeKey = sse_decode_list_prim_u_8_strict(deserializer);
+        return NetworkEvent_MlsEpochChanged(
+          serverId: var_serverId,
+          epoch: var_epoch,
+          sframeKey: var_sframeKey,
         );
       default:
         throw UnimplementedError('');
@@ -7109,6 +7124,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(channelId, serializer);
         sse_encode_String(mode, serializer);
         sse_encode_list_String(gossipNeighbors, serializer);
+      case NetworkEvent_MlsEpochChanged(
+        serverId: final serverId,
+        epoch: final epoch,
+        sframeKey: final sframeKey,
+      ):
+        sse_encode_i_32(75, serializer);
+        sse_encode_String(serverId, serializer);
+        sse_encode_u_64(epoch, serializer);
+        sse_encode_list_prim_u_8_strict(sframeKey, serializer);
     }
   }
 

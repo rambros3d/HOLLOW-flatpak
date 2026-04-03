@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:hollow/src/core/services/frame_cryptor_service.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
 import 'package:record/record.dart' as rec;
 
@@ -66,6 +68,9 @@ class VoiceChannelService {
   /// Track dedup: peer IDs whose audio we've already forwarded (prevent loops).
   final Set<String> _forwardedSources = {};
 
+  /// SFrame encryption service for voice channel E2EE.
+  FrameCryptorService? frameCryptor;
+
   VoiceChannelService({
     required this.localPeerId,
     required this.iceServers,
@@ -88,6 +93,10 @@ class VoiceChannelService {
   Future<void> startAudio(String serverId, String channelId) async {
     _serverId = serverId;
     _channelId = channelId;
+
+    // Initialize SFrame encryption service.
+    frameCryptor = FrameCryptorService();
+    await frameCryptor!.init(sharedKey: true);
 
     final audioConstraints = <String, dynamic>{
       'echoCancellation': true,
@@ -132,6 +141,9 @@ class VoiceChannelService {
     _vcLog('[HOLLOW-VC] Creating offer for peer $peerId');
     final pc = await _createPeerConnection(peerId);
     _addLocalAudioTracks(pc);
+
+    // Enable SFrame sender encryption on outgoing audio.
+    await _enableSframeSender(peerId, pc);
 
     final offer = await pc.createOffer();
     final mungedSdp = _mungeOpusParams(offer.sdp!);
@@ -183,6 +195,9 @@ class VoiceChannelService {
     _vcLog('[HOLLOW-VC] Received SDP offer from $peerId');
     final pc = await _createPeerConnection(peerId);
     _addLocalAudioTracks(pc);
+
+    // Enable SFrame sender encryption on outgoing audio.
+    await _enableSframeSender(peerId, pc);
 
     await pc.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
     _remoteDescSet[peerId] = true;
@@ -277,6 +292,56 @@ class VoiceChannelService {
   }
 
   /// Close all connections and stop audio (leaving voice channel).
+  /// Enable SFrame sender encryption on outgoing audio tracks for a peer.
+  Future<void> _enableSframeSender(String peerId, RTCPeerConnection pc) async {
+    if (frameCryptor == null || !frameCryptor!.isEnabled) {
+      // No SFrame key set yet — will enable once key arrives via MlsEpochChanged.
+      return;
+    }
+    try {
+      final senders = await pc.getSenders();
+      for (final sender in senders) {
+        if (sender.track?.kind == 'audio') {
+          await frameCryptor!.enableForSender(peerId, sender);
+          break;
+        }
+      }
+    } catch (e) {
+      _vcLog('[HOLLOW-VC] Failed to enable SFrame sender: $e');
+    }
+  }
+
+  /// Enable SFrame receiver decryption on incoming audio tracks from a peer.
+  Future<void> _enableSframeReceiver(String peerId, RTCPeerConnection pc) async {
+    if (frameCryptor == null || !frameCryptor!.isEnabled) return;
+    try {
+      final receivers = await pc.getReceivers();
+      for (final receiver in receivers) {
+        if (receiver.track?.kind == 'audio') {
+          await frameCryptor!.enableForReceiver(peerId, receiver);
+          break;
+        }
+      }
+    } catch (e) {
+      _vcLog('[HOLLOW-VC] Failed to enable SFrame receiver: $e');
+    }
+  }
+
+  /// Set the SFrame key and enable encryption on all existing PCs.
+  /// Called when MLS epoch key arrives or changes.
+  Future<void> setSframeKey(int epoch, Uint8List key) async {
+    if (frameCryptor == null) return;
+    await frameCryptor!.setSharedKey(epoch % 16, key); // keyRingSize=16
+    // Enable on all existing peer connections.
+    for (final entry in _peerConnections.entries) {
+      final peerId = entry.key;
+      final pc = entry.value;
+      await _enableSframeSender(peerId, pc);
+      await _enableSframeReceiver(peerId, pc);
+    }
+    _vcLog('[HOLLOW-VC] SFrame key set for epoch $epoch, enabled on ${_peerConnections.length} PCs');
+  }
+
   Future<void> closeAll() async {
     _vcLog('[HOLLOW-VC] Closing all connections');
     _stopVadTimer();
@@ -298,6 +363,8 @@ class VoiceChannelService {
     _forwardedSources.clear();
     gossipMode = false;
     gossipNeighbors = {};
+    await frameCryptor?.dispose();
+    frameCryptor = null;
     _stopLocalVad();
   }
 
@@ -497,8 +564,12 @@ class VoiceChannelService {
     };
 
     // Remote audio plays automatically via libwebrtc default sink.
+    // Enable SFrame receiver decryption on incoming audio.
     // In gossip mode, also forward received tracks to other neighbors.
     pc.onTrack = (RTCTrackEvent event) {
+      if (event.track.kind == 'audio') {
+        _enableSframeReceiver(peerId, pc);
+      }
       if (!gossipMode) return;
       if (event.track.kind != 'audio') return;
 

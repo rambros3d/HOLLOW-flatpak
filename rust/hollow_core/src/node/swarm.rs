@@ -170,6 +170,12 @@ pub(crate) enum NetworkEvent {
         mode: String,
         gossip_neighbors: Vec<String>,
     },
+    /// MLS epoch changed — SFrame key needs rotation.
+    MlsEpochChanged {
+        server_id: String,
+        epoch: u64,
+        sframe_key: Vec<u8>,
+    },
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
@@ -539,11 +545,11 @@ enum HavenMessage {
 
     /// Invite a peer to a voice/video call.
     #[serde(rename = "call_invite")]
-    CallInvite { call_id: String, #[serde(default)] video: bool },
+    CallInvite { call_id: String, #[serde(default)] video: bool, #[serde(default)] sframe_key: String },
 
     /// Accept a voice call invitation.
     #[serde(rename = "call_accept")]
-    CallAccept { call_id: String },
+    CallAccept { call_id: String, #[serde(default)] sframe_key: String },
 
     /// Reject a voice call invitation.
     #[serde(rename = "call_reject")]
@@ -2671,6 +2677,13 @@ async fn run_event_loop(
                                             match mls_mgr.merge_pending_commit(&server_id) {
                                                 Ok(()) => {
                                                     persist_mls_state(mls_mgr, &bundle_keypair);
+                                                    // Emit epoch change for SFrame key rotation.
+                                                    if let Ok(sframe_key) = mls_mgr.export_secret(&server_id, "sframe", b"", 32) {
+                                                        let epoch = mls_mgr.epoch(&server_id).unwrap_or(0);
+                                                        let _ = event_tx.send(NetworkEvent::MlsEpochChanged {
+                                                            server_id: server_id.clone(), epoch, sframe_key,
+                                                        }).await;
+                                                    }
                                                     let commit_b64 = base64::engine::general_purpose::STANDARD.encode(&commit_bytes);
                                                     // Broadcast MLS commit to remaining members.
                                                     for member_peer_str in &broadcast_targets {
@@ -4973,13 +4986,22 @@ async fn run_event_loop(
                                     HavenMessage::CallInvite {
                                         call_id: v["call_id"].as_str().unwrap_or("").to_string(),
                                         video: v["video"].as_bool().unwrap_or(false),
+                                        sframe_key: v["sframe_key"].as_str().unwrap_or("").to_string(),
                                     }
                                 } else {
-                                    // Backward compat: raw string is just call_id, no video.
-                                    HavenMessage::CallInvite { call_id: payload, video: false }
+                                    HavenMessage::CallInvite { call_id: payload, video: false, sframe_key: String::new() }
                                 }
                             }
-                            "accept" => HavenMessage::CallAccept { call_id: payload },
+                            "accept" => {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) {
+                                    HavenMessage::CallAccept {
+                                        call_id: v["call_id"].as_str().unwrap_or(&payload).to_string(),
+                                        sframe_key: v["sframe_key"].as_str().unwrap_or("").to_string(),
+                                    }
+                                } else {
+                                    HavenMessage::CallAccept { call_id: payload, sframe_key: String::new() }
+                                }
+                            }
                             "reject" => HavenMessage::CallReject { call_id: payload },
                             "end" => HavenMessage::CallEnd { call_id: payload },
                             "busy" => HavenMessage::CallBusy { call_id: payload },
@@ -5803,6 +5825,13 @@ async fn run_event_loop(
                                         continue;
                                     }
                                     persist_mls_state(mls_mgr, &bundle_keypair);
+                                    // Emit epoch change for SFrame key rotation.
+                                    if let Ok(sframe_key) = mls_mgr.export_secret(&server_id, "sframe", b"", 32) {
+                                        let epoch = mls_mgr.epoch(&server_id).unwrap_or(0);
+                                        let _ = event_tx.send(NetworkEvent::MlsEpochChanged {
+                                            server_id: server_id.clone(), epoch, sframe_key,
+                                        }).await;
+                                    }
 
                                     let welcome_b64 = base64::engine::general_purpose::STANDARD.encode(&welcome_bytes);
                                     let commit_b64 = base64::engine::general_purpose::STANDARD.encode(&commit_bytes);
@@ -10386,6 +10415,13 @@ async fn handle_incoming_request(
                     Ok(()) => {
                         persist_mls_state(mls_mgr, bundle_keypair);
                         hollow_log!("[HOLLOW-MLS] Processed commit for server {server_id}");
+                        // Emit epoch change for SFrame key rotation.
+                        if let Ok(sframe_key) = mls_mgr.export_secret(&server_id, "sframe", b"", 32) {
+                            let epoch = mls_mgr.epoch(&server_id).unwrap_or(0);
+                            let _ = event_tx.send(NetworkEvent::MlsEpochChanged {
+                                server_id: server_id.clone(), epoch, sframe_key,
+                            }).await;
+                        }
                     }
                     Err(e) => {
                         hollow_log!("[HOLLOW-MLS] Failed to process commit for {server_id}: {e}");
@@ -10763,11 +10799,12 @@ async fn handle_incoming_request(
         }
 
         // -- Voice call signaling (Phase 5B) --
-        HavenMessage::CallInvite { call_id, video } => {
+        HavenMessage::CallInvite { call_id, video, sframe_key } => {
             hollow_log!("[HOLLOW-CALL] CallInvite from {peer_str} call={call_id} video={video}");
             let payload = serde_json::json!({
                 "call_id": call_id,
                 "video": video,
+                "sframe_key": sframe_key,
             }).to_string();
             let _ = event_tx.send(NetworkEvent::CallSignal {
                 peer_id: peer_str.to_string(),
@@ -10775,12 +10812,16 @@ async fn handle_incoming_request(
                 payload,
             }).await;
         }
-        HavenMessage::CallAccept { call_id } => {
+        HavenMessage::CallAccept { call_id, sframe_key } => {
             hollow_log!("[HOLLOW-CALL] CallAccept from {peer_str} call={call_id}");
+            let payload = serde_json::json!({
+                "call_id": call_id,
+                "sframe_key": sframe_key,
+            }).to_string();
             let _ = event_tx.send(NetworkEvent::CallSignal {
                 peer_id: peer_str.to_string(),
                 signal_type: "accept".to_string(),
-                payload: call_id,
+                payload,
             }).await;
         }
         HavenMessage::CallReject { call_id } => {

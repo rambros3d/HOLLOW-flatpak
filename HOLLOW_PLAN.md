@@ -1400,7 +1400,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [X] Separate RTCPeerConnection for voice (cleaner than reusing data channel connection — different lifecycle, no idle timeout)
   - [X] Microphone capture via flutter_webrtc `navigator.mediaDevices.getUserMedia()` with echo cancellation, noise suppression, AGC
   - [X] Mute/unmute toggle
-  - [ ] DataPacketCryptor E2EE on audio track (flutter_webrtc 1.4.1 supports on Windows/Linux)
+  - [X] SFrame E2EE on audio tracks — `FrameCryptorService` (AES-128-GCM via flutter_webrtc `FrameCryptor`+`KeyProvider`). DM calls: random 32-byte key in Olm-encrypted `CallInvite`. Server voice channels: MLS `export_secret("sframe")` epoch key, auto-rotates on membership change via `MlsEpochChanged` event. Tested cross-internet, `FrameCryptorStateOk` confirmed.
   - [X] Call signaling: `HavenMessage::CallInvite/Accept/Reject/End/Busy` + `CallSdpOffer/SdpAnswer/IceCandidate` via WSS relay
   - [X] Incoming call overlay (slide-down card with accept/decline, 30s auto-reject)
   - [X] Active call bar (floating pill: peer name, MM:SS timer, mute toggle, end call)
@@ -1487,9 +1487,10 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] Export/import friend profile data (avatars, statuses, about) — either export to .hollow backup or trigger sync on import to pull from friends
 - [ ] Copying messages / Paste + drag-and-drop images into the input bar
 - [ ] Different fonts/elements like hearts or sparkles on Profile and maybe nicknames
-- [ ] **Scaling (deferred from Phase 4):**
-  - [ ] Connection subset management + gossip relay tree — shared with Phase 5B voice forwarding. Full spec at Phase 4 section (line ~1229). Defer until scaling pain or when 5B gossip forwarding is implemented
+- [ ] **Scaling:**
+  - [X] Connection subset management + gossip relay tree — DONE (Phase 5D, Apr 3). See Phase 4 section (~line 1229) and Phase 5B voice channels section
   - [ ] Channel-level CRDT sharding (split ServerState for scale) — defer until ServerState is too large
+  - [ ] Multi-relay deployment: regional relays (EU/US/Asia, $5-10/month each, 1 Gbps) for messages/CRDT/signaling. Trivial — relay is stateless, just routing
 - [ ] **File deduplication** — content-addressable dedup via SHA-256 hash. If the same file is sent multiple times, store once on disk, point all file_ids to the same path. Reference counting for cleanup.
 - [X] Unread message indicator: floating pill above chat input with arrow-down icon + unread count, click to scroll to newest, auto-dismiss on scroll — also fix channel chat auto-reload when MessageSyncCompleted fires for currently-viewed channel
 - [ ] Proper roles on the server and editing of permissions
@@ -1498,6 +1499,12 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] Discord import system (full implementation — parse GDPR export ZIP, map servers/channels/roles/messages, placeholder identities, member claiming) == reflect to the discord_migration_plan.md
 - [ ] Data export system (messages, files, identity — verifiable with Ed25519 signatures)
 - [ ] Server template export/import (share server structures)
+- [ ] **Cryptographic message verification ("The RAT Files")** — prove message authenticity, defeat fake screenshots
+  - [ ] Message Info tooltip button: shows sender peer ID, timestamp, Ed25519 signature (hex), public key fingerprint
+  - [ ] "Export Proof" button: exports JSON with message text, timestamp, context (server/channel/DM), signature, sender public key — anyone can verify with standard Ed25519
+  - [ ] "Verify Peer" screen in Security tab: compare public key fingerprints (in person or trusted channel) to confirm a peer ID belongs to the real person
+  - [ ] External verifier: standalone CLI/web tool that takes the proof JSON and runs Ed25519_verify() — no Hollow app needed, open-source, auditable
+  - [ ] Trust indicators in UI: verified peers get a checkmark badge on their avatar/name (fingerprint was confirmed)
 - [ ] Evidence Recovery UI tool (cooperative shard gathering for ex-members) — depends on Phase 4 shard system
 - [ ] Device linking via QR code (multi-device identity sync) — requires MLS + CRDTs. 🎞️ Animate: QR scan success celebration, device linked confirmation
 - [ ] Mobile platform testing & platform-specific fixes (adaptive layout built in Phase 2.5)
