@@ -70,7 +70,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => -1794443976;
+  int get rustContentHash => 168369447;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -480,9 +480,26 @@ abstract class RustLibApi extends BaseApi {
 
   Stream<NetworkEvent> crateApiNetworkWatchNetworkEvents();
 
+  Future<void> crateApiNetworkWebrtcBroadcastReceived({
+    required String transferId,
+    required String broadcastId,
+    required int ttl,
+    required String originPeerId,
+    required String senderPeerId,
+    required String tempPath,
+    required BigInt totalSize,
+    required String kind,
+    required int shardIndex,
+  });
+
   Future<void> crateApiNetworkWebrtcPeerConnected({required String peerId});
 
   Future<void> crateApiNetworkWebrtcPeerDisconnected({required String peerId});
+
+  Future<void> crateApiNetworkWebrtcPingReport({
+    required String peerId,
+    required int rttMs,
+  });
 
   Future<void> crateApiNetworkWebrtcSendComplete({required String transferId});
 
@@ -3693,6 +3710,75 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<void> crateApiNetworkWebrtcBroadcastReceived({
+    required String transferId,
+    required String broadcastId,
+    required int ttl,
+    required String originPeerId,
+    required String senderPeerId,
+    required String tempPath,
+    required BigInt totalSize,
+    required String kind,
+    required int shardIndex,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(transferId, serializer);
+          sse_encode_String(broadcastId, serializer);
+          sse_encode_u_8(ttl, serializer);
+          sse_encode_String(originPeerId, serializer);
+          sse_encode_String(senderPeerId, serializer);
+          sse_encode_String(tempPath, serializer);
+          sse_encode_u_64(totalSize, serializer);
+          sse_encode_String(kind, serializer);
+          sse_encode_u_16(shardIndex, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 96,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiNetworkWebrtcBroadcastReceivedConstMeta,
+        argValues: [
+          transferId,
+          broadcastId,
+          ttl,
+          originPeerId,
+          senderPeerId,
+          tempPath,
+          totalSize,
+          kind,
+          shardIndex,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiNetworkWebrtcBroadcastReceivedConstMeta =>
+      const TaskConstMeta(
+        debugName: "webrtc_broadcast_received",
+        argNames: [
+          "transferId",
+          "broadcastId",
+          "ttl",
+          "originPeerId",
+          "senderPeerId",
+          "tempPath",
+          "totalSize",
+          "kind",
+          "shardIndex",
+        ],
+      );
+
+  @override
   Future<void> crateApiNetworkWebrtcPeerConnected({required String peerId}) {
     return handler.executeNormal(
       NormalTask(
@@ -3702,7 +3788,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 96,
+            funcId: 97,
             port: port_,
           );
         },
@@ -3733,7 +3819,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 97,
+            funcId: 98,
             port: port_,
           );
         },
@@ -3755,6 +3841,41 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<void> crateApiNetworkWebrtcPingReport({
+    required String peerId,
+    required int rttMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(peerId, serializer);
+          sse_encode_u_32(rttMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 99,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiNetworkWebrtcPingReportConstMeta,
+        argValues: [peerId, rttMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiNetworkWebrtcPingReportConstMeta =>
+      const TaskConstMeta(
+        debugName: "webrtc_ping_report",
+        argNames: ["peerId", "rttMs"],
+      );
+
+  @override
   Future<void> crateApiNetworkWebrtcSendComplete({required String transferId}) {
     return handler.executeNormal(
       NormalTask(
@@ -3764,7 +3885,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 98,
+            funcId: 100,
             port: port_,
           );
         },
@@ -3803,7 +3924,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 99,
+            funcId: 101,
             port: port_,
           );
         },
@@ -3844,7 +3965,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 100,
+            funcId: 102,
             port: port_,
           );
         },
@@ -3887,7 +4008,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 101,
+            funcId: 103,
             port: port_,
           );
         },
@@ -4547,6 +4668,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           peerId: dco_decode_String(raw[3]),
           signalType: dco_decode_String(raw[4]),
           payload: dco_decode_String(raw[5]),
+        );
+      case 71:
+        return NetworkEvent_GossipConnect(peerId: dco_decode_String(raw[1]));
+      case 72:
+        return NetworkEvent_GossipDisconnect(peerId: dco_decode_String(raw[1]));
+      case 73:
+        return NetworkEvent_GossipRelayFile(
+          broadcastId: dco_decode_String(raw[1]),
+          ttl: dco_decode_u_8(raw[2]),
+          originPeerId: dco_decode_String(raw[3]),
+          filePath: dco_decode_String(raw[4]),
+          totalSize: dco_decode_u_64(raw[5]),
+          kind: dco_decode_String(raw[6]),
+          shardIndex: dco_decode_u_16(raw[7]),
+          excludePeerId: dco_decode_String(raw[8]),
+          serverId: dco_decode_String(raw[9]),
+          channelId: dco_decode_String(raw[10]),
+        );
+      case 74:
+        return NetworkEvent_VoiceChannelModeChanged(
+          serverId: dco_decode_String(raw[1]),
+          channelId: dco_decode_String(raw[2]),
+          mode: dco_decode_String(raw[3]),
+          gossipNeighbors: dco_decode_list_String(raw[4]),
         );
       default:
         throw Exception("unreachable");
@@ -5671,6 +5816,46 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           peerId: var_peerId,
           signalType: var_signalType,
           payload: var_payload,
+        );
+      case 71:
+        var var_peerId = sse_decode_String(deserializer);
+        return NetworkEvent_GossipConnect(peerId: var_peerId);
+      case 72:
+        var var_peerId = sse_decode_String(deserializer);
+        return NetworkEvent_GossipDisconnect(peerId: var_peerId);
+      case 73:
+        var var_broadcastId = sse_decode_String(deserializer);
+        var var_ttl = sse_decode_u_8(deserializer);
+        var var_originPeerId = sse_decode_String(deserializer);
+        var var_filePath = sse_decode_String(deserializer);
+        var var_totalSize = sse_decode_u_64(deserializer);
+        var var_kind = sse_decode_String(deserializer);
+        var var_shardIndex = sse_decode_u_16(deserializer);
+        var var_excludePeerId = sse_decode_String(deserializer);
+        var var_serverId = sse_decode_String(deserializer);
+        var var_channelId = sse_decode_String(deserializer);
+        return NetworkEvent_GossipRelayFile(
+          broadcastId: var_broadcastId,
+          ttl: var_ttl,
+          originPeerId: var_originPeerId,
+          filePath: var_filePath,
+          totalSize: var_totalSize,
+          kind: var_kind,
+          shardIndex: var_shardIndex,
+          excludePeerId: var_excludePeerId,
+          serverId: var_serverId,
+          channelId: var_channelId,
+        );
+      case 74:
+        var var_serverId = sse_decode_String(deserializer);
+        var var_channelId = sse_decode_String(deserializer);
+        var var_mode = sse_decode_String(deserializer);
+        var var_gossipNeighbors = sse_decode_list_String(deserializer);
+        return NetworkEvent_VoiceChannelModeChanged(
+          serverId: var_serverId,
+          channelId: var_channelId,
+          mode: var_mode,
+          gossipNeighbors: var_gossipNeighbors,
         );
       default:
         throw UnimplementedError('');
@@ -6884,6 +7069,46 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(peerId, serializer);
         sse_encode_String(signalType, serializer);
         sse_encode_String(payload, serializer);
+      case NetworkEvent_GossipConnect(peerId: final peerId):
+        sse_encode_i_32(71, serializer);
+        sse_encode_String(peerId, serializer);
+      case NetworkEvent_GossipDisconnect(peerId: final peerId):
+        sse_encode_i_32(72, serializer);
+        sse_encode_String(peerId, serializer);
+      case NetworkEvent_GossipRelayFile(
+        broadcastId: final broadcastId,
+        ttl: final ttl,
+        originPeerId: final originPeerId,
+        filePath: final filePath,
+        totalSize: final totalSize,
+        kind: final kind,
+        shardIndex: final shardIndex,
+        excludePeerId: final excludePeerId,
+        serverId: final serverId,
+        channelId: final channelId,
+      ):
+        sse_encode_i_32(73, serializer);
+        sse_encode_String(broadcastId, serializer);
+        sse_encode_u_8(ttl, serializer);
+        sse_encode_String(originPeerId, serializer);
+        sse_encode_String(filePath, serializer);
+        sse_encode_u_64(totalSize, serializer);
+        sse_encode_String(kind, serializer);
+        sse_encode_u_16(shardIndex, serializer);
+        sse_encode_String(excludePeerId, serializer);
+        sse_encode_String(serverId, serializer);
+        sse_encode_String(channelId, serializer);
+      case NetworkEvent_VoiceChannelModeChanged(
+        serverId: final serverId,
+        channelId: final channelId,
+        mode: final mode,
+        gossipNeighbors: final gossipNeighbors,
+      ):
+        sse_encode_i_32(74, serializer);
+        sse_encode_String(serverId, serializer);
+        sse_encode_String(channelId, serializer);
+        sse_encode_String(mode, serializer);
+        sse_encode_list_String(gossipNeighbors, serializer);
     }
   }
 

@@ -379,6 +379,36 @@ Future<void> voiceChannelSendSignal({
   payload: payload,
 );
 
+/// Report data channel keepalive RTT for gossip peer scoring.
+Future<void> webrtcPingReport({required String peerId, required int rttMs}) =>
+    RustLib.instance.api.crateApiNetworkWebrtcPingReport(
+      peerId: peerId,
+      rttMs: rttMs,
+    );
+
+/// Notify Rust that a broadcast file was received via gossip data channel.
+Future<void> webrtcBroadcastReceived({
+  required String transferId,
+  required String broadcastId,
+  required int ttl,
+  required String originPeerId,
+  required String senderPeerId,
+  required String tempPath,
+  required BigInt totalSize,
+  required String kind,
+  required int shardIndex,
+}) => RustLib.instance.api.crateApiNetworkWebrtcBroadcastReceived(
+  transferId: transferId,
+  broadcastId: broadcastId,
+  ttl: ttl,
+  originPeerId: originPeerId,
+  senderPeerId: senderPeerId,
+  tempPath: tempPath,
+  totalSize: totalSize,
+  kind: kind,
+  shardIndex: shardIndex,
+);
+
 /// A discovered peer on the local network.
 class DiscoveredPeer {
   final String peerId;
@@ -740,4 +770,26 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String signalType,
     required String payload,
   }) = NetworkEvent_VoiceChannelSignal;
+  const factory NetworkEvent.gossipConnect({required String peerId}) =
+      NetworkEvent_GossipConnect;
+  const factory NetworkEvent.gossipDisconnect({required String peerId}) =
+      NetworkEvent_GossipDisconnect;
+  const factory NetworkEvent.gossipRelayFile({
+    required String broadcastId,
+    required int ttl,
+    required String originPeerId,
+    required String filePath,
+    required BigInt totalSize,
+    required String kind,
+    required int shardIndex,
+    required String excludePeerId,
+    required String serverId,
+    required String channelId,
+  }) = NetworkEvent_GossipRelayFile;
+  const factory NetworkEvent.voiceChannelModeChanged({
+    required String serverId,
+    required String channelId,
+    required String mode,
+    required List<String> gossipNeighbors,
+  }) = NetworkEvent_VoiceChannelModeChanged;
 }

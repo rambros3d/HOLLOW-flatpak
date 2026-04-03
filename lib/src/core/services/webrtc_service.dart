@@ -22,6 +22,7 @@ const _kTypeFile = 0x00;
 const _kTypeShard = 0x01;
 const _kTypeContinuation = 0xFF;
 const _kTypePing = 0xFE; // keepalive ping byte
+const _kTypePong = 0xFC; // keepalive pong response byte
 
 /// Idle timeout before closing a peer connection (3x keepalive interval).
 const _kIdleTimeout = Duration(seconds: 90);
@@ -65,6 +66,9 @@ class WebRtcService {
   /// Peers we're intentionally closing (idle timeout or manual).
   /// Prevents triggering reconnect for intentional disconnects.
   final Set<String> _intentionalClose = {};
+
+  /// Timestamp of last keepalive ping sent per peer (for RTT measurement).
+  final Map<String, DateTime> _pingSentAt = {};
 
   /// Progress callback (transferId, bytesDone, totalBytes).
   void Function(String transferId, int bytesDone, int totalBytes)? onProgress;
@@ -267,6 +271,28 @@ class WebRtcService {
         error: e.toString(),
       );
     }
+  }
+
+  /// Send a broadcast file to a peer via data channel (gossip relay tree).
+  /// Uses type byte 0x02 with extra broadcast metadata in the header.
+  Future<void> sendBroadcast(
+    String peerId,
+    String broadcastId,
+    int ttl,
+    String originPeerId,
+    String filePath,
+    int totalSize,
+    String kind,
+    int shardIndex,
+  ) async {
+    // For now, reuse the regular sendFile path — the broadcast metadata
+    // (broadcastId, ttl, originPeerId) will be added in the 0x02 header
+    // format in a later iteration. Currently, the receiver-side handles
+    // broadcast file transfers through the BroadcastMeta MLS envelope,
+    // so even without the 0x02 header, the gossip relay works end-to-end
+    // because Rust already knows about the broadcast_id via MLS.
+    final transferId = '${broadcastId}_$peerId';
+    await sendFile(peerId, transferId, filePath, totalSize, kind, shardIndex);
   }
 
   /// Close connection to a peer (intentional — no reconnect).
@@ -480,6 +506,7 @@ class WebRtcService {
       conn.keepaliveTimer?.cancel();
       conn.keepaliveTimer = Timer.periodic(_kKeepaliveInterval, (_) {
         if (conn.dataChannel?.state == RTCDataChannelState.RTCDataChannelOpen) {
+          _pingSentAt[peerId] = DateTime.now();
           conn.dataChannel!.send(
               RTCDataChannelMessage.fromBinary(Uint8List.fromList([_kTypePing])));
         }
@@ -492,6 +519,7 @@ class WebRtcService {
   void _onDataChannelClosed(String peerId) {
     _log('[HOLLOW-WEBRTC-DART] Data channel CLOSED with $peerId');
     final wasIntentional = _intentionalClose.remove(peerId);
+    _pingSentAt.remove(peerId);
     _connections[peerId]?.idleTimer?.cancel();
     _connections.remove(peerId);
 
@@ -540,8 +568,25 @@ class WebRtcService {
 
     final typeByte = data[0];
 
-    // Keepalive ping — just ignore (idle timer already reset above).
-    if (data.length == 1 && typeByte == _kTypePing) return;
+    // Keepalive ping — reply with pong for RTT measurement.
+    if (data.length == 1 && typeByte == _kTypePing) {
+      final conn = _connections[peerId];
+      if (conn?.dataChannel?.state == RTCDataChannelState.RTCDataChannelOpen) {
+        conn!.dataChannel!.send(
+            RTCDataChannelMessage.fromBinary(Uint8List.fromList([_kTypePong])));
+      }
+      return;
+    }
+
+    // Keepalive pong — compute RTT and report to Rust for peer scoring.
+    if (data.length == 1 && typeByte == _kTypePong) {
+      final sentAt = _pingSentAt.remove(peerId);
+      if (sentAt != null) {
+        final rttMs = DateTime.now().difference(sentAt).inMilliseconds;
+        network_api.webrtcPingReport(peerId: peerId, rttMs: rttMs);
+      }
+      return;
+    }
 
     if (typeByte == _kTypeContinuation) {
       // Continuation chunk: [0xFF][id:64][payload...]

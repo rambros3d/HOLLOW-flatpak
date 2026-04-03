@@ -57,6 +57,15 @@ class VoiceChannelService {
   /// Callback when speaking peers change.
   void Function(Set<String> speakingPeers)? onSpeakingChanged;
 
+  /// Gossip mode: if true, only connect to gossipNeighbors (not all participants).
+  bool gossipMode = false;
+
+  /// Set of peer IDs that are our gossip neighbors (gossip mode only).
+  Set<String> gossipNeighbors = {};
+
+  /// Track dedup: peer IDs whose audio we've already forwarded (prevent loops).
+  final Set<String> _forwardedSources = {};
+
   VoiceChannelService({
     required this.localPeerId,
     required this.iceServers,
@@ -67,6 +76,9 @@ class VoiceChannelService {
 
   /// Number of active peer connections.
   int get peerCount => _peerConnections.length;
+
+  /// Set of peer IDs we currently have audio PCs with.
+  Set<String> get connectedPeerIds => _peerConnections.keys.toSet();
 
   // ---------------------------------------------------------------
   //  Lifecycle
@@ -233,6 +245,13 @@ class VoiceChannelService {
   /// Called when a remote peer joins our voice channel.
   /// Determines who should create the offer (glare prevention).
   Future<void> onPeerJoinedMyChannel(String peerId) async {
+    // In gossip mode, only connect to gossip neighbors.
+    if (gossipMode && !gossipNeighbors.contains(peerId)) {
+      return; // Not a gossip neighbor — skip (audio forwarded via neighbors).
+    }
+    // Already connected — skip.
+    if (_peerConnections.containsKey(peerId)) return;
+
     // Glare prevention: lower peer_id creates the offer.
     if (localPeerId.compareTo(peerId) < 0) {
       await connectToPeer(peerId);
@@ -276,6 +295,9 @@ class VoiceChannelService {
     _channelId = null;
     _speakingPeers.clear();
     _prevEnergy.clear();
+    _forwardedSources.clear();
+    gossipMode = false;
+    gossipNeighbors = {};
     _stopLocalVad();
   }
 
@@ -475,6 +497,35 @@ class VoiceChannelService {
     };
 
     // Remote audio plays automatically via libwebrtc default sink.
+    // In gossip mode, also forward received tracks to other neighbors.
+    pc.onTrack = (RTCTrackEvent event) {
+      if (!gossipMode) return;
+      if (event.track.kind != 'audio') return;
+
+      _vcLog('[HOLLOW-VC] Gossip: received audio track from $peerId — forwarding to ${gossipNeighbors.length - 1} neighbors');
+
+      // Track dedup: check if we already have audio from the original speaker.
+      // For now, use peerId as the source identifier. In multi-hop, the
+      // originator's ID would need to be signaled separately.
+      if (_forwardedSources.contains(peerId)) return;
+      _forwardedSources.add(peerId);
+
+      // Forward this track to all other gossip neighbor PCs.
+      final stream = event.streams.isNotEmpty
+          ? event.streams.first
+          : null;
+      if (stream == null) return;
+
+      for (final neighborId in gossipNeighbors) {
+        if (neighborId == localPeerId || neighborId == peerId) continue;
+        final neighborPc = _peerConnections[neighborId];
+        if (neighborPc != null) {
+          neighborPc.addTrack(event.track, stream);
+          _vcLog('[HOLLOW-VC] Gossip: forwarded audio from $peerId to $neighborId');
+        }
+      }
+    };
+
     return pc;
   }
 

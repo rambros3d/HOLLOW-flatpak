@@ -245,6 +245,7 @@ class EventStreamNotifier extends Notifier<bool> {
       case NetworkEvent_SyncCompleted(:final serverId, :final opsApplied):
         debugPrint('[HOLLOW] Sync completed: $serverId ($opsApplied ops)');
         ref.read(serverListProvider.notifier).onServerUpdated(serverId);
+        ref.read(serverAvatarProvider.notifier).loadAvatar(serverId);
         ref.invalidate(serverMembersProvider(serverId));
         // Reload channels in case they changed while offline.
         if (ref.read(selectedServerProvider) == serverId) {
@@ -656,6 +657,35 @@ class EventStreamNotifier extends Notifier<bool> {
             :final signalType, :final payload):
         ref.read(voiceChannelProvider.notifier).handleSignal(
               peerId, signalType, payload, serverId, channelId);
+
+      // -- Gossip relay tree events (Phase 5D) --
+      case NetworkEvent_GossipConnect(:final peerId):
+        ref.read(webRtcProvider.notifier).ensureConnection(peerId);
+
+      case NetworkEvent_GossipDisconnect(:final peerId):
+        ref.read(webRtcProvider.notifier).disconnectPeer(peerId);
+
+      case NetworkEvent_GossipRelayFile(
+            :final broadcastId, :final ttl, :final originPeerId,
+            :final filePath, :final totalSize, :final kind,
+            :final shardIndex, :final excludePeerId,
+            :final serverId, :final channelId):
+        ref.read(webRtcProvider.notifier).relayBroadcast(
+          broadcastId: broadcastId,
+          ttl: ttl,
+          originPeerId: originPeerId,
+          filePath: filePath,
+          totalSize: totalSize.toInt(),
+          kind: kind,
+          shardIndex: shardIndex,
+          excludePeerId: excludePeerId,
+        );
+
+      case NetworkEvent_VoiceChannelModeChanged(
+            :final serverId, :final channelId,
+            :final mode, :final gossipNeighbors):
+        ref.read(voiceChannelProvider.notifier).onModeChanged(
+              serverId, channelId, mode, gossipNeighbors);
 
     }
     } catch (e, st) {

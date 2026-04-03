@@ -115,6 +115,37 @@ class WebRtcNotifier extends Notifier<WebRtcState> {
     state = state.copyWith(peers: peers);
   }
 
+  /// Relay a broadcast file to gossip neighbors via data channels.
+  Future<void> relayBroadcast({
+    required String broadcastId,
+    required int ttl,
+    required String originPeerId,
+    required String filePath,
+    required int totalSize,
+    required String kind,
+    required int shardIndex,
+    required String excludePeerId,
+  }) async {
+    final s = service;
+    // Send the broadcast to all connected gossip neighbors (Rust already
+    // filtered to the right set and excluded the sender).
+    for (final entry in state.peers.entries) {
+      if (entry.value == WebRtcPeerStatus.connected &&
+          entry.key != excludePeerId) {
+        await s.sendBroadcast(
+          entry.key,
+          broadcastId,
+          ttl,
+          originPeerId,
+          filePath,
+          totalSize,
+          kind,
+          shardIndex,
+        );
+      }
+    }
+  }
+
   /// Dispose all connections (app shutdown).
   Future<void> disposeAll() async {
     await _service?.dispose();

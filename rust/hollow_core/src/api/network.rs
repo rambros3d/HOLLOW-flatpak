@@ -130,6 +130,27 @@ pub enum NetworkEvent {
     VoiceChannelJoined { server_id: String, channel_id: String, peer_id: String },
     VoiceChannelLeft { server_id: String, channel_id: String, peer_id: String },
     VoiceChannelSignal { server_id: String, channel_id: String, peer_id: String, signal_type: String, payload: String },
+    // -- Gossip relay tree events (Phase 5D) --
+    GossipConnect { peer_id: String },
+    GossipDisconnect { peer_id: String },
+    GossipRelayFile {
+        broadcast_id: String,
+        ttl: u8,
+        origin_peer_id: String,
+        file_path: String,
+        total_size: u64,
+        kind: String,
+        shard_index: u16,
+        exclude_peer_id: String,
+        server_id: String,
+        channel_id: String,
+    },
+    VoiceChannelModeChanged {
+        server_id: String,
+        channel_id: String,
+        mode: String,
+        gossip_neighbors: Vec<String>,
+    },
 }
 
 /// Holds all mutable state for the running node.
@@ -520,6 +541,19 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::VoiceChannelSignal { server_id, channel_id, peer_id, signal_type, payload } => {
             NetworkEvent::VoiceChannelSignal { server_id, channel_id, peer_id, signal_type, payload }
+        }
+        // -- Gossip relay tree events (Phase 5D) --
+        node::NetworkEvent::GossipConnect { peer_id } => {
+            NetworkEvent::GossipConnect { peer_id }
+        }
+        node::NetworkEvent::GossipDisconnect { peer_id } => {
+            NetworkEvent::GossipDisconnect { peer_id }
+        }
+        node::NetworkEvent::GossipRelayFile { broadcast_id, ttl, origin_peer_id, file_path, total_size, kind, shard_index, exclude_peer_id, server_id, channel_id } => {
+            NetworkEvent::GossipRelayFile { broadcast_id, ttl, origin_peer_id, file_path, total_size, kind, shard_index, exclude_peer_id, server_id, channel_id }
+        }
+        node::NetworkEvent::VoiceChannelModeChanged { server_id, channel_id, mode, gossip_neighbors } => {
+            NetworkEvent::VoiceChannelModeChanged { server_id, channel_id, mode, gossip_neighbors }
         }
     }
 }
@@ -1374,6 +1408,47 @@ pub fn voice_channel_send_signal(
     let rt = get_runtime();
     rt.block_on(state.cmd_tx.send(node::NodeCommand::VoiceChannelSendSignal {
         server_id, channel_id, peer_id, signal_type, payload,
+    }))
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+    Ok(())
+}
+
+// -- Gossip relay tree FFI (Phase 5D) --
+
+/// Report data channel keepalive RTT for gossip peer scoring.
+#[frb]
+pub fn webrtc_ping_report(peer_id: String, rtt_ms: u32) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+    let rt = get_runtime();
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::WebRtcPingReport {
+        peer_id, rtt_ms,
+    }))
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+    Ok(())
+}
+
+/// Notify Rust that a broadcast file was received via gossip data channel.
+#[frb]
+pub fn webrtc_broadcast_received(
+    transfer_id: String,
+    broadcast_id: String,
+    ttl: u8,
+    origin_peer_id: String,
+    sender_peer_id: String,
+    temp_path: String,
+    total_size: u64,
+    kind: String,
+    shard_index: u16,
+) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+    let rt = get_runtime();
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::WebRtcBroadcastReceived {
+        transfer_id, broadcast_id, ttl, origin_peer_id, sender_peer_id,
+        temp_path, total_size, kind, shard_index,
     }))
     .map_err(|e| format!("Failed to send command: {e}"))?;
     Ok(())

@@ -1226,16 +1226,16 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [ ] Self-hosted relay: document how to deploy your own relay (Docker image or binary). Server owners can point their server to a custom relay URL via CRDT setting.
   - [ ] Bandwidth monitoring: relay reports current load. Client picks least-loaded relay for file/shard streaming.
 
-- [ ] **Connection subset management + gossip relay tree** — limit persistent WebRTC connections for large servers, enable tree-spread broadcasting (defer until scaling pain)
-  - [ ] Target: 6-12 WebRTC data channel peers per server (not full mesh). Total across all servers capped at 50 (configurable)
-  - [ ] Peer scoring: `PeerScore { uptime_ratio, avg_latency_ms, bandwidth_score, shard_overlap }` — computed from data channel ping RTT, connection duration, shared shard count
-  - [ ] Rotation: every 5 minutes, drop lowest-scoring peer, connect to highest-scoring unconnected peer. Max 1 rotation per cycle for stability
-  - [ ] Priority connections: always maintain connections to peers holding shards of recently accessed content (shard_overlap weighted heavily)
-  - [ ] Gossip peer exchange: `HavenMessage::PeerExchange { server_id, peers }` — connected peers share known peer lists for the server via WSS relay
-  - [ ] Gossip relay tree (broadcast forwarding): when a peer receives data tagged as broadcast (images, files), automatically re-send to its connected WebRTC subset (minus source). Covers 1000+ members in ~3 hops (~600ms), 0 bytes through VPS
-  - [ ] Broadcast deduplication: each broadcast gets unique ID, peers track recent IDs and drop duplicates (mesh has cycles)
-  - [ ] TTL/hop limit: 4-5 hops max to prevent infinite propagation (covers millions of peers)
-  - [ ] Fallback: <6 reachable peers → connect to all available. Shard access requires more → temporarily exceed limit
+- [X] **Connection subset management + gossip relay tree** — limit persistent WebRTC connections for large servers, enable tree-spread broadcasting
+  - [X] Target: 6-12 WebRTC data channel peers per server (not full mesh). Total across all servers capped at 50 (configurable)
+  - [X] Peer scoring: `PeerScore { uptime_ratio, avg_latency_ms, bandwidth_score, shard_overlap }` — computed from data channel ping RTT, connection duration, shared shard count
+  - [X] Rotation: every 5 minutes, drop lowest-scoring peer, connect to highest-scoring unconnected peer. Max 1 rotation per cycle for stability
+  - [X] Priority connections: always maintain connections to peers holding shards of recently accessed content (shard_overlap weighted heavily)
+  - [X] Gossip peer exchange: `HavenMessage::PeerExchange { server_id, peers }` — connected peers share known peer lists for the server via WSS relay
+  - [X] Gossip relay tree (broadcast forwarding): when a peer receives data tagged as broadcast (images, files), automatically re-send to its connected WebRTC subset (minus source). Covers 1000+ members in ~3 hops (~600ms), 0 bytes through VPS
+  - [X] Broadcast deduplication: each broadcast gets unique ID, peers track recent IDs and drop duplicates (mesh has cycles)
+  - [X] TTL/hop limit: 4-5 hops max to prevent infinite propagation (covers millions of peers)
+  - [X] Fallback: <6 reachable peers → connect to all available. 30s timeout on gossip delivery falls back to direct FileProbe
 
 - [ ] **Channel-level CRDT sharding** — split monolithic ServerState for scale (defer until ServerState is too large)
   - [ ] Split into `ServerCoreState` (name, members, roles, settings, pledges, channel_layout — small, synced by all) + per-channel `ChannelState` (pinned_messages, channel-specific settings — synced only by members who access the channel)
@@ -1418,12 +1418,13 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [X] Participant list synced via MLS-encrypted `VoiceChannelJoin/Leave` broadcasts
   - [X] Mesh topology: everyone sends to everyone, glare prevention (lower peer_id offers)
   - [X] Per-peer audio state (mute/deafen) broadcast via MLS-targeted `VoiceChannelAudioState`
-- [ ] **Gossip-tree forwarding for larger voice channels (5+)**
-  - [ ] Each peer forwards received audio to their connected WebRTC subset (minus source)
-  - [ ] Audio deduplication via stream ID (same audio may arrive from multiple paths)
-  - [ ] TTL/hop limit on forwarded audio (3-4 hops max)
-  - [ ] Adaptive: below 6 participants → full mesh, 6+ → gossip forwarding
-  - [ ] Same connection subset as Phase 6 scaling (peer scoring, rotation, 6-12 peers per server)
+- [X] **Gossip-tree forwarding for larger voice channels (5+)**
+  - [X] Each peer forwards received audio tracks to their gossip neighbor RTCPeerConnections (minus source) via onTrack + addTrack
+  - [X] Audio deduplication via _forwardedSources set (peer ID tracking, prevents loops)
+  - [X] Partial mesh audio PCs to gossip neighbors only (6-12 PCs, bounded regardless of participant count)
+  - [X] Adaptive with hysteresis: below 6 participants → full mesh, 6+ → gossip, back to mesh at 4
+  - [X] Same connection subset as gossip relay tree (peer scoring, rotation, 6-12 peers per server)
+  - [X] Voice mode transition: Rust emits VoiceChannelModeChanged, Dart closes/creates audio PCs accordingly
 - [X] **Screen sharing**
   - [X] `getDisplayMedia()` for screen/window capture + source picker (Screens/Windows tabs with thumbnails)
   - [X] Share as video track on existing RTCPeerConnection via `replaceTrack()` (no renegotiation)

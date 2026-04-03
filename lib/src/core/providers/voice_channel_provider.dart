@@ -42,6 +42,12 @@ class VoiceChannelState {
   /// Per-peer volume overrides (peer_id -> 0.0-2.0).
   final Map<String, double> peerVolumes;
 
+  /// Current voice mode: "mesh" or "gossip".
+  final String voiceMode;
+
+  /// Gossip neighbors for the current voice channel (gossip mode only).
+  final Set<String> gossipNeighbors;
+
   const VoiceChannelState({
     this.participants = const {},
     this.currentServerId,
@@ -51,6 +57,8 @@ class VoiceChannelState {
     this.peerAudioStates = const {},
     this.speakingPeers = const {},
     this.peerVolumes = const {},
+    this.voiceMode = 'mesh',
+    this.gossipNeighbors = const {},
   });
 
   /// Get participants for a specific voice channel.
@@ -81,6 +89,8 @@ class VoiceChannelState {
     Map<String, PeerAudioState>? peerAudioStates,
     Set<String>? speakingPeers,
     Map<String, double>? peerVolumes,
+    String? voiceMode,
+    Set<String>? gossipNeighbors,
     bool clearCurrent = false,
   }) {
     return VoiceChannelState(
@@ -100,6 +110,12 @@ class VoiceChannelState {
       peerVolumes: clearCurrent
           ? const {}
           : (peerVolumes ?? this.peerVolumes),
+      voiceMode: clearCurrent
+          ? 'mesh'
+          : (voiceMode ?? this.voiceMode),
+      gossipNeighbors: clearCurrent
+          ? const {}
+          : (gossipNeighbors ?? this.gossipNeighbors),
     );
   }
 }
@@ -337,6 +353,80 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
           PeerAudioState(isMuted: muted, isDeafened: deafened);
       state = state.copyWith(peerAudioStates: audioStates);
     } catch (_) {}
+  }
+
+  /// Handle voice channel mode change (mesh <-> gossip).
+  /// Called by event_provider when Rust emits VoiceChannelModeChanged.
+  Future<void> onModeChanged(
+    String serverId,
+    String channelId,
+    String mode,
+    List<String> gossipNeighbors,
+  ) async {
+    if (!state.isInVoiceChannel) return;
+    if (state.currentServerId != serverId ||
+        state.currentChannelId != channelId) return;
+
+    final neighborSet = gossipNeighbors.toSet();
+    final oldMode = state.voiceMode;
+
+    debugPrint(
+        '[HOLLOW-VC] Mode: $oldMode → $mode (${gossipNeighbors.length} gossip neighbors)');
+
+    state = state.copyWith(
+      voiceMode: mode,
+      gossipNeighbors: neighborSet,
+    );
+
+    if (_service == null) return;
+    final localPeerId = ref.read(identityProvider).peerId ?? '';
+
+    if (mode == 'gossip' && oldMode == 'mesh') {
+      // Mesh → Gossip: close audio PCs to non-neighbor peers,
+      // keep PCs to gossip neighbors.
+      final existing = state.getParticipants(serverId, channelId);
+      for (final peerId in existing) {
+        if (peerId == localPeerId) continue;
+        if (!neighborSet.contains(peerId)) {
+          // Not a gossip neighbor — close audio PC.
+          debugPrint('[HOLLOW-VC] Gossip: closing non-neighbor $peerId');
+          await _service!.onPeerLeftMyChannel(peerId);
+        }
+      }
+      // Ensure we have PCs to all gossip neighbors.
+      for (final peerId in neighborSet) {
+        if (peerId == localPeerId) continue;
+        await _service!.onPeerJoinedMyChannel(peerId);
+      }
+      // Set gossip mode on the service for track forwarding.
+      _service!.gossipMode = true;
+      _service!.gossipNeighbors = neighborSet;
+    } else if (mode == 'mesh' && oldMode == 'gossip') {
+      // Gossip → Mesh: create audio PCs to all participants.
+      _service!.gossipMode = false;
+      _service!.gossipNeighbors = {};
+      final existing = state.getParticipants(serverId, channelId);
+      for (final peerId in existing) {
+        if (peerId == localPeerId) continue;
+        await _service!.onPeerJoinedMyChannel(peerId);
+      }
+    } else if (mode == 'gossip') {
+      // Gossip neighbor update (mode didn't change, just neighbor list).
+      _service!.gossipNeighbors = neighborSet;
+      // Close PCs to peers no longer in neighbor set.
+      final currentPeers = _service!.connectedPeerIds;
+      for (final peerId in currentPeers) {
+        if (!neighborSet.contains(peerId)) {
+          debugPrint('[HOLLOW-VC] Gossip update: closing non-neighbor $peerId');
+          await _service!.onPeerLeftMyChannel(peerId);
+        }
+      }
+      // Connect to new neighbors.
+      for (final peerId in neighborSet) {
+        if (peerId == localPeerId) continue;
+        await _service!.onPeerJoinedMyChannel(peerId);
+      }
+    }
   }
 
   Map<String, Map<String, Set<String>>> _deepCopyParticipants() {

@@ -145,6 +145,31 @@ pub(crate) enum NetworkEvent {
     VoiceChannelJoined { server_id: String, channel_id: String, peer_id: String },
     VoiceChannelLeft { server_id: String, channel_id: String, peer_id: String },
     VoiceChannelSignal { server_id: String, channel_id: String, peer_id: String, signal_type: String, payload: String },
+    // -- Gossip relay tree events (Phase 5D) --
+    /// Tell Dart to establish a WebRTC data channel to this peer (gossip neighbor).
+    GossipConnect { peer_id: String },
+    /// Tell Dart to close the WebRTC data channel to this peer.
+    GossipDisconnect { peer_id: String },
+    /// Tell Dart to relay a file broadcast to gossip neighbors.
+    GossipRelayFile {
+        broadcast_id: String,
+        ttl: u8,
+        origin_peer_id: String,
+        file_path: String,
+        total_size: u64,
+        kind: String,
+        shard_index: u16,
+        exclude_peer_id: String,
+        server_id: String,
+        channel_id: String,
+    },
+    /// Voice channel mode changed (mesh <-> gossip).
+    VoiceChannelModeChanged {
+        server_id: String,
+        channel_id: String,
+        mode: String,
+        gossip_neighbors: Vec<String>,
+    },
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
@@ -253,6 +278,21 @@ pub(crate) enum NodeCommand {
         storage_tier: String,
         data: Vec<u8>,
         target_peer: String,
+    },
+    // -- Gossip relay tree commands (Phase 5D) --
+    /// Dart reports data channel keepalive RTT for peer scoring.
+    WebRtcPingReport { peer_id: String, rtt_ms: u32 },
+    /// Dart reports a completed broadcast file transfer for relay decision.
+    WebRtcBroadcastReceived {
+        transfer_id: String,
+        broadcast_id: String,
+        ttl: u8,
+        origin_peer_id: String,
+        sender_peer_id: String,
+        temp_path: String,
+        total_size: u64,
+        kind: String,
+        shard_index: u16,
     },
 }
 
@@ -564,6 +604,19 @@ enum HavenMessage {
         sdp_mline_index: u32,
         role: String,
     },
+
+    // -- Gossip relay tree (Phase 5D) --
+
+    /// Gossip peer exchange: share neighbor list for topology discovery.
+    #[serde(rename = "peer_exchange")]
+    PeerExchange {
+        server_id: String,
+        peers: Vec<String>,
+    },
+
+    /// Request a peer's profile (they respond with ProfileUpdate).
+    #[serde(rename = "profile_request")]
+    ProfileRequest,
 }
 
 /// Envelope for the plaintext body inside an Encrypted message.
@@ -1067,6 +1120,18 @@ enum MessageEnvelope {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target: Option<String>,
     },
+
+    // -- Gossip relay tree (Phase 5D) --
+
+    /// Broadcast metadata: notifies server members that a gossip file broadcast is in flight.
+    #[serde(rename = "broadcast_meta")]
+    BroadcastMeta {
+        broadcast_id: String,
+        origin: String,
+        sid: String,
+        cid: String,
+        file_id: String,
+    },
 }
 
 impl MessageEnvelope {
@@ -1567,6 +1632,19 @@ async fn run_event_loop(
     // Key: transfer_id, Value: (peer_id, kind, id, source_path, total_size)
     let mut pending_webrtc_sends: HashMap<String, (String, super::ws_stream_transfer::StreamKind, String, std::path::PathBuf, u64)> = HashMap::new();
 
+    // -- Profile sync state --
+    // Flag: have we broadcast our profile on first connection?
+    let mut profile_broadcast_done = false;
+
+    // -- Gossip relay tree state (Phase 5D) --
+    let mut gossip_overlays: HashMap<String, super::gossip::GossipOverlay> = HashMap::new();
+
+    // -- Voice channel participant tracking (Phase 5D) --
+    // Key: "server_id:channel_id", Value: set of peer_ids in the voice channel.
+    let mut voice_channel_participants: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    // Track the current voice mode per channel: true = gossip, false = mesh.
+    let mut voice_channel_gossip_mode: HashMap<String, bool> = HashMap::new();
+
     // -- WS stream transfer reassembly state (Phase 5.5) --
     let mut pending_ws_transfers: HashMap<String, super::ws_stream_transfer::WsTransferState> = HashMap::new();
 
@@ -1729,6 +1807,22 @@ async fn run_event_loop(
     // to Dart based on bytes received by the FileStreamCodec.
     let mut stream_progress_timer = tokio::time::interval(Duration::from_millis(500));
     stream_progress_timer.tick().await; // consume immediate first tick
+
+    // Gossip overlay rotation timer (5 minutes) — rotate neighbors based on scores.
+    let mut gossip_rotation_timer = tokio::time::interval(Duration::from_secs(
+        super::gossip::ROTATION_INTERVAL_SECS,
+    ));
+    gossip_rotation_timer.tick().await; // consume immediate first tick
+
+    // Gossip broadcast dedup eviction timer (60s) — remove stale broadcast IDs.
+    let mut gossip_eviction_timer = tokio::time::interval(Duration::from_secs(
+        super::gossip::BROADCAST_DEDUP_TTL_SECS,
+    ));
+    gossip_eviction_timer.tick().await; // consume immediate first tick
+
+    // Gossip peer exchange timer (2 minutes) — share neighbor lists with peers.
+    let mut gossip_exchange_timer = tokio::time::interval(Duration::from_secs(120));
+    gossip_exchange_timer.tick().await; // consume immediate first tick
 
     loop {
         tokio::select! {
@@ -2766,7 +2860,21 @@ async fn run_event_loop(
                         };
                         hollow_log!("[HOLLOW-SWARM] Broadcasting profile update");
                         {
-                            
+                            // Send to all reachable peers not already reached via MLS.
+                            let all_ws_peers: std::collections::HashSet<String> = ws_room_peers
+                                .values()
+                                .flat_map(|peers| peers.iter().cloned())
+                                .collect();
+                            for peer in &all_ws_peers {
+                                if peer == &local_peer_str { continue; }
+                                if mls_reached.contains(peer) { continue; }
+                                send_message_to_peer(
+                                    &ws_cmd_tx, &ws_room_peers,
+                                    peer, msg.clone(),
+                                );
+                            }
+                            hollow_log!("[HOLLOW-PROFILE] Plaintext broadcast to {} peers (MLS reached {})",
+                                all_ws_peers.len().saturating_sub(mls_reached.len()), mls_reached.len());
                         }
 
                         // Emit event so Dart updates UI.
@@ -4663,8 +4771,35 @@ async fn run_event_loop(
 
                                     if use_vault_only {
                                         hollow_log!("[HOLLOW-FILE] Erasure coding active ({member_count} members) — skipping full-file streaming, vault handles shard distribution");
+                                    } else if let Some(overlay) = gossip_overlays.get_mut(&sid) {
+                                        // Gossip broadcast: send to gossip neighbors only (they relay further).
+                                        let broadcast_id = super::gossip::generate_broadcast_id();
+                                        overlay.mark_broadcast_seen(&broadcast_id);
+
+                                        // MLS-broadcast BroadcastMeta so all peers know this file is coming.
+                                        let meta_envelope = MessageEnvelope::BroadcastMeta {
+                                            broadcast_id: broadcast_id.clone(),
+                                            origin: local_peer.clone(),
+                                            sid: sid.clone(),
+                                            cid: cid.clone(),
+                                            file_id: file_id.clone(),
+                                        };
+                                        if let Some(ref mut mls_mgr) = mls {
+                                            if mls_mgr.has_group(&sid) {
+                                                let _ = send_mls_broadcast(mls_mgr, &ws_cmd_tx, &sid, &meta_envelope, &bundle_keypair);
+                                            }
+                                        }
+
+                                        broadcast_to_gossip_neighbors(
+                                            overlay, &webrtc_peers, &event_tx,
+                                            &broadcast_id, super::gossip::DEFAULT_BROADCAST_TTL,
+                                            &local_peer, &temp_path.to_string_lossy(),
+                                            ct_size, "file", 0, None, &cid,
+                                        ).await;
+
+                                        hollow_log!("[HOLLOW-GOSSIP] File {file_id} broadcast initiated (bid={broadcast_id})");
                                     } else {
-                                        // Full replication: stream encrypted file bytes to each member via WebRTC or WS.
+                                        // Small server (<6 members, no gossip overlay): full replication.
                                         for member_peer_str in state.members.keys() {
                                             if member_peer_str == &local_peer { continue; }
                                                 if peer_is_reachable(&ws_room_peers, member_peer_str) {
@@ -4702,11 +4837,23 @@ async fn run_event_loop(
                     // -- WebRTC commands (Phase 5A) --
                     NodeCommand::WebRtcPeerConnected { peer_id } => {
                         hollow_log!("[HOLLOW-WEBRTC] Data channel ready for {peer_id}");
-                        webrtc_peers.insert(peer_id);
+                        webrtc_peers.insert(peer_id.clone());
+                        // Update gossip peer scores: mark connected.
+                        for overlay in gossip_overlays.values_mut() {
+                            if let Some(score) = overlay.peer_scores.get_mut(&peer_id) {
+                                score.mark_connected();
+                            }
+                        }
                     }
                     NodeCommand::WebRtcPeerDisconnected { peer_id } => {
                         hollow_log!("[HOLLOW-WEBRTC] Data channel closed for {peer_id}");
                         webrtc_peers.remove(&peer_id);
+                        // Update gossip peer scores: mark disconnected.
+                        for overlay in gossip_overlays.values_mut() {
+                            if let Some(score) = overlay.peer_scores.get_mut(&peer_id) {
+                                score.mark_disconnected();
+                            }
+                        }
                     }
                     NodeCommand::WebRtcSendSignal { peer_id, signal_type, payload, conn_id } => {
                         let msg = match signal_type.as_str() {
@@ -4740,11 +4887,13 @@ async fn run_event_loop(
                         } else {
                             super::ws_stream_transfer::StreamKind::File
                         };
+                        let temp_path_buf = std::path::PathBuf::from(&temp_path);
+                        let file_size = std::fs::metadata(&temp_path).map(|m| m.len()).unwrap_or(0);
                         let request = super::ws_stream_transfer::StreamRequest {
                             kind: stream_kind,
-                            id: transfer_id,
-                            size: std::fs::metadata(&temp_path).map(|m| m.len()).unwrap_or(0),
-                            temp_path: std::path::PathBuf::from(temp_path),
+                            id: transfer_id.clone(),
+                            size: file_size,
+                            temp_path: temp_path_buf,
                         };
                         handle_completed_stream(
                             request,
@@ -4756,6 +4905,29 @@ async fn run_event_loop(
                             &bundle_keypair,
                             &event_tx,
                         ).await;
+
+                        // Gossip relay: if this file has a pending relay, forward to neighbors.
+                        if kind == "file" {
+                            for overlay in gossip_overlays.values_mut() {
+                                if let Some(relay) = overlay.take_pending_relay(&transfer_id) {
+                                    if relay.ttl > 0 {
+                                        hollow_log!(
+                                            "[HOLLOW-GOSSIP] Relaying file {transfer_id} (bid={}, ttl={}) to neighbors",
+                                            relay.broadcast_id, relay.ttl
+                                        );
+                                        broadcast_to_gossip_neighbors(
+                                            overlay, &webrtc_peers, &event_tx,
+                                            &relay.broadcast_id, relay.ttl.saturating_sub(1),
+                                            &relay.origin, &temp_path,
+                                            file_size, "file", 0,
+                                            Some(&relay.sender_peer_id),
+                                            &relay.channel_id,
+                                        ).await;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
                     }
                     NodeCommand::WebRtcSendComplete { transfer_id } => {
                         hollow_log!("[HOLLOW-WEBRTC] Send complete: {transfer_id}");
@@ -4925,10 +5097,21 @@ async fn run_event_loop(
                                 hollow_log!("[HOLLOW-VC] Join broadcast failed: {e}");
                             }
                         }
+                        // Track participant.
+                        let vc_key = format!("{}:{}", server_id, channel_id);
+                        voice_channel_participants.entry(vc_key.clone()).or_default()
+                            .insert(local_peer_str.to_string());
                         // Emit locally so our own UI updates.
                         let _ = event_tx.send(NetworkEvent::VoiceChannelJoined {
-                            server_id, channel_id, peer_id: local_peer_str.to_string(),
+                            server_id: server_id.clone(), channel_id: channel_id.clone(),
+                            peer_id: local_peer_str.to_string(),
                         }).await;
+                        // Check for mode transition.
+                        check_voice_mode_transition(
+                            &vc_key, &server_id, &channel_id,
+                            &voice_channel_participants, &mut voice_channel_gossip_mode,
+                            &gossip_overlays, &local_peer_str, &event_tx,
+                        ).await;
                     }
 
                     NodeCommand::VoiceChannelLeave { server_id, channel_id } => {
@@ -4943,9 +5126,25 @@ async fn run_event_loop(
                                 hollow_log!("[HOLLOW-VC] Leave broadcast failed: {e}");
                             }
                         }
+                        // Untrack participant.
+                        let vc_key = format!("{}:{}", server_id, channel_id);
+                        if let Some(participants) = voice_channel_participants.get_mut(&vc_key) {
+                            participants.remove(&local_peer_str.to_string());
+                            if participants.is_empty() {
+                                voice_channel_participants.remove(&vc_key);
+                                voice_channel_gossip_mode.remove(&vc_key);
+                            }
+                        }
                         let _ = event_tx.send(NetworkEvent::VoiceChannelLeft {
-                            server_id, channel_id, peer_id: local_peer_str.to_string(),
+                            server_id: server_id.clone(), channel_id: channel_id.clone(),
+                            peer_id: local_peer_str.to_string(),
                         }).await;
+                        // Check for mode transition.
+                        check_voice_mode_transition(
+                            &vc_key, &server_id, &channel_id,
+                            &voice_channel_participants, &mut voice_channel_gossip_mode,
+                            &gossip_overlays, &local_peer_str, &event_tx,
+                        ).await;
                     }
 
                     NodeCommand::VoiceChannelSendSignal { server_id, channel_id, peer_id, signal_type, payload } => {
@@ -5004,6 +5203,55 @@ async fn run_event_loop(
                             if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, &peer_id, &envelope, &bundle_keypair) {
                                 hollow_log!("[HOLLOW-VC] Signal send to {peer_id} failed: {e}");
                             }
+                        }
+                    }
+
+                    // -- Gossip relay tree commands (Phase 5D) --
+                    NodeCommand::WebRtcPingReport { peer_id, rtt_ms } => {
+                        // Update peer score with latest RTT measurement.
+                        for overlay in gossip_overlays.values_mut() {
+                            if let Some(score) = overlay.peer_scores.get_mut(&peer_id) {
+                                score.update_latency(rtt_ms);
+                            }
+                        }
+                    }
+
+                    NodeCommand::WebRtcBroadcastReceived {
+                        transfer_id: _, broadcast_id, ttl,
+                        origin_peer_id, sender_peer_id,
+                        temp_path, total_size,
+                        kind, shard_index,
+                    } => {
+                        // Find which server this broadcast belongs to by checking overlays.
+                        // For now, check all overlays for the broadcast_id.
+                        let mut relayed = false;
+                        for overlay in gossip_overlays.values_mut() {
+                            if overlay.should_relay_broadcast(&broadcast_id) {
+                                if ttl > 0 {
+                                    let relay_targets = overlay.get_relay_targets(Some(&sender_peer_id));
+                                    for target in &relay_targets {
+                                        if webrtc_peers.contains(target) {
+                                            let _ = event_tx.send(NetworkEvent::GossipRelayFile {
+                                                broadcast_id: broadcast_id.clone(),
+                                                ttl: ttl - 1,
+                                                origin_peer_id: origin_peer_id.clone(),
+                                                file_path: temp_path.clone(),
+                                                total_size,
+                                                kind: kind.clone(),
+                                                shard_index,
+                                                exclude_peer_id: sender_peer_id.clone(),
+                                                server_id: overlay.server_id.clone(),
+                                                channel_id: String::new(),
+                                            }).await;
+                                        }
+                                    }
+                                }
+                                relayed = true;
+                                break;
+                            }
+                        }
+                        if !relayed {
+                            hollow_log!("[HOLLOW-GOSSIP] Broadcast {broadcast_id} already seen or no overlay, skipping relay");
                         }
                     }
 
@@ -5136,6 +5384,17 @@ async fn run_event_loop(
                     WsEvent::PeerJoined { room, peer_id } => {
                         hollow_log!("[HOLLOW-WS] Peer {peer_id} joined room {room}");
                         ws_room_peers.entry(room.clone()).or_default().insert(peer_id.clone());
+
+                            // Update gossip overlay: add this peer and maybe connect.
+                            if peer_id != local_peer_str {
+                                if let Some(overlay) = gossip_overlays.get_mut(&room) {
+                                    if let Some(new_neighbor) = overlay.add_known_peer(&peer_id) {
+                                        hollow_log!("[HOLLOW-GOSSIP] New neighbor {new_neighbor} joined server {room}");
+                                        let _ = event_tx.send(NetworkEvent::GossipConnect { peer_id: new_neighbor }).await;
+                                    }
+                                }
+                            }
+
                             if peer_id != local_peer_str {
 
                                 // Only trigger sync if not already synced this session
@@ -5159,6 +5418,12 @@ async fn run_event_loop(
                                 }
 
                                 if is_new {
+                                    // Send our profile to the new peer so they see our display name.
+                                    send_own_profile_to_peer(
+                                        &ws_cmd_tx, &ws_room_peers,
+                                        &bundle_keypair, &local_peer_str, &peer_id,
+                                    );
+
                                     // Proactive key exchange if no Olm session.
                                     if olm.has_session(&peer_id) {
                                         let _ = event_tx.send(NetworkEvent::SessionEstablished {
@@ -5288,6 +5553,17 @@ async fn run_event_loop(
                                 ws_room_peers.remove(&room);
                             }
                         }
+                        // Update gossip overlay: remove peer and pick replacement if needed.
+                        if let Some(overlay) = gossip_overlays.get_mut(&room) {
+                            let (was_neighbor, replacement) = overlay.remove_known_peer(&peer_id);
+                            if was_neighbor {
+                                hollow_log!("[HOLLOW-GOSSIP] Neighbor {peer_id} left server {room}");
+                                if let Some(repl) = replacement {
+                                    hollow_log!("[HOLLOW-GOSSIP] Replacement neighbor: {repl}");
+                                    let _ = event_tx.send(NetworkEvent::GossipConnect { peer_id: repl }).await;
+                                }
+                            }
+                        }
                         // Only emit disconnect if peer is no longer reachable via any WS room.
                         let still_ws = ws_room_peers.values().any(|ps| ps.contains(&peer_id));
                         if !still_ws {
@@ -5305,6 +5581,47 @@ async fn run_event_loop(
                             .cloned()
                             .collect();
                         ws_room_peers.insert(room.clone(), room_set);
+
+                        // -- Gossip overlay: initialize or update for this server room --
+                        // Check if this room corresponds to a server with 6+ members.
+                        if let Some(state) = server_states.get(&room) {
+                            if state.members.len() >= super::gossip::GOSSIP_ACTIVATION_THRESHOLD {
+                                let overlay = gossip_overlays.entry(room.clone())
+                                    .or_insert_with(|| super::gossip::GossipOverlay::new(room.clone()));
+                                // Add all room members as known peers.
+                                for pid in &peers {
+                                    if pid != &local_peer {
+                                        overlay.add_known_peer(pid);
+                                    }
+                                }
+                                // If no neighbors selected yet, do initial selection.
+                                if overlay.neighbors.is_empty() {
+                                    let total_webrtc = webrtc_peers.len();
+                                    let initial = overlay.select_initial_neighbors(total_webrtc);
+                                    for peer_id in initial {
+                                        hollow_log!("[HOLLOW-GOSSIP] Initial neighbor: {peer_id} (server={})", room);
+                                        let _ = event_tx.send(NetworkEvent::GossipConnect { peer_id }).await;
+                                    }
+                                }
+                            }
+                        }
+
+                        // On first RoomMembers, broadcast our profile to all rooms.
+                        // This ensures peers who were online while we were offline get our latest profile.
+                        if !profile_broadcast_done {
+                            profile_broadcast_done = true;
+                            hollow_log!("[HOLLOW-PROFILE] First RoomMembers — broadcasting our profile");
+                            // Send our profile to all peers in this room.
+                            for pid in &peers {
+                                if pid != &local_peer {
+                                    send_own_profile_to_peer(
+                                        &ws_cmd_tx, &ws_room_peers,
+                                        &bundle_keypair, &local_peer_str, pid,
+                                    );
+                                }
+                            }
+                        }
+
                         for pid_str in &peers {
                             if pid_str != &local_peer {
                                 let _ = event_tx.send(NetworkEvent::PeerDiscovered {
@@ -5318,6 +5635,29 @@ async fn run_event_loop(
                                 // on join with all current members, before individual PeerJoined).
                                 let is_new = synced_peers.insert(pid_str.clone());
                                 if is_new {
+                                    // Send our profile so the peer sees our display name.
+                                    send_own_profile_to_peer(
+                                        &ws_cmd_tx, &ws_room_peers,
+                                        &bundle_keypair, &local_peer_str, pid_str,
+                                    );
+
+                                    // Request their profile if we don't have it.
+                                    {
+                                        let data_dir = crate::identity::data_dir().unwrap_or_default();
+                                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                                            if let Ok(None) = store.load_profile(pid_str) {
+                                                hollow_log!("[HOLLOW-PROFILE] No profile for {pid_str} — sending ProfileRequest");
+                                                send_message_to_peer(
+                                                    &ws_cmd_tx, &ws_room_peers,
+                                                    pid_str, HavenMessage::ProfileRequest,
+                                                );
+                                            }
+                                        }
+                                    }
+
                                     // Send CRDT SyncReq for servers shared with this peer.
                                     for (sid, state) in server_states.iter() {
                                         if state.members.contains_key(pid_str) {
@@ -5425,6 +5765,9 @@ async fn run_event_loop(
                                         &ws_cmd_tx, &ws_room_peers,
                                         &webrtc_peers, &mut pending_webrtc_sends,
                                         &mut channel_sync_sent,
+                                        &mut gossip_overlays,
+                                        &mut voice_channel_participants,
+                                        &mut voice_channel_gossip_mode,
                                         &local_peer_str, &from, msg,
                                     ).await;
                             } else {
@@ -5735,6 +6078,69 @@ async fn run_event_loop(
                     }
                 }
             }
+
+            // -- Gossip overlay rotation timer (5 minutes) --
+            _ = gossip_rotation_timer.tick() => {
+                let total_webrtc = webrtc_peers.len();
+                for overlay in gossip_overlays.values_mut() {
+                    if overlay.known_peers.len() < super::gossip::GOSSIP_ACTIVATION_THRESHOLD {
+                        continue; // skip small servers
+                    }
+                    let (to_connect, to_disconnect) = overlay.rotate();
+                    for peer_id in to_connect {
+                        hollow_log!("[HOLLOW-GOSSIP] Rotation: connect to {peer_id} (server={})", overlay.server_id);
+                        let _ = event_tx.send(NetworkEvent::GossipConnect { peer_id }).await;
+                    }
+                    for peer_id in to_disconnect {
+                        hollow_log!("[HOLLOW-GOSSIP] Rotation: disconnect {peer_id} (server={})", overlay.server_id);
+                        let _ = event_tx.send(NetworkEvent::GossipDisconnect { peer_id }).await;
+                    }
+                }
+            }
+
+            // -- Gossip broadcast dedup eviction timer (60s) --
+            _ = gossip_eviction_timer.tick() => {
+                for overlay in gossip_overlays.values_mut() {
+                    // Check for timed-out pending relays — file didn't arrive via gossip.
+                    let timed_out = overlay.get_timed_out_relays();
+                    for file_id in &timed_out {
+                        if let Some(relay) = overlay.pending_relays.get(file_id) {
+                            hollow_log!(
+                                "[HOLLOW-GOSSIP] Broadcast timeout for file {} (bid={}) — requesting directly from origin {}",
+                                file_id, relay.broadcast_id, relay.origin
+                            );
+                            // Fall back: request the file from the origin via normal FileRequest.
+                            if peer_is_reachable(&ws_room_peers, &relay.origin) {
+                                send_message_to_peer(
+                                    &ws_cmd_tx, &ws_room_peers,
+                                    &relay.origin,
+                                    HavenMessage::FileProbe { file_id: file_id.clone() },
+                                );
+                            }
+                        }
+                    }
+                    overlay.evict_stale_broadcasts();
+                }
+            }
+
+            // -- Gossip peer exchange timer (2 minutes) --
+            _ = gossip_exchange_timer.tick() => {
+                for overlay in gossip_overlays.values() {
+                    if overlay.neighbors.is_empty() { continue; }
+                    let peers_list: Vec<String> = overlay.neighbors.iter().cloned().collect();
+                    let msg = HavenMessage::PeerExchange {
+                        server_id: overlay.server_id.clone(),
+                        peers: peers_list,
+                    };
+                    if let Ok(json) = serde_json::to_string(&msg) {
+                        // Send to the server room — reaches all room members.
+                        let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendToRoom {
+                            room_code: overlay.server_id.clone(),
+                            data: json.into_bytes(),
+                        });
+                    }
+                }
+            }
         }
     }
 
@@ -6038,7 +6444,154 @@ async fn stream_to_peer(
     }
 }
 
+/// Check if a voice channel should transition between mesh and gossip mode.
+/// Uses hysteresis: mesh→gossip at 6 participants, gossip→mesh at 4.
+async fn check_voice_mode_transition(
+    vc_key: &str,
+    server_id: &str,
+    channel_id: &str,
+    voice_channel_participants: &HashMap<String, std::collections::HashSet<String>>,
+    voice_channel_gossip_mode: &mut HashMap<String, bool>,
+    gossip_overlays: &HashMap<String, super::gossip::GossipOverlay>,
+    local_peer_str: &str,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+) {
+    let count = voice_channel_participants
+        .get(vc_key)
+        .map(|p| p.len())
+        .unwrap_or(0);
+    let currently_gossip = *voice_channel_gossip_mode.get(vc_key).unwrap_or(&false);
+
+    let should_gossip = if currently_gossip {
+        // Hysteresis: stay in gossip until below threshold_down.
+        count >= super::gossip::VOICE_GOSSIP_THRESHOLD_DOWN
+    } else {
+        // Switch to gossip at threshold_up.
+        count >= super::gossip::VOICE_GOSSIP_THRESHOLD_UP
+    };
+
+    if should_gossip != currently_gossip {
+        voice_channel_gossip_mode.insert(vc_key.to_string(), should_gossip);
+
+        if should_gossip {
+            // Switching to gossip mode — compute voice gossip neighbors.
+            let participants = voice_channel_participants
+                .get(vc_key)
+                .cloned()
+                .unwrap_or_default();
+            let gossip_neighbors = if let Some(overlay) = gossip_overlays.get(server_id) {
+                overlay.get_voice_gossip_neighbors(&participants, local_peer_str)
+            } else {
+                // No gossip overlay — fall back to first 12 participants.
+                participants.iter()
+                    .filter(|p| p.as_str() != local_peer_str)
+                    .take(super::gossip::MAX_GOSSIP_NEIGHBORS)
+                    .cloned()
+                    .collect()
+            };
+
+            hollow_log!(
+                "[HOLLOW-VC] Mode transition: mesh → gossip ({count} participants, {} gossip neighbors)",
+                gossip_neighbors.len()
+            );
+            let _ = event_tx.send(NetworkEvent::VoiceChannelModeChanged {
+                server_id: server_id.to_string(),
+                channel_id: channel_id.to_string(),
+                mode: "gossip".to_string(),
+                gossip_neighbors,
+            }).await;
+        } else {
+            hollow_log!("[HOLLOW-VC] Mode transition: gossip → mesh ({count} participants)");
+            let _ = event_tx.send(NetworkEvent::VoiceChannelModeChanged {
+                server_id: server_id.to_string(),
+                channel_id: channel_id.to_string(),
+                mode: "mesh".to_string(),
+                gossip_neighbors: vec![],
+            }).await;
+        }
+    }
+}
+
+/// Broadcast a file to all gossip neighbors for a server (minus an optional exclude peer).
+/// Used for gossip relay tree file distribution.
+async fn broadcast_to_gossip_neighbors(
+    gossip_overlay: &super::gossip::GossipOverlay,
+    webrtc_peers: &std::collections::HashSet<String>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    broadcast_id: &str,
+    ttl: u8,
+    origin_peer_id: &str,
+    file_path: &str,
+    total_size: u64,
+    kind: &str,
+    shard_index: u16,
+    exclude_peer: Option<&str>,
+    channel_id: &str,
+) {
+    let targets = gossip_overlay.get_relay_targets(exclude_peer);
+    let target_count = targets.len();
+    hollow_log!(
+        "[HOLLOW-GOSSIP] Broadcasting {broadcast_id} (ttl={ttl}) to {target_count} neighbors (server={})",
+        gossip_overlay.server_id
+    );
+
+    for peer_id in targets {
+        if webrtc_peers.contains(&peer_id) {
+            // Emit GossipRelayFile event — Dart will send via data channel with broadcast header.
+            let _ = event_tx.send(NetworkEvent::GossipRelayFile {
+                broadcast_id: broadcast_id.to_string(),
+                ttl,
+                origin_peer_id: origin_peer_id.to_string(),
+                file_path: file_path.to_string(),
+                total_size,
+                kind: kind.to_string(),
+                shard_index,
+                exclude_peer_id: exclude_peer.unwrap_or("").to_string(),
+                server_id: gossip_overlay.server_id.clone(),
+                channel_id: channel_id.to_string(),
+            }).await;
+        } else {
+            hollow_log!("[HOLLOW-GOSSIP] Neighbor {peer_id} has no data channel — skipping");
+        }
+    }
+}
+
 /// Send an unencrypted HavenMessage to a peer via WS relay.
+/// Load our own profile from DB and send it as HavenMessage::ProfileUpdate to a peer.
+fn send_own_profile_to_peer(
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    local_peer_str: &str,
+    target_peer: &str,
+) {
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+        if let Ok(Some(profile)) = store.load_profile(local_peer_str) {
+            let avatar_b64 = profile.avatar_bytes
+                .as_ref()
+                .map(|b| base64::engine::general_purpose::STANDARD.encode(b))
+                .unwrap_or_default();
+            let banner_b64 = profile.banner_bytes
+                .as_ref()
+                .map(|b| base64::engine::general_purpose::STANDARD.encode(b))
+                .unwrap_or_default();
+            let msg = HavenMessage::ProfileUpdate {
+                display_name: profile.display_name,
+                status: profile.status,
+                about_me: profile.about_me,
+                updated_at: profile.updated_at,
+                avatar_b64,
+                banner_b64,
+            };
+            send_message_to_peer(ws_cmd_tx, ws_room_peers, target_peer, msg);
+        }
+    }
+}
+
 fn send_message_to_peer(
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
@@ -6135,6 +6688,9 @@ async fn handle_incoming_request(
     webrtc_peers: &std::collections::HashSet<String>,
     pending_webrtc_sends: &mut HashMap<String, (String, super::ws_stream_transfer::StreamKind, String, std::path::PathBuf, u64)>,
     channel_sync_sent: &mut HashMap<String, std::time::Instant>,
+    gossip_overlays: &mut HashMap<String, super::gossip::GossipOverlay>,
+    voice_channel_participants: &mut HashMap<String, std::collections::HashSet<String>>,
+    voice_channel_gossip_mode: &mut HashMap<String, bool>,
     local_peer_str: &str,
     peer_str: &str,
     request: HavenMessage,
@@ -7632,7 +8188,8 @@ async fn handle_incoming_request(
                 | Ok(MessageEnvelope::VoiceChannelSdpOffer { .. })
                 | Ok(MessageEnvelope::VoiceChannelSdpAnswer { .. })
                 | Ok(MessageEnvelope::VoiceChannelIce { .. })
-                | Ok(MessageEnvelope::VoiceChannelAudioState { .. }) => {
+                | Ok(MessageEnvelope::VoiceChannelAudioState { .. })
+                | Ok(MessageEnvelope::BroadcastMeta { .. }) => {
                     hollow_log!("[HOLLOW-MLS] Received MLS-only envelope via Olm from {peer_str} — ignoring");
                 }
 
@@ -8967,6 +9524,13 @@ async fn handle_incoming_request(
                                                     server_id: sid.clone(), peer_id: peer_id.clone(), new_role: role.as_str().to_string(),
                                                 }).await;
                                             }
+                                            CrdtPayload::ServerSettingChanged { .. }
+                                            | CrdtPayload::ServerRenamed { .. } => {
+                                                // Server settings/name changed — emit ServerUpdated for UI refresh.
+                                                let _ = event_tx.send(NetworkEvent::ServerUpdated {
+                                                    server_id: sid.clone(),
+                                                }).await;
+                                            }
                                             _ => {
                                                 // Other ops: trigger a generic sync event.
                                                 let _ = event_tx.send(NetworkEvent::SyncCompleted {
@@ -9071,6 +9635,14 @@ async fn handle_incoming_request(
                                         &sender_peer_id, &display_name, &status, &about_me, updated_at,
                                         avatar_bytes.as_deref(), banner_bytes.as_deref(),
                                     );
+                                }
+                                // Update display_name in server member lists (local-only, not a CRDT op).
+                                for (_, state) in server_states.iter_mut() {
+                                    if let Some(member) = state.members.get_mut(&sender_peer_id) {
+                                        if !display_name.is_empty() {
+                                            member.display_name = display_name.clone();
+                                        }
+                                    }
                                 }
                                 let _ = event_tx.send(NetworkEvent::ProfileUpdated {
                                     peer_id: sender_peer_id,
@@ -9540,20 +10112,46 @@ async fn handle_incoming_request(
 
                             // -- Voice channel signaling (Phase 5C) --
                             MessageEnvelope::VoiceChannelJoin { sid, cid } => {
-                                // Skip self (we already emitted locally in the command handler).
                                 if sender_peer_id != local_peer_str {
                                     hollow_log!("[HOLLOW-VC] {sender_peer_id} joined voice channel {cid} in {sid}");
+                                    // Track participant.
+                                    let vc_key = format!("{sid}:{cid}");
+                                    voice_channel_participants.entry(vc_key.clone()).or_default()
+                                        .insert(sender_peer_id.clone());
                                     let _ = event_tx.send(NetworkEvent::VoiceChannelJoined {
-                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
+                                        server_id: sid.clone(), channel_id: cid.clone(),
+                                        peer_id: sender_peer_id.clone(),
                                     }).await;
+                                    // Check for mode transition.
+                                    check_voice_mode_transition(
+                                        &vc_key, &sid, &cid,
+                                        &voice_channel_participants, voice_channel_gossip_mode,
+                                        &gossip_overlays, local_peer_str, &event_tx,
+                                    ).await;
                                 }
                             }
                             MessageEnvelope::VoiceChannelLeave { sid, cid } => {
                                 if sender_peer_id != local_peer_str {
                                     hollow_log!("[HOLLOW-VC] {sender_peer_id} left voice channel {cid} in {sid}");
+                                    // Untrack participant.
+                                    let vc_key = format!("{sid}:{cid}");
+                                    if let Some(participants) = voice_channel_participants.get_mut(&vc_key) {
+                                        participants.remove(&sender_peer_id);
+                                        if participants.is_empty() {
+                                            voice_channel_participants.remove(&vc_key);
+                                            voice_channel_gossip_mode.remove(&vc_key);
+                                        }
+                                    }
                                     let _ = event_tx.send(NetworkEvent::VoiceChannelLeft {
-                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
+                                        server_id: sid.clone(), channel_id: cid.clone(),
+                                        peer_id: sender_peer_id.clone(),
                                     }).await;
+                                    // Check for mode transition.
+                                    check_voice_mode_transition(
+                                        &vc_key, &sid, &cid,
+                                        &voice_channel_participants, voice_channel_gossip_mode,
+                                        &gossip_overlays, local_peer_str, &event_tx,
+                                    ).await;
                                 }
                             }
                             MessageEnvelope::VoiceChannelSdpOffer { sid, cid, sdp, .. } => {
@@ -9593,6 +10191,25 @@ async fn handle_incoming_request(
                                     server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
                                     signal_type: "audio_state".to_string(), payload,
                                 }).await;
+                            }
+
+                            // -- Gossip relay tree (Phase 5D) --
+                            MessageEnvelope::BroadcastMeta { broadcast_id, origin, sid, cid, file_id } => {
+                                hollow_log!("[HOLLOW-GOSSIP] BroadcastMeta: bid={broadcast_id} origin={origin} fid={file_id} server={sid} ch={cid}");
+                                if let Some(overlay) = gossip_overlays.get_mut(&sid) {
+                                    // Mark broadcast seen for dedup.
+                                    overlay.mark_broadcast_seen(&broadcast_id);
+                                    // Register pending relay — when the file data arrives via
+                                    // data channel, we'll relay to our gossip neighbors.
+                                    // The originator doesn't need a pending relay (they sent it).
+                                    if origin != local_peer_str {
+                                        overlay.add_pending_relay(
+                                            &file_id, &broadcast_id,
+                                            super::gossip::DEFAULT_BROADCAST_TTL.saturating_sub(1),
+                                            &origin, &cid, &sender_peer_id,
+                                        );
+                                    }
+                                }
                             }
 
                             // DM-only envelopes should never arrive via MLS.
@@ -10011,6 +10628,15 @@ async fn handle_incoming_request(
                 }
             }
 
+            // Update display_name in server member lists (local-only, not a CRDT op).
+            for (_, state) in server_states.iter_mut() {
+                if let Some(member) = state.members.get_mut(peer_str) {
+                    if !display_name.is_empty() {
+                        member.display_name = display_name.clone();
+                    }
+                }
+            }
+
             // Notify Dart to refresh UI.
             let _ = event_tx.send(NetworkEvent::ProfileUpdated {
                 peer_id: peer_str.to_string(),
@@ -10281,6 +10907,31 @@ async fn handle_incoming_request(
                 signal_type: "screen_ice".to_string(),
                 payload,
             }).await;
+        }
+
+        // -- Gossip relay tree (Phase 5D) --
+        HavenMessage::PeerExchange { server_id, peers } => {
+            hollow_log!("[HOLLOW-GOSSIP] PeerExchange from {peer_str} for server {server_id}: {} peers", peers.len());
+            // Merge received peer list into our known_peers for this server's overlay.
+            if let Some(overlay) = gossip_overlays.get_mut(&server_id) {
+                for p in &peers {
+                    if p != local_peer_str {
+                        overlay.known_peers.insert(p.clone());
+                        overlay.peer_scores
+                            .entry(p.clone())
+                            .or_insert_with(super::gossip::PeerScore::new);
+                    }
+                }
+            }
+        }
+
+        // -- Profile request (Phase profile-sync) --
+        HavenMessage::ProfileRequest => {
+            hollow_log!("[HOLLOW-PROFILE] ProfileRequest from {peer_str} — sending our profile");
+            send_own_profile_to_peer(
+                ws_cmd_tx, ws_room_peers,
+                bundle_keypair, local_peer_str, peer_str,
+            );
         }
 
         _ => {}

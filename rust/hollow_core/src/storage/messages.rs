@@ -1265,7 +1265,9 @@ impl MessageStore {
                     updated_at = excluded.updated_at,
                     avatar = COALESCE(excluded.avatar, user_profiles.avatar),
                     banner = COALESCE(excluded.banner, user_profiles.banner)
-                 WHERE excluded.updated_at >= user_profiles.updated_at",
+                 WHERE excluded.updated_at >= user_profiles.updated_at
+                    OR (excluded.updated_at < user_profiles.updated_at
+                        AND ABS(excluded.updated_at - user_profiles.updated_at) < 86400000)",
                 params![peer_id, display_name, status, about_me, updated_at, avatar_val, banner_val],
             )
             .map_err(|e| format!("Failed to save profile: {e}"))?;
