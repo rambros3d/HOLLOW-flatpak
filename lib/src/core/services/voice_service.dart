@@ -239,6 +239,21 @@ class VoiceService {
     _log('[HOLLOW-VOICE] Mute toggled: $_isMuted');
   }
 
+  /// Set the volume of the remote peer's audio (how loud you hear them).
+  /// volume: 0.0 = silent, 1.0 = normal, 2.0 = 2x.
+  Future<void> setRemoteAudioVolume(double volume) async {
+    if (_pc == null) return;
+    final receivers = await _pc!.getReceivers();
+    for (final r in receivers) {
+      if (r.track?.kind == 'audio') {
+        await Helper.setVolume(volume, r.track!);
+        _log('[HOLLOW-VOICE] Remote audio volume set to '
+            '${volume.toStringAsFixed(2)}');
+        break;
+      }
+    }
+  }
+
   /// Toggle camera on/off. Returns the new state.
   /// The video transceiver was set up during call init — toggling recaptures
   /// the camera (turning the light on) or releases it (turning it off).

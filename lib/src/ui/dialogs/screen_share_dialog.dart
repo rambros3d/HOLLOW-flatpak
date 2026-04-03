@@ -8,6 +8,7 @@ import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:hollow/src/ui/components/hollow_button.dart';
 import 'package:hollow/src/ui/components/hollow_dialog.dart';
+import 'package:hollow/src/ui/components/hollow_toggle.dart';
 
 /// Resolution presets for screen sharing.
 enum ScreenShareResolution {
@@ -41,12 +42,14 @@ class ScreenShareSelection {
   final int width;
   final int height;
   final int fps;
+  final bool shareAudio;
 
   const ScreenShareSelection({
     required this.sourceId,
     required this.width,
     required this.height,
     required this.fps,
+    this.shareAudio = false,
   });
 }
 
@@ -72,6 +75,7 @@ class _ScreenShareDialogState extends State<_ScreenShareDialog> {
   String? _selectedSourceId;
   ScreenShareResolution _resolution = ScreenShareResolution.p1080;
   ScreenShareFps _fps = ScreenShareFps.fps60;
+  final bool _shareAudio = false;
   bool _loading = true;
   bool _showScreens = true; // true = screens tab, false = windows tab
   Timer? _refreshTimer;
@@ -263,6 +267,38 @@ class _ScreenShareDialogState extends State<_ScreenShareDialog> {
                               () => setState(() => _fps = f))),
                     ],
                   ),
+                  const SizedBox(height: HollowSpacing.md),
+
+                  // Share audio toggle (locked — not supported on native desktop)
+                  Row(
+                    children: [
+                      AnimatedOpacity(
+                        opacity: 0.4,
+                        duration: Duration.zero,
+                        child: HollowToggle(
+                          value: false,
+                          onChanged: null,
+                        ),
+                      ),
+                      const SizedBox(width: HollowSpacing.sm),
+                      Text(
+                        'Share audio',
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.textSecondary.withValues(alpha: 0.4),
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(width: HollowSpacing.sm),
+                      Text(
+                        'Not supported on desktop yet',
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.textSecondary.withValues(alpha: 0.3),
+                          fontSize: 10,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: HollowSpacing.lg),
 
                   // Actions
@@ -284,6 +320,7 @@ class _ScreenShareDialogState extends State<_ScreenShareDialog> {
                                     width: _resolution.width,
                                     height: _resolution.height,
                                     fps: _fps.value,
+                                    shareAudio: _shareAudio,
                                   ),
                                 );
                               }

@@ -29,27 +29,19 @@ Future<T?> showHollowDialog<T>({
         reverseCurve: Curves.easeIn,
       );
 
-      final blurValue =
-          Tween<double>(begin: 0, end: 12).animate(curvedAnimation);
-
-      return AnimatedBuilder(
-        animation: blurValue,
-        builder: (context, _) {
-          return BackdropFilter(
-            filter: ImageFilter.blur(
-              sigmaX: blurValue.value,
-              sigmaY: blurValue.value,
-            ),
-            child: FadeTransition(
-              opacity: curvedAnimation,
-              child: ScaleTransition(
-                scale: Tween<double>(begin: 0.95, end: 1.0)
-                    .animate(curvedAnimation),
-                child: child,
-              ),
-            ),
-          );
-        },
+      // Static blur (not animated) — animating BackdropFilter sigma every
+      // frame is extremely GPU-heavy and causes dialog open lag.
+      // The blur appears instantly, only the dialog content animates.
+      return BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: FadeTransition(
+          opacity: curvedAnimation,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.95, end: 1.0)
+                .animate(curvedAnimation),
+            child: child,
+          ),
+        ),
       );
     },
     pageBuilder: (context, _, _) => builder(context),

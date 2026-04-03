@@ -23,7 +23,7 @@ class ScreenShareService {
   final Map<String, dynamic> iceServers;
 
   RTCPeerConnection? _pc;
-  MediaStream? _screenStream; // Local capture (outgoing only)
+  MediaStream? _screenStream; // Local screen capture (outgoing only)
   RTCVideoRenderer? _remoteRenderer; // Renderer for incoming screen
   MediaStream? _remoteStream;
   Timer? _screenTrackPoller;
@@ -42,6 +42,10 @@ class ScreenShareService {
   RTCVideoRenderer? get remoteRenderer => _remoteRenderer;
   bool get isActive => _pc != null;
 
+  /// Preferred audio output device — set by CallNotifier before handleOffer.
+  String? preferredAudioOutputDeviceId;
+
+
   ScreenShareService({
     required this.localPeerId,
     required this.iceServers,
@@ -57,12 +61,13 @@ class ScreenShareService {
     String sourceId,
     int width,
     int height,
-    int fps,
-  ) async {
+    int fps, {
+    bool shareAudio = false,
+  }) async {
     _log('[HOLLOW-SCREEN] Creating offer: source=$sourceId '
-        '${width}x$height @ ${fps}fps');
+        '${width}x$height @ ${fps}fps audio=$shareAudio');
 
-    // Capture screen.
+    // Capture screen (+ optional system audio).
     await desktopCapturer.getSources(
         types: [SourceType.Screen, SourceType.Window]);
 
@@ -71,7 +76,7 @@ class ScreenShareService {
         'deviceId': {'exact': sourceId},
         'mandatory': {'frameRate': fps.toDouble()},
       },
-      'audio': false,
+      'audio': shareAudio,
     });
 
     final screenTrack = _screenStream!.getVideoTracks().first;
@@ -81,9 +86,26 @@ class ScreenShareService {
     _pc = await createPeerConnection(iceServers);
     _setupCallbacks();
 
-    // Add screen track — fresh PC, fresh transceiver, no conflicts.
+    // Add screen video track.
     await _pc!.addTrack(screenTrack, _screenStream!);
-    _log('[HOLLOW-SCREEN] Added screen track to PC');
+    _log('[HOLLOW-SCREEN] Added screen video track to PC');
+
+    // Add audio tracks if getDisplayMedia returned any.
+    // Note: native flutter_webrtc on Windows does not support audio capture
+    // in getDisplayMedia (returns 0 audio tracks). System audio loopback
+    // requires a native WASAPI plugin which is not yet implemented.
+    // The toggle is kept for future support / other platforms.
+    final audioTracks = _screenStream!.getAudioTracks();
+    _log('[HOLLOW-SCREEN] getDisplayMedia audio tracks: ${audioTracks.length}');
+    if (audioTracks.isNotEmpty) {
+      for (final track in audioTracks) {
+        await _pc!.addTrack(track, _screenStream!);
+      }
+      _log('[HOLLOW-SCREEN] Added ${audioTracks.length} audio track(s)');
+    } else if (shareAudio) {
+      _log('[HOLLOW-SCREEN] Audio sharing requested but not available '
+          'on this platform');
+    }
 
     // Generate offer.
     final offer = await _pc!.createOffer();
@@ -142,6 +164,17 @@ class ScreenShareService {
     final answer = await _pc!.createAnswer();
     await _pc!.setLocalDescription(answer);
 
+    // Route audio to the preferred output device (same as voice call).
+    if (preferredAudioOutputDeviceId != null) {
+      try {
+        await Helper.selectAudioOutput(preferredAudioOutputDeviceId!);
+        _log('[HOLLOW-SCREEN] Audio output set to '
+            '$preferredAudioOutputDeviceId');
+      } catch (e) {
+        _log('[HOLLOW-SCREEN] Failed to set audio output: $e');
+      }
+    }
+
     _log('[HOLLOW-SCREEN] Answer created, SDP length=${answer.sdp?.length}');
     return answer.sdp!;
   }
@@ -177,7 +210,7 @@ class ScreenShareService {
 
     // Stop local screen capture.
     if (_screenStream != null) {
-      for (final track in _screenStream!.getVideoTracks()) {
+      for (final track in _screenStream!.getTracks()) {
         await track.stop();
       }
       await _screenStream!.dispose();

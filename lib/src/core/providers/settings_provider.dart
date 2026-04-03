@@ -101,6 +101,28 @@ class AudioQualityNotifier extends AsyncNotifier<AudioQualityPreset> {
   }
 }
 
+/// Microphone input gain (0.0 to 2.0). Default: 1.0 (no boost).
+/// Values >1.0 boost, <1.0 reduce. Applied to the local audio track.
+final micGainProvider =
+    AsyncNotifierProvider<MicGainNotifier, double>(MicGainNotifier.new);
+
+class MicGainNotifier extends AsyncNotifier<double> {
+  @override
+  Future<double> build() async {
+    final val = await storage_api.loadSetting(key: 'mic_gain');
+    if (val == null || val.isEmpty) return 1.0;
+    return double.tryParse(val) ?? 1.0;
+  }
+
+  Future<void> setGain(double gain) async {
+    await storage_api.saveSetting(
+      key: 'mic_gain',
+      value: gain.toStringAsFixed(2),
+    );
+    state = AsyncData(gain);
+  }
+}
+
 /// Custom ringtone file path for incoming calls. Null = default system sound.
 final ringtonePathProvider =
     AsyncNotifierProvider<RingtonePathNotifier, String?>(
@@ -119,6 +141,29 @@ class RingtonePathNotifier extends AsyncNotifier<String?> {
       value: path ?? '',
     );
     state = AsyncData(path);
+  }
+}
+
+/// Cached ringtone duration in seconds. Avoids re-probing the file each
+/// time the trim dialog opens. Updated when a new file is selected.
+final ringtoneDurationProvider =
+    AsyncNotifierProvider<RingtoneDurationNotifier, double>(
+        RingtoneDurationNotifier.new);
+
+class RingtoneDurationNotifier extends AsyncNotifier<double> {
+  @override
+  Future<double> build() async {
+    final val = await storage_api.loadSetting(key: 'ringtone_duration');
+    if (val == null || val.isEmpty) return 0;
+    return double.tryParse(val) ?? 0;
+  }
+
+  Future<void> setDuration(double seconds) async {
+    await storage_api.saveSetting(
+      key: 'ringtone_duration',
+      value: seconds.toStringAsFixed(1),
+    );
+    state = AsyncData(seconds);
   }
 }
 
@@ -141,6 +186,50 @@ class RingtoneVolumeNotifier extends AsyncNotifier<double> {
       value: volume.toStringAsFixed(2),
     );
     state = AsyncData(volume);
+  }
+}
+
+/// Ringtone clip start offset in seconds. Default: 0.
+final ringtoneStartProvider =
+    AsyncNotifierProvider<RingtoneStartNotifier, double>(
+        RingtoneStartNotifier.new);
+
+class RingtoneStartNotifier extends AsyncNotifier<double> {
+  @override
+  Future<double> build() async {
+    final val = await storage_api.loadSetting(key: 'ringtone_start');
+    if (val == null || val.isEmpty) return 0.0;
+    return double.tryParse(val) ?? 0.0;
+  }
+
+  Future<void> setStart(double seconds) async {
+    await storage_api.saveSetting(
+      key: 'ringtone_start',
+      value: seconds.toStringAsFixed(1),
+    );
+    state = AsyncData(seconds);
+  }
+}
+
+/// Ringtone clip end offset in seconds. Default: 30 (or song duration if shorter).
+final ringtoneEndProvider =
+    AsyncNotifierProvider<RingtoneEndNotifier, double>(
+        RingtoneEndNotifier.new);
+
+class RingtoneEndNotifier extends AsyncNotifier<double> {
+  @override
+  Future<double> build() async {
+    final val = await storage_api.loadSetting(key: 'ringtone_end');
+    if (val == null || val.isEmpty) return 30.0;
+    return double.tryParse(val) ?? 30.0;
+  }
+
+  Future<void> setEnd(double seconds) async {
+    await storage_api.saveSetting(
+      key: 'ringtone_end',
+      value: seconds.toStringAsFixed(1),
+    );
+    state = AsyncData(seconds);
   }
 }
 

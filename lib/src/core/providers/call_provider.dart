@@ -168,7 +168,13 @@ class CallNotifier extends Notifier<CallState> {
       final quality = await ref.read(audioQualityProvider.future);
       _voiceService?.opusBitrate = quality.bitrate;
       _voiceService?.opusStereo = quality.stereo;
+
     } catch (_) {}
+  }
+
+  /// Set the remote peer's audio volume (how loud you hear them).
+  Future<void> setRemoteVolume(double volume) async {
+    await _service.setRemoteAudioVolume(volume);
   }
 
   // ---------------------------------------------------------------------------
@@ -291,6 +297,7 @@ class CallNotifier extends Notifier<CallState> {
     required int width,
     required int height,
     required int fps,
+    bool shareAudio = false,
   }) async {
     if (state.status != CallStatus.active) return;
 
@@ -324,6 +331,7 @@ class CallNotifier extends Notifier<CallState> {
     try {
       final offerSdp = await _outgoingScreenShare!.createOffer(
         sourceId, width, height, fps,
+        shareAudio: shareAudio,
       );
 
       state = state.copyWith(isScreenSharing: true);
@@ -685,6 +693,12 @@ class CallNotifier extends Notifier<CallState> {
       debugPrint('[HOLLOW-CALL] Screen share remote track ready');
       state = state.copyWith();
     };
+
+    // Set preferred audio output so screen share audio plays to the right speaker.
+    try {
+      final output = await ref.read(audioOutputDeviceProvider.future);
+      _incomingScreenShare!.preferredAudioOutputDeviceId = output;
+    } catch (_) {}
 
     // Handle the offer and send answer.
     final answerSdp = await _incomingScreenShare!.handleOffer(sdp);

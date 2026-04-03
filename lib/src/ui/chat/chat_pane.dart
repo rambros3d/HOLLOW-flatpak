@@ -453,10 +453,11 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     final typingPeers = ref.watch(typingProvider)[widget.peerId] ?? {};
     final showProfilePanel = ref.watch(dmProfilePanelProvider);
 
-    // Auto-hide profile panel during screen share for more space.
+    // Screen share layout only shows in the DM with the call peer.
     final call = ref.watch(callProvider);
-    final isScreenShareActive =
-        call.isScreenSharing || call.remoteScreenSharing;
+    final isCallWithThisPeer = call.peerId == widget.peerId;
+    final isScreenShareActive = isCallWithThisPeer &&
+        (call.isScreenSharing || call.remoteScreenSharing);
 
     return Row(
       children: [
@@ -1326,6 +1327,7 @@ class _InlineCallPanel extends ConsumerStatefulWidget {
 
 class _InlineCallPanelState extends ConsumerState<_InlineCallPanel> {
   Timer? _durationTimer;
+  double _remoteVolume = 1.0;
   Duration _duration = Duration.zero;
   double _videoHeight = 200; // Height of the video area (only when video active).
   static const _minVideoHeight = 80.0;
@@ -1393,15 +1395,21 @@ class _InlineCallPanelState extends ConsumerState<_InlineCallPanel> {
     final screenHeight = MediaQuery.of(context).size.height;
     final maxH = (screenHeight * 0.7).clamp(_minVideoHeight, _maxVideoHeight);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: hollow.surface,
-        border: Border(
-          bottom: BorderSide(color: hollow.border),
+    return GestureDetector(
+      onSecondaryTapUp: (details) {
+        if (call.status == CallStatus.active) {
+          _showVolumePopup(context, details.globalPosition);
+        }
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: hollow.surface,
+          border: Border(
+            bottom: BorderSide(color: hollow.border),
+          ),
         ),
-      ),
-      child: Column(
-        mainAxisSize: isScreenShare ? MainAxisSize.max : MainAxisSize.min,
+        child: Column(
+          mainAxisSize: isScreenShare ? MainAxisSize.max : MainAxisSize.min,
         children: [
           // Video / screen share area
           if (hasVideoArea) ...[
@@ -1503,8 +1511,85 @@ class _InlineCallPanelState extends ConsumerState<_InlineCallPanel> {
               ],
             ),
           ),
+
         ],
       ),
+      ),
+    );
+  }
+
+  void _showVolumePopup(BuildContext context, Offset position) {
+    final hollow = HollowTheme.of(context);
+
+    showMenu<void>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+          position.dx, position.dy, position.dx, position.dy),
+      color: hollow.elevated,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(hollow.radiusSm),
+        side: BorderSide(color: hollow.border),
+      ),
+      items: [
+        PopupMenuItem<void>(
+          enabled: false,
+          height: 28,
+          padding: EdgeInsets.zero,
+          child: StatefulBuilder(
+            builder: (context, setMenuState) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: HollowSpacing.xs,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(LucideIcons.volume2, size: 14,
+                        color: hollow.textSecondary),
+                    SizedBox(
+                      width: 140,
+                      child: SliderTheme(
+                        data: SliderThemeData(
+                          activeTrackColor: hollow.accent,
+                          inactiveTrackColor: hollow.border,
+                          thumbColor: hollow.accent,
+                          overlayColor:
+                              hollow.accent.withValues(alpha: 0.1),
+                          trackHeight: 2,
+                          thumbShape: const RoundSliderThumbShape(
+                              enabledThumbRadius: 5),
+                        ),
+                        child: Slider(
+                          value: _remoteVolume,
+                          min: 0.0,
+                          max: 2.0,
+                          onChanged: (v) {
+                            setMenuState(() {});
+                            setState(() => _remoteVolume = v);
+                            ref.read(callProvider.notifier)
+                                .setRemoteVolume(v);
+                          },
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 32,
+                      child: Text(
+                        '${(_remoteVolume * 100).round()}%',
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.textSecondary,
+                          fontSize: 10,
+                        ),
+                        textAlign: TextAlign.right,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -1820,6 +1905,7 @@ class _InlineCallPanelState extends ConsumerState<_InlineCallPanel> {
               width: selection.width,
               height: selection.height,
               fps: selection.fps,
+              shareAudio: selection.shareAudio,
             );
       }
     }
@@ -2210,6 +2296,7 @@ class _ScreenShareControlsOverlayState
               width: selection.width,
               height: selection.height,
               fps: selection.fps,
+              shareAudio: selection.shareAudio,
             );
       }
     }

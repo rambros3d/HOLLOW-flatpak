@@ -95,10 +95,25 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
 
     final volume = await ref.read(ringtoneVolumeProvider.future);
 
+    final startSec = await ref.read(ringtoneStartProvider.future);
+    final endSec = await ref.read(ringtoneEndProvider.future);
+    final clipDuration = endSec - startSec;
+    if (clipDuration <= 0) return;
+
     _ringtonePlayer = AudioPlayer();
-    await _ringtonePlayer!.setReleaseMode(ReleaseMode.loop);
     await _ringtonePlayer!.setVolume(volume);
+    // Play from the start offset, manually loop within the clip range.
     await _ringtonePlayer!.play(DeviceFileSource(ringtonePath));
+    await _ringtonePlayer!.seek(Duration(milliseconds: (startSec * 1000).round()));
+
+    // Listen for position to loop within the selected clip range.
+    _ringtonePlayer!.onPositionChanged.listen((pos) {
+      final posSeconds = pos.inMilliseconds / 1000.0;
+      if (posSeconds >= endSec || posSeconds < startSec - 0.5) {
+        _ringtonePlayer?.seek(
+            Duration(milliseconds: (startSec * 1000).round()));
+      }
+    });
   }
 
   Future<void> _stopRingtone() async {

@@ -1445,8 +1445,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [X] Cached display info during exit animation (no flash of missing avatar/name on decline)
 - [ ] **Audio/video device & quality settings**
   - [X] Device selection: mic via `record` package + `sourceId` constraint, speaker via `win32audio` + `Helper.selectAudioOutput()`. Persisted in SQLCipher. Loaded via `_ensureDevicePreferences()` before each call
-  - [ ] Mic input gain (boost/reduce) — adjustable slider, useful for quiet microphones
-  - [ ] Per-peer speaker volume — `setVolume()` on remote audio track, slider in call UI
+  - [X] Per-peer speaker volume — `Helper.setVolume()` on remote audio receiver track. Right-click popup on call panel with volume slider (0-200%). Per-call, resets on new call.
   - [X] Audio quality preset: Voice (32 kbps mono), Music (128 kbps stereo), Hi-Fi (256 kbps stereo). SDP munging on Opus fmtp line (`maxaveragebitrate`, `stereo`, `sprop-stereo`). Persisted in SQLCipher. Dropdown in User Settings → Voice & Audio
 - [ ] **Audio processing**
   - [X] Echo cancellation (built into WebRTC/libwebrtc — enabled via getUserMedia constraints)
@@ -1490,6 +1489,15 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] Device linking via QR code (multi-device identity sync) — requires MLS + CRDTs. 🎞️ Animate: QR scan success celebration, device linked confirmation
 - [ ] Mobile platform testing & platform-specific fixes (adaptive layout built in Phase 2.5)
 - [ ] Accessibility (screen reader support, high contrast)
+- [ ] **System audio capture plugin (screen share audio)**
+  - [ ] Flutter plugin package (`system_audio_capture`) — single Dart API, platform-specific native implementations
+  - [ ] Windows: WASAPI loopback capture (C++ via FFI)
+  - [ ] macOS: ScreenCaptureKit audio capture (Swift, macOS 13+)
+  - [ ] Linux: PulseAudio/PipeWire monitor source capture
+  - [ ] Returns `MediaStream` compatible with flutter_webrtc `addTrack()`
+  - [ ] Publish to pub.dev as open-source (MIT license — builds trust + visibility)
+  - [ ] Wire into ScreenShareService: unlock "Share audio" toggle, add captured audio track to screen share PC
+  - Note: `getDisplayMedia({audio: true})` returns 0 audio tracks on native desktop flutter_webrtc (confirmed, open issue since Nov 2025). This plugin is the workaround
 
 **Deliverable:** A polished, feature-complete communication platform ready for public release.
 
