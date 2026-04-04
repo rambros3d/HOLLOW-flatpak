@@ -1174,6 +1174,39 @@ enum MessageEnvelope {
         target: Option<String>,
     },
 
+    // -- Voice channel camera (Phase 5B) --
+
+    /// Targeted: renegotiation SDP offer (adding/removing video track).
+    #[serde(rename = "vc_reneg_offer")]
+    VoiceChannelRenegOffer {
+        sid: String,
+        cid: String,
+        sdp: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<String>,
+    },
+
+    /// Targeted: renegotiation SDP answer.
+    #[serde(rename = "vc_reneg_answer")]
+    VoiceChannelRenegAnswer {
+        sid: String,
+        cid: String,
+        sdp: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<String>,
+    },
+
+    /// Broadcast: camera state (on/off) in a voice channel.
+    #[serde(rename = "vc_camera_state")]
+    VoiceChannelCameraState {
+        sid: String,
+        cid: String,
+        #[serde(default)]
+        enabled: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<String>,
+    },
+
     // -- Gossip relay tree (Phase 5D) --
 
     /// Broadcast metadata: notifies server members that a gossip file broadcast is in flight.
@@ -1213,7 +1246,10 @@ impl MessageEnvelope {
             | Self::VoiceChannelScreenOffer { target, .. }
             | Self::VoiceChannelScreenAnswer { target, .. }
             | Self::VoiceChannelScreenIce { target, .. }
-            | Self::VoiceChannelScreenState { target, .. } => target.as_deref(),
+            | Self::VoiceChannelScreenState { target, .. }
+            | Self::VoiceChannelRenegOffer { target, .. }
+            | Self::VoiceChannelRenegAnswer { target, .. }
+            | Self::VoiceChannelCameraState { target, .. } => target.as_deref(),
             _ => None,
         }
     }
@@ -5309,6 +5345,36 @@ async fn run_event_loop(
                                     }
                                 } else { continue; }
                             }
+                            "reneg_offer" => {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) {
+                                    MessageEnvelope::VoiceChannelRenegOffer {
+                                        sid: server_id.clone(),
+                                        cid: channel_id.clone(),
+                                        sdp: v["sdp"].as_str().unwrap_or("").to_string(),
+                                        target: None,
+                                    }
+                                } else { continue; }
+                            }
+                            "reneg_answer" => {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) {
+                                    MessageEnvelope::VoiceChannelRenegAnswer {
+                                        sid: server_id.clone(),
+                                        cid: channel_id.clone(),
+                                        sdp: v["sdp"].as_str().unwrap_or("").to_string(),
+                                        target: None,
+                                    }
+                                } else { continue; }
+                            }
+                            "camera_state" => {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) {
+                                    MessageEnvelope::VoiceChannelCameraState {
+                                        sid: server_id.clone(),
+                                        cid: channel_id.clone(),
+                                        enabled: v["enabled"].as_bool().unwrap_or(false),
+                                        target: None,
+                                    }
+                                } else { continue; }
+                            }
                             _ => {
                                 hollow_log!("[HOLLOW-VC] Unknown signal type: {signal_type}");
                                 continue;
@@ -8339,6 +8405,9 @@ async fn handle_incoming_request(
                 | Ok(MessageEnvelope::VoiceChannelScreenAnswer { .. })
                 | Ok(MessageEnvelope::VoiceChannelScreenIce { .. })
                 | Ok(MessageEnvelope::VoiceChannelScreenState { .. })
+                | Ok(MessageEnvelope::VoiceChannelRenegOffer { .. })
+                | Ok(MessageEnvelope::VoiceChannelRenegAnswer { .. })
+                | Ok(MessageEnvelope::VoiceChannelCameraState { .. })
                 | Ok(MessageEnvelope::BroadcastMeta { .. }) => {
                     hollow_log!("[HOLLOW-MLS] Received MLS-only envelope via Olm from {peer_str} — ignoring");
                 }
@@ -10379,6 +10448,32 @@ async fn handle_incoming_request(
                                 let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
                                     server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
                                     signal_type: "screen_state".to_string(), payload,
+                                }).await;
+                            }
+
+                            // -- Voice channel camera (Phase 5B) --
+                            MessageEnvelope::VoiceChannelRenegOffer { sid, cid, sdp, .. } => {
+                                hollow_log!("[HOLLOW-VC] Reneg offer from {sender_peer_id} in vc {cid}");
+                                let payload = serde_json::json!({"sdp": sdp}).to_string();
+                                let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+                                    server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
+                                    signal_type: "reneg_offer".to_string(), payload,
+                                }).await;
+                            }
+                            MessageEnvelope::VoiceChannelRenegAnswer { sid, cid, sdp, .. } => {
+                                hollow_log!("[HOLLOW-VC] Reneg answer from {sender_peer_id} in vc {cid}");
+                                let payload = serde_json::json!({"sdp": sdp}).to_string();
+                                let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+                                    server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
+                                    signal_type: "reneg_answer".to_string(), payload,
+                                }).await;
+                            }
+                            MessageEnvelope::VoiceChannelCameraState { sid, cid, enabled, .. } => {
+                                hollow_log!("[HOLLOW-VC] Camera state from {sender_peer_id}: enabled={enabled}");
+                                let payload = serde_json::json!({"enabled": enabled}).to_string();
+                                let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+                                    server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
+                                    signal_type: "camera_state".to_string(), payload,
                                 }).await;
                             }
 

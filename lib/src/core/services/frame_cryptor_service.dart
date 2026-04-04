@@ -15,10 +15,11 @@ void _fcLog(String msg) {
 class FrameCryptorService {
   KeyProvider? _keyProvider;
 
-  /// Sender-side frame cryptors: peerId -> FrameCryptor.
+  /// Sender-side frame cryptors: "peerId:kind" -> FrameCryptor.
+  /// Kind is 'audio' or 'video'. Allows separate cryptors per track type per peer.
   final Map<String, FrameCryptor> _senderCryptors = {};
 
-  /// Receiver-side frame cryptors: peerId -> FrameCryptor.
+  /// Receiver-side frame cryptors: "peerId:kind" -> FrameCryptor.
   final Map<String, FrameCryptor> _receiverCryptors = {};
 
   /// Whether encryption is active.
@@ -60,9 +61,12 @@ class FrameCryptorService {
   }
 
   /// Enable frame encryption for an RTP sender (our outgoing audio/video).
-  Future<void> enableForSender(String peerId, RTCRtpSender sender) async {
+  ///
+  /// [kind] distinguishes audio vs video cryptors for the same peer.
+  Future<void> enableForSender(String peerId, RTCRtpSender sender, {String kind = 'audio'}) async {
     if (_keyProvider == null) return;
-    if (_senderCryptors.containsKey(peerId)) return;
+    final key = '$peerId:$kind';
+    if (_senderCryptors.containsKey(key)) return;
 
     try {
       final cryptor = await frameCryptorFactory.createFrameCryptorForRtpSender(
@@ -72,21 +76,24 @@ class FrameCryptorService {
         keyProvider: _keyProvider!,
       );
       cryptor.onFrameCryptorStateChanged = (pid, state) {
-        _fcLog('[HOLLOW-SFRAME] Sender $pid state: $state');
+        _fcLog('[HOLLOW-SFRAME] Sender $pid ($kind) state: $state');
       };
       await cryptor.setEnabled(true);
-      _senderCryptors[peerId] = cryptor;
+      _senderCryptors[key] = cryptor;
       _enabled = true;
-      _fcLog('[HOLLOW-SFRAME] Sender encryption enabled for $peerId');
+      _fcLog('[HOLLOW-SFRAME] Sender encryption enabled for $key');
     } catch (e) {
-      _fcLog('[HOLLOW-SFRAME] Failed to enable sender encryption for $peerId: $e');
+      _fcLog('[HOLLOW-SFRAME] Failed to enable sender encryption for $key: $e');
     }
   }
 
   /// Enable frame decryption for an RTP receiver (incoming audio/video from peer).
-  Future<void> enableForReceiver(String peerId, RTCRtpReceiver receiver) async {
+  ///
+  /// [kind] distinguishes audio vs video cryptors for the same peer.
+  Future<void> enableForReceiver(String peerId, RTCRtpReceiver receiver, {String kind = 'audio'}) async {
     if (_keyProvider == null) return;
-    if (_receiverCryptors.containsKey(peerId)) return;
+    final key = '$peerId:$kind';
+    if (_receiverCryptors.containsKey(key)) return;
 
     try {
       final cryptor =
@@ -97,13 +104,13 @@ class FrameCryptorService {
         keyProvider: _keyProvider!,
       );
       cryptor.onFrameCryptorStateChanged = (pid, state) {
-        _fcLog('[HOLLOW-SFRAME] Receiver $pid state: $state');
+        _fcLog('[HOLLOW-SFRAME] Receiver $pid ($kind) state: $state');
       };
       await cryptor.setEnabled(true);
-      _receiverCryptors[peerId] = cryptor;
-      _fcLog('[HOLLOW-SFRAME] Receiver decryption enabled for $peerId');
+      _receiverCryptors[key] = cryptor;
+      _fcLog('[HOLLOW-SFRAME] Receiver decryption enabled for $key');
     } catch (e) {
-      _fcLog('[HOLLOW-SFRAME] Failed to enable receiver decryption for $peerId: $e');
+      _fcLog('[HOLLOW-SFRAME] Failed to enable receiver decryption for $key: $e');
     }
   }
 
@@ -121,17 +128,20 @@ class FrameCryptorService {
     _fcLog('[HOLLOW-SFRAME] Key rotated to index $newIndex');
   }
 
-  /// Disable and clean up cryptors for a specific peer.
+  /// Disable and clean up cryptors for a specific peer (both audio and video).
   Future<void> disableForPeer(String peerId) async {
-    final sender = _senderCryptors.remove(peerId);
-    if (sender != null) {
-      await sender.setEnabled(false);
-      await sender.dispose();
-    }
-    final receiver = _receiverCryptors.remove(peerId);
-    if (receiver != null) {
-      await receiver.setEnabled(false);
-      await receiver.dispose();
+    for (final kind in ['audio', 'video']) {
+      final key = '$peerId:$kind';
+      final sender = _senderCryptors.remove(key);
+      if (sender != null) {
+        await sender.setEnabled(false);
+        await sender.dispose();
+      }
+      final receiver = _receiverCryptors.remove(key);
+      if (receiver != null) {
+        await receiver.setEnabled(false);
+        await receiver.dispose();
+      }
     }
   }
 

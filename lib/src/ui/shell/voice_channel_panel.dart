@@ -135,6 +135,24 @@ class VoiceChannelPanel extends ConsumerWidget {
                   ),
                 ),
               ),
+              const SizedBox(width: HollowSpacing.sm),
+              // Camera toggle
+              HollowTooltip(
+                message: vcState.isCameraOn ? 'Turn off camera' : 'Turn on camera',
+                child: HollowPressable(
+                  onTap: () =>
+                      ref.read(voiceChannelProvider.notifier).toggleCamera(),
+                  borderRadius: BorderRadius.circular(hollow.radiusSm),
+                  padding: const EdgeInsets.all(HollowSpacing.sm),
+                  child: Icon(
+                    vcState.isCameraOn ? LucideIcons.video : LucideIcons.videoOff,
+                    size: 18,
+                    color: vcState.isCameraOn
+                        ? hollow.accent
+                        : hollow.textPrimary,
+                  ),
+                ),
+              ),
               // Screen share (desktop only)
               if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) ...[
                 const SizedBox(width: HollowSpacing.sm),

@@ -1167,6 +1167,9 @@ class _VoiceParticipantRow extends ConsumerWidget {
     final isScreenSharing = peerId == localPeerId
         ? vcState.isScreenSharing
         : (vcState.peerScreenSharing[peerId] ?? false);
+    final isCameraOn = peerId == localPeerId
+        ? vcState.isCameraOn
+        : (vcState.peerCameraOn[peerId] ?? false);
 
     return GestureDetector(
       onSecondaryTapUp: isRemote
@@ -1199,6 +1202,13 @@ class _VoiceParticipantRow extends ConsumerWidget {
                 padding: const EdgeInsets.only(left: 2),
                 child: Icon(LucideIcons.monitor,
                     size: 12, color: Colors.green),
+              ),
+            // Camera indicator — accent video icon.
+            if (isCameraOn)
+              Padding(
+                padding: const EdgeInsets.only(left: 2),
+                child: Icon(LucideIcons.video,
+                    size: 12, color: hollow.accent),
               ),
             if (isMuted)
               Padding(

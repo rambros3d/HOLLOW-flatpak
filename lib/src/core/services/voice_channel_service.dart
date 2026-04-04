@@ -71,6 +71,36 @@ class VoiceChannelService {
   /// SFrame encryption service for voice channel E2EE.
   FrameCryptorService? frameCryptor;
 
+  // ---------------------------------------------------------------
+  //  Camera (video) support
+  // ---------------------------------------------------------------
+
+  /// Shared local camera stream (captured once, added to all PCs).
+  MediaStream? _localVideoStream;
+  bool _isCameraOn = false;
+
+  /// Per-peer RTCVideoRenderer for incoming video tracks.
+  final Map<String, RTCVideoRenderer> _remoteVideoRenderers = {};
+
+  /// Per-peer remote video streams.
+  final Map<String, MediaStream> _remoteVideoStreams = {};
+
+  /// Callback when a remote peer's video track arrives or is removed.
+  void Function(String peerId, RTCVideoRenderer? renderer)? onRemoteVideoChanged;
+
+  /// Callback when a peer's audio connection reaches connected/stable state.
+  /// Used by the provider to send screen share offers after the connection is ready.
+  void Function(String peerId)? onPeerConnected;
+
+  /// Peers that need camera renegotiation once their PC reaches stable state.
+  final Set<String> _pendingCameraReneg = {};
+
+  /// Whether camera is currently on.
+  bool get isCameraOn => _isCameraOn;
+
+  /// Local camera stream (for local renderer in provider).
+  MediaStream? get localVideoStream => _localVideoStream;
+
   VoiceChannelService({
     required this.localPeerId,
     required this.iceServers,
@@ -179,6 +209,10 @@ class VoiceChannelService {
         await _handleSdpAnswer(peerId, payload);
       case 'ice':
         await _handleIce(peerId, payload);
+      case 'reneg_offer':
+        await _handleRenegOffer(peerId, payload, serverId, channelId);
+      case 'reneg_answer':
+        await _handleRenegAnswer(peerId, payload);
     }
   }
 
@@ -216,6 +250,16 @@ class VoiceChannelService {
       signalType: 'sdp_answer',
       payload: answerPayload,
     );
+
+    // If camera is on, send renegotiation to add video track now that
+    // the initial audio connection is established.
+    _pendingCameraReneg.remove(peerId);
+    if (_isCameraOn && _localVideoStream != null) {
+      _vcLog('[HOLLOW-VC] Camera on — sending renegotiation to add video for $peerId (answerer)');
+      _addLocalVideoTracks(pc);
+      await _enableSframeSenderVideo(peerId, pc);
+      await _sendRenegotiationOffer(peerId);
+    }
   }
 
   Future<void> _handleSdpAnswer(String peerId, String payload) async {
@@ -230,6 +274,16 @@ class VoiceChannelService {
     await pc.setRemoteDescription(RTCSessionDescription(sdp, 'answer'));
     _remoteDescSet[peerId] = true;
     await _flushPendingCandidates(peerId);
+
+    // If camera is on, send renegotiation to add video track now that
+    // the initial audio connection is established (stable state).
+    _pendingCameraReneg.remove(peerId); // Clear pending flag — we'll handle it now.
+    if (_isCameraOn && _localVideoStream != null) {
+      _vcLog('[HOLLOW-VC] Camera on — sending renegotiation to add video for $peerId');
+      _addLocalVideoTracks(pc);
+      await _enableSframeSenderVideo(peerId, pc);
+      await _sendRenegotiationOffer(peerId);
+    }
   }
 
   Future<void> _handleIce(String peerId, String payload) async {
@@ -289,6 +343,16 @@ class VoiceChannelService {
     }
     _pendingCandidates.remove(peerId);
     _remoteDescSet.remove(peerId);
+    _pendingCameraReneg.remove(peerId);
+
+    // Clean up video renderer/stream for this peer.
+    final renderer = _remoteVideoRenderers.remove(peerId);
+    if (renderer != null) {
+      renderer.srcObject = null;
+      await renderer.dispose();
+      onRemoteVideoChanged?.call(peerId, null);
+    }
+    _remoteVideoStreams.remove(peerId)?.dispose();
   }
 
   /// Close all connections and stop audio (leaving voice channel).
@@ -327,6 +391,79 @@ class VoiceChannelService {
     }
   }
 
+  /// Enable SFrame sender encryption on outgoing video tracks for a peer.
+  Future<void> _enableSframeSenderVideo(String peerId, RTCPeerConnection pc) async {
+    if (frameCryptor == null || !frameCryptor!.isEnabled) return;
+    try {
+      final senders = await pc.getSenders();
+      for (final sender in senders) {
+        if (sender.track?.kind == 'video') {
+          await frameCryptor!.enableForSender(peerId, sender, kind: 'video');
+          break;
+        }
+      }
+    } catch (e) {
+      _vcLog('[HOLLOW-VC] Failed to enable SFrame video sender: $e');
+    }
+  }
+
+  /// Enable SFrame receiver decryption on incoming video tracks from a peer.
+  Future<void> _enableSframeReceiverVideo(String peerId, RTCPeerConnection pc) async {
+    if (frameCryptor == null || !frameCryptor!.isEnabled) return;
+    try {
+      final receivers = await pc.getReceivers();
+      for (final receiver in receivers) {
+        if (receiver.track?.kind == 'video') {
+          await frameCryptor!.enableForReceiver(peerId, receiver, kind: 'video');
+          break;
+        }
+      }
+    } catch (e) {
+      _vcLog('[HOLLOW-VC] Failed to enable SFrame video receiver: $e');
+    }
+  }
+
+  /// Handle incoming remote video track from a peer.
+  Future<void> _handleRemoteVideoTrack(
+    String peerId,
+    RTCTrackEvent event,
+    RTCPeerConnection pc,
+  ) async {
+    _vcLog('[HOLLOW-VC] Received video track from $peerId');
+
+    // Get or create MediaStream for the video track.
+    MediaStream stream;
+    if (event.streams.isNotEmpty) {
+      stream = event.streams.first;
+    } else {
+      // Windows/libwebrtc quirk: streams can be empty. Create a synthetic one.
+      stream = await createLocalMediaStream('video-$peerId');
+      stream.addTrack(event.track);
+    }
+
+    // Dispose any existing renderer for this peer.
+    final oldRenderer = _remoteVideoRenderers.remove(peerId);
+    if (oldRenderer != null) {
+      oldRenderer.srcObject = null;
+      await oldRenderer.dispose();
+    }
+    _remoteVideoStreams.remove(peerId)?.dispose();
+
+    // Create new renderer.
+    final renderer = RTCVideoRenderer();
+    await renderer.initialize();
+    renderer.srcObject = stream;
+    _remoteVideoRenderers[peerId] = renderer;
+    _remoteVideoStreams[peerId] = stream;
+
+    // Enable SFrame decryption for the video track.
+    await _enableSframeReceiverVideo(peerId, pc);
+
+    // Notify provider after a short delay (renderer needs a frame to display).
+    await Future.delayed(const Duration(milliseconds: 100));
+    onRemoteVideoChanged?.call(peerId, renderer);
+  }
+
   /// Set the SFrame key and enable encryption on all existing PCs.
   /// Called when MLS epoch key arrives or changes.
   Future<void> setSframeKey(int epoch, Uint8List key) async {
@@ -338,6 +475,13 @@ class VoiceChannelService {
       final pc = entry.value;
       await _enableSframeSender(peerId, pc);
       await _enableSframeReceiver(peerId, pc);
+      // Also enable for video if camera is on.
+      if (_isCameraOn) {
+        await _enableSframeSenderVideo(peerId, pc);
+      }
+      if (_remoteVideoRenderers.containsKey(peerId)) {
+        await _enableSframeReceiverVideo(peerId, pc);
+      }
     }
     _vcLog('[HOLLOW-VC] SFrame key set for epoch $epoch, enabled on ${_peerConnections.length} PCs');
   }
@@ -345,6 +489,17 @@ class VoiceChannelService {
   Future<void> closeAll() async {
     _vcLog('[HOLLOW-VC] Closing all connections');
     _stopVadTimer();
+
+    // Stop camera stream directly (no renegotiation — we're closing everything).
+    if (_localVideoStream != null) {
+      for (final track in _localVideoStream!.getTracks()) {
+        await track.stop();
+      }
+      await _localVideoStream!.dispose();
+      _localVideoStream = null;
+    }
+    _isCameraOn = false;
+
     for (final peerId in _peerConnections.keys.toList()) {
       await closePeer(peerId);
     }
@@ -355,12 +510,25 @@ class VoiceChannelService {
       await _localAudioStream!.dispose();
       _localAudioStream = null;
     }
+
+    // Dispose any remaining video renderers/streams.
+    for (final renderer in _remoteVideoRenderers.values) {
+      renderer.srcObject = null;
+      await renderer.dispose();
+    }
+    _remoteVideoRenderers.clear();
+    for (final stream in _remoteVideoStreams.values) {
+      await stream.dispose();
+    }
+    _remoteVideoStreams.clear();
+
     _isMuted = false;
     _serverId = null;
     _channelId = null;
     _speakingPeers.clear();
     _prevEnergy.clear();
     _forwardedSources.clear();
+    _pendingCameraReneg.clear();
     gossipMode = false;
     gossipNeighbors = {};
     await frameCryptor?.dispose();
@@ -403,6 +571,239 @@ class VoiceChannelService {
         break;
       }
     }
+  }
+
+  // ---------------------------------------------------------------
+  //  Camera (video) controls
+  // ---------------------------------------------------------------
+
+  /// Start capturing camera and add video track to all existing PCs.
+  /// Returns the local video stream for the provider to create a renderer.
+  Future<MediaStream?> startCamera() async {
+    if (_isCameraOn) return _localVideoStream;
+
+    try {
+      _localVideoStream = await navigator.mediaDevices.getUserMedia({
+        'audio': false,
+        'video': {
+          'width': {'ideal': 640},
+          'height': {'ideal': 480},
+          'frameRate': {'ideal': 30},
+        },
+      });
+      _isCameraOn = true;
+      _vcLog('[HOLLOW-VC] Camera started, tracks=${_localVideoStream!.getVideoTracks().length}');
+    } catch (e) {
+      _vcLog('[HOLLOW-VC] Failed to capture camera: $e');
+      return null;
+    }
+
+    final videoTrack = _localVideoStream!.getVideoTracks().first;
+
+    // Add video track to all existing PCs and trigger renegotiation.
+    for (final entry in _peerConnections.entries.toList()) {
+      final peerId = entry.key;
+      final pc = entry.value;
+
+      // Only renegotiate if the PC is in stable state (initial handshake done).
+      final sigState = pc.signalingState;
+      if (sigState != RTCSignalingState.RTCSignalingStateStable) {
+        _vcLog('[HOLLOW-VC] Skipping camera reneg for $peerId — state: $sigState (will reneg after stable)');
+        _pendingCameraReneg.add(peerId);
+        continue;
+      }
+
+      pc.addTrack(videoTrack, _localVideoStream!);
+
+      // Enable SFrame encryption for the video sender.
+      await _enableSframeSenderVideo(peerId, pc);
+
+      // Renegotiate to signal the new video track.
+      await _sendRenegotiationOffer(peerId);
+    }
+
+    return _localVideoStream;
+  }
+
+  /// Stop camera and remove video track from all PCs.
+  Future<void> stopCamera() async {
+    if (!_isCameraOn) return;
+    _isCameraOn = false;
+
+    // Remove video senders from all PCs.
+    for (final entry in _peerConnections.entries.toList()) {
+      final peerId = entry.key;
+      final pc = entry.value;
+      try {
+        final senders = await pc.getSenders();
+        for (final sender in senders) {
+          if (sender.track?.kind == 'video') {
+            await pc.removeTrack(sender);
+          }
+        }
+        // Renegotiate to signal video removal (only if stable).
+        final sigState = pc.signalingState;
+        if (sigState == RTCSignalingState.RTCSignalingStateStable) {
+          await _sendRenegotiationOffer(peerId);
+        }
+      } catch (e) {
+        _vcLog('[HOLLOW-VC] Error removing video sender for $peerId: $e');
+      }
+    }
+
+    // Stop and dispose camera stream.
+    if (_localVideoStream != null) {
+      for (final track in _localVideoStream!.getTracks()) {
+        await track.stop();
+      }
+      await _localVideoStream!.dispose();
+      _localVideoStream = null;
+    }
+    _vcLog('[HOLLOW-VC] Camera stopped');
+  }
+
+  // ---------------------------------------------------------------
+  //  Renegotiation (for adding/removing video tracks)
+  // ---------------------------------------------------------------
+
+  Future<void> _sendRenegotiationOffer(String peerId) async {
+    final pc = _peerConnections[peerId];
+    if (pc == null || _serverId == null || _channelId == null) return;
+
+    try {
+      final offer = await pc.createOffer();
+      final mungedSdp = _mungeOpusParams(offer.sdp!);
+      await pc.setLocalDescription(RTCSessionDescription(mungedSdp, offer.type));
+
+      final payload = jsonEncode({'sdp': mungedSdp});
+      await network_api.voiceChannelSendSignal(
+        serverId: _serverId!,
+        channelId: _channelId!,
+        peerId: peerId,
+        signalType: 'reneg_offer',
+        payload: payload,
+      );
+      _vcLog('[HOLLOW-VC] Sent renegotiation offer to $peerId');
+    } catch (e) {
+      _vcLog('[HOLLOW-VC] Renegotiation offer failed for $peerId: $e');
+    }
+  }
+
+  Future<void> _handleRenegOffer(
+    String peerId,
+    String payload,
+    String serverId,
+    String channelId,
+  ) async {
+    final pc = _peerConnections[peerId];
+    if (pc == null) return;
+
+    final v = jsonDecode(payload);
+    final sdp = v['sdp'] as String? ?? '';
+    if (sdp.isEmpty) return;
+
+    // Glare prevention: if we also have a pending offer, lower peerId wins.
+    final sigState = pc.signalingState;
+    if (sigState == RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
+      if (localPeerId.compareTo(peerId) < 0) {
+        // We win — ignore their offer, they'll process our offer.
+        _vcLog('[HOLLOW-VC] Reneg glare: we win ($localPeerId < $peerId), ignoring their offer');
+        return;
+      }
+      // They win — rollback our offer.
+      _vcLog('[HOLLOW-VC] Reneg glare: they win ($peerId < $localPeerId), rolling back');
+      await pc.setLocalDescription(RTCSessionDescription(null, 'rollback'));
+    }
+
+    _vcLog('[HOLLOW-VC] Received renegotiation offer from $peerId');
+    await pc.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
+
+    final answer = await pc.createAnswer();
+    final mungedSdp = _mungeOpusParams(answer.sdp!);
+    await pc.setLocalDescription(RTCSessionDescription(mungedSdp, answer.type));
+
+    final answerPayload = jsonEncode({'sdp': mungedSdp});
+    await network_api.voiceChannelSendSignal(
+      serverId: serverId,
+      channelId: channelId,
+      peerId: peerId,
+      signalType: 'reneg_answer',
+      payload: answerPayload,
+    );
+
+    // After renegotiation, check if there's a remote video track we don't
+    // have a renderer for. onTrack may not fire when a transceiver is reused
+    // (track removed then re-added on the same m-line).
+    await _checkRemoteVideoTrack(peerId, pc);
+  }
+
+  /// Check for a remote video track on a PC and create a renderer if missing.
+  /// Safety net for when onTrack doesn't fire (e.g., first reneg after audio connect).
+  /// Does NOT clean up renderers when video is gone — renderers survive across
+  /// camera off/on cycles so the same stream can resume receiving frames.
+  Future<void> _checkRemoteVideoTrack(String peerId, RTCPeerConnection pc) async {
+    try {
+      final receivers = await pc.getReceivers();
+      for (final receiver in receivers) {
+        if (receiver.track?.kind == 'video') {
+          // We have a video track — do we have a renderer?
+          if (!_remoteVideoRenderers.containsKey(peerId)) {
+            _vcLog('[HOLLOW-VC] Found video track without renderer for $peerId — creating');
+            final stream = await createLocalMediaStream('video-$peerId');
+            stream.addTrack(receiver.track!);
+
+            final renderer = RTCVideoRenderer();
+            await renderer.initialize();
+            renderer.srcObject = stream;
+            _remoteVideoRenderers[peerId] = renderer;
+            _remoteVideoStreams[peerId] = stream;
+
+            await _enableSframeReceiverVideo(peerId, pc);
+
+            await Future.delayed(const Duration(milliseconds: 100));
+            onRemoteVideoChanged?.call(peerId, renderer);
+          }
+          return;
+        }
+      }
+    } catch (e) {
+      _vcLog('[HOLLOW-VC] _checkRemoteVideoTrack error: $e');
+    }
+  }
+
+  Future<void> _handleRenegAnswer(String peerId, String payload) async {
+    final pc = _peerConnections[peerId];
+    if (pc == null) return;
+
+    final v = jsonDecode(payload);
+    final sdp = v['sdp'] as String? ?? '';
+    if (sdp.isEmpty) return;
+
+    _vcLog('[HOLLOW-VC] Received renegotiation answer from $peerId');
+    await pc.setRemoteDescription(RTCSessionDescription(sdp, 'answer'));
+
+    // Check if this peer had a pending camera renegotiation.
+    await _checkPendingCameraReneg(peerId);
+  }
+
+  /// Check and send pending camera renegotiation for a peer whose PC just
+  /// reached stable state.
+  Future<void> _checkPendingCameraReneg(String peerId) async {
+    if (!_pendingCameraReneg.remove(peerId)) return;
+    if (!_isCameraOn || _localVideoStream == null) return;
+
+    final pc = _peerConnections[peerId];
+    if (pc == null) return;
+
+    _vcLog('[HOLLOW-VC] Sending pending camera renegotiation for $peerId');
+    // Only add tracks if not already present (startCamera may have added them).
+    final senders = await pc.getSenders();
+    final hasVideo = senders.any((s) => s.track?.kind == 'video');
+    if (!hasVideo) {
+      _addLocalVideoTracks(pc);
+    }
+    await _enableSframeSenderVideo(peerId, pc);
+    await _sendRenegotiationOffer(peerId);
   }
 
   // ---------------------------------------------------------------
@@ -555,6 +956,9 @@ class VoiceChannelService {
 
     pc.onConnectionState = (state) {
       _vcLog('[HOLLOW-VC] Connection state with $peerId: $state');
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        onPeerConnected?.call(peerId);
+      }
       if (state ==
               RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
           state ==
@@ -564,12 +968,16 @@ class VoiceChannelService {
     };
 
     // Remote audio plays automatically via libwebrtc default sink.
-    // Enable SFrame receiver decryption on incoming audio.
+    // Enable SFrame receiver decryption on incoming audio/video.
     // In gossip mode, also forward received tracks to other neighbors.
     pc.onTrack = (RTCTrackEvent event) {
       if (event.track.kind == 'audio') {
         _enableSframeReceiver(peerId, pc);
+      } else if (event.track.kind == 'video') {
+        _handleRemoteVideoTrack(peerId, event, pc);
       }
+
+      // Gossip forwarding (audio only for now).
       if (!gossipMode) return;
       if (event.track.kind != 'audio') return;
 
@@ -604,6 +1012,13 @@ class VoiceChannelService {
     if (_localAudioStream == null) return;
     for (final track in _localAudioStream!.getAudioTracks()) {
       pc.addTrack(track, _localAudioStream!);
+    }
+  }
+
+  void _addLocalVideoTracks(RTCPeerConnection pc) {
+    if (_localVideoStream == null || !_isCameraOn) return;
+    for (final track in _localVideoStream!.getVideoTracks()) {
+      pc.addTrack(track, _localVideoStream!);
     }
   }
 

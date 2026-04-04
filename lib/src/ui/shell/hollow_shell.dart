@@ -699,7 +699,7 @@ class _HollowShellState extends ConsumerState<HollowShell>
     final vcScreenShareFullBleed = selectedChannel?.channelType == ChannelType.voice
         && vcState.isInVoiceChannel
         && vcState.currentChannelId == selectedChannelId
-        && vcState.isScreenShareActive;
+        && (vcState.isScreenShareActive || vcState.isCameraActive);
 
     return StartupRevealScope(
       controller: _revealController,
@@ -799,7 +799,7 @@ class _HollowShellState extends ConsumerState<HollowShell>
     final vcScreenShareFullBleed = selectedChannel?.channelType == ChannelType.voice
         && vcState.isInVoiceChannel
         && vcState.currentChannelId == selectedChannelId
-        && vcState.isScreenShareActive;
+        && (vcState.isScreenShareActive || vcState.isCameraActive);
 
     // Handle pending migration: when the left pane was closed in split mode,
     // the right pane's context needs to be applied to global providers.

@@ -1466,8 +1466,8 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [X] Voice channel text chat — ChannelChatPane embedded for VC channelId, messages flow through existing channel messaging infrastructure
   - [X] Screen share button in sidebar voice control panel (VoiceChannelPanel)
   - [X] Late joiner screen share — sharer sends screen_state + screen_offer on onRemotePeerJoined, early ICE queue for candidates arriving before service creation
-  - [ ] Grid view for video participants
-  - [ ] Video (camera) in voice channels
+  - [X] Grid view for video participants (1-5 tiles: full/side-by-side/2+1/2x2/3+2, click-to-fullscreen with PiP, mixed mode switcher)
+  - [X] Video (camera) in voice channels (renegotiation on existing audio PC, SFrame E2EE, 3 new Rust MessageEnvelope variants)
   - [X] Speaking indicator (teal dot on participant row, fades in/out)
   - [X] Per-peer volume (right-click compact overlay popup, 0-200%)
   - [X] Mute/deafen indicators (stacked icons on participant rows, broadcast via MLS)

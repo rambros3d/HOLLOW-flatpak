@@ -63,6 +63,16 @@ class VoiceChannelState {
   /// Which sharer is displayed full-bleed (null = none).
   final String? focusedScreenSharePeerId;
 
+  /// Type of the focused source in mixed mode: 'screen' or 'camera'.
+  /// Only used when both screen share and camera are active.
+  final String focusedSourceType;
+
+  /// Whether the local user's camera is on.
+  final bool isCameraOn;
+
+  /// Remote peers with camera on (peer_id -> true).
+  final Map<String, bool> peerCameraOn;
+
   const VoiceChannelState({
     this.participants = const {},
     this.currentServerId,
@@ -78,6 +88,9 @@ class VoiceChannelState {
     this.isScreenSharing = false,
     this.peerScreenSharing = const {},
     this.focusedScreenSharePeerId,
+    this.focusedSourceType = 'screen',
+    this.isCameraOn = false,
+    this.peerCameraOn = const {},
   });
 
   /// Get participants for a specific voice channel.
@@ -104,6 +117,11 @@ class VoiceChannelState {
       isScreenSharing ||
       peerScreenSharing.values.any((v) => v);
 
+  /// Whether any camera video is active (local or remote).
+  bool get isCameraActive =>
+      isCameraOn ||
+      peerCameraOn.values.any((v) => v);
+
   VoiceChannelState copyWith({
     Map<String, Map<String, Set<String>>>? participants,
     String? currentServerId,
@@ -121,6 +139,9 @@ class VoiceChannelState {
     String? focusedScreenSharePeerId,
     bool clearFocusedSharer = false,
     bool clearCurrent = false,
+    String? focusedSourceType,
+    bool? isCameraOn,
+    Map<String, bool>? peerCameraOn,
   }) {
     return VoiceChannelState(
       participants: participants ?? this.participants,
@@ -157,6 +178,15 @@ class VoiceChannelState {
       focusedScreenSharePeerId: clearCurrent || clearFocusedSharer
           ? null
           : (focusedScreenSharePeerId ?? this.focusedScreenSharePeerId),
+      focusedSourceType: clearCurrent
+          ? 'screen'
+          : (focusedSourceType ?? this.focusedSourceType),
+      isCameraOn: clearCurrent
+          ? false
+          : (isCameraOn ?? this.isCameraOn),
+      peerCameraOn: clearCurrent
+          ? const {}
+          : (peerCameraOn ?? this.peerCameraOn),
     );
   }
 }
@@ -180,6 +210,19 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
   /// Timer that polls for screen track ending (window closed).
   Timer? _screenTrackPoller;
 
+  /// Guard to prevent concurrent leaveChannel calls and actions during leave.
+  bool _leaving = false;
+
+  // ---------------------------------------------------------------
+  //  Camera (video) state
+  // ---------------------------------------------------------------
+
+  /// Local camera renderer (for self-view in grid).
+  RTCVideoRenderer? _localCameraRenderer;
+
+  /// Remote camera renderers (peer_id -> RTCVideoRenderer), managed by service.
+  final Map<String, RTCVideoRenderer> _remoteCameraRenderers = {};
+
   @override
   VoiceChannelState build() => const VoiceChannelState();
 
@@ -188,6 +231,13 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
   /// Get the renderer for an incoming screen share from a specific peer.
   RTCVideoRenderer? getScreenShareRenderer(String peerId) =>
       _incomingScreenShares[peerId]?.remoteRenderer;
+
+  /// Get the camera renderer for a peer (or self).
+  RTCVideoRenderer? getCameraRenderer(String peerId) {
+    final localPeerId = ref.read(identityProvider).peerId ?? '';
+    if (peerId == localPeerId) return _localCameraRenderer;
+    return _remoteCameraRenderers[peerId];
+  }
 
   /// Handle a peer joining a voice channel (from event).
   void onPeerJoined(String serverId, String channelId, String peerId) {
@@ -271,6 +321,32 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
       state = state.copyWith(speakingPeers: speaking);
     };
 
+    // Wire peer connected callback — send screen share offer once audio PC is ready.
+    _service!.onPeerConnected = (peerId) {
+      if (_leaving || _stoppingScreenShare) return;
+      if (state.isScreenSharing && _screenCaptureStream != null) {
+        // Only send if we don't already have an outgoing service for this peer.
+        if (!_outgoingScreenShares.containsKey(peerId)) {
+          debugPrint('[HOLLOW-VC] Peer $peerId connected — sending screen share offer');
+          _sendScreenShareToPeer(peerId);
+        }
+      }
+    };
+
+    // Wire camera video callback.
+    _service!.onRemoteVideoChanged = (peerId, renderer) {
+      if (renderer != null) {
+        _remoteCameraRenderers[peerId] = renderer;
+      } else {
+        _remoteCameraRenderers.remove(peerId);
+      }
+      // Update peerCameraOn state to trigger UI rebuild.
+      final cameras = Map.of(state.peerCameraOn);
+      cameras[peerId] = renderer != null;
+      if (renderer == null) cameras.remove(peerId);
+      state = state.copyWith(peerCameraOn: cameras);
+    };
+
     await _service!.startAudio(serverId, channelId);
 
     // Connect to existing participants in this channel.
@@ -286,9 +362,11 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     if (_service == null || !state.isInVoiceChannel) return;
     await _service!.onPeerJoinedMyChannel(peerId);
 
-    // If we're sharing our screen, send state + offer to the late joiner.
+    // If we're sharing our screen, send state to the late joiner so they
+    // know we're sharing. The actual screen_offer is sent once the audio
+    // PC reaches connected state (via onPeerConnected callback), ensuring
+    // MLS is ready and the peer can decrypt it.
     if (state.isScreenSharing && _screenCaptureStream != null) {
-      // Send screen_state first so the joiner knows we're sharing.
       network_api.voiceChannelSendSignal(
         serverId: state.currentServerId!,
         channelId: state.currentChannelId!,
@@ -296,7 +374,18 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
         signalType: 'screen_state',
         payload: jsonEncode({'enabled': true}),
       );
-      await _sendScreenShareToPeer(peerId);
+    }
+
+    // If our camera is on, send camera_state to the late joiner.
+    // (Video track is already added in connectToPeer via _addLocalVideoTracks.)
+    if (state.isCameraOn) {
+      network_api.voiceChannelSendSignal(
+        serverId: state.currentServerId!,
+        channelId: state.currentChannelId!,
+        peerId: peerId,
+        signalType: 'camera_state',
+        payload: jsonEncode({'enabled': true}),
+      );
     }
   }
 
@@ -306,6 +395,8 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     await _service!.onPeerLeftMyChannel(peerId);
     // Clean up screen sharing for this peer.
     await _cleanupPeerScreenShare(peerId);
+    // Clean up camera state for this peer.
+    _cleanupPeerCamera(peerId);
   }
 
   /// Handle incoming WebRTC signal for voice channel.
@@ -319,6 +410,11 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     // Handle audio state signals locally (no WebRTC involved).
     if (signalType == 'audio_state') {
       _onRemoteAudioState(peerId, payload);
+      return;
+    }
+    // Handle camera state signals.
+    if (signalType == 'camera_state') {
+      _handleCameraState(peerId, payload);
       return;
     }
     // Handle screen share signals.
@@ -345,29 +441,64 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
 
   /// Leave the current voice channel.
   Future<void> leaveChannel() async {
-    if (!state.isInVoiceChannel) return;
+    if (!state.isInVoiceChannel || _leaving) return;
+    _leaving = true;
 
-    // Clean up screen sharing first.
-    await _cleanupAllScreenShares();
+    // Capture IDs before any state changes.
+    final serverId = state.currentServerId!;
+    final channelId = state.currentChannelId!;
 
-    // Clean up WebRTC.
-    if (_service != null) {
-      await _service!.closeAll();
+    // Send leave signal to Rust FIRST — before any cleanup that could throw.
+    // This ensures the server knows we left even if cleanup fails.
+    try {
+      await network_api.voiceChannelLeave(
+        serverId: serverId,
+        channelId: channelId,
+      );
+    } catch (e) {
+      debugPrint('[HOLLOW-VC] voiceChannelLeave FFI error: $e');
+    }
+
+    // Now clean up (best-effort — errors won't block leave).
+    try {
+      // Dispose local camera renderer.
+      if (_localCameraRenderer != null) {
+        _localCameraRenderer!.srcObject = null;
+        await _localCameraRenderer!.dispose();
+        _localCameraRenderer = null;
+      }
+
+      // Dispose remote camera renderers.
+      for (final renderer in _remoteCameraRenderers.values) {
+        renderer.srcObject = null;
+        await renderer.dispose();
+      }
+      _remoteCameraRenderers.clear();
+
+      // Clean up screen sharing.
+      await _cleanupAllScreenShares();
+
+      // Clean up WebRTC (closes all PCs + stops camera/audio streams).
+      if (_service != null) {
+        await _service!.closeAll();
+        _service = null;
+      }
+    } catch (e) {
+      debugPrint('[HOLLOW-VC] leaveChannel cleanup error: $e');
       _service = null;
     }
 
-    await network_api.voiceChannelLeave(
-      serverId: state.currentServerId!,
-      channelId: state.currentChannelId!,
-    );
+    _leaving = false;
   }
 
   /// Called after the local leave event arrives to update state.
   void onLocalLeft() {
+    _leaving = false;
     state = state.copyWith(clearCurrent: true);
   }
 
   void toggleMute() {
+    if (_leaving) return;
     final newMuted = !state.isMuted;
     state = state.copyWith(isMuted: newMuted);
     _service?.setMuted(newMuted);
@@ -375,6 +506,7 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
   }
 
   void toggleDeafen() {
+    if (_leaving) return;
     final newDeafened = !state.isDeafened;
     state = state.copyWith(
       isMuted: newDeafened ? true : state.isMuted,
@@ -413,6 +545,8 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     _service?.closePeer(peerId);
     // Clean up screen sharing for this peer.
     _cleanupPeerScreenShare(peerId);
+    // Clean up camera state for this peer.
+    _cleanupPeerCamera(peerId);
   }
 
   // ---------------------------------------------------------------
@@ -455,6 +589,93 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
   }
 
   // ---------------------------------------------------------------
+  //  Camera (video)
+  // ---------------------------------------------------------------
+
+  /// Toggle camera on/off.
+  Future<void> toggleCamera() async {
+    if (_service == null || !state.isInVoiceChannel || _leaving) return;
+
+    if (!state.isCameraOn) {
+      // Turn camera ON.
+      final stream = await _service!.startCamera();
+      if (stream == null) return;
+
+      // Create local renderer for self-view.
+      _localCameraRenderer = RTCVideoRenderer();
+      await _localCameraRenderer!.initialize();
+      _localCameraRenderer!.srcObject = stream;
+
+      state = state.copyWith(isCameraOn: true);
+      _broadcastCameraState(true);
+    } else {
+      // Turn camera OFF.
+      await _service!.stopCamera();
+
+      // Dispose local renderer.
+      if (_localCameraRenderer != null) {
+        _localCameraRenderer!.srcObject = null;
+        await _localCameraRenderer!.dispose();
+        _localCameraRenderer = null;
+      }
+
+      state = state.copyWith(isCameraOn: false);
+      _broadcastCameraState(false);
+    }
+  }
+
+  /// Broadcast our camera state to all peers in the current voice channel.
+  void _broadcastCameraState(bool enabled) {
+    if (!state.isInVoiceChannel) return;
+    final localPeerId = ref.read(identityProvider).peerId ?? '';
+    final peers = state.getParticipants(
+        state.currentServerId!, state.currentChannelId!);
+    final payload = jsonEncode({'enabled': enabled});
+    for (final peerId in peers) {
+      if (peerId == localPeerId) continue;
+      network_api.voiceChannelSendSignal(
+        serverId: state.currentServerId!,
+        channelId: state.currentChannelId!,
+        peerId: peerId,
+        signalType: 'camera_state',
+        payload: payload,
+      );
+    }
+  }
+
+  /// Clean up camera state for a peer that left.
+  void _cleanupPeerCamera(String peerId) {
+    final renderer = _remoteCameraRenderers.remove(peerId);
+    if (renderer != null) {
+      renderer.srcObject = null;
+      renderer.dispose();
+    }
+    if (state.peerCameraOn.containsKey(peerId)) {
+      final cameras = Map.of(state.peerCameraOn)..remove(peerId);
+      state = state.copyWith(peerCameraOn: cameras);
+    }
+  }
+
+  /// Handle a remote peer's camera state update.
+  void _handleCameraState(String peerId, String payload) {
+    try {
+      final v = jsonDecode(payload);
+      final enabled = v['enabled'] as bool? ?? false;
+      final cameras = Map.of(state.peerCameraOn);
+      if (enabled) {
+        cameras[peerId] = true;
+      } else {
+        cameras.remove(peerId);
+        // Don't dispose the renderer here — keep it alive so that when the
+        // peer turns camera back on, the same renderer/stream can resume
+        // receiving frames (onTrack won't fire again for transceiver reuse).
+        // The renderer is only disposed when the peer actually leaves.
+      }
+      state = state.copyWith(peerCameraOn: cameras);
+    } catch (_) {}
+  }
+
+  // ---------------------------------------------------------------
   //  Screen sharing
   // ---------------------------------------------------------------
 
@@ -466,7 +687,7 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     int fps, {
     bool shareAudio = false,
   }) async {
-    if (!state.isInVoiceChannel) return;
+    if (!state.isInVoiceChannel || _leaving) return;
     if (state.isScreenSharing) return;
 
     // Block if already sharing in a DM call.
@@ -518,47 +739,58 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     _stoppingScreenShare = true;
     debugPrint('[HOLLOW-VC] Stopping screen share');
 
-    _screenTrackPoller?.cancel();
-    _screenTrackPoller = null;
+    try {
+      _screenTrackPoller?.cancel();
+      _screenTrackPoller = null;
 
-    // Close all outgoing screen share PCs.
-    for (final service in _outgoingScreenShares.values) {
-      await service.close();
+      // Close all outgoing screen share PCs.
+      for (final service in _outgoingScreenShares.values) {
+        try { await service.close(); } catch (_) {}
+      }
+      _outgoingScreenShares.clear();
+
+      // Stop capture stream.
+      _screenCaptureStream?.getTracks().forEach((t) => t.stop());
+      _screenCaptureStream?.dispose();
+      _screenCaptureStream = null;
+
+      // Broadcast screen_state(enabled: false).
+      _broadcastScreenState(false);
+
+      // Update local state — if we were the focused sharer, clear focus
+      // and pick the next remote sharer if any.
+      final localPeerId = ref.read(identityProvider).peerId ?? '';
+      String? newFocus = state.focusedScreenSharePeerId;
+      bool clearFocus = false;
+      if (newFocus == localPeerId) {
+        final remoteSharerId = state.peerScreenSharing.entries
+            .where((e) => e.value)
+            .map((e) => e.key)
+            .firstOrNull;
+        newFocus = remoteSharerId;
+        clearFocus = remoteSharerId == null;
+      }
+      state = state.copyWith(
+        isScreenSharing: false,
+        focusedScreenSharePeerId: clearFocus ? null : newFocus,
+        clearFocusedSharer: clearFocus,
+      );
+    } finally {
+      _stoppingScreenShare = false;
     }
-    _outgoingScreenShares.clear();
-
-    // Stop capture stream.
-    _screenCaptureStream?.getTracks().forEach((t) => t.stop());
-    _screenCaptureStream?.dispose();
-    _screenCaptureStream = null;
-
-    // Broadcast screen_state(enabled: false).
-    _broadcastScreenState(false);
-
-    // Update local state — if we were the focused sharer, clear focus
-    // and pick the next remote sharer if any.
-    final localPeerId = ref.read(identityProvider).peerId ?? '';
-    String? newFocus = state.focusedScreenSharePeerId;
-    bool clearFocus = false;
-    if (newFocus == localPeerId) {
-      final remoteSharerId = state.peerScreenSharing.entries
-          .where((e) => e.value)
-          .map((e) => e.key)
-          .firstOrNull;
-      newFocus = remoteSharerId;
-      clearFocus = remoteSharerId == null;
-    }
-    state = state.copyWith(
-      isScreenSharing: false,
-      focusedScreenSharePeerId: clearFocus ? null : newFocus,
-      clearFocusedSharer: clearFocus,
-    );
-    _stoppingScreenShare = false;
   }
 
   /// Set which sharer is displayed full-bleed.
   void setFocusedScreenShare(String peerId) {
     state = state.copyWith(focusedScreenSharePeerId: peerId);
+  }
+
+  /// Set which source is focused (for mixed mode: screen share + cameras).
+  void setFocusedSource(String peerId, String sourceType) {
+    state = state.copyWith(
+      focusedScreenSharePeerId: peerId,
+      focusedSourceType: sourceType,
+    );
   }
 
   /// Send our screen share to a specific peer (creates outgoing ScreenShareService).
