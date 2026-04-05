@@ -91,6 +91,9 @@ class CallNotifier extends Notifier<CallState> {
   Timer? _ringTimer;
   Timer? _statsTimer;
 
+  /// SECURITY (Phase 6.25): Guard against concurrent renegotiations.
+  bool _renegotiationInProgress = false;
+
   /// Separate PCs for screen sharing (one per direction).
   ScreenShareService? _outgoingScreenShare; // We share our screen to them
   ScreenShareService? _incomingScreenShare; // They share their screen to us
@@ -513,13 +516,16 @@ class CallNotifier extends Notifier<CallState> {
       if (localPeerId.compareTo(peerId) < 0) {
         debugPrint('[HOLLOW-CALL] Glare: we are polite, accepting theirs');
         _ringTimer?.cancel();
+        // SECURITY (Phase 6.25): Preserve OUR SFrame key during glare
+        // resolution. Accepting the remote peer's key would let an attacker
+        // inject their own key via a timed spoofed invite.
         state = CallState(
           status: CallStatus.ringing,
           peerId: peerId,
           callId: callId,
           direction: CallDirection.incoming,
           isVideoCall: withVideo,
-          sframeKey: sframeKey,
+          sframeKey: state.sframeKey,
         );
         return;
       } else {
@@ -583,6 +589,8 @@ class CallNotifier extends Notifier<CallState> {
     if (keyHex.isNotEmpty) {
       final keyBytes = _hexToBytes(keyHex);
       await _service.setSframeKey(peerId, keyBytes);
+      // SECURITY (Phase 6.25): Clear key bytes from memory.
+      keyBytes.fillRange(0, keyBytes.length, 0);
     }
 
     final sdpPayload = jsonEncode({'call_id': callId, 'sdp': sdp});
@@ -620,11 +628,22 @@ class CallNotifier extends Notifier<CallState> {
     if (state.callId != callId) return;
 
     if (state.status == CallStatus.active && _service.hasActiveCall) {
-      // Renegotiation on existing voice PC (e.g., remote toggled video).
-      final answerSdp = await _service.handleRenegotiationOffer(sdp);
-      if (answerSdp != null) {
-        final answerPayload = jsonEncode({'call_id': callId, 'sdp': answerSdp});
-        _sendSignal(peerId, 'sdp_answer', answerPayload);
+      // SECURITY (Phase 6.25): Prevent concurrent renegotiations.
+      if (_renegotiationInProgress) {
+        _callLog('[HOLLOW-CALL] Renegotiation already in progress, dropping offer');
+        return;
+      }
+      _renegotiationInProgress = true;
+      try {
+        // Renegotiation on existing voice PC (e.g., remote toggled video).
+        final answerSdp = await _service.handleRenegotiationOffer(sdp);
+        if (answerSdp != null) {
+          final answerPayload =
+              jsonEncode({'call_id': callId, 'sdp': answerSdp});
+          _sendSignal(peerId, 'sdp_answer', answerPayload);
+        }
+      } finally {
+        _renegotiationInProgress = false;
       }
     } else {
       // Ensure device preferences are loaded before starting media.
@@ -642,6 +661,8 @@ class CallNotifier extends Notifier<CallState> {
       if (keyHex.isNotEmpty) {
         final keyBytes = _hexToBytes(keyHex);
         await _service.setSframeKey(peerId, keyBytes);
+        // SECURITY (Phase 6.25): Clear key bytes from memory.
+        keyBytes.fillRange(0, keyBytes.length, 0);
       }
 
       final answerPayload = jsonEncode({'call_id': callId, 'sdp': answerSdp});

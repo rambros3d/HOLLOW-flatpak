@@ -11,8 +11,9 @@ use crate::signaling_http::verify_signature;
 
 // -- Constants --
 
-const TIMESTAMP_SKEW_SECS: u64 = 300;
+const TIMESTAMP_SKEW_SECS: u64 = 60; // Phase 6.25: tightened from 300s to 60s
 const MAX_ROOMS_PER_PEER: usize = 100;
+const MAX_WS_MESSAGE_SIZE: usize = 10 * 1024 * 1024; // 10 MB (Phase 6.25)
 
 // -- Data types --
 
@@ -106,12 +107,21 @@ async fn handle_ws(mut socket: WebSocket, state: SharedWsState) {
     let peer_id_clone = peer_id.clone();
     let state_clone = state.clone();
 
+    // SECURITY (Phase 6.25): Per-peer rate limiter for binary frames.
+    let mut binary_rate_tokens: u32 = 100;
+    let mut binary_rate_last_refill = std::time::Instant::now();
+
     loop {
         tokio::select! {
             // Incoming message from peer.
             msg = socket.recv() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
+                        // SECURITY (Phase 6.25): Message size limit.
+                        if text.len() > MAX_WS_MESSAGE_SIZE {
+                            tracing::warn!("WS text too large ({} bytes) from {peer_id_clone} — disconnecting", text.len());
+                            break;
+                        }
                         if let Ok(client_msg) = serde_json::from_str::<ClientMessage>(&text) {
                             let responses = handle_client_message(
                                 &state_clone, &peer_id_clone, &tx, client_msg,
@@ -124,6 +134,25 @@ async fn handle_ws(mut socket: WebSocket, state: SharedWsState) {
                         }
                     }
                     Some(Ok(Message::Binary(data))) => {
+                        // SECURITY (Phase 6.25): Binary message size limit.
+                        if data.len() > MAX_WS_MESSAGE_SIZE {
+                            tracing::warn!("WS binary too large ({} bytes) from {peer_id_clone} — disconnecting", data.len());
+                            break;
+                        }
+                        // SECURITY (Phase 6.25): Binary frame rate limiting.
+                        {
+                            let elapsed = binary_rate_last_refill.elapsed().as_secs_f64();
+                            let refill = (elapsed * 20.0) as u32; // 20 tokens/sec
+                            if refill > 0 {
+                                binary_rate_tokens = (binary_rate_tokens + refill).min(100);
+                                binary_rate_last_refill = std::time::Instant::now();
+                            }
+                            if binary_rate_tokens == 0 {
+                                tracing::warn!("Binary rate limited for {peer_id_clone} — dropping frame");
+                                continue;
+                            }
+                            binary_rate_tokens -= 1;
+                        }
                         if data.len() > 1 {
                             match data[0] {
                                 0x01 => {
@@ -198,7 +227,12 @@ async fn handle_client_message(
 
     match msg {
         ClientMessage::Join { room } => {
-            if room.is_empty() || room.len() > 128 {
+            // SECURITY (Phase 6.25): Validate room code format.
+            // Valid chars: alphanumeric, colons, hyphens, underscores, dots.
+            if room.is_empty()
+                || room.len() > 128
+                || !room.chars().all(|c| c.is_ascii_alphanumeric() || c == ':' || c == '-' || c == '_' || c == '.')
+            {
                 responses.push(msg_json(&ServerMessage::Error {
                     error: "Invalid room code".into(),
                 }));
@@ -272,9 +306,14 @@ async fn handle_client_message(
             });
             let rooms = state.rooms.read().await;
             if let Some(room_entry) = rooms.get(&room) {
-                for (pid, sender) in &room_entry.peers {
-                    if pid != peer_id {
-                        let _ = sender.send(broadcast.clone());
+                // SECURITY (Phase 6.25): Verify sender is a member of this room.
+                if !room_entry.peers.contains_key(peer_id) {
+                    tracing::warn!("Msg from {peer_id} to room they haven't joined — dropping");
+                } else {
+                    for (pid, sender) in &room_entry.peers {
+                        if pid != peer_id {
+                            let _ = sender.send(broadcast.clone());
+                        }
                     }
                 }
             }
@@ -288,7 +327,10 @@ async fn handle_client_message(
             });
             let rooms = state.rooms.read().await;
             if let Some(room_entry) = rooms.get(&room) {
-                if let Some(sender) = room_entry.peers.get(&target) {
+                // SECURITY (Phase 6.25): Verify sender is a member of this room.
+                if !room_entry.peers.contains_key(peer_id) {
+                    tracing::warn!("Direct from {peer_id} to room they haven't joined — dropping");
+                } else if let Some(sender) = room_entry.peers.get(&target) {
                     let _ = sender.send(direct);
                 }
             }

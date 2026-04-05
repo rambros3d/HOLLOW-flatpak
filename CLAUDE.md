@@ -63,7 +63,11 @@ ssh ubuntu@141.227.186.209 "cd relay && cargo build --release && sudo systemctl 
 ```
 
 ## Current Phase
-**Phase 5B: Voice & Video — IN PROGRESS (Apr 4, 2026).**
+**Phase 6.25: Security & Optimization Audit — COMPLETE (Apr 5, 2026).** 21 findings all fixed. VPS hardened. TURN ICE config bug fixed (split URIs into separate entries). Voice calls confirmed working cross-internet via STUN P2P.
+
+**Phase 6.75: Polish & Launch Prep — IN PROGRESS.**
+
+**Phase 5B: Voice & Video — COMPLETE (Apr 4, 2026).**
 - **1:1 voice calls: DONE.** Separate RTCPeerConnection for voice. Full call flow + signaling. Tested cross-internet.
 - **Device selection: DONE.** Input: `sourceId` constraint. Output: `win32audio` + `Helper.selectAudioOutput()`.
 - **1:1 video calls: DONE.** Side-by-side + fullscreen. Tested cross-internet.
@@ -183,6 +187,8 @@ All UI uses custom Hollow widgets — no Material defaults.
 - **Keep Flutter updated:** Windows animation jank was a Flutter engine bug (3.38.5), fixed in 3.41.4. `windows/runner/main.cpp` is stock.
 - **CRITICAL — Backward-compatible DB schema:** ALWAYS add `#[serde(default)]` to ANY new field added to a persisted Rust struct (e.g., `ServerState`, any struct stored as JSON in SQLCipher). Without it, old data lacking the new field will fail to deserialize and silently disappear (servers vanish, data lost).
 - **HollowTooltip: always use `_dismiss()` pattern** — tooltip hide must remove the overlay entry immediately (no reverse animation). Animated hide causes orphaned tooltips when parent widgets rebuild or leave the tree (e.g., call bar buttons disappearing on call end). The `_dismiss()` method must: set `_hovering = false`, stop + reset the animation controller, then `_entry?.remove()` + null. This applies to ALL `HollowTooltip` usages across the app.
+- **CRITICAL — TURN ICE config: split URIs into separate entries.** flutter_webrtc's native C++ `CreateIceServers` has a single `uri` field per `IceServer` struct. Passing `urls: [list]` overwrites to only the last URI — other TURN transports are never tried. Always map each TURN URI to its own `{'urls': singleUri, 'username': ..., 'credential': ...}` entry in `ice_config_provider.dart`.
+- **VPS SSH:** `ssh ubuntu@141.227.186.209` — key-only, no passphrase. Can be used freely for config checks, log inspection, deployments.
 
 ## Rules
 - Never commit secrets, keys, or credentials
@@ -191,6 +197,6 @@ All UI uses custom Hollow widgets — no Material defaults.
 - All crypto operations must use constant-time implementations
 - Ask before making architectural decisions not covered in HOLLOW_PLAN.md
 - When updating memory (MEMORY.md), also update this file (CLAUDE.md) if relevant
-- **VPS deployment:** Ask user — requires SSH password, never store credentials. User deploys themselves.
+- **VPS deployment:** Ask user — never store credentials.
 - **Local dev commands:** Can run `cargo check/test/clippy`, `flutter_rust_bridge_codegen generate`, `flutter analyze` freely — these are local-only operations.
 - **Building/running the app:** User runs `flutter run -d windows` themselves for testing on their two laptops.

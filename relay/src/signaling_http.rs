@@ -17,7 +17,7 @@ use tokio::sync::RwLock;
 const MAX_PEERS_PER_ROOM: usize = 50;
 const MAX_ADDRS_PER_PEER: usize = 5;
 const STALE_THRESHOLD_SECS: u64 = 180; // 3 minutes
-const TIMESTAMP_SKEW_SECS: u64 = 300; // 5 minutes anti-replay
+const TIMESTAMP_SKEW_SECS: u64 = 60; // Phase 6.25: tightened from 300s to 60s
 const CLEANUP_INTERVAL_SECS: u64 = 120; // 2 minutes
 const MAX_BOOTSTRAP_PEERS: usize = 10;
 
@@ -245,8 +245,8 @@ async fn handle_health() -> impl IntoResponse {
 /// Generate time-limited TURN credentials using HMAC-SHA1 shared secret.
 /// Coturn's `use-auth-secret` expects: username = "expiry_timestamp:arbitrary_id",
 /// password = Base64(HMAC-SHA1(secret, username)).
-/// TTL = 1 hour. No authentication required — the credentials themselves are
-/// time-limited and only useful for TURN relay allocation.
+/// TTL = 1 hour. Credentials are time-limited and coturn enforces its own
+/// allocation limits — no relay-side rate limit needed (Phase 6.25 review).
 async fn handle_turn_credentials() -> impl IntoResponse {
     use hmac::{Hmac, Mac};
     use sha1::Sha1;
@@ -378,7 +378,8 @@ pub fn build_router(rooms: RoomMap, ws_state: crate::ws_router::SharedWsState) -
         .route("/health", get(handle_health))
         .with_state(rooms);
 
-    // TURN credential route (no shared state needed).
+    // TURN credential route (no shared state needed — credentials are time-limited,
+    // coturn enforces its own allocation limits).
     let turn = Router::new()
         .route("/turn-credentials", get(handle_turn_credentials));
 

@@ -79,7 +79,15 @@ class ScreenShareService {
       'audio': shareAudio,
     });
 
-    final screenTrack = _screenStream!.getVideoTracks().first;
+    // SECURITY (Phase 6.25): Validate stream has video tracks.
+    final videoTracks = _screenStream!.getVideoTracks();
+    if (videoTracks.isEmpty) {
+      _log('[HOLLOW-SCREEN] getDisplayMedia returned no video tracks — aborting');
+      await _screenStream!.dispose();
+      _screenStream = null;
+      throw StateError('Screen capture returned no video tracks');
+    }
+    final screenTrack = videoTracks.first;
     _log('[HOLLOW-SCREEN] Got screen track: ${screenTrack.id}');
 
     // Create PC.

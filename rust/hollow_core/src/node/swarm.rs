@@ -12,6 +12,25 @@ use crate::crdt::sync::{self as crdt_sync, StateVector};
 use crate::crypto::{CryptoStore, MlsManager, OlmManager};
 use super::signaling::{self, SignalingCmd, SignalingEvent};
 
+// -- Security constants (Phase 6.25) --
+
+/// Maximum SDP payload size (64 KB). Realistic SDP is ~2-10 KB.
+const MAX_SDP_SIZE: usize = 64 * 1024;
+
+/// Maximum peers in a single PeerExchange gossip message.
+const MAX_PEER_EXCHANGE_SIZE: usize = 50;
+
+/// Maximum allowed TTL on incoming BroadcastMeta gossip messages.
+const MAX_BROADCAST_TTL: u8 = 8;
+
+/// Default broadcast TTL for serde deserialization (backward compat with old peers).
+fn default_broadcast_ttl() -> u8 { super::gossip::DEFAULT_BROADCAST_TTL }
+
+/// VC signaling sub-rate-limiter: burst capacity (per peer).
+const VC_SIGNAL_RATE_BURST: u32 = 30;
+/// VC signaling sub-rate-limiter: refill rate (tokens per second per peer).
+const VC_SIGNAL_RATE_REFILL: u32 = 10;
+
 /// Compute a deterministic DM room code for two peers.
 /// Both peers compute the same code so signaling can match them.
 /// Uses SHA-256 truncated to 32 hex chars for collision resistance.
@@ -1217,6 +1236,9 @@ enum MessageEnvelope {
         sid: String,
         cid: String,
         file_id: String,
+        /// TTL (time-to-live) — decremented on each relay hop. Added Phase 6.25.
+        #[serde(default = "default_broadcast_ttl")]
+        ttl: u8,
     },
 }
 
@@ -1887,6 +1909,10 @@ async fn run_event_loop(
     let mut peer_rate_tokens: HashMap<String, (u32, std::time::Instant)> = HashMap::new();
     const RATE_LIMIT_BURST: u32 = 100;
     const RATE_LIMIT_REFILL: u32 = 20; // tokens per second
+
+    // SECURITY (Phase 6.25): Sub-rate-limiter for VC signaling messages within MLS.
+    // Tighter limit: 30 burst, 10/sec per peer (VC signals are less frequent than chat).
+    let mut vc_signal_rate_tokens: HashMap<String, (u32, std::time::Instant)> = HashMap::new();
 
     // Re-bootstrap timer (30 seconds) for signaling re-registration.
     let mut rebootstrap_timer = tokio::time::interval(Duration::from_secs(30));
@@ -4883,6 +4909,7 @@ async fn run_event_loop(
                                             sid: sid.clone(),
                                             cid: cid.clone(),
                                             file_id: file_id.clone(),
+                                            ttl: super::gossip::DEFAULT_BROADCAST_TTL,
                                         };
                                         if let Some(ref mut mls_mgr) = mls {
                                             if mls_mgr.has_group(&sid) {
@@ -5973,6 +6000,7 @@ async fn run_event_loop(
                                         &mut gossip_overlays,
                                         &mut voice_channel_participants,
                                         &mut voice_channel_gossip_mode,
+                                        &mut vc_signal_rate_tokens,
                                         &local_peer_str, &from, msg,
                                     ).await;
                             } else {
@@ -6903,6 +6931,7 @@ async fn handle_incoming_request(
     gossip_overlays: &mut HashMap<String, super::gossip::GossipOverlay>,
     voice_channel_participants: &mut HashMap<String, std::collections::HashSet<String>>,
     voice_channel_gossip_mode: &mut HashMap<String, bool>,
+    vc_signal_rate_tokens: &mut HashMap<String, (u32, std::time::Instant)>,
     local_peer_str: &str,
     peer_str: &str,
     request: HavenMessage,
@@ -10330,23 +10359,73 @@ async fn handle_incoming_request(
                             }
 
                             // -- Voice channel signaling (Phase 5C) --
+                            // SECURITY (Phase 6.25): VC signal sub-rate-limiter.
+                            MessageEnvelope::VoiceChannelJoin { .. }
+                            | MessageEnvelope::VoiceChannelLeave { .. }
+                            | MessageEnvelope::VoiceChannelSdpOffer { .. }
+                            | MessageEnvelope::VoiceChannelSdpAnswer { .. }
+                            | MessageEnvelope::VoiceChannelIce { .. }
+                            | MessageEnvelope::VoiceChannelAudioState { .. }
+                            | MessageEnvelope::VoiceChannelScreenOffer { .. }
+                            | MessageEnvelope::VoiceChannelScreenAnswer { .. }
+                            | MessageEnvelope::VoiceChannelScreenIce { .. }
+                            | MessageEnvelope::VoiceChannelScreenState { .. }
+                            | MessageEnvelope::VoiceChannelRenegOffer { .. }
+                            | MessageEnvelope::VoiceChannelRenegAnswer { .. }
+                            | MessageEnvelope::VoiceChannelCameraState { .. }
+                            if {
+                                let (tokens, last_refill) = vc_signal_rate_tokens
+                                    .entry(sender_peer_id.clone())
+                                    .or_insert((VC_SIGNAL_RATE_BURST, std::time::Instant::now()));
+                                let elapsed = last_refill.elapsed().as_secs_f64();
+                                let refill = (elapsed * VC_SIGNAL_RATE_REFILL as f64) as u32;
+                                if refill > 0 {
+                                    *tokens = (*tokens + refill).min(VC_SIGNAL_RATE_BURST);
+                                    *last_refill = std::time::Instant::now();
+                                }
+                                if *tokens == 0 {
+                                    hollow_log!("[HOLLOW-SECURITY] VC signal rate limited for {sender_peer_id} — dropping");
+                                    true // Guard condition: true means "rate limited"
+                                } else {
+                                    *tokens -= 1;
+                                    false // Not rate limited
+                                }
+                            } => {
+                                // Rate limited — drop silently (already logged above).
+                            }
+
                             MessageEnvelope::VoiceChannelJoin { sid, cid } => {
                                 if sender_peer_id != local_peer_str {
-                                    hollow_log!("[HOLLOW-VC] {sender_peer_id} joined voice channel {cid} in {sid}");
-                                    // Track participant.
-                                    let vc_key = format!("{sid}:{cid}");
-                                    voice_channel_participants.entry(vc_key.clone()).or_default()
-                                        .insert(sender_peer_id.clone());
-                                    let _ = event_tx.send(NetworkEvent::VoiceChannelJoined {
-                                        server_id: sid.clone(), channel_id: cid.clone(),
-                                        peer_id: sender_peer_id.clone(),
-                                    }).await;
-                                    // Check for mode transition.
-                                    check_voice_mode_transition(
-                                        &vc_key, &sid, &cid,
-                                        &voice_channel_participants, voice_channel_gossip_mode,
-                                        &gossip_overlays, local_peer_str, &event_tx,
-                                    ).await;
+                                    // SECURITY (Phase 6.25): Verify sender is a server member
+                                    // and the channel exists as a voice channel.
+                                    let is_member = server_states.get(&sid)
+                                        .map(|s| s.members.contains_key(&sender_peer_id))
+                                        .unwrap_or(false);
+                                    let is_voice_channel = server_states.get(&sid)
+                                        .and_then(|s| s.channels.get(&cid))
+                                        .map(|ch| ch.channel_type == crate::crdt::server_state::ChannelType::Voice)
+                                        .unwrap_or(false);
+                                    if !is_member {
+                                        hollow_log!("[HOLLOW-SECURITY] BLOCKED VoiceChannelJoin from non-member {sender_peer_id} in server {sid}");
+                                    } else if !is_voice_channel {
+                                        hollow_log!("[HOLLOW-SECURITY] BLOCKED VoiceChannelJoin for non-voice channel {cid} in server {sid}");
+                                    } else {
+                                        hollow_log!("[HOLLOW-VC] {sender_peer_id} joined voice channel {cid} in {sid}");
+                                        // Track participant.
+                                        let vc_key = format!("{sid}:{cid}");
+                                        voice_channel_participants.entry(vc_key.clone()).or_default()
+                                            .insert(sender_peer_id.clone());
+                                        let _ = event_tx.send(NetworkEvent::VoiceChannelJoined {
+                                            server_id: sid.clone(), channel_id: cid.clone(),
+                                            peer_id: sender_peer_id.clone(),
+                                        }).await;
+                                        // Check for mode transition.
+                                        check_voice_mode_transition(
+                                            &vc_key, &sid, &cid,
+                                            &voice_channel_participants, voice_channel_gossip_mode,
+                                            &gossip_overlays, local_peer_str, &event_tx,
+                                        ).await;
+                                    }
                                 }
                             }
                             MessageEnvelope::VoiceChannelLeave { sid, cid } => {
@@ -10374,113 +10453,196 @@ async fn handle_incoming_request(
                                 }
                             }
                             MessageEnvelope::VoiceChannelSdpOffer { sid, cid, sdp, .. } => {
-                                hollow_log!("[HOLLOW-VC] SDP offer from {sender_peer_id} in vc {cid}");
-                                let payload = serde_json::json!({"sdp": sdp}).to_string();
-                                let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                    server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                    signal_type: "sdp_offer".to_string(), payload,
-                                }).await;
+                                // SECURITY (Phase 6.25): Verify sender is a VC participant + SDP size limit.
+                                let vc_key = format!("{sid}:{cid}");
+                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
+                                if !is_participant {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC SDP offer from non-participant {sender_peer_id} in {cid}");
+                                } else if sdp.len() > 64 * 1024 {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC SDP offer — size {} exceeds limit from {sender_peer_id}", sdp.len());
+                                } else {
+                                    hollow_log!("[HOLLOW-VC] SDP offer from {sender_peer_id} in vc {cid}");
+                                    let payload = serde_json::json!({"sdp": sdp}).to_string();
+                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
+                                        signal_type: "sdp_offer".to_string(), payload,
+                                    }).await;
+                                }
                             }
                             MessageEnvelope::VoiceChannelSdpAnswer { sid, cid, sdp, .. } => {
-                                hollow_log!("[HOLLOW-VC] SDP answer from {sender_peer_id} in vc {cid}");
-                                let payload = serde_json::json!({"sdp": sdp}).to_string();
-                                let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                    server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                    signal_type: "sdp_answer".to_string(), payload,
-                                }).await;
+                                let vc_key = format!("{sid}:{cid}");
+                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
+                                if !is_participant {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC SDP answer from non-participant {sender_peer_id} in {cid}");
+                                } else if sdp.len() > 64 * 1024 {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC SDP answer — size {} exceeds limit from {sender_peer_id}", sdp.len());
+                                } else {
+                                    hollow_log!("[HOLLOW-VC] SDP answer from {sender_peer_id} in vc {cid}");
+                                    let payload = serde_json::json!({"sdp": sdp}).to_string();
+                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
+                                        signal_type: "sdp_answer".to_string(), payload,
+                                    }).await;
+                                }
                             }
                             MessageEnvelope::VoiceChannelIce { sid, cid, candidate, sdp_mid, sdp_mline_index, .. } => {
-                                hollow_log!("[HOLLOW-VC] ICE candidate from {sender_peer_id} in vc {cid}");
-                                let payload = serde_json::json!({
-                                    "candidate": candidate,
-                                    "sdpMid": sdp_mid,
-                                    "sdpMLineIndex": sdp_mline_index,
-                                }).to_string();
-                                let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                    server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                    signal_type: "ice".to_string(), payload,
-                                }).await;
+                                let vc_key = format!("{sid}:{cid}");
+                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
+                                if !is_participant {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC ICE from non-participant {sender_peer_id} in {cid}");
+                                } else {
+                                    hollow_log!("[HOLLOW-VC] ICE candidate from {sender_peer_id} in vc {cid}");
+                                    let payload = serde_json::json!({
+                                        "candidate": candidate,
+                                        "sdpMid": sdp_mid,
+                                        "sdpMLineIndex": sdp_mline_index,
+                                    }).to_string();
+                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
+                                        signal_type: "ice".to_string(), payload,
+                                    }).await;
+                                }
                             }
                             MessageEnvelope::VoiceChannelAudioState { sid, cid, muted, deafened, .. } => {
-                                let payload = serde_json::json!({
-                                    "muted": muted,
-                                    "deafened": deafened,
-                                }).to_string();
-                                let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                    server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                    signal_type: "audio_state".to_string(), payload,
-                                }).await;
+                                let vc_key = format!("{sid}:{cid}");
+                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
+                                if !is_participant {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC audio state from non-participant {sender_peer_id} in {cid}");
+                                } else {
+                                    let payload = serde_json::json!({
+                                        "muted": muted,
+                                        "deafened": deafened,
+                                    }).to_string();
+                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
+                                        signal_type: "audio_state".to_string(), payload,
+                                    }).await;
+                                }
                             }
 
                             // -- Voice channel screen sharing (Phase 5B) --
                             MessageEnvelope::VoiceChannelScreenOffer { sid, cid, sdp, .. } => {
-                                hollow_log!("[HOLLOW-VC] Screen offer from {sender_peer_id} in vc {cid}");
-                                let payload = serde_json::json!({"sdp": sdp}).to_string();
-                                let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                    server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                    signal_type: "screen_offer".to_string(), payload,
-                                }).await;
+                                let vc_key = format!("{sid}:{cid}");
+                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
+                                if !is_participant {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC screen offer from non-participant {sender_peer_id} in {cid}");
+                                } else if sdp.len() > 64 * 1024 {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC screen offer — size {} exceeds limit from {sender_peer_id}", sdp.len());
+                                } else {
+                                    hollow_log!("[HOLLOW-VC] Screen offer from {sender_peer_id} in vc {cid}");
+                                    let payload = serde_json::json!({"sdp": sdp}).to_string();
+                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
+                                        signal_type: "screen_offer".to_string(), payload,
+                                    }).await;
+                                }
                             }
                             MessageEnvelope::VoiceChannelScreenAnswer { sid, cid, sdp, .. } => {
-                                hollow_log!("[HOLLOW-VC] Screen answer from {sender_peer_id} in vc {cid}");
-                                let payload = serde_json::json!({"sdp": sdp}).to_string();
-                                let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                    server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                    signal_type: "screen_answer".to_string(), payload,
-                                }).await;
+                                let vc_key = format!("{sid}:{cid}");
+                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
+                                if !is_participant {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC screen answer from non-participant {sender_peer_id} in {cid}");
+                                } else if sdp.len() > 64 * 1024 {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC screen answer — size {} exceeds limit from {sender_peer_id}", sdp.len());
+                                } else {
+                                    hollow_log!("[HOLLOW-VC] Screen answer from {sender_peer_id} in vc {cid}");
+                                    let payload = serde_json::json!({"sdp": sdp}).to_string();
+                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
+                                        signal_type: "screen_answer".to_string(), payload,
+                                    }).await;
+                                }
                             }
                             MessageEnvelope::VoiceChannelScreenIce { sid, cid, candidate, sdp_mid, sdp_mline_index, role, .. } => {
-                                hollow_log!("[HOLLOW-VC] Screen ICE from {sender_peer_id} in vc {cid} role={role}");
-                                let payload = serde_json::json!({
-                                    "candidate": candidate,
-                                    "sdpMid": sdp_mid,
-                                    "sdpMLineIndex": sdp_mline_index,
-                                    "role": role,
-                                }).to_string();
-                                let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                    server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                    signal_type: "screen_ice".to_string(), payload,
-                                }).await;
+                                let vc_key = format!("{sid}:{cid}");
+                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
+                                if !is_participant {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC screen ICE from non-participant {sender_peer_id} in {cid}");
+                                } else {
+                                    hollow_log!("[HOLLOW-VC] Screen ICE from {sender_peer_id} in vc {cid} role={role}");
+                                    let payload = serde_json::json!({
+                                        "candidate": candidate,
+                                        "sdpMid": sdp_mid,
+                                        "sdpMLineIndex": sdp_mline_index,
+                                        "role": role,
+                                    }).to_string();
+                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
+                                        signal_type: "screen_ice".to_string(), payload,
+                                    }).await;
+                                }
                             }
                             MessageEnvelope::VoiceChannelScreenState { sid, cid, enabled, .. } => {
-                                hollow_log!("[HOLLOW-VC] Screen state from {sender_peer_id}: enabled={enabled}");
-                                let payload = serde_json::json!({"enabled": enabled}).to_string();
-                                let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                    server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                    signal_type: "screen_state".to_string(), payload,
-                                }).await;
+                                let vc_key = format!("{sid}:{cid}");
+                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
+                                if !is_participant {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC screen state from non-participant {sender_peer_id} in {cid}");
+                                } else {
+                                    hollow_log!("[HOLLOW-VC] Screen state from {sender_peer_id}: enabled={enabled}");
+                                    let payload = serde_json::json!({"enabled": enabled}).to_string();
+                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
+                                        signal_type: "screen_state".to_string(), payload,
+                                    }).await;
+                                }
                             }
 
                             // -- Voice channel camera (Phase 5B) --
                             MessageEnvelope::VoiceChannelRenegOffer { sid, cid, sdp, .. } => {
-                                hollow_log!("[HOLLOW-VC] Reneg offer from {sender_peer_id} in vc {cid}");
-                                let payload = serde_json::json!({"sdp": sdp}).to_string();
-                                let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                    server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                    signal_type: "reneg_offer".to_string(), payload,
-                                }).await;
+                                let vc_key = format!("{sid}:{cid}");
+                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
+                                if !is_participant {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC reneg offer from non-participant {sender_peer_id} in {cid}");
+                                } else if sdp.len() > 64 * 1024 {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC reneg offer — size {} exceeds limit from {sender_peer_id}", sdp.len());
+                                } else {
+                                    hollow_log!("[HOLLOW-VC] Reneg offer from {sender_peer_id} in vc {cid}");
+                                    let payload = serde_json::json!({"sdp": sdp}).to_string();
+                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
+                                        signal_type: "reneg_offer".to_string(), payload,
+                                    }).await;
+                                }
                             }
                             MessageEnvelope::VoiceChannelRenegAnswer { sid, cid, sdp, .. } => {
-                                hollow_log!("[HOLLOW-VC] Reneg answer from {sender_peer_id} in vc {cid}");
-                                let payload = serde_json::json!({"sdp": sdp}).to_string();
-                                let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                    server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                    signal_type: "reneg_answer".to_string(), payload,
-                                }).await;
+                                let vc_key = format!("{sid}:{cid}");
+                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
+                                if !is_participant {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC reneg answer from non-participant {sender_peer_id} in {cid}");
+                                } else if sdp.len() > 64 * 1024 {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC reneg answer — size {} exceeds limit from {sender_peer_id}", sdp.len());
+                                } else {
+                                    hollow_log!("[HOLLOW-VC] Reneg answer from {sender_peer_id} in vc {cid}");
+                                    let payload = serde_json::json!({"sdp": sdp}).to_string();
+                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
+                                        signal_type: "reneg_answer".to_string(), payload,
+                                    }).await;
+                                }
                             }
                             MessageEnvelope::VoiceChannelCameraState { sid, cid, enabled, .. } => {
-                                hollow_log!("[HOLLOW-VC] Camera state from {sender_peer_id}: enabled={enabled}");
-                                let payload = serde_json::json!({"enabled": enabled}).to_string();
-                                let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                    server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                    signal_type: "camera_state".to_string(), payload,
-                                }).await;
+                                let vc_key = format!("{sid}:{cid}");
+                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
+                                if !is_participant {
+                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC camera state from non-participant {sender_peer_id} in {cid}");
+                                } else {
+                                    hollow_log!("[HOLLOW-VC] Camera state from {sender_peer_id}: enabled={enabled}");
+                                    let payload = serde_json::json!({"enabled": enabled}).to_string();
+                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
+                                        signal_type: "camera_state".to_string(), payload,
+                                    }).await;
+                                }
                             }
 
                             // -- Gossip relay tree (Phase 5D) --
-                            MessageEnvelope::BroadcastMeta { broadcast_id, origin, sid, cid, file_id } => {
-                                hollow_log!("[HOLLOW-GOSSIP] BroadcastMeta: bid={broadcast_id} origin={origin} fid={file_id} server={sid} ch={cid}");
-                                if let Some(overlay) = gossip_overlays.get_mut(&sid) {
+                            MessageEnvelope::BroadcastMeta { broadcast_id, origin, sid, cid, file_id, ttl } => {
+                                // SECURITY (Phase 6.25): Validate TTL from wire, cap at MAX_BROADCAST_TTL.
+                                let effective_ttl = ttl.min(MAX_BROADCAST_TTL);
+                                hollow_log!("[HOLLOW-GOSSIP] BroadcastMeta: bid={broadcast_id} origin={origin} fid={file_id} server={sid} ch={cid} ttl={effective_ttl}");
+                                if effective_ttl == 0 {
+                                    hollow_log!("[HOLLOW-GOSSIP] BroadcastMeta TTL=0, not relaying");
+                                } else if let Some(overlay) = gossip_overlays.get_mut(&sid) {
                                     // Mark broadcast seen for dedup.
                                     overlay.mark_broadcast_seen(&broadcast_id);
                                     // Register pending relay — when the file data arrives via
@@ -10489,7 +10651,7 @@ async fn handle_incoming_request(
                                     if origin != local_peer_str {
                                         overlay.add_pending_relay(
                                             &file_id, &broadcast_id,
-                                            super::gossip::DEFAULT_BROADCAST_TTL.saturating_sub(1),
+                                            effective_ttl.saturating_sub(1),
                                             &origin, &cid, &sender_peer_id,
                                         );
                                     }
@@ -11019,6 +11181,10 @@ async fn handle_incoming_request(
 
         // -- WebRTC signaling (Phase 5A) --
         HavenMessage::RtcOffer { sdp, conn_id } => {
+            if sdp.len() > MAX_SDP_SIZE {
+                hollow_log!("[HOLLOW-SECURITY] BLOCKED RtcOffer — size {} exceeds limit from {peer_str}", sdp.len());
+                return;
+            }
             hollow_log!("[HOLLOW-WEBRTC] RtcOffer from {peer_str} conn={conn_id}");
             // sdp is the raw SDP string (not JSON-wrapped).
             let _ = event_tx.send(NetworkEvent::WebRtcSignal {
@@ -11029,6 +11195,10 @@ async fn handle_incoming_request(
             }).await;
         }
         HavenMessage::RtcAnswer { sdp, conn_id } => {
+            if sdp.len() > MAX_SDP_SIZE {
+                hollow_log!("[HOLLOW-SECURITY] BLOCKED RtcAnswer — size {} exceeds limit from {peer_str}", sdp.len());
+                return;
+            }
             hollow_log!("[HOLLOW-WEBRTC] RtcAnswer from {peer_str} conn={conn_id}");
             // sdp is the raw SDP string (not JSON-wrapped).
             let _ = event_tx.send(NetworkEvent::WebRtcSignal {
@@ -11055,7 +11225,8 @@ async fn handle_incoming_request(
 
         // -- Voice call signaling (Phase 5B) --
         HavenMessage::CallInvite { call_id, video, sframe_key } => {
-            hollow_log!("[HOLLOW-CALL] CallInvite from {peer_str} call={call_id} video={video}");
+            // SECURITY (Phase 6.25): Don't log sframe_key length/presence.
+            hollow_log!("[HOLLOW-CALL] CallInvite from {peer_str} call={call_id} video={video} key_len={}", sframe_key.len());
             let payload = serde_json::json!({
                 "call_id": call_id,
                 "video": video,
@@ -11104,6 +11275,11 @@ async fn handle_incoming_request(
             }).await;
         }
         HavenMessage::CallSdpOffer { call_id, sdp } => {
+            // SECURITY (Phase 6.25): SDP size limit.
+            if sdp.len() > MAX_SDP_SIZE {
+                hollow_log!("[HOLLOW-SECURITY] BLOCKED CallSdpOffer — size {} exceeds limit from {peer_str}", sdp.len());
+                return;
+            }
             hollow_log!("[HOLLOW-CALL] CallSdpOffer from {peer_str} call={call_id}");
             let payload = serde_json::json!({
                 "call_id": call_id,
@@ -11116,6 +11292,10 @@ async fn handle_incoming_request(
             }).await;
         }
         HavenMessage::CallSdpAnswer { call_id, sdp } => {
+            if sdp.len() > MAX_SDP_SIZE {
+                hollow_log!("[HOLLOW-SECURITY] BLOCKED CallSdpAnswer — size {} exceeds limit from {peer_str}", sdp.len());
+                return;
+            }
             hollow_log!("[HOLLOW-CALL] CallSdpAnswer from {peer_str} call={call_id}");
             let payload = serde_json::json!({
                 "call_id": call_id,
@@ -11166,6 +11346,10 @@ async fn handle_incoming_request(
             }).await;
         }
         HavenMessage::CallScreenOffer { call_id, sdp } => {
+            if sdp.len() > MAX_SDP_SIZE {
+                hollow_log!("[HOLLOW-SECURITY] BLOCKED CallScreenOffer — size {} exceeds limit from {peer_str}", sdp.len());
+                return;
+            }
             hollow_log!("[HOLLOW-CALL] CallScreenOffer from {peer_str} call={call_id}");
             let payload = serde_json::json!({
                 "call_id": call_id,
@@ -11178,6 +11362,10 @@ async fn handle_incoming_request(
             }).await;
         }
         HavenMessage::CallScreenAnswer { call_id, sdp } => {
+            if sdp.len() > MAX_SDP_SIZE {
+                hollow_log!("[HOLLOW-SECURITY] BLOCKED CallScreenAnswer — size {} exceeds limit from {peer_str}", sdp.len());
+                return;
+            }
             hollow_log!("[HOLLOW-CALL] CallScreenAnswer from {peer_str} call={call_id}");
             let payload = serde_json::json!({
                 "call_id": call_id,
@@ -11208,8 +11396,17 @@ async fn handle_incoming_request(
         // -- Gossip relay tree (Phase 5D) --
         HavenMessage::PeerExchange { server_id, peers } => {
             hollow_log!("[HOLLOW-GOSSIP] PeerExchange from {peer_str} for server {server_id}: {} peers", peers.len());
-            // Merge received peer list into our known_peers for this server's overlay.
+            // SECURITY (Phase 6.25): Only accept from gossip neighbors + cap list size.
+            if peers.len() > MAX_PEER_EXCHANGE_SIZE {
+                hollow_log!("[HOLLOW-SECURITY] BLOCKED PeerExchange — too many peers ({} > {MAX_PEER_EXCHANGE_SIZE}) from {peer_str}", peers.len());
+                return;
+            }
             if let Some(overlay) = gossip_overlays.get_mut(&server_id) {
+                // Only trust PeerExchange from our current gossip neighbors.
+                if !overlay.neighbors.contains(peer_str) {
+                    hollow_log!("[HOLLOW-SECURITY] BLOCKED PeerExchange from non-neighbor {peer_str} for server {server_id}");
+                    return;
+                }
                 for p in &peers {
                     if p != local_peer_str {
                         overlay.known_peers.insert(p.clone());

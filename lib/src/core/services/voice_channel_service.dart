@@ -297,7 +297,13 @@ class VoiceChannelService {
 
     if (_remoteDescSet[peerId] != true ||
         _peerConnections[peerId] == null) {
-      _pendingCandidates.putIfAbsent(peerId, () => []).add(ice);
+      // SECURITY (Phase 6.25): Cap pending ICE candidates per peer.
+      final pending = _pendingCandidates.putIfAbsent(peerId, () => []);
+      if (pending.length >= 100) {
+        _vcLog('[HOLLOW-SECURITY] ICE candidate limit (100) reached for $peerId — dropping');
+        return;
+      }
+      pending.add(ice);
       return;
     }
     try {

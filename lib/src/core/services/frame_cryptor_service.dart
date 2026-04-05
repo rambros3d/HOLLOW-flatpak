@@ -45,19 +45,29 @@ class FrameCryptorService {
   /// Set the encryption key for a participant (or shared key if sharedKey mode).
   Future<void> setKey(String participantId, int index, Uint8List key) async {
     if (_keyProvider == null) return;
-    await _keyProvider!.setKey(
-      participantId: participantId,
-      index: index,
-      key: key,
-    );
-    _fcLog('[HOLLOW-SFRAME] Key set for $participantId at index $index (${key.length} bytes)');
+    try {
+      await _keyProvider!.setKey(
+        participantId: participantId,
+        index: index,
+        key: key,
+      );
+      _fcLog('[HOLLOW-SFRAME] Key set for $participantId at index $index (${key.length} bytes)');
+    } finally {
+      // SECURITY (Phase 6.25): Clear key material from memory.
+      key.fillRange(0, key.length, 0);
+    }
   }
 
   /// Set a shared key (for server voice channels where all members share the MLS epoch key).
   Future<void> setSharedKey(int index, Uint8List key) async {
     if (_keyProvider == null) return;
-    await _keyProvider!.setSharedKey(key: key, index: index);
-    _fcLog('[HOLLOW-SFRAME] Shared key set at index $index (${key.length} bytes)');
+    try {
+      await _keyProvider!.setSharedKey(key: key, index: index);
+      _fcLog('[HOLLOW-SFRAME] Shared key set at index $index (${key.length} bytes)');
+    } finally {
+      // SECURITY (Phase 6.25): Clear key material from memory.
+      key.fillRange(0, key.length, 0);
+    }
   }
 
   /// Enable frame encryption for an RTP sender (our outgoing audio/video).

@@ -2,8 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../rust/api/network.dart' as network_api;
+
+/// Log to hollow_debug.log (visible in release builds + debug file).
+void _iceLog(String msg) {
+  network_api.logFromDart(message: msg);
+}
 
 const _kSignalingUrl = 'http://141.227.186.209:8080';
 const _kRefreshInterval = Duration(minutes: 50); // credentials last 1 hour
@@ -34,6 +40,7 @@ class IceConfigNotifier extends Notifier<Map<String, dynamic>> {
   };
 
   Future<void> _fetchTurnCredentials() async {
+    _iceLog('[HOLLOW-ICE] Fetching TURN credentials from $_kSignalingUrl/turn-credentials');
     try {
       final client = HttpClient();
       client.connectionTimeout = const Duration(seconds: 5);
@@ -44,7 +51,7 @@ class IceConfigNotifier extends Notifier<Map<String, dynamic>> {
       client.close();
 
       if (response.statusCode != 200) {
-        debugPrint('[HOLLOW-ICE] TURN credentials fetch failed: $body');
+        _iceLog('[HOLLOW-ICE] TURN credentials fetch FAILED: HTTP ${response.statusCode} — $body');
         return;
       }
 
@@ -54,6 +61,19 @@ class IceConfigNotifier extends Notifier<Map<String, dynamic>> {
       final uris = (json['uris'] as List).cast<String>();
 
       // Build full ICE config with STUN + TURN.
+      // IMPORTANT: Each TURN URI must be a SEPARATE iceServer entry.
+      // flutter_webrtc's native C++ layer (FlutterWebRTCBase::CreateIceServers)
+      // has a single `uri` field per IceServer struct — a list of URLs gets
+      // overwritten to only the last one. Splitting ensures all transports
+      // (UDP, TCP, TLS) are tried with proper credentials.
+      final turnServers = uris
+          .map((uri) => <String, dynamic>{
+                'urls': uri,
+                'username': username,
+                'credential': password,
+              })
+          .toList();
+
       state = {
         'iceServers': [
           // Own STUN (coturn doubles as STUN)
@@ -61,22 +81,18 @@ class IceConfigNotifier extends Notifier<Map<String, dynamic>> {
           // Fallback STUN servers
           {'urls': 'stun:stun.cloudflare.com:3478'},
           {'urls': 'stun:stun.l.google.com:19302'},
-          // TURN servers (for symmetric NAT)
-          {
-            'urls': uris,
-            'username': username,
-            'credential': password,
-          },
+          // TURN servers — one entry per transport (UDP, TCP, TLS)
+          ...turnServers,
         ],
       };
 
-      debugPrint('[HOLLOW-ICE] TURN credentials fetched, ${uris.length} URIs');
+      _iceLog('[HOLLOW-ICE] TURN credentials OK: ${uris.length} URIs, username=${username.split(':').first}...');
 
       // Schedule refresh before expiry.
       _refreshTimer?.cancel();
       _refreshTimer = Timer(_kRefreshInterval, _fetchTurnCredentials);
     } catch (e) {
-      debugPrint('[HOLLOW-ICE] Failed to fetch TURN credentials: $e');
+      _iceLog('[HOLLOW-ICE] TURN credentials fetch EXCEPTION: $e');
       // Retry in 30 seconds on failure.
       _refreshTimer?.cancel();
       _refreshTimer = Timer(const Duration(seconds: 30), _fetchTurnCredentials);

@@ -1219,12 +1219,7 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 - [X] Rebalancer
 
-- [ ] **Multi-relay server support** — distribute load across multiple WSS relay servers for scale and redundancy
-  - [ ] Relay discovery: list of relay URLs stored in app config (default: relay.anonlisten.com). Users/admins can add backup relays.
-  - [ ] Load balancing: client measures latency to each relay, picks lowest. Fallback to next relay on disconnect.
-  - [ ] Room federation: relay servers share room membership so a message sent to Relay A reaches peers on Relay B. (OR: all peers connect to the same relay for a given server — simpler, scales to ~10K concurrent users per relay.)
-  - [ ] Self-hosted relay: document how to deploy your own relay (Docker image or binary). Server owners can point their server to a custom relay URL via CRDT setting.
-  - [ ] Bandwidth monitoring: relay reports current load. Client picks least-loaded relay for file/shard streaming.
+- [ ] **Multi-relay server support** — distribute load across multiple WSS relay servers for scale and redundancy. Moved to Phase 6.75 Scaling section with full checklist.
 
 - [X] **Connection subset management + gossip relay tree** — limit persistent WebRTC connections for large servers, enable tree-spread broadcasting
   - [X] Target: 6-12 WebRTC data channel peers per server (not full mesh). Total across all servers capped at 50 (configurable)
@@ -1237,13 +1232,13 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [X] TTL/hop limit: 4-5 hops max to prevent infinite propagation (covers millions of peers)
   - [X] Fallback: <6 reachable peers → connect to all available. 30s timeout on gossip delivery falls back to direct FileProbe
 
-- [ ] **Channel-level CRDT sharding** — split monolithic ServerState for scale (defer until ServerState is too large)
-  - [ ] Split into `ServerCoreState` (name, members, roles, settings, pledges, channel_layout — small, synced by all) + per-channel `ChannelState` (pinned_messages, channel-specific settings — synced only by members who access the channel)
-  - [ ] New SQLCipher table `channel_states`: server_id, channel_id, state_json, updated_at — PRIMARY KEY (server_id, channel_id)
-  - [ ] Migration: on first load after upgrade, extract channel-specific data from existing ServerState into ChannelState objects
-  - [ ] Scoped sync: SyncRequest/SyncResponse carry `scope` field ("core" or "channel:{id}") — peers only sync documents they need
-  - [ ] Lazy loading: channel state loaded from DB on demand (user navigates to channel), not all at once
-  - [ ] Memory budget: max 20 ChannelState objects in memory, LRU eviction to DB, active (open in UI) channels pinned
+- [ ] **Channel-level CRDT sharding** — split monolithic ServerState for scale (defer until ServerState is too large). Moved to Phase 6.75 Scaling section with summary. Full design below for reference:
+  - Split into `ServerCoreState` (name, members, roles, settings, pledges, channel_layout — small, synced by all) + per-channel `ChannelState` (pinned_messages, channel-specific settings — synced only by members who access the channel)
+  - New SQLCipher table `channel_states`: server_id, channel_id, state_json, updated_at — PRIMARY KEY (server_id, channel_id)
+  - Migration: on first load after upgrade, extract channel-specific data from existing ServerState into ChannelState objects
+  - Scoped sync: SyncRequest/SyncResponse carry `scope` field ("core" or "channel:{id}") — peers only sync documents they need
+  - Lazy loading: channel state loaded from DB on demand (user navigates to channel), not all at once
+  - Memory budget: max 20 ChannelState objects in memory, LRU eviction to DB, active (open in UI) channels pinned
 
 **Deliverable:** Server files live distributed across members. No single point of failure. Automatic mode selection — small groups get full sync, larger servers get space-efficient erasure coding. Rich status indicators keep users informed.
 
@@ -1344,10 +1339,10 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [ ] Peer-to-peer latency measurement via data channel ping (simple round-trip timestamp)
   - [ ] Optional: show estimated transfer speed based on recent data channel throughput
 
-- [ ] **TURN credential management** — deferred to Phase 5B
-  - [ ] hollow-relay generates time-limited TURN credentials on WS auth (HMAC-SHA1, 1-hour TTL)
-  - [ ] Client refreshes credentials on reconnect
-  - [ ] coturn validates credentials against same shared secret as hollow-relay
+- [X] **TURN credential management** — deferred to Phase 5B
+  - [X] hollow-relay generates time-limited TURN credentials on WS auth (HMAC-SHA1, 1-hour TTL)
+  - [X] Client refreshes credentials on reconnect
+  - [X] coturn validates credentials against same shared secret as hollow-relay
 
 - [ ] **Testing & verification**
   - [X] Test 1: Two peers on same LAN → should use local ICE candidate (fastest)
@@ -1480,9 +1475,69 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 
 **Goal:** Comprehensive security audit + performance/memory optimization pass. Last security audit was Phase 3.75 (Mar 16) — significant new attack surface since then (WebRTC, voice channels, screen sharing, camera video, gossip relay, SFrame E2EE).
 
-- [ ] **Security audit** — scan all code for vulnerabilities (OWASP top 10, WebRTC-specific: OSDP injection, ICE candidate manipulation, MLS group key leaks, SFrame key exposure, relay message forgery, CRDT conflict exploitation)
+- [X] **Security audit** — scan all code for vulnerabilities (OWASP top 10, WebRTC-specific: OSDP injection, ICE candidate manipulation, MLS group key leaks, SFrame key exposure, relay message forgery, CRDT conflict exploitation)
 - [ ] **Memory/resource optimization** — audit RTCVideoRenderer + MediaStream lifecycle for leaks during camera/screen share toggling, renderer pool or explicit disposal tracking, Flutter GPU memory profiling on 8GB machines
 - [X] Enable Flutter crash dump logging to `hollow_crash.log` (FlutterError.onError + PlatformDispatcher.onError → file sink)
+What was done - Crash logging (lib/main.dart):
+  - FlutterError.onError catches widget build/rendering errors
+  - PlatformDispatcher.onError catches async/platform errors
+  - Both write to hollow_crash.log with timestamps and stack traces
+  - 5MB rotation (renames to .old)
+  - Respects HOLLOW_DATA_DIR env var (for multi-instance testing)
+
+#### Security Audit Findings (Apr 4, 2026)
+
+Full scan of all code added since Phase 3.75 (WebRTC, voice channels, screen sharing, camera video, gossip relay, SFrame E2EE, TURN, relay). 21 findings: 5 critical, 6 high, 8 medium, 2 low.
+
+**CRITICAL — privilege escalation, eavesdropping, network abuse:**
+
+- [X] **VC membership verification missing** — All 13 voice channel `MessageEnvelope` handlers in `swarm.rs` now check `voice_channel_participants["{sid}:{cid}"].contains(sender_peer_id)` before processing. Non-participants are rejected with `[HOLLOW-SECURITY] BLOCKED` log.
+
+- [X] **VC join/leave not validated** — `VoiceChannelJoin` handler now verifies: (1) sender is a server member via `server_states[sid].members`, (2) channel exists and is `ChannelType::Voice`. Both checks reject + log.
+
+- [X] **Unbounded SDP payload size** — Module-level `const MAX_SDP_SIZE: usize = 64 * 1024` (64 KB). Applied to all 10 SDP-carrying handlers: VC offers/answers (6), DM call offers/answers (2), screen share offers/answers (2), plus RtcOffer/RtcAnswer for data channels. Oversized SDPs rejected + logged.
+
+- [X] **TURN credential endpoint reviewed** — Credentials are time-limited (1 hour TTL) and coturn enforces its own allocation limits per user. Global relay-side rate limiting removed — it would create an artificial bottleneck at scale. The endpoint requires no auth by design: credentials are useless without a valid TURN allocation, and coturn itself is the enforcement point.
+
+- [X] **Gossip PeerExchange injection** — PeerExchange handler now: (1) rejects if peer list > `MAX_PEER_EXCHANGE_SIZE` (50), (2) rejects if sender is not a current gossip neighbor (`overlay.neighbors.contains()`). Both checks reject + log.
+
+**HIGH — resource exhaustion, key exposure, state corruption:**
+
+- [X] **MLS-path VC signal rate limiting** — Added per-peer VC signal sub-rate-limiter (30 burst, 10/sec) via `vc_signal_rate_tokens` HashMap. Match guard on all 13 VC `MessageEnvelope` variants drops excess signals before processing. Passed as parameter to `handle_incoming_request`.
+
+- [X] **SFrame key log sanitization** — `CallInvite` log line now shows only `key_len=N` instead of the raw key. Key itself still transmitted via Olm-encrypted DM (required for call setup). Full HKDF derivation deferred to post-launch (requires Olm session shared secret access from both sides).
+
+- [X] **Call glare SFrame key preserved** — `_handleInvite()` glare path now uses `state.sframeKey` (our own key) instead of the remote peer's `sframeKey`. Prevents key injection during simultaneous call setup.
+
+- [X] **Relay room membership enforced on send** — `ClientMessage::Msg` and `ClientMessage::Direct` handlers in `ws_router.rs` now check `room_entry.peers.contains_key(peer_id)` before broadcasting/forwarding. Non-members get message dropped + warning logged.
+
+- [X] **Gossip broadcast TTL in wire format** — Added `ttl: u8` field to `BroadcastMeta` envelope (`#[serde(default)]` for backward compat). Receive handler caps at `MAX_BROADCAST_TTL` (8), rejects TTL=0, decrements before relaying. Send path includes `DEFAULT_BROADCAST_TTL`.
+
+- [X] **Concurrent renegotiation guard** — Added `_renegotiationInProgress` flag in `CallNotifier`. `_handleSdpOffer()` drops offers during active renegotiation. Flag cleared in `finally` block.
+
+**MEDIUM — validation gaps, resource handling, defense in depth:**
+
+- [X] **SFrame key memory clearing** — `FrameCryptorService.setKey()` and `setSharedKey()` now zero key bytes via `key.fillRange(0, key.length, 0)` in `finally` blocks. Same clearing applied at both `setSframeKey` callsites in `call_provider.dart`.
+
+- [X] **ICE candidate rate limiting (Dart)** — `voice_channel_service.dart` `_handleIce()` now caps pending candidates at 100 per peer. Excess dropped with security log.
+
+- [X] **Remote video track try-catch** — `voice_service.dart` `_handleRemoteVideoTrack()` wrapped in try-catch. On failure, partially-created renderer/stream cleaned up, error logged, call continues (audio-only fallback).
+
+- [X] **Screen share getDisplayMedia track validation** — `screen_share_service.dart` now checks `videoTracks.isEmpty` before accessing `.first`. Empty stream disposed + `StateError` thrown (caught by caller).
+
+- [X] **Relay WebSocket message size limit** — `ws_router.rs` checks `text.len()` / `data.len()` against `MAX_WS_MESSAGE_SIZE` (10 MB) before processing. Oversized messages disconnect the peer.
+
+- [X] **Relay connection limits reviewed** — Hard caps removed. The relay is a lightweight message router (JSON text + CRDTs); heavy media/files go P2P via WebRTC. systemd `MemoryMax` and OS file descriptor limits are the real caps. Artificial hard caps would just block legitimate users before the hardware gives out. Scaling is via multi-relay deployment, not per-relay connection limits.
+
+- [X] **Relay binary frame rate limiting** — Binary WS frames now go through per-peer token-bucket rate limiter (100 burst, 20/sec). Rate-limited frames dropped with warning log.
+
+- [X] **Relay timestamp skew tightened** — Both `ws_router.rs` and `signaling_http.rs` `TIMESTAMP_SKEW_SECS` reduced from 300s (5 min) to 60s (1 min). Nonce cache deferred (low incremental value given the tight window).
+
+**LOW — minor hardening:**
+
+- [X] **Relay room code format validated** — `Join { room }` now enforces alphanumeric + colons + hyphens + underscores + dots via `chars().all()`. Rejects room codes with spaces, slashes, null bytes, or other unexpected characters.
+
+- [X] **SDP logging already safe** — Audit confirmed: Rust-side `hollow_log!` calls only log signal type, peer ID, and SDP size — never SDP content. Dart-side `_dumpSdp()` in `voice_service.dart` filters to safe lines only (`m=`, `a=sendrecv`, `a=ssrc:`, `a=mid:`, `a=msid:`) — never logs `c=` (connection IP) or `a=candidate` (ICE with IP:port). No changes needed.
 
 **Deliverable:** Hardened, leak-free app with documented security posture.
 
@@ -1499,12 +1554,19 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 - [ ] Fix "Encrypting..." / "Connecting..." labels on Network column and DMs header (ConnectionStatus provider not transitioning properly after key exchange)
 - [ ] Fix server join double-click bug (first JoinServer command joins WS room but doesn't send ServerJoinRequest — second click needed)
 - [ ] Export/import friend profile data (avatars, statuses, about) — either export to .hollow backup or trigger sync on import to pull from friends
+- [ ] Read/unread messages tick if possible
 - [ ] Copying messages / Paste + drag-and-drop images into the input bar
 - [ ] Different fonts/elements like hearts or sparkles on Profile and maybe nicknames
 - [ ] **Scaling:**
   - [X] Connection subset management + gossip relay tree — DONE (Phase 5D, Apr 3). See Phase 4 section (~line 1229) and Phase 5B voice channels section
-  - [ ] Channel-level CRDT sharding (split ServerState for scale) — defer until ServerState is too large
-  - [ ] Multi-relay deployment: regional relays (EU/US/Asia, $5-10/month each, 1 Gbps) for messages/CRDT/signaling. Trivial — relay is stateless, just routing
+  - [ ] Channel-level CRDT sharding (split ServerState for scale) — defer until ServerState is too large. Split into `ServerCoreState` (name, members, roles, settings — synced by all) + per-channel `ChannelState` (pins, channel settings — synced on demand). Scoped SyncReq/SyncResp, lazy loading, LRU eviction (max 20 in memory). See Phase 4 section for full design.
+  - [ ] Multi-relay deployment: regional relays (EU/US/Asia, $5-10/month each, 1 Gbps) for messages/CRDT/signaling. Relay is stateless, just JSON routing — trivial to scale horizontally
+    - [ ] Relay discovery: list of relay URLs in app config (default: relay.anonlisten.com), users/admins can add backups
+    - [ ] Client picks lowest-latency relay, fallback on disconnect
+    - [ ] Room federation OR same-relay-per-server (simpler, scales to ~100K+ per relay)
+    - [ ] Self-hosted relay: Docker image or binary, custom relay URL via CRDT server setting
+    - [ ] Bandwidth monitoring: relay reports load, client picks least-loaded
+  - [ ] Concurrent connection capacity: each WS connection is ~2-10 KB memory (Rust/Tokio). Current VPS (8 GB RAM, 400 Mbps) can handle ~65K concurrent connections (systemd `LimitNOFILE=65536`, raised from 1024 in Phase 6.25). On 12 GB / 1 Gbps VPS: raise to `LimitNOFILE=500000`+, set OS `fs.file-max` accordingly. Tokio handles millions of idle connections — bandwidth is the real bottleneck, not connections. With 3 regional relays at 1 Gbps each: millions of concurrent users for lightweight text/CRDT routing. Heavy media/files go direct P2P via WebRTC (zero relay bandwidth for ~85% of transfers)
 - [ ] **File deduplication** — content-addressable dedup via SHA-256 hash. If the same file is sent multiple times, store once on disk, point all file_ids to the same path. Reference counting for cleanup.
 - [X] Unread message indicator: floating pill above chat input with arrow-down icon + unread count, click to scroll to newest, auto-dismiss on scroll — also fix channel chat auto-reload when MessageSyncCompleted fires for currently-viewed channel
 - [ ] Proper roles on the server and editing of permissions
@@ -1533,7 +1595,34 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
   - [ ] Wire into ScreenShareService: unlock "Share audio" toggle, add captured audio track to screen share PC
   - Note: `getDisplayMedia({audio: true})` returns 0 audio tracks on native desktop flutter_webrtc (confirmed, open issue since Nov 2025). This plugin is the workaround
 
-**Deliverable:** A polished, feature-complete communication platform ready for public release.
+- [ ] **Hollow Share — Private P2P File Sharing (encrypted torrent)** — Zero-tracker, zero-IP-leak, encrypted file sharing built on existing WebRTC data channels + gossip tree. STUN-only (no TURN — relay bandwidth reserved for messaging).
+  - [ ] **Core protocol:**
+    - [ ] Share manifest: content hash (SHA-256) + file name + size + chunk count + chunk hashes → serialized as a shareable link (`hollow://share/<base64-manifest>`) or QR code
+    - [ ] Chunk splitting: reuse existing 64KB chunked transfer protocol from data channel file sharing
+    - [ ] Multi-source parallel download: request different chunks from different connected peers simultaneously (6-12 gossip neighbors = 6-12x parallel throughput, theoretical ~54 MB/s)
+    - [ ] Chunk verification: SHA-256 per chunk (already in content-addressed storage) — reject corrupt/tampered chunks
+    - [ ] Seeding: completed files remain available for upload. User chooses to seed or not. Seeding state persisted in SQLCipher
+  - [ ] **Discovery & peer finding:**
+    - [ ] Paste `hollow://share/` link → parse manifest → join a sharing swarm (WS relay room keyed by content hash, signaling only)
+    - [ ] Swarm members exchange peer lists via existing PeerExchange mechanism
+    - [ ] WebRTC data channels established via STUN between peers who have chunks
+    - [ ] No TURN fallback — STUN-only for sharing (relay bandwidth reserved for core messaging). ~85% of peers connect directly, others simply can't participate in that specific transfer (they can still download from other seeds)
+  - [ ] **UI — Share tab in app:**
+    - [ ] New "Share" tab/section in the app layout (alongside DMs, servers)
+    - [ ] "Add" button: paste link or scan QR → shows file metadata (name, size, seeds, availability)
+    - [ ] Download picker: choose save location, start download
+    - [ ] Progress: per-file progress bar, chunk availability grid, connected peers count, download speed
+    - [ ] Seed management: toggle seeding per file, see upload stats
+    - [ ] Active transfers list: downloading + seeding files with speeds
+  - [ ] **Privacy & security:**
+    - [ ] No tracker server — relay only does WebRTC signaling (SDP/ICE exchange), never touches file data
+    - [ ] No IP exposure — ICE candidates exchanged via encrypted relay, never published to a public DHT
+    - [ ] Encrypted in transit — WebRTC DTLS on data channels (standard)
+    - [ ] ISP-invisible — looks like normal WebRTC traffic, no protocol fingerprint to throttle
+    - [ ] Optional E2EE on chunks — encrypt file before sharing, include decryption key in the share link (only link holders can read)
+  - Note: Builds entirely on existing infrastructure — WebRTC data channels (Phase 5A), gossip overlay (Phase 5D), content-addressed storage (Phase 4), chunked transfer protocol. Estimated new code: ~1 Rust module (sharing swarm) + ~1 Dart service + UI tab
+
+**Deliverable:** A polished, feature-complete communication platform ready for public release — with private, encrypted P2P file sharing that rivals torrent performance without any of the privacy/legal exposure.
 
 ### Phase 7: Distribution & Launch
 

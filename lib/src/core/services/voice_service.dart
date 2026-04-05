@@ -446,12 +446,32 @@ class VoiceService {
     _pendingCandidates.clear();
     _remoteDescriptionSet = false;
 
+    // Log ICE config for diagnostics.
+    final servers = (iceServers['iceServers'] as List?) ?? [];
+    final hasTurn = servers.any((s) {
+      final urls = s['urls'];
+      if (urls is String) return urls.startsWith('turn');
+      if (urls is List) return urls.any((u) => u.toString().startsWith('turn'));
+      return false;
+    });
+    _log('[HOLLOW-VOICE] Creating PC with ${servers.length} ICE server groups, TURN=$hasTurn');
+
     final pc = await createPeerConnection(iceServers);
     _pc = pc;
 
     // ICE candidate handler — send to peer via call signaling.
     pc.onIceCandidate = (candidate) {
       if (candidate.candidate == null || candidate.candidate!.isEmpty) return;
+      // Log candidate type for diagnostics (host/srflx/relay).
+      final c = candidate.candidate!;
+      final type = c.contains('typ host')
+          ? 'host'
+          : c.contains('typ srflx')
+              ? 'srflx'
+              : c.contains('typ relay')
+                  ? 'relay'
+                  : 'unknown';
+      _log('[HOLLOW-VOICE] ICE candidate: $type mid=${candidate.sdpMid}');
       final payload = jsonEncode({
         'call_id': callId,
         'candidate': candidate.candidate,
@@ -474,6 +494,16 @@ class VoiceService {
         _handleRemoteVideoTrack(peerId, event);
       }
       // Audio tracks are played automatically by libwebrtc — no renderer needed.
+    };
+
+    // ICE connection state handler (ICE layer — checking/connected/failed/disconnected).
+    pc.onIceConnectionState = (iceState) {
+      _log('[HOLLOW-VOICE] ICE connection state: $iceState');
+    };
+
+    // ICE gathering state handler.
+    pc.onIceGatheringState = (gatherState) {
+      _log('[HOLLOW-VOICE] ICE gathering state: $gatherState');
     };
 
     // Connection state handler.
@@ -629,46 +659,59 @@ class VoiceService {
 
   Future<void> _handleRemoteVideoTrack(
       String peerId, RTCTrackEvent event) async {
-    if (event.streams.isNotEmpty) {
-      _remoteStream = event.streams.first;
-      _log('[HOLLOW-VOICE] Using stream from onTrack event (streams=${event.streams.length})');
-    } else {
-      // Windows/libwebrtc fires onTrack with streams=0 during renegotiation.
-      // Get the stream from the receiver's track instead.
-      _log('[HOLLOW-VOICE] onTrack fired with streams=0, getting stream from PC receivers');
-      if (_pc != null) {
-        final receivers = await _pc!.getReceivers();
-        for (final r in receivers) {
-          if (r.track?.kind == 'video' && r.track?.id == event.track.id) {
-            // Found the receiver — but it doesn't have a stream either.
-            // Fall back to creating a MediaStream.
-            break;
+    // SECURITY (Phase 6.25): Wrap in try-catch to prevent inconsistent state
+    // if renderer init fails (corrupt track, GPU failure, etc.).
+    try {
+      if (event.streams.isNotEmpty) {
+        _remoteStream = event.streams.first;
+        _log('[HOLLOW-VOICE] Using stream from onTrack event (streams=${event.streams.length})');
+      } else {
+        // Windows/libwebrtc fires onTrack with streams=0 during renegotiation.
+        // Get the stream from the receiver's track instead.
+        _log('[HOLLOW-VOICE] onTrack fired with streams=0, getting stream from PC receivers');
+        if (_pc != null) {
+          final receivers = await _pc!.getReceivers();
+          for (final r in receivers) {
+            if (r.track?.kind == 'video' && r.track?.id == event.track.id) {
+              // Found the receiver — but it doesn't have a stream either.
+              // Fall back to creating a MediaStream.
+              break;
+            }
           }
         }
+        _remoteStream = await createLocalMediaStream(
+          'remote-video-${event.track.id}',
+        );
+        _remoteStream!.addTrack(event.track);
+        _log('[HOLLOW-VOICE] Created synthetic stream for video track');
       }
-      _remoteStream = await createLocalMediaStream(
-        'remote-video-${event.track.id}',
-      );
-      _remoteStream!.addTrack(event.track);
-      _log('[HOLLOW-VOICE] Created synthetic stream for video track');
+
+      // Initialize renderer — dispose old one first to force RTCVideoView rebuild.
+      if (_remoteRenderer != null) {
+        _remoteRenderer!.srcObject = null;
+        await _remoteRenderer!.dispose();
+        _remoteRenderer = null;
+      }
+
+      _remoteRenderer = RTCVideoRenderer();
+      await _remoteRenderer!.initialize();
+      _remoteRenderer!.srcObject = _remoteStream;
+      _log('[HOLLOW-VOICE] Remote video renderer initialized, '
+          'track=${event.track.id}, stream=${_remoteStream?.id}');
+
+      // Notify UI — slight delay to ensure renderer is ready for RTCVideoView.
+      await Future.delayed(const Duration(milliseconds: 100));
+      onRemoteVideoTrack?.call(peerId);
+    } catch (e) {
+      _log('[HOLLOW-VOICE] ERROR handling remote video track: $e');
+      // Clean up partially-created resources.
+      if (_remoteRenderer != null) {
+        _remoteRenderer!.srcObject = null;
+        await _remoteRenderer!.dispose();
+        _remoteRenderer = null;
+      }
+      _remoteStream = null;
     }
-
-    // Initialize renderer — dispose old one first to force RTCVideoView rebuild.
-    if (_remoteRenderer != null) {
-      _remoteRenderer!.srcObject = null;
-      await _remoteRenderer!.dispose();
-      _remoteRenderer = null;
-    }
-
-    _remoteRenderer = RTCVideoRenderer();
-    await _remoteRenderer!.initialize();
-    _remoteRenderer!.srcObject = _remoteStream;
-    _log('[HOLLOW-VOICE] Remote video renderer initialized, '
-        'track=${event.track.id}, stream=${_remoteStream?.id}');
-
-    // Notify UI — slight delay to ensure renderer is ready for RTCVideoView.
-    await Future.delayed(const Duration(milliseconds: 100));
-    onRemoteVideoTrack?.call(peerId);
   }
 
   Future<void> _initLocalRenderer() async {
