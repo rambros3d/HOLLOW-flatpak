@@ -29,19 +29,37 @@ Future<T?> showHollowDialog<T>({
         reverseCurve: Curves.easeIn,
       );
 
-      // Static blur (not animated) — animating BackdropFilter sigma every
-      // frame is extremely GPU-heavy and causes dialog open lag.
-      // The blur appears instantly, only the dialog content animates.
-      return BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: FadeTransition(
-          opacity: curvedAnimation,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.95, end: 1.0)
-                .animate(curvedAnimation),
-            child: child,
-          ),
-        ),
+      // Blur stays at full sigma (no per-frame sigma animation — too GPU-heavy).
+      // Instead, the blur layer fades in/out via AnimatedOpacity on the
+      // BackdropFilter itself. This gives a smooth exit without the cost
+      // of animating gaussian blur sigma every frame.
+      return AnimatedBuilder(
+        animation: curvedAnimation,
+        builder: (context, dialogChild) {
+          return Stack(
+            children: [
+              // Blur layer — fades with dialog.
+              AnimatedOpacity(
+                opacity: animation.value,
+                duration: Duration.zero, // driven by animation, not independent
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                  child: const SizedBox.expand(),
+                ),
+              ),
+              // Dialog content — scale + fade.
+              FadeTransition(
+                opacity: curvedAnimation,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.95, end: 1.0)
+                      .animate(curvedAnimation),
+                  child: dialogChild,
+                ),
+              ),
+            ],
+          );
+        },
+        child: child,
       );
     },
     pageBuilder: (context, _, _) => builder(context),

@@ -439,10 +439,13 @@ class _ServerMemberContent extends ConsumerWidget {
                 }
               }
 
-              return ListView(
+              // Phase 6.25: Use ListView.builder for lazy rendering —
+              // only builds visible members, prevents jank on first server entry.
+              return ListView.builder(
                 padding: const EdgeInsets.symmetric(
                     vertical: HollowSpacing.sm),
-                children: items,
+                itemCount: items.length,
+                itemBuilder: (context, index) => items[index],
               );
             },
             loading: () => const Center(

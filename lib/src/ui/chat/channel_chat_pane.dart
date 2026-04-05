@@ -116,13 +116,16 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     }
   }
 
+  bool _loadingHistory = false;
+
   Future<void> _loadHistory() async {
-    if (_historyLoaded) return;
-    _historyLoaded = true;
+    if (_historyLoaded || _loadingHistory) return;
+    _loadingHistory = true;
     await ref
         .read(channelChatProvider.notifier)
         .loadHistory(widget.serverId, widget.channelId);
     ref.read(pinnedProvider.notifier).loadPins(widget.serverId, widget.channelId);
+    _historyLoaded = true;
     if (mounted) setState(() {});
     // Mark channel as read now that messages are loaded.
     final msgs = ref.read(channelChatProvider)['${widget.serverId}:${widget.channelId}'];
@@ -141,7 +144,10 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     _searchController.dispose();
     _searchFocusNode.dispose();
     // Reset search state when leaving this pane.
-    ref.read(channelSearchOpenProvider.notifier).state = false;
+    // Guard: ref may already be invalidated during widget tree teardown.
+    try {
+      ref.read(channelSearchOpenProvider.notifier).state = false;
+    } catch (_) {}
     super.dispose();
   }
 
