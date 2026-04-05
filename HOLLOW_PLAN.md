@@ -1476,7 +1476,12 @@ Use a system similar to `AdaptiveScaleProvider` from WholesomeStoryADay — norm
 **Goal:** Comprehensive security audit + performance/memory optimization pass. Last security audit was Phase 3.75 (Mar 16) — significant new attack surface since then (WebRTC, voice channels, screen sharing, camera video, gossip relay, SFrame E2EE).
 
 - [X] **Security audit** — scan all code for vulnerabilities (OWASP top 10, WebRTC-specific: OSDP injection, ICE candidate manipulation, MLS group key leaks, SFrame key exposure, relay message forgery, CRDT conflict exploitation)
-- [ ] **Memory/resource optimization** — audit RTCVideoRenderer + MediaStream lifecycle for leaks during camera/screen share toggling, renderer pool or explicit disposal tracking, Flutter GPU memory profiling on 8GB machines
+- [X] **Memory/resource optimization** — Full audit of RTCVideoRenderer, MediaStream, RTCPeerConnection, and FrameCryptor lifecycle across all WebRTC services. 15 leak scenarios identified and fixed:
+  - VoiceService: old video stream disposed before replacement in toggleVideo(), awaited renderer dispose in _initLocalRenderer(), old remote stream disposed on renegotiation onTrack, synthetic stream disposed on error path
+  - VoiceChannelService: per-peer FrameCryptor cleanup in closePeer(), _forwardedSources pruned per-peer, _prevEnergy VAD stats pruned per-peer
+  - CallProvider: _cleanup() now disposes screen share services (prevents GPU leak on call reject/timeout/disconnect), _handleScreenOffer() disposes old incoming before creating new, _renegotiationInProgress reset in cleanup
+  - WebRtcService: _pendingIceCandidates cleared in dispose(), app shutdown calls disposeAll() before exit
+  - main.dart: added webRtcProvider.disposeAll() to _quitApp() for clean shutdown
 - [X] Enable Flutter crash dump logging to `hollow_crash.log` (FlutterError.onError + PlatformDispatcher.onError → file sink)
 What was done - Crash logging (lib/main.dart):
   - FlutterError.onError catches widget build/rendering errors

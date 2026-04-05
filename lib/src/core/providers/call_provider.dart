@@ -735,6 +735,12 @@ class CallNotifier extends Notifier<CallState> {
 
     final iceConfig = ref.read(iceConfigProvider);
 
+    // Phase 6.25: Dispose old incoming screen share before creating new one.
+    if (_incomingScreenShare != null) {
+      await _incomingScreenShare!.close();
+      _incomingScreenShare = null;
+    }
+
     // Create incoming screen share service (separate PC to receive their screen).
     _incomingScreenShare = ScreenShareService(
       localPeerId: localPeerId,
@@ -822,6 +828,12 @@ class CallNotifier extends Notifier<CallState> {
     _ringTimer = null;
     _statsTimer?.cancel();
     _statsTimer = null;
+    _renegotiationInProgress = false;
+    // Phase 6.25: Dispose screen share services to prevent GPU/memory leaks.
+    _outgoingScreenShare?.close();
+    _outgoingScreenShare = null;
+    _incomingScreenShare?.close();
+    _incomingScreenShare = null;
     state = const CallState();
   }
 

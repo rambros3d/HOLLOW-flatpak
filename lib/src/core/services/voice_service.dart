@@ -289,6 +289,14 @@ class VoiceService {
             'frameRate': {'ideal': 30},
           },
         };
+        // Dispose old stream before replacement (Phase 6.25 leak fix).
+        if (_localVideoStream != null) {
+          for (final t in _localVideoStream!.getTracks()) {
+            await t.stop();
+          }
+          await _localVideoStream!.dispose();
+          _localVideoStream = null;
+        }
         _localVideoStream =
             await navigator.mediaDevices.getUserMedia(constraints);
         final videoTracks = _localVideoStream!.getVideoTracks();
@@ -662,6 +670,11 @@ class VoiceService {
     // SECURITY (Phase 6.25): Wrap in try-catch to prevent inconsistent state
     // if renderer init fails (corrupt track, GPU failure, etc.).
     try {
+      // Dispose old remote stream before replacement (Phase 6.25 leak fix).
+      if (_remoteStream != null) {
+        await _remoteStream!.dispose();
+        _remoteStream = null;
+      }
       if (event.streams.isNotEmpty) {
         _remoteStream = event.streams.first;
         _log('[HOLLOW-VOICE] Using stream from onTrack event (streams=${event.streams.length})');
@@ -710,12 +723,18 @@ class VoiceService {
         await _remoteRenderer!.dispose();
         _remoteRenderer = null;
       }
+      if (_remoteStream != null) {
+        await _remoteStream!.dispose();
+      }
       _remoteStream = null;
     }
   }
 
   Future<void> _initLocalRenderer() async {
-    _localRenderer?.dispose();
+    if (_localRenderer != null) {
+      _localRenderer!.srcObject = null;
+      await _localRenderer!.dispose();
+    }
     _localRenderer = RTCVideoRenderer();
     await _localRenderer!.initialize();
     _localRenderer!.srcObject = _localVideoStream;

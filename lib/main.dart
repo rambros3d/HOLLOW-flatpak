@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/member_panel_provider.dart';
+import 'package:hollow/src/core/providers/webrtc_provider.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
 import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 import 'package:hollow/src/rust/frb_generated.dart';
@@ -275,6 +276,10 @@ class _HollowTrayListener extends TrayListener {
   }
 
   Future<void> _quitApp() async {
+    try {
+      // Phase 6.25: Dispose WebRTC resources before shutdown.
+      await _container.read(webRtcProvider.notifier).disposeAll();
+    } catch (_) {}
     try {
       await network_api.notifyShutdown();
       await Future.delayed(const Duration(milliseconds: 200));

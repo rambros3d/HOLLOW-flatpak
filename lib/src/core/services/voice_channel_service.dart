@@ -359,6 +359,11 @@ class VoiceChannelService {
       onRemoteVideoChanged?.call(peerId, null);
     }
     _remoteVideoStreams.remove(peerId)?.dispose();
+
+    // Phase 6.25 leak fixes: clean up per-peer state.
+    _forwardedSources.remove(peerId);
+    _prevEnergy.remove('in-$peerId');
+    await frameCryptor?.disableForPeer(peerId);
   }
 
   /// Close all connections and stop audio (leaving voice channel).

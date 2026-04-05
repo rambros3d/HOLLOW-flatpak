@@ -319,6 +319,7 @@ class WebRtcService {
       await disconnectPeer(peerId);
     }
     _transfers.clear();
+    _pendingIceCandidates.clear(); // Phase 6.25 leak fix
   }
 
   // --- Private ---
