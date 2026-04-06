@@ -302,12 +302,13 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
     int sizeBytes,
     String ext,
     bool isImage,
-    String localPath,
-  ) {
+    String localPath, {
+    String text = '',
+  }) {
     _addMessage(
       peerId,
       ChatMessage(
-        text: '',
+        text: text,
         isMe: true,
         messageId: messageId,
         fileAttachment: FileAttachment(

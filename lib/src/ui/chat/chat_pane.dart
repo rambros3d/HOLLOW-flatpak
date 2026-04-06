@@ -176,6 +176,10 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
   DateTime? _lastTypingSent;
   String? _highlightMessageId;
   bool _showScrollPill = false;
+  /// Staged file attachment (user picked but hasn't sent yet).
+  String? _stagedFilePath;
+  String? _stagedFileName;
+  bool _stagedFileIsImage = false;
   Timer? _overlayHideTimer;
   bool _overlaysVisible = true;
   bool _chatOverlayPinned = false; // User explicitly toggled chat open
@@ -303,6 +307,10 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
   }
 
   Future<void> _handleSend() async {
+    if (_stagedFilePath != null) {
+      await _sendStagedFile();
+      return;
+    }
     final text = _controller.text.trim();
     if (text.isEmpty) return;
     _controller.clear();
@@ -321,57 +329,80 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     _scrollToBottom();
   }
 
-  Future<void> _pickAndSendFile(WidgetRef ref) async {
+  Future<void> _pickAndStageFile() async {
     if (_isPicking) return;
     _isPicking = true;
     try {
-    final result = await FilePicker.platform.pickFiles();
-    if (result == null || result.files.isEmpty) { _isPicking = false; return; }
-    final file = result.files.first;
-    if (file.path == null) { _isPicking = false; return; }
+      final result = await FilePicker.platform.pickFiles();
+      if (result == null || result.files.isEmpty) { _isPicking = false; return; }
+      final file = result.files.first;
+      if (file.path == null) { _isPicking = false; return; }
 
-    // Enforce 34 MB limit for DMs (always on default relay).
-    const maxDmBytes = 34 * 1024 * 1024;
-    if (file.size > maxDmBytes) {
-      if (mounted) {
-        final fileMb = (file.size / (1024 * 1024)).toStringAsFixed(1);
-        HollowToast.show(
-          context,
-          'File too large (${fileMb}MB). DM limit is 34 MB.',
-          type: HollowToastType.error,
-          duration: const Duration(seconds: 4),
-        );
+      // Enforce 34 MB limit for DMs (always on default relay).
+      const maxDmBytes = 34 * 1024 * 1024;
+      if (file.size > maxDmBytes) {
+        if (mounted) {
+          final fileMb = (file.size / (1024 * 1024)).toStringAsFixed(1);
+          HollowToast.show(
+            context,
+            'File too large (${fileMb}MB). DM limit is 34 MB.',
+            type: HollowToastType.error,
+            duration: const Duration(seconds: 4),
+          );
+        }
+        _isPicking = false;
+        return;
       }
-      _isPicking = false;
-      return;
-    }
 
+      final ext = file.name.contains('.')
+          ? file.name.split('.').last.toLowerCase()
+          : '';
+      setState(() {
+        _stagedFilePath = file.path!;
+        _stagedFileName = file.name;
+        _stagedFileIsImage = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'].contains(ext);
+      });
+      _focusNode.requestFocus();
+    } finally { _isPicking = false; }
+  }
+
+  Future<void> _sendStagedFile() async {
+    final filePath = _stagedFilePath;
+    final fileName = _stagedFileName;
+    if (filePath == null || fileName == null) return;
+
+    final messageText = _controller.text.trim();
     final messageId = generateMessageId();
-    final fileName = file.name;
     final ext = fileName.contains('.')
         ? fileName.split('.').last.toLowerCase()
         : '';
-    final isImage = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'].contains(ext);
+    final isImage = _stagedFileIsImage;
 
-    // Add optimistic message with file attachment placeholder.
+    setState(() {
+      _stagedFilePath = null;
+      _stagedFileName = null;
+      _stagedFileIsImage = false;
+    });
+    _controller.clear();
+
     ref.read(chatProvider.notifier).addFileMessage(
           widget.peerId,
           messageId,
           fileName,
-          file.size,
+          File(filePath).lengthSync(),
           ext,
           isImage,
-          file.path!,
+          filePath,
+          text: messageText,
         );
     _jumpToBottom();
 
     await ref.read(fileTransferProvider.notifier).sendFile(
           peerId: widget.peerId,
-          filePath: file.path!,
+          filePath: filePath,
           messageId: messageId,
-          messageText: '',
+          messageText: messageText,
         );
-    } finally { _isPicking = false; }
   }
 
   Future<void> _saveFile(FileAttachment attachment) async {
@@ -812,7 +843,9 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                                 ),
                               )
                             : const SizedBox.shrink())
-                        : ScrollConfiguration(
+                        : SelectionArea(
+                          contextMenuBuilder: (_, __) => const SizedBox.shrink(),
+                          child: ScrollConfiguration(
                             behavior: ScrollConfiguration.of(context)
                                 .copyWith(scrollbars: false),
                             child: ListView.builder(
@@ -923,6 +956,12 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                                           msg.fileAttachment!.diskPath != null
                                       ? () => _saveFile(msg.fileAttachment!)
                                       : null,
+                                  onCopy: (msg.text.isNotEmpty && !msg.text.startsWith('[file:'))
+                                      ? () {
+                                          Clipboard.setData(ClipboardData(text: msg.text));
+                                          HollowToast.show(context, 'Copied to clipboard', type: HollowToastType.success);
+                                        }
+                                      : null,
                                   child: Builder(builder: (_) {
                                     String? replySender;
                                     String? replyText;
@@ -1022,6 +1061,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                                 return messageWidget;
                               },
                             ),
+                          ),
                           ),
                   ),
                 ),
@@ -1143,6 +1183,55 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
           ),
         ),
 
+      // Staged file preview
+      if (_stagedFilePath != null)
+        Container(
+          padding: const EdgeInsets.fromLTRB(
+            HollowSpacing.md, HollowSpacing.sm, HollowSpacing.md, 0),
+          decoration: BoxDecoration(
+            color: hollow.surface,
+            border: Border(top: BorderSide(color: hollow.border)),
+          ),
+          child: Row(
+            children: [
+              if (_stagedFileIsImage)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.file(
+                    File(_stagedFilePath!),
+                    width: 48, height: 48, fit: BoxFit.cover,
+                  ),
+                )
+              else
+                Container(
+                  width: 48, height: 48,
+                  decoration: BoxDecoration(
+                    color: hollow.elevated,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Icon(LucideIcons.file, color: hollow.textSecondary, size: 20),
+                ),
+              const SizedBox(width: HollowSpacing.sm),
+              Expanded(
+                child: Text(
+                  _stagedFileName ?? '',
+                  style: HollowTypography.caption.copyWith(color: hollow.textPrimary),
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              HollowPressable(
+                onTap: () => setState(() {
+                  _stagedFilePath = null;
+                  _stagedFileName = null;
+                  _stagedFileIsImage = false;
+                }),
+                padding: const EdgeInsets.all(HollowSpacing.xs),
+                child: Icon(LucideIcons.x, size: 16, color: hollow.textSecondary),
+              ),
+            ],
+          ),
+        ),
+
       // Input bar
       Container(
         padding: const EdgeInsets.symmetric(
@@ -1152,7 +1241,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
         decoration: BoxDecoration(
           color: hollow.surface,
           border: Border(
-            top: _replyToMessageId != null
+            top: (_replyToMessageId != null || _stagedFilePath != null)
                 ? BorderSide.none
                 : BorderSide(color: hollow.border),
           ),
@@ -1160,7 +1249,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
         child: Row(
           children: [
             HollowPressable(
-              onTap: () => _pickAndSendFile(ref),
+              onTap: _pickAndStageFile,
               borderRadius: BorderRadius.circular(hollow.radiusMd),
               padding: const EdgeInsets.all(HollowSpacing.sm),
               child: Icon(

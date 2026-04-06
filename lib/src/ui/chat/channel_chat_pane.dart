@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/models/file_attachment.dart';
 import 'package:hollow/src/core/providers/channel_chat_provider.dart';
@@ -84,6 +85,10 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   List<dynamic> _searchResults = [];
   final _searchFocusNode = FocusNode();
   bool _showScrollPill = false;
+  /// Staged file attachment (user picked but hasn't sent yet).
+  String? _stagedFilePath;
+  String? _stagedFileName;
+  bool _stagedFileIsImage = false;
   /// GlobalKeys for reply-tap-scroll (keyed by messageId).
   final Map<String, GlobalKey> _messageKeys = {};
 
@@ -121,6 +126,9 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     final cached = ref.read(channelChatProvider)[_stateKey];
     if (cached != null && cached.isNotEmpty) {
       _historyLoaded = true;
+      // Still mark as seen — sync may have populated cache before we got here.
+      ref.read(unreadProvider.notifier)
+          .markChannelSeen(widget.serverId, widget.channelId, cached.last.messageId);
       return;
     }
     _loadingHistory = true;
@@ -401,6 +409,11 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   }
 
   Future<void> _handleSend() async {
+    // If a file is staged, send it (with optional text).
+    if (_stagedFilePath != null) {
+      await _sendStagedFile();
+      return;
+    }
     final text = _controller.text.trim();
     if (text.isEmpty) return;
     _controller.clear();
@@ -420,55 +433,80 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     _scrollToBottom();
   }
 
-  Future<void> _pickAndSendFile() async {
+  Future<void> _pickAndStageFile() async {
     if (_isPicking) return;
     _isPicking = true;
     try {
-    final result = await FilePicker.platform.pickFiles();
-    if (result == null || result.files.isEmpty) { _isPicking = false; return; }
-    final file = result.files.first;
-    if (file.path == null) { _isPicking = false; return; }
+      final result = await FilePicker.platform.pickFiles();
+      if (result == null || result.files.isEmpty) { _isPicking = false; return; }
+      final file = result.files.first;
+      if (file.path == null) { _isPicking = false; return; }
 
-    // Check file size against server limit.
-    try {
-      final maxMbStr = await crdt_api.getServerSetting(
-        serverId: widget.serverId,
-        key: 'max_file_size_mb',
-      );
-      final maxMb = int.tryParse(maxMbStr) ?? 34;
-      final maxBytes = maxMb * 1024 * 1024;
-      if (file.size > maxBytes) {
-        if (mounted) {
-          final fileMb = (file.size / (1024 * 1024)).toStringAsFixed(1);
-          HollowToast.show(
-            context,
-            'File too large (${fileMb}MB). Server limit is ${maxMb}MB.',
-            type: HollowToastType.error,
-            duration: const Duration(seconds: 4),
-          );
+      // Check file size against server limit.
+      try {
+        final maxMbStr = await crdt_api.getServerSetting(
+          serverId: widget.serverId,
+          key: 'max_file_size_mb',
+        );
+        final maxMb = int.tryParse(maxMbStr) ?? 34;
+        final maxBytes = maxMb * 1024 * 1024;
+        if (file.size > maxBytes) {
+          if (mounted) {
+            final fileMb = (file.size / (1024 * 1024)).toStringAsFixed(1);
+            HollowToast.show(
+              context,
+              'File too large (${fileMb}MB). Server limit is ${maxMb}MB.',
+              type: HollowToastType.error,
+              duration: const Duration(seconds: 4),
+            );
+          }
+          _isPicking = false;
+          return;
         }
-        _isPicking = false;
-        return;
-      }
-    } catch (_) {}
+      } catch (_) {}
 
+      final ext = file.name.contains('.')
+          ? file.name.split('.').last.toLowerCase()
+          : '';
+      setState(() {
+        _stagedFilePath = file.path!;
+        _stagedFileName = file.name;
+        _stagedFileIsImage = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'].contains(ext);
+      });
+      _focusNode.requestFocus();
+    } finally { _isPicking = false; }
+  }
+
+  Future<void> _sendStagedFile() async {
+    final filePath = _stagedFilePath;
+    final fileName = _stagedFileName;
+    if (filePath == null || fileName == null) return;
+
+    final messageText = _controller.text.trim();
     final messageId = generateMessageId();
-    final fileName = file.name;
     final ext = fileName.contains('.')
         ? fileName.split('.').last.toLowerCase()
         : '';
-    final isImage = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'].contains(ext);
+    final isImage = _stagedFileIsImage;
 
-    // Add optimistic message with file attachment placeholder.
+    // Clear staged state + input.
+    setState(() {
+      _stagedFilePath = null;
+      _stagedFileName = null;
+      _stagedFileIsImage = false;
+    });
+    _controller.clear();
+
     ref.read(channelChatProvider.notifier).addFileMessage(
           widget.serverId,
           widget.channelId,
           messageId,
           fileName,
-          file.size,
+          File(filePath).lengthSync(),
           ext,
           isImage,
-          file.path!,
+          filePath,
+          text: messageText,
         );
     _jumpToBottom();
 
@@ -476,12 +514,11 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     await ref.read(fileTransferProvider.notifier).sendFile(
           serverId: widget.serverId,
           channelId: widget.channelId,
-          filePath: file.path!,
+          filePath: filePath,
           messageId: messageId,
-          messageText: '',
+          messageText: messageText,
           memberCount: members?.length ?? 0,
         );
-    } finally { _isPicking = false; }
   }
 
   Future<void> _saveFile(FileAttachment attachment) async {
@@ -974,7 +1011,9 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                         ),
                       )
                     : const SizedBox.shrink())
-                : ScrollConfiguration(
+                : SelectionArea(
+                  contextMenuBuilder: (_, __) => const SizedBox.shrink(),
+                  child: ScrollConfiguration(
                     behavior: ScrollConfiguration.of(context)
                         .copyWith(scrollbars: false),
                     child: ListView.builder(
@@ -1110,6 +1149,12 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                                 }
                               }
                             : null,
+                        onCopy: (msg.text.isNotEmpty && !msg.text.startsWith('[file:'))
+                            ? () {
+                                Clipboard.setData(ClipboardData(text: msg.text));
+                                HollowToast.show(context, 'Copied to clipboard', type: HollowToastType.success);
+                              }
+                            : null,
                         child: Builder(builder: (_) {
                           final localPeerId =
                               ref.watch(identityProvider).peerId ?? '';
@@ -1191,6 +1236,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                       }
                       return messageWidget;
                     },
+                  ),
                   ),
                   ),
           ),
@@ -1320,6 +1366,55 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
             ),
           ),
 
+        // Staged file preview
+        if (_stagedFilePath != null)
+          Container(
+            padding: const EdgeInsets.fromLTRB(
+              HollowSpacing.md, HollowSpacing.sm, HollowSpacing.md, 0),
+            decoration: BoxDecoration(
+              color: hollow.surface,
+              border: Border(top: BorderSide(color: hollow.border)),
+            ),
+            child: Row(
+              children: [
+                if (_stagedFileIsImage)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: Image.file(
+                      File(_stagedFilePath!),
+                      width: 48, height: 48, fit: BoxFit.cover,
+                    ),
+                  )
+                else
+                  Container(
+                    width: 48, height: 48,
+                    decoration: BoxDecoration(
+                      color: hollow.elevated,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Icon(LucideIcons.file, color: hollow.textSecondary, size: 20),
+                  ),
+                const SizedBox(width: HollowSpacing.sm),
+                Expanded(
+                  child: Text(
+                    _stagedFileName ?? '',
+                    style: HollowTypography.caption.copyWith(color: hollow.textPrimary),
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                HollowPressable(
+                  onTap: () => setState(() {
+                    _stagedFilePath = null;
+                    _stagedFileName = null;
+                    _stagedFileIsImage = false;
+                  }),
+                  padding: const EdgeInsets.all(HollowSpacing.xs),
+                  child: Icon(LucideIcons.x, size: 16, color: hollow.textSecondary),
+                ),
+              ],
+            ),
+          ),
+
         // Input bar
         Container(
           padding: const EdgeInsets.symmetric(
@@ -1329,7 +1424,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
           decoration: BoxDecoration(
             color: hollow.surface,
             border: Border(
-              top: _replyToMessageId != null
+              top: (_replyToMessageId != null || _stagedFilePath != null)
                   ? BorderSide.none
                   : BorderSide(color: hollow.border),
             ),
@@ -1338,7 +1433,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
             children: [
               // File attachment button
               HollowPressable(
-                onTap: _pickAndSendFile,
+                onTap: _pickAndStageFile,
                 borderRadius: BorderRadius.circular(hollow.radiusMd),
                 padding: const EdgeInsets.all(HollowSpacing.sm),
                 child: Icon(

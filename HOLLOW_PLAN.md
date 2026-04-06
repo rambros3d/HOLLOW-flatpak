@@ -1592,7 +1592,7 @@ Audit (Apr 6) found 11 CRITICAL + 4 HIGH risk sites where MLS-encrypted coordina
   - [x] Voice re-join after reconnect — switched to plaintext HavenMessage::VoiceChannelJoin
   - [x] Olm receive handlers added for 8 voice SDP/ICE MessageEnvelope variants + ChannelProbeResp
   - [x] Plaintext receive handlers added for 5 new HavenMessage voice variants (with security checks)
-- [ ] Server unread on startup — likely caused by the same MLS sync failure (sync never completes → unread count never recomputed). Should auto-fix when sync responses are fixed above
+- [X] Server unread on startup — likely caused by the same MLS sync failure (sync never completes → unread count never recomputed). Should auto-fix when sync responses are fixed above
 - [ ] Test distributed MLS committer: owner offline, member B processes new joiner's KeyPackage
 
 #### TODO — Features
@@ -1601,6 +1601,12 @@ Audit (Apr 6) found 11 CRITICAL + 4 HIGH risk sites where MLS-encrypted coordina
 - [ ] Fix the camera turning on when calling with video call
 - [ ] Add pill for camera/screen switching in DMs, just like it is in voice channels
 - [ ] Copying messages / Paste + drag-and-drop images into the input bar
+  - [x] Message text selection + copy (SelectionArea wrapper, right-click "Copy" context menu)
+  - [ ] Paste images from clipboard (Ctrl+V detect image data, stage as attachment)
+  - [x] Attachment preview in input bar (thumbnail/filename card above input, X to remove)
+  - [x] Text + file together (type message AND attach file in same send)
+  - [ ] Drag-and-drop files onto chat (desktop_drop package, drop zone on chat pane)
+  - [ ] Multiple files per message (model change: FileAttachment? → List — touches Rust/DB/wire protocol)
 - [ ] Different fonts/elements like hearts or sparkles on Profile and maybe nicknames
 - [ ] Proper roles on the server and editing of permissions
 - [ ] Video preview in chats

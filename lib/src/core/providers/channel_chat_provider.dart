@@ -475,15 +475,16 @@ class ChannelChatNotifier
     int sizeBytes,
     String ext,
     bool isImage,
-    String localPath,
-  ) {
+    String localPath, {
+    String text = '',
+  }) {
     final localPeerId = ref.read(identityProvider).peerId ?? '';
     _addMessage(
       serverId,
       channelId,
       ChannelChatMessage(
         senderId: localPeerId,
-        text: '',
+        text: text,
         isMe: true,
         messageId: messageId,
         fileAttachment: FileAttachment(

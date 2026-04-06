@@ -85,6 +85,7 @@ class MessageHoverWrapper extends StatefulWidget {
   final void Function(String emoji)? onReaction;
   final VoidCallback? onPin;
   final VoidCallback? onDownload;
+  final VoidCallback? onCopy;
 
   const MessageHoverWrapper({
     super.key,
@@ -101,6 +102,7 @@ class MessageHoverWrapper extends StatefulWidget {
     this.onReaction,
     this.onPin,
     this.onDownload,
+    this.onCopy,
   });
 
   @override
@@ -218,7 +220,8 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
     final hasAnyAction = (widget.isMe && widget.messageId != null) ||
         widget.onReply != null ||
         widget.onReaction != null ||
-        widget.onDownload != null;
+        widget.onDownload != null ||
+        widget.onCopy != null;
     if (hasAnyAction) {
       // Vertically center the action bar on the right side of the message.
       final double barTop = offset.dy + (size.height / 2) - 14;
@@ -234,6 +237,12 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
             onExit: (_) => _onBarExit(),
             child: _ActionBarContent(
               hollow: hollow,
+              onCopy: widget.onCopy != null
+                  ? () {
+                      _dismissNow();
+                      widget.onCopy?.call();
+                    }
+                  : null,
               onReaction: widget.onReaction != null
                   ? (globalPosition) {
                       _dismissNow();
@@ -417,6 +426,7 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
 /// The action bar content — emoji + reply + edit + delete buttons.
 class _ActionBarContent extends StatelessWidget {
   final HollowTheme hollow;
+  final VoidCallback? onCopy;
   final void Function(Offset globalPosition)? onReaction;
   final VoidCallback? onReply;
   final VoidCallback? onEdit;
@@ -426,6 +436,7 @@ class _ActionBarContent extends StatelessWidget {
 
   const _ActionBarContent({
     required this.hollow,
+    this.onCopy,
     this.onReaction,
     this.onReply,
     this.onEdit,
@@ -461,6 +472,17 @@ class _ActionBarContent extends StatelessWidget {
                 LucideIcons.download,
                 size: 14,
                 color: hollow.accent,
+              ),
+            ),
+          if (onCopy != null)
+            HollowPressable(
+              onTap: onCopy,
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
+              padding: const EdgeInsets.all(6),
+              child: Icon(
+                LucideIcons.copy,
+                size: 14,
+                color: hollow.textSecondary,
               ),
             ),
           if (onReaction != null)

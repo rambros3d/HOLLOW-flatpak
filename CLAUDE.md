@@ -77,7 +77,11 @@ ssh ubuntu@141.227.186.209 "cd relay && cargo build --release && sudo systemctl 
 - **Channel sync fix: DONE (Apr 6).** MLS `ChannelProbe` silently failed after reconnection (stale epoch → decrypt fails → no response). Replaced with plaintext `ChannelSyncRequest` in sync coordinator. Sync response still uses MLS/Olm encryption. 217 tests.
 - **CRITICAL LESSON:** Sync/coordination requests that must work after reconnection MUST use plaintext, not MLS. MLS epoch staleness causes silent failures. Only the response payload needs encryption.
 - **MLS/Encryption audit fix: DONE (Apr 6).** All 11 CRITICAL + 4 HIGH sites fixed. 3 patterns: (A) plaintext `HavenMessage` for requests (Post-Welcome ChannelSyncReq, ChannelSyncReq in ChannelProbeResp handler), (B) Olm fallback for responses/sensitive data (SyncResp, ChannelProbeResp, ShardResponse, ShardMigrate, ShardProbeResponse), (C) plaintext broadcast for voice state (5 new `HavenMessage` variants: VoiceChannelJoin/Leave/AudioState/ScreenState/CameraState + receive handlers with security checks). Voice SDP/ICE uses MLS→Olm fallback (IPs are sensitive). Olm receive handlers added for 8 voice SDP/ICE `MessageEnvelope` variants.
-- Next up: Read receipts (message ticks), server unread startup reliability, then remaining Phase 6.75 items.
+- **Server unread on startup: DONE (Apr 6).** Auto-fixed by MLS audit (sync responses now reach peers). Also fixed unread not clearing on first channel entrance (_loadHistory cache-hit early return skipped markChannelSeen).
+- **Message text selection + copy: DONE (Apr 6).** `SelectionArea` wraps chat ListView (both DM + channel). Copy button in message hover action bar. Image-only messages hide copy button.
+- **Attachment preview + text with file: DONE (Apr 6).** Paperclip stages file, preview card above input bar (thumbnail or file icon + name + X to remove). User can type text alongside file. `addFileMessage` accepts optional text param.
+- **File sync delays reduced: DONE (Apr 6).** 2-3s → 1-1.5s, 500ms → 100ms between files. Safe because file bytes go via WebRTC P2P.
+- Next up: Paste images from clipboard, drag-and-drop files, remaining Phase 6.75 items.
 - flutter_chat_ui package evaluated and rejected (too opinionated for Hollow's custom UI).
 
 **Phase 5B: Voice & Video — COMPLETE (Apr 4, 2026).**
