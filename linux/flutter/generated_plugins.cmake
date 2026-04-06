@@ -5,9 +5,11 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_linux
   flutter_webrtc
+  irondash_engine_context
   local_notifier
   record_linux
   screen_retriever_linux
+  super_native_extensions
   tray_manager
   window_manager
 )

@@ -5,9 +5,11 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_windows
   flutter_webrtc
+  irondash_engine_context
   local_notifier
   record_windows
   screen_retriever_windows
+  super_native_extensions
   tray_manager
   win32audio
   window_manager

@@ -330,6 +330,16 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     _scrollToBottom();
   }
 
+  void _stageClipboardImage(String path, String name) {
+    if (!mounted) return;
+    setState(() {
+      _stagedFilePath = path;
+      _stagedFileName = name;
+      _stagedFileIsImage = true;
+    });
+    _focusNode.requestFocus();
+  }
+
   Future<void> _pickAndStageFile() async {
     if (_isPicking) return;
     _isPicking = true;
@@ -963,6 +973,20 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                                           HollowToast.show(context, 'Copied to clipboard', type: HollowToastType.success);
                                         }
                                       : null,
+                                  onCopyImage: (msg.fileAttachment != null &&
+                                          msg.fileAttachment!.diskPath != null &&
+                                          msg.fileAttachment!.isImage)
+                                      ? () async {
+                                          final ok = await copyImageToClipboard(msg.fileAttachment!.diskPath!);
+                                          if (mounted) {
+                                            HollowToast.show(
+                                              context,
+                                              ok ? 'Image copied to clipboard' : 'Failed to copy image',
+                                              type: ok ? HollowToastType.success : HollowToastType.error,
+                                            );
+                                          }
+                                        }
+                                      : null,
                                   child: Builder(builder: (_) {
                                     String? replySender;
                                     String? replyText;
@@ -1264,6 +1288,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
               child: Focus(
                 onKeyEvent: (_, event) => handleChatInputKey(
                   event, _controller, _focusNode, _handleSend,
+                  onPasteImage: _stageClipboardImage,
                 ),
                 child: HollowTextField(
                   controller: _controller,

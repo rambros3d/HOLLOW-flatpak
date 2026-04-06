@@ -49,7 +49,7 @@ app.*.map.json
 /android/app/release
 
 # Rust
-rust/haven_core/target/
+rust/hollow_core/target/
 rust/target/
 relay/target/
 

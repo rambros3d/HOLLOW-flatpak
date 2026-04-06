@@ -1,10 +1,15 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:super_clipboard/super_clipboard.dart';
 
 /// Handles keyboard shortcuts for the chat input field.
 ///
 /// - Enter → send message
 /// - Shift+Enter → insert newline
+/// - Ctrl+V → paste image from clipboard (if any), else default text paste
 /// - Ctrl+B → wrap selection in **bold**
 /// - Ctrl+I → wrap selection in *italic*
 /// - Ctrl+Shift+X → wrap selection in ~~strikethrough~~
@@ -14,8 +19,9 @@ KeyEventResult handleChatInputKey(
   KeyEvent event,
   TextEditingController controller,
   FocusNode focusNode,
-  VoidCallback onSend,
-) {
+  VoidCallback onSend, {
+  void Function(String path, String name)? onPasteImage,
+}) {
   if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
     return KeyEventResult.ignored;
   }
@@ -45,6 +51,16 @@ KeyEventResult handleChatInputKey(
   // Formatting shortcuts (Ctrl required).
   if (!isCtrl) return KeyEventResult.ignored;
 
+  // Ctrl+V — check for clipboard image before letting default paste through.
+  if (event.logicalKey == LogicalKeyboardKey.keyV && !isShift) {
+    if (onPasteImage != null) {
+      _tryPasteImage(onPasteImage);
+    }
+    // Always return ignored so default text paste still works
+    // (if no image is found, the async handler does nothing).
+    return KeyEventResult.ignored;
+  }
+
   if (event.logicalKey == LogicalKeyboardKey.keyB && !isShift) {
     _wrapSelection(controller, '**', '**');
     return KeyEventResult.handled;
@@ -69,6 +85,91 @@ KeyEventResult handleChatInputKey(
   }
 
   return KeyEventResult.ignored;
+}
+
+/// Attempts to read an image from the system clipboard.
+/// If found, saves it to a temp file and calls [onPasteImage].
+Future<void> _tryPasteImage(
+  void Function(String path, String name) onPasteImage,
+) async {
+  final clipboard = SystemClipboard.instance;
+  if (clipboard == null) return;
+
+  final reader = await clipboard.read();
+
+  // Check for image formats in priority order.
+  for (final format in [Formats.png, Formats.jpeg, Formats.gif, Formats.bmp, Formats.webp]) {
+    if (reader.canProvide(format)) {
+      final completer = Completer<Uint8List?>();
+      reader.getFile(format, (file) async {
+        final bytes = await file.readAll();
+        completer.complete(bytes);
+      }, onError: (_) {
+        if (!completer.isCompleted) completer.complete(null);
+      });
+
+      final bytes = await completer.future;
+      if (bytes == null || bytes.isEmpty) continue;
+
+      // Determine extension from format.
+      final ext = format == Formats.png
+          ? 'png'
+          : format == Formats.jpeg
+              ? 'jpg'
+              : format == Formats.gif
+                  ? 'gif'
+                  : format == Formats.bmp
+                      ? 'bmp'
+                      : 'webp';
+
+      // Save to temp file.
+      final tempDir = Directory.systemTemp;
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = 'clipboard_$timestamp.$ext';
+      final tempFile = File('${tempDir.path}${Platform.pathSeparator}$fileName');
+      await tempFile.writeAsBytes(bytes);
+
+      onPasteImage(tempFile.path, fileName);
+      return;
+    }
+  }
+}
+
+/// Copies image bytes to system clipboard.
+Future<bool> copyImageToClipboard(String filePath) async {
+  final clipboard = SystemClipboard.instance;
+  if (clipboard == null) return false;
+
+  final file = File(filePath);
+  if (!file.existsSync()) return false;
+
+  final bytes = await file.readAsBytes();
+  final ext = filePath.split('.').last.toLowerCase();
+
+  // Pick the right format based on extension.
+  final SimpleFileFormat format;
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg':
+      format = Formats.jpeg;
+      break;
+    case 'gif':
+      format = Formats.gif;
+      break;
+    case 'bmp':
+      format = Formats.bmp;
+      break;
+    case 'webp':
+      format = Formats.webp;
+      break;
+    default:
+      format = Formats.png;
+  }
+
+  final item = DataWriterItem();
+  item.add(format(bytes));
+  await clipboard.write([item]);
+  return true;
 }
 
 /// Wraps the current selection with [before] and [after] markers.

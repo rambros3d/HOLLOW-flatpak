@@ -86,6 +86,7 @@ class MessageHoverWrapper extends StatefulWidget {
   final VoidCallback? onPin;
   final VoidCallback? onDownload;
   final VoidCallback? onCopy;
+  final VoidCallback? onCopyImage;
 
   const MessageHoverWrapper({
     super.key,
@@ -103,6 +104,7 @@ class MessageHoverWrapper extends StatefulWidget {
     this.onPin,
     this.onDownload,
     this.onCopy,
+    this.onCopyImage,
   });
 
   @override
@@ -221,7 +223,8 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
         widget.onReply != null ||
         widget.onReaction != null ||
         widget.onDownload != null ||
-        widget.onCopy != null;
+        widget.onCopy != null ||
+        widget.onCopyImage != null;
     if (hasAnyAction) {
       // Vertically center the action bar on the right side of the message.
       final double barTop = offset.dy + (size.height / 2) - 14;
@@ -281,6 +284,12 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
                   ? () {
                       _dismissNow();
                       widget.onDownload?.call();
+                    }
+                  : null,
+              onCopyImage: widget.onCopyImage != null
+                  ? () {
+                      _dismissNow();
+                      widget.onCopyImage?.call();
                     }
                   : null,
             ),
@@ -433,6 +442,7 @@ class _ActionBarContent extends StatelessWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onPin;
   final VoidCallback? onDownload;
+  final VoidCallback? onCopyImage;
 
   const _ActionBarContent({
     required this.hollow,
@@ -443,6 +453,7 @@ class _ActionBarContent extends StatelessWidget {
     this.onDelete,
     this.onPin,
     this.onDownload,
+    this.onCopyImage,
   });
 
   @override
@@ -481,6 +492,17 @@ class _ActionBarContent extends StatelessWidget {
               padding: const EdgeInsets.all(6),
               child: Icon(
                 LucideIcons.copy,
+                size: 14,
+                color: hollow.textSecondary,
+              ),
+            ),
+          if (onCopyImage != null)
+            HollowPressable(
+              onTap: onCopyImage,
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
+              padding: const EdgeInsets.all(6),
+              child: Icon(
+                LucideIcons.image,
                 size: 14,
                 color: hollow.textSecondary,
               ),
