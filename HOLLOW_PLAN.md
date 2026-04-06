@@ -1550,70 +1550,57 @@ Full scan of all code added since Phase 3.75 (WebRTC, voice channels, screen sha
 
 **Goal:** Final features, platform testing, and polish pass before distribution.
 
+#### Completed
 - [X] Rename HAVEN to HOLLOW
 - [X] Add avatars for peers and servers / Server folder organizing
 - [X] Change locally someone else's nickname (only for you to see)
 - [X] Custom background for the app / Custom color picker chooser
 - [X] GIF support for chats and as animated avatars/banners for Profiles
-- [X] Fix tooltip freezing on the call buttons (HollowTooltip _dismiss() pattern — immediate overlay removal, no animated reverse)
-- [X] Fix "Encrypting..." / "Connecting..." labels on Network column and DMs header — simplified to just "Offline" and "Encrypted" (WSS is instant, intermediate states never visible). Removed progress bar animation, ConnectionProgress is now a simple stateless widget. (Apr 5, 2026)
-- [X] Fix server join double-click bug — `pending_server_joins` check was inside `is_new` guard (peer already in synced_peers from DM room → join request never sent). Moved check outside `is_new` in both RoomMembers + PeerJoined handlers. Added 15s timeout with `ServerJoinFailed` event. Toast feedback: "Joining server..." → "Joined {name}" / "Failed to join server". (Apr 6, 2026)
-- [X] Export/import friend profile data — full account backup (.hollow) already exports everything. Fixed stale file paths after restore: on startup, `reset_stale_files()` scans completed files with missing disk_path, resets them to incomplete so `_requestMissingFiles()` re-downloads from peers. (Apr 6, 2026)
-- [ ] Download manager UI — show background file re-downloads, vault shard transfers, and auto-recovery progress. Needed since stale file auto-recovery and vault operations run silently in the background with no user visibility.
+- [X] Fix tooltip freezing on the call buttons (HollowTooltip _dismiss() pattern)
+- [X] Fix "Encrypting..." / "Connecting..." labels — simplified to "Offline" / "Encrypted" (Apr 5)
+- [X] Fix server join double-click bug — `pending_server_joins` inside `is_new` guard + toast feedback (Apr 6)
+- [X] Export/import friend profile data — full backup works, stale file recovery on startup (Apr 6)
+- [X] Unread message indicator: floating pill above chat input
+- [X] **Chat list rework** — reversed `ListView.builder`, 200-message cap, reply-tap-scroll via GlobalKey (Apr 5)
+- [X] **DM sync fix** — 3 critical bugs in offline DM delivery (Apr 5)
+- [X] **MLS recovery auto-cleanup** — stale member cleanup, group.delete, Welcome handler fix (Apr 5)
+- [X] **Unread UI rework** — red numbered badges on friends bar + home dashboard (Apr 5)
+- [X] **Distributed MLS committer** — `is_mls_coordinator()` replaces owner-only gate. Any MLS member can onboard new members (Apr 6)
+- [X] **Vault self-healing** — fixed broken repair logic, event-driven rebalance, coordinator-gated, migration wired up. 217 tests (Apr 6)
+- [X] **Channel sync fix** — MLS `ChannelProbe` silently failed after reconnection → plaintext `ChannelSyncRequest`. `mergeFromDb()` prevents data loss (Apr 6)
+
+#### TODO — MLS/Encryption Audit (CRITICAL — silent failures after reconnection)
+Audit (Apr 6) found 11 CRITICAL + 4 HIGH risk sites where MLS-encrypted coordination messages silently fail when receiver's MLS epoch is stale after reconnection. Pattern: sender encrypts OK → receiver can't decrypt → message vanishes → operation hangs.
+
+- [ ] **Vault shard operations — NO fallback (CRITICAL):**
+  - [ ] ShardRequest in rebalance handler (lines ~6443, ~6547) — repair request lost, reconstruction hangs forever
+  - [ ] ShardMigrate in rebalance handler (line ~6586) — migration fails, shard stays in wrong location
+  - [ ] ShardResponse in MLS handler (lines ~10571, ~10588, ~10642) — response to repair request lost, requester waits forever
+  - Fix: add Olm fallback or switch to plaintext for shard coordination (shard DATA can stay encrypted)
+- [ ] **Sync responses — NO fallback (CRITICAL):**
+  - [ ] SyncResp in MLS handler (line ~10239) — CRDT sync response lost, peer stays out of sync
+  - [ ] ChannelSyncBatch in MLS handler (line ~10324) — channel message batch lost, messages never arrive
+  - [ ] ChannelProbeResp in MLS handler (line ~10352) — probe response lost (request already fixed to plaintext, but response still MLS)
+  - [ ] Post-Welcome ChannelSyncReq (line ~11193) — new member's first sync request fails, channels appear empty
+  - [ ] SyncReq in RoomMembers handler (line ~5969) — CRDT sync request fails, peer never gets server state
+  - Fix: switch to plaintext requests, keep response encryption (MLS/Olm)
+- [ ] **Voice channel state — NO fallback (HIGH):**
+  - [ ] VoiceChannelJoin broadcast (line ~5253) — peers don't see joiner
+  - [ ] VoiceChannelLeave broadcast (line ~5282) — audio keeps streaming to departed peer
+  - [ ] Voice SDP/ICE signaling (line ~5433) — WebRTC negotiation fails, no voice call
+  - [ ] Voice re-join after reconnect (line ~5795) — peers think you left
+  - Fix: add plaintext fallback for voice state, keep SDP/ICE encrypted (contains IP addresses)
+- [ ] Server unread on startup — likely caused by the same MLS sync failure (sync never completes → unread count never recomputed). Should auto-fix when sync responses are fixed above
+- [ ] Test distributed MLS committer: owner offline, member B processes new joiner's KeyPackage
+
+#### TODO — Features
+- [ ] Download manager UI — show background file re-downloads, vault shard transfers, auto-recovery progress
 - [ ] Read/unread messages tick if possible
 - [ ] Fix the camera turning on when calling with video call
 - [ ] Add pill for camera/screen switching in DMs, just like it is in voice channels
 - [ ] Copying messages / Paste + drag-and-drop images into the input bar
-- [X] **Chat list rework — reversed ListView.builder** — Replaced `ScrollablePositionedList` with reversed `ListView.builder` in both `channel_chat_pane.dart` and `chat_pane.dart`. Fixes: auto-scroll to bottom on new messages, edit-causes-scroll-to-top, unread pill unreliability after sync. (Apr 5, 2026)
-  - [X] Reversed `ListView.builder(reverse: true)` — scroll position 0 = bottom, new messages at index 0 stay anchored, no jumpTo/scrollTo hacks
-  - [X] Message data order: newest-first in the builder (read list backwards or reverse before building)
-  - [X] Auto-scroll: natural — reversed list stays at bottom when new messages prepend. If user scrolled up (`controller.offset > threshold`), don't force scroll, show unread pill instead
-  - [X] Unread pill: `controller.offset > threshold` → show pill, tap → `controller.animateTo(0)`. Simple and reliable
-  - [X] Reply-tap-scroll: `GlobalKey` per message + `Scrollable.ensureVisible()` — replaces `ScrollablePositionedList.scrollTo(index)`
-  - [X] Preserve all existing UI: hover wrapper with message action bar, teal indicator line on right for own messages, message grouping, date separators, reactions, file attachments, edit/delete inline, reply references
-  - [X] Remove `scrollable_positioned_list` dependency after migration
-- [X] **DM sync fix (Apr 5, 2026)** — 3 critical bugs in offline DM delivery, all in `swarm.rs`:
-  - [X] `send_encrypted_message` silently dropped messages when peer offline (encrypted then discarded) — now queues to `pending_messages` by checking `peer_is_reachable` before encrypting
-  - [X] `RoomMembers` handler had no Olm key exchange, DM sync, or channel message sync — sync was one-directional (only `PeerJoined` side asked). Added key exchange + pending drain + DmSyncRequest + sync_coordinator registration
-  - [X] `PeerJoined` didn't drain `pending_messages` when Olm session already existed — drain only ran after key exchange completion
-  - [X] Dart `DmSyncCompleted` handler no longer wipes in-memory messages when `newMessageCount == 0` (was destroying live-delivered messages)
-- [X] **MLS recovery auto-cleanup (Apr 5, 2026)** — fixes identity reset + leave/rejoin MLS epoch desync:
-  - [X] Owner auto-cleans stale MLS members not in CRDT member list (ghost peer IDs from identity resets)
-  - [X] Owner removes+re-adds peers already in MLS group for recovery (same peer_id, corrupted local state)
-  - [X] `remove_group()` now calls `group.delete(provider.storage())` to properly clear OpenMLS provider storage (was causing `GroupAlreadyExists` on Welcome)
-  - [X] Welcome handler removes stale local group before joining
-- [X] **Unread UI rework (Apr 5, 2026):**
-  - [X] Friends bar: teal dot → red numbered pill badge with unread count
-  - [X] Home dashboard: teal badge → red badge, repositioned next to time (vertically centered with row)
-  - [X] Unread count persistence: Rust FFI functions (`count_unread_dm`, `count_unread_channel`, etc.), `loadAll` at startup, DM badges working
-  - [X] Server badges: red numbered pill (already existed), real-time updates working
-  - [ ] Server unread on startup: infrastructure in place (`SyncCompleted` recomputes, MLS batch always emits `MessageSyncCompleted`, `RoomMembers` registers channel sync) but badge display still inconsistent on startup. Real-time server unreads work fine.
 - [ ] Different fonts/elements like hearts or sparkles on Profile and maybe nicknames
-- [ ] **Scaling:**
-  - [X] Connection subset management + gossip relay tree — DONE (Phase 5D, Apr 3). See Phase 4 section (~line 1229) and Phase 5B voice channels section
-  - [ ] Channel-level CRDT sharding (split ServerState for scale) — defer until ServerState is too large. Split into `ServerCoreState` (name, members, roles, settings — synced by all) + per-channel `ChannelState` (pins, channel settings — synced on demand). Scoped SyncReq/SyncResp, lazy loading, LRU eviction (max 20 in memory). See Phase 4 section for full design.
-  - [ ] Multi-relay deployment: regional relays (EU/US/Asia, $5-10/month each, 1 Gbps) for messages/CRDT/signaling. Relay is stateless, just JSON routing — trivial to scale horizontally
-    - [ ] Relay discovery: list of relay URLs in app config (default: relay.anonlisten.com), users/admins can add backups
-    - [ ] Client picks lowest-latency relay, fallback on disconnect
-    - [ ] Room federation OR same-relay-per-server (simpler, scales to ~100K+ per relay)
-    - [ ] Self-hosted relay: Docker image or binary, custom relay URL via CRDT server setting
-    - [ ] Bandwidth monitoring: relay reports load, client picks least-loaded
-  - [ ] Concurrent connection capacity: each WS connection is ~2-10 KB memory (Rust/Tokio). Current VPS (8 GB RAM, 400 Mbps) can handle ~65K concurrent connections (systemd `LimitNOFILE=65536`, raised from 1024 in Phase 6.25). On 12 GB / 1 Gbps VPS: raise to `LimitNOFILE=500000`+, set OS `fs.file-max` accordingly. Tokio handles millions of idle connections — bandwidth is the real bottleneck, not connections. With 3 regional relays at 1 Gbps each: millions of concurrent users for lightweight text/CRDT routing. Heavy media/files go direct P2P via WebRTC (zero relay bandwidth for ~85% of transfers)
-- [ ] **File deduplication** — content-addressable dedup via SHA-256 hash. If the same file is sent multiple times, store once on disk, point all file_ids to the same path. Reference counting for cleanup.
-- [X] Unread message indicator: floating pill above chat input with arrow-down icon + unread count, click to scroll to newest, auto-dismiss on scroll — also fix channel chat auto-reload when MessageSyncCompleted fires for currently-viewed channel
 - [ ] Proper roles on the server and editing of permissions
-- [X] **Distributed MLS committer (Apr 6, 2026)** — removed owner-only KeyPackage processing. Any MLS group member can add new members (OpenMLS cryptographically enforces only valid group members can commit). Deterministic coordinator: `is_mls_coordinator()` = lowest peer_id among online MLS members. Fixes: new members can't decrypt channel messages when owner is offline. Olm fan-out fallback is still E2EE. CRDT ops stay plaintext (public server structure data). MLS auto-recovery (678018d) handles epoch desync. Falls back to owner-only for initial MLS group creation (no group exists yet).
-  - [X] Remove `is_owner` gate on `MlsKeyPackage` handler — replaced with `is_mls_coordinator()` check
-  - [X] Add deterministic coordinator election: `is_mls_coordinator()` helper function
-  - [X] Replace coordinator check in PeerJoined handler (MlsKeyPackageRequest trigger)
-  - [ ] Test: owner offline, member B (next lowest peer_id) processes new joiner's KeyPackage → Welcome sent → new member decrypts MLS messages
-- [X] **Vault self-healing fixes (Apr 6, 2026)** — repaired broken shard redistribution and added event-driven rebalancing
-  - [X] Fix repair request logic bug: removed broken `missing_indices.contains(shard_idx)` check (disjoint sets, always false). Now requests all available shards from online holders for reconstruction.
-  - [X] Event-driven rebalance triggers: `rebalance_pending` set + 10s debounce timer, triggered on PeerJoined + PeerLeft for server rooms
-  - [X] Deterministic coordinator for vault: `is_mls_coordinator()` check in both 30-min timer and event-driven rebalance
-  - [X] Wire up `compute_migration_plan()` — coordinator migrates locally-held shards to new targets on rebalance. Shards held by other peers migrate when they become coordinator. 5 new unit tests (coordinator election + migration with new members). 217 total tests. (Apr 6, 2026)
-  - [X] 30-min timer kept as safety net, now also coordinator-gated
-- [X] **Channel sync fix (Apr 6, 2026)** — MLS `ChannelProbe` silently failed after reconnection (stale MLS epoch → decrypt fails → no response → sync never completes → messages don't appear). Replaced sync coordinator's MLS probe path with plaintext `ChannelSyncRequest`. Sync response still encrypted (MLS/Olm). Also: `mergeFromDb()` method prevents data loss during cache reload, empty-cache detection in channel_chat_pane triggers reload.
 - [ ] Video preview in chats
 - [ ] Link previews (URL metadata fetch + embed card rendering)
 - [ ] Discord import system (full implementation — parse GDPR export ZIP, map servers/channels/roles/messages, placeholder identities, member claiming) == reflect to the discord_migration_plan.md
