@@ -15,6 +15,51 @@ pub struct DiscoveredPeer {
     pub addresses: Vec<String>,
 }
 
+/// FFI-facing video thumbnail back-reference.
+///
+/// When a `FileHeaderReceived` event carries this, the file is a thumbnail
+/// image for an underlying video stored in the vault. Dart side uses these
+/// fields to render the play button overlay, format duration/size badges,
+/// and trigger `vault_download_file(cid)` when the user taps play.
+///
+/// Phase 6.75 video preview in chats. See HOLLOW_PLAN.md.
+pub struct VideoThumbRef {
+    /// Vault content_id (sha256 of ciphertext) of the underlying video.
+    pub cid: String,
+    /// Original video file extension (mp4, webm, mkv, ...).
+    pub ext: String,
+    /// Original video file name (used as the default for the Save As dialog).
+    pub name: String,
+    /// Video size in bytes.
+    pub size: u64,
+    /// Video duration in milliseconds.
+    pub dur_ms: u32,
+}
+
+impl From<node::VideoThumbRef> for VideoThumbRef {
+    fn from(v: node::VideoThumbRef) -> Self {
+        Self {
+            cid: v.cid,
+            ext: v.ext,
+            name: v.name,
+            size: v.size,
+            dur_ms: v.dur_ms,
+        }
+    }
+}
+
+impl From<VideoThumbRef> for node::VideoThumbRef {
+    fn from(v: VideoThumbRef) -> Self {
+        Self {
+            cid: v.cid,
+            ext: v.ext,
+            name: v.name,
+            size: v.size,
+            dur_ms: v.dur_ms,
+        }
+    }
+}
+
 /// Events emitted by the network node.
 pub enum NetworkEvent {
     PeerDiscovered { peer: DiscoveredPeer },
@@ -81,6 +126,9 @@ pub enum NetworkEvent {
         sender_id: String,
         server_id: String,
         channel_id: String,
+        /// Video thumbnail back-reference (Phase 6.75 video preview).
+        /// Present when the received FileHeader is a thumbnail for a vault video.
+        video_thumb: Option<VideoThumbRef>,
     },
     FileProgress {
         file_id: String,
@@ -464,8 +512,12 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
             NetworkEvent::MessageUnpinned { server_id, channel_id, message_id }
         }
         // -- File transfer events --
-        node::NetworkEvent::FileHeaderReceived { file_id, file_name, size_bytes, is_image, width, height, message_id, sender_id, server_id, channel_id } => {
-            NetworkEvent::FileHeaderReceived { file_id, file_name, size_bytes, is_image, width, height, message_id, sender_id, server_id, channel_id }
+        node::NetworkEvent::FileHeaderReceived { file_id, file_name, size_bytes, is_image, width, height, message_id, sender_id, server_id, channel_id, video_thumb } => {
+            NetworkEvent::FileHeaderReceived {
+                file_id, file_name, size_bytes, is_image, width, height,
+                message_id, sender_id, server_id, channel_id,
+                video_thumb: video_thumb.map(VideoThumbRef::from),
+            }
         }
         node::NetworkEvent::FileProgress { file_id, chunks_received, total_chunks } => {
             NetworkEvent::FileProgress { file_id, chunks_received, total_chunks }
@@ -1175,6 +1227,14 @@ pub fn stop_node() -> Result<(), String> {
 /// Send a file to a DM peer or server channel.
 /// `peer_id`: target peer (for DMs, empty for channels).
 /// `server_id` + `channel_id`: target channel (for servers, empty for DMs).
+/// `vthumb`: optional video thumbnail back-reference. When set, the file at
+///           `file_path` is a thumbnail image for the vault-stored video
+///           identified by `vthumb.cid`. Phase 6.75 video preview.
+/// `override_width` / `override_height`: Phase 6.75 video preview — when the
+///           file at `file_path` is a video, Dart passes the video's pixel
+///           dimensions here so the FileHeader carries them and receivers can
+///           render the bubble at the correct aspect ratio. Ignored for image
+///           files (Rust extracts those dimensions itself).
 #[frb]
 pub fn send_file(
     peer_id: Option<String>,
@@ -1183,6 +1243,9 @@ pub fn send_file(
     file_path: String,
     message_id: String,
     message_text: String,
+    vthumb: Option<VideoThumbRef>,
+    override_width: Option<u32>,
+    override_height: Option<u32>,
 ) -> Result<(), String> {
     let node = get_node();
     let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
@@ -1201,6 +1264,9 @@ pub fn send_file(
                 file_path,
                 message_id,
                 message_text,
+                vthumb: vthumb.map(node::VideoThumbRef::from),
+                override_width,
+                override_height,
             }),
     )
     .map_err(|e| format!("Failed to send command: {e}"))?;

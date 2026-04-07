@@ -536,7 +536,8 @@ class EventStreamNotifier extends Notifier<bool> {
             :final fileId, :final fileName, :final sizeBytes,
             :final isImage, :final width, :final height,
             messageId: _, senderId: _,
-            :final serverId, channelId: _):
+            :final serverId, channelId: _,
+            :final videoThumb):
         debugPrint('[HOLLOW] File header: $fileId ($fileName, $sizeBytes bytes)');
         // In erasure coding mode (6+ members), file data comes via vault shards,
         // not P2P streaming — so don't mark as "downloading".
@@ -550,6 +551,7 @@ class EventStreamNotifier extends Notifier<bool> {
               width: width?.toInt(),
               height: height?.toInt(),
               isVaultMode: isVaultMode,
+              videoThumb: videoThumb,
             );
         // Reload chat so the message gets its fileAttachment from DB
         // (replacing the raw [file:xxx] text with the file card).

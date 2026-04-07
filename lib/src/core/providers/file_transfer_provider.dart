@@ -1,7 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:hollow/src/rust/api/network.dart' as network_api;
+import 'package:path/path.dart' as p;
+
+import '../services/video_thumbnail_service.dart';
 
 /// State for a single file transfer (sending or receiving).
 class FileTransferState {
@@ -23,6 +28,11 @@ class FileTransferState {
   final bool isImage;
   final int? width;
   final int? height;
+  /// Video thumbnail back-reference (Phase 6.75 video preview).
+  /// When non-null, this file is a thumbnail image for the vault-stored video
+  /// identified by `videoThumb.cid`. The UI renders a play button overlay and
+  /// triggers a vault download on tap.
+  final network_api.VideoThumbRef? videoThumb;
 
   const FileTransferState({
     required this.fileId,
@@ -40,6 +50,7 @@ class FileTransferState {
     this.isImage = false,
     this.width,
     this.height,
+    this.videoThumb,
   });
 
   double get progress =>
@@ -53,6 +64,7 @@ class FileTransferState {
     String? vaultPhase,
     String? error,
     String? diskPath,
+    network_api.VideoThumbRef? videoThumb,
   }) {
     return FileTransferState(
       fileId: fileId,
@@ -70,6 +82,7 @@ class FileTransferState {
       isImage: isImage,
       width: width,
       height: height,
+      videoThumb: videoThumb ?? this.videoThumb,
     );
   }
 }
@@ -79,6 +92,11 @@ class FileTransferNotifier
     extends Notifier<Map<String, FileTransferState>> {
   @override
   Map<String, FileTransferState> build() => {};
+
+  /// Video file extensions handled by the Phase 6.75 video preview path.
+  static const _videoExtensions = {
+    'mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v',
+  };
 
   /// Initiate a file send.
   /// [memberCount] is the server's member count — if >= 6, also triggers vault upload.
@@ -106,8 +124,49 @@ class FileTransferNotifier
     );
     state = updated;
 
-    // Call Rust FFI — P2P streaming path (works for all modes).
+    // Detect video files for the Phase 6.75 vault video preview path.
+    final ext = p.extension(filePath).toLowerCase().replaceFirst('.', '');
+    final isVideo = _videoExtensions.contains(ext);
+    final isVaultMode =
+        serverId != null && channelId != null && memberCount >= 6;
+
+    // Phase 6.75: For ALL video files (vault or direct P2P), pre-extract a
+    // thumbnail so we know the source video's pixel dimensions. We pass these
+    // to the FileHeader's width/height fields so receivers can render the
+    // bubble at the correct aspect ratio without their own probe round-trip.
+    // The vault path (below) reuses the same VideoThumbnailResult to avoid
+    // a second extraction.
+    VideoThumbnailResult? videoThumb;
+    if (isVideo) {
+      videoThumb = await VideoThumbnailService.extractVideoThumbnail(
+        videoPath: filePath,
+      );
+      if (videoThumb != null) {
+        debugPrint(
+            '[HOLLOW] Pre-extracted video dimensions: ${videoThumb.sourceWidth}x${videoThumb.sourceHeight}');
+      }
+    }
+
     try {
+      if (isVideo && isVaultMode) {
+        // Vault video path: extract WebP thumbnail, vault-upload the video,
+        // then send the thumbnail via the image P2P path with the vthumb link.
+        // See HOLLOW_PLAN.md Phase 6.75 "Video preview in chats".
+        await _sendVaultVideo(
+          serverId: serverId,
+          channelId: channelId,
+          filePath: filePath,
+          fileName: fileName,
+          ext: ext,
+          messageId: messageId,
+          messageText: messageText,
+          preExtractedThumb: videoThumb,
+        );
+        return;
+      }
+
+      // Default path: P2P streaming for everything else (DMs, <6 servers,
+      // images in any server, non-video files in 6+ servers).
       await network_api.sendFile(
         peerId: peerId,
         serverId: serverId,
@@ -115,12 +174,18 @@ class FileTransferNotifier
         filePath: filePath,
         messageId: messageId,
         messageText: messageText,
+        vthumb: null,
+        // For videos, pass the source dimensions so the FileHeader carries
+        // them to receivers. None for non-videos (Rust extracts image dims itself).
+        overrideWidth: videoThumb?.sourceWidth,
+        overrideHeight: videoThumb?.sourceHeight,
       );
 
-      // For 6+ member servers: also trigger vault upload (erasure coding + shard distribution).
-      // P2P streaming delivers to online peers immediately; vault ensures offline peers
-      // can reconstruct from shards later.
-      if (serverId != null && channelId != null && memberCount >= 6) {
+      // For 6+ member servers (non-video): also trigger vault upload
+      // (erasure coding + shard distribution). P2P streaming delivers to online
+      // peers immediately; vault ensures offline peers can reconstruct later.
+      // Skipped for videos because _sendVaultVideo handles the vault upload itself.
+      if (isVaultMode) {
         try {
           final contentId = await crdt_api.vaultUploadFile(
             serverId: serverId,
@@ -154,9 +219,147 @@ class FileTransferNotifier
     }
   }
 
+  /// Vault video send pipeline (Phase 6.75).
+  ///
+  /// Order matters:
+  ///   1. Extract thumbnail (Dart-side, ffmpeg subprocess).
+  ///   2. Vault-upload the video to obtain its content_id (synchronous return,
+  ///      bounded by file-read + AES encrypt). The vault upload does NOT emit
+  ///      a FileHeader broadcast — only the vault shard distribution starts.
+  ///   3. Send the thumbnail via the existing image P2P path (sendFile), with
+  ///      `vthumb` set to point at the just-obtained content_id. The recipient
+  ///      sees one bubble: the thumbnail with a play button overlay.
+  ///
+  /// On thumbnail extraction failure (ffmpeg missing/crash/timeout), falls back
+  /// to the dual-call legacy path so the video still uploads — the recipient
+  /// sees a generic file card without the play button.
+  Future<void> _sendVaultVideo({
+    required String serverId,
+    required String channelId,
+    required String filePath,
+    required String fileName,
+    required String ext,
+    required String messageId,
+    required String messageText,
+    VideoThumbnailResult? preExtractedThumb,
+  }) async {
+    // 1. Use the pre-extracted thumbnail from sendFile() if provided,
+    //    otherwise extract one now (may return null on any failure).
+    final thumb = preExtractedThumb ??
+        await VideoThumbnailService.extractVideoThumbnail(videoPath: filePath);
+
+    if (thumb == null) {
+      // Fallback: thumbnail extraction failed → fall through to legacy
+      // dual-call path so the video at least uploads successfully.
+      debugPrint(
+          '[HOLLOW] Video thumbnail extraction failed for $filePath — '
+          'falling back to legacy file card path');
+      await network_api.sendFile(
+        peerId: null,
+        serverId: serverId,
+        channelId: channelId,
+        filePath: filePath,
+        messageId: messageId,
+        messageText: messageText,
+        vthumb: null,
+        overrideWidth: null,
+        overrideHeight: null,
+      );
+      try {
+        final contentId = await crdt_api.vaultUploadFile(
+          serverId: serverId,
+          channelId: channelId,
+          filePath: filePath,
+          messageId: messageId,
+        );
+        final withCid = Map<String, FileTransferState>.from(state);
+        final current = withCid[messageId];
+        if (current != null) {
+          withCid[messageId] = current.copyWith(contentId: contentId);
+          state = withCid;
+        }
+      } catch (e) {
+        debugPrint('[HOLLOW] Vault upload failed in fallback: $e');
+      }
+      return;
+    }
+
+    // 2. Vault-upload the video first to get its content_id.
+    String contentId;
+    try {
+      contentId = await crdt_api.vaultUploadFile(
+        serverId: serverId,
+        channelId: channelId,
+        filePath: filePath,
+        messageId: messageId,
+      );
+    } catch (e) {
+      debugPrint('[HOLLOW] Vault upload failed for video $filePath: $e');
+      rethrow;
+    }
+
+    // 3. Write the thumbnail to a temp .webp file so we can hand its path
+    //    to the existing sendFile FFI.
+    final tempDir = await Directory.systemTemp.createTemp('hollow_vthumb_');
+    final thumbPath = p.join(tempDir.path, '$messageId.webp');
+    try {
+      await File(thumbPath).writeAsBytes(thumb.webpBytes, flush: true);
+
+      // 4. Build the VideoThumbRef linking field.
+      final videoStat = await File(filePath).stat();
+      final vthumb = network_api.VideoThumbRef(
+        cid: contentId,
+        ext: ext,
+        name: fileName,
+        size: BigInt.from(videoStat.size),
+        durMs: thumb.durationMs,
+      );
+
+      // 5. Send the thumbnail via the image P2P path with the link.
+      //    The recipient sees one bubble — the thumbnail .webp — that's
+      //    rendered by VideoMessageBubble because vthumb is non-null.
+      //    Pass the SOURCE VIDEO dimensions through override_width/height
+      //    so the FileHeader carries the correct aspect ratio (the thumbnail
+      //    .webp dimensions would be the scaled-down version, not what the
+      //    bubble should size to).
+      await network_api.sendFile(
+        peerId: null,
+        serverId: serverId,
+        channelId: channelId,
+        filePath: thumbPath,
+        messageId: messageId,
+        messageText: messageText,
+        vthumb: vthumb,
+        overrideWidth: thumb.sourceWidth,
+        overrideHeight: thumb.sourceHeight,
+      );
+
+      // 6. Update local FileTransferState with both contentId and videoThumb so
+      //    our own UI renders the play button immediately on the sender side.
+      final withVThumb = Map<String, FileTransferState>.from(state);
+      final current = withVThumb[messageId];
+      if (current != null) {
+        withVThumb[messageId] = current.copyWith(
+          contentId: contentId,
+          videoThumb: vthumb,
+        );
+        state = withVThumb;
+      }
+      debugPrint(
+          '[HOLLOW] Vault video sent: cid=$contentId thumb=${thumb.webpBytes.length} bytes');
+    } finally {
+      // 7. Cleanup the temp dir + thumbnail file.
+      try {
+        await tempDir.delete(recursive: true);
+      } catch (_) {}
+    }
+  }
+
   /// Handle FileHeaderReceived event.
   /// [isVaultMode] — if true (6+ member server), file data arrives via vault shards,
   /// not P2P streaming, so we don't mark it as "downloading".
+  /// [videoThumb] — Phase 6.75 video preview link. When non-null, this file is a
+  /// thumbnail for a vault-stored video; the UI will render a play button.
   void onFileHeaderReceived({
     required String fileId,
     required String fileName,
@@ -165,6 +368,7 @@ class FileTransferNotifier
     int? width,
     int? height,
     bool isVaultMode = false,
+    network_api.VideoThumbRef? videoThumb,
   }) {
     // Don't overwrite an existing entry (e.g., from a sync batch that already
     // set isComplete, or a prior live transfer). Only create new entries.
@@ -182,6 +386,7 @@ class FileTransferNotifier
       // progress starts (FileProgress event) or by the download button.
       // This prevents synced file metadata from showing "Downloading..." forever.
       isDownloading: false,
+      videoThumb: videoThumb,
     );
     state = updated;
   }

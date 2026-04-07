@@ -1,3 +1,5 @@
+import '../../rust/api/network.dart' as network_api;
+
 /// File attachment metadata for messages.
 class FileAttachment {
   final String fileId;
@@ -12,6 +14,11 @@ class FileAttachment {
   final int chunksReceived;
   final bool isComplete;
   final String? diskPath;
+  /// Video thumbnail back-reference (Phase 6.75 video preview).
+  /// When non-null, this file is a thumbnail image for the vault-stored video
+  /// identified by [videoThumb.cid]. The UI renders a play button overlay and
+  /// triggers a vault download on tap.
+  final network_api.VideoThumbRef? videoThumb;
 
   const FileAttachment({
     required this.fileId,
@@ -26,6 +33,7 @@ class FileAttachment {
     this.chunksReceived = 0,
     this.isComplete = false,
     this.diskPath,
+    this.videoThumb,
   });
 
   double get progress =>
@@ -43,6 +51,7 @@ class FileAttachment {
     int? chunksReceived,
     bool? isComplete,
     String? diskPath,
+    network_api.VideoThumbRef? videoThumb,
   }) {
     return FileAttachment(
       fileId: fileId,
@@ -57,6 +66,7 @@ class FileAttachment {
       chunksReceived: chunksReceived ?? this.chunksReceived,
       isComplete: isComplete ?? this.isComplete,
       diskPath: diskPath ?? this.diskPath,
+      videoThumb: videoThumb ?? this.videoThumb,
     );
   }
 }

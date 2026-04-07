@@ -279,6 +279,7 @@ class ChannelChatNotifier
                 chunksReceived: info.chunksReceived,
                 isComplete: info.completedAt != null,
                 diskPath: info.diskPath,
+                videoThumb: info.videoThumb,
               );
             }
           } catch (_) {}
@@ -414,6 +415,7 @@ class ChannelChatNotifier
               chunksReceived: info.chunksReceived,
               isComplete: info.completedAt != null,
               diskPath: info.diskPath,
+              videoThumb: info.videoThumb,
             );
           }
         } catch (_) {}

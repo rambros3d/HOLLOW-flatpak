@@ -641,6 +641,100 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     }
   }
 
+  /// Phase 6.75 video preview: download the underlying vault video for a
+  /// thumbnail message, then open Save As dialog with the original video's
+  /// filename. The link lives in [attachment.videoThumb] — we use `cid` to
+  /// fetch from the vault and `name`/`ext` for the save dialog defaults.
+  Future<void> _vaultDownloadAndSaveVideo(FileAttachment attachment) async {
+    final vthumb = attachment.videoThumb;
+    if (vthumb == null) return;
+    if (_isPicking) return;
+    try {
+      if (mounted) {
+        HollowToast.show(context, 'Reconstructing video from shards...',
+            type: HollowToastType.info);
+      }
+
+      // 1. Trigger vault download for the underlying video.
+      final cachedPath = await crdt_api.vaultDownloadFile(
+        serverId: widget.serverId,
+        contentId: vthumb.cid,
+      );
+
+      if (cachedPath.isNotEmpty) {
+        // Cache hit — open Save As immediately.
+        if (mounted) {
+          await _saveCacheFileWithName(
+            cachePath: cachedPath,
+            saveFileName: vthumb.name,
+            fileExt: vthumb.ext,
+          );
+        }
+        return;
+      }
+
+      // 2. Async reconstruction in flight — wait up to 60 seconds for
+      // VaultDownloadComplete (lands in fileTransferProvider keyed by contentId).
+      for (int i = 0; i < 120; i++) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (!mounted) return;
+        final transfers = ref.read(fileTransferProvider);
+        final match = transfers.values.where(
+          (t) => t.contentId == vthumb.cid && t.diskPath != null && t.diskPath!.isNotEmpty,
+        );
+        if (match.isNotEmpty) {
+          await _saveCacheFileWithName(
+            cachePath: match.first.diskPath!,
+            saveFileName: vthumb.name,
+            fileExt: vthumb.ext,
+          );
+          return;
+        }
+      }
+      if (mounted) {
+        HollowToast.show(context, 'Download timed out — not enough peers online',
+            type: HollowToastType.error);
+      }
+    } catch (e) {
+      if (mounted) {
+        HollowToast.show(context, 'Download failed: $e',
+            type: HollowToastType.error);
+      }
+    }
+  }
+
+  /// Open Save As dialog with the supplied default filename + extension,
+  /// then copy from [cachePath] to the user-chosen destination. Used by the
+  /// vault video save flow where the thumbnail's filename/ext don't match
+  /// the underlying video's filename/ext.
+  Future<void> _saveCacheFileWithName({
+    required String cachePath,
+    required String saveFileName,
+    required String fileExt,
+  }) async {
+    if (_isPicking) return;
+    _isPicking = true;
+    try {
+      final savePath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save video',
+        fileName: saveFileName,
+        type: FileType.custom,
+        allowedExtensions: [fileExt],
+      );
+      if (savePath == null) return;
+      await File(cachePath).copy(savePath);
+      if (mounted) {
+        HollowToast.show(context, 'Video saved', type: HollowToastType.success);
+      }
+    } catch (e) {
+      if (mounted) {
+        HollowToast.show(context, 'Save failed: $e', type: HollowToastType.error);
+      }
+    } finally {
+      _isPicking = false;
+    }
+  }
+
   /// Download a vault file (reconstruct from shards), then open Save As dialog.
   Future<void> _vaultDownloadAndSave(FileAttachment attachment) async {
     if (_isPicking) return;
@@ -1186,7 +1280,13 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                                   return;
                                 }
 
-                                if (msg.fileAttachment!.diskPath != null) {
+                                // Phase 6.75 video preview: if this is a vault video
+                                // thumbnail, save the underlying VIDEO (not the thumbnail
+                                // .webp). The link lives in `videoThumb.cid` — fetch from
+                                // the vault and save with the original video filename.
+                                if (msg.fileAttachment!.videoThumb != null) {
+                                  _vaultDownloadAndSaveVideo(msg.fileAttachment!);
+                                } else if (msg.fileAttachment!.diskPath != null) {
                                   _saveFile(msg.fileAttachment!);
                                 } else {
                                   // For <6 member servers (full replication), request file from

@@ -9,7 +9,11 @@ import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/chat/video_message_bubble.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+
+/// File extensions that trigger the video bubble (Phase 6.75 video preview).
+const _videoExtensions = {'mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v'};
 
 /// Renders a file attachment inline in a message bubble.
 ///
@@ -47,10 +51,28 @@ class FileAttachmentWidget extends ConsumerWidget {
         : attachment.sizeBytes;
     final bytesReceived = (progress * totalBytes).round();
 
+    // Phase 6.75: Video preview takes priority over generic file rendering.
+    // Two cases handled by VideoMessageBubble:
+    //  (a) vault video — videoThumb is set, attachment is the .webp thumbnail
+    //  (b) direct P2P video — DM or <6 server, file is on disk locally
+    if (_isVideoAttachment()) {
+      return VideoMessageBubble(attachment: attachment);
+    }
+
     if (attachment.isImage) {
       return _buildImagePreview(context, hollow, isComplete, diskPath, isDownloading, progress, bytesReceived, vaultPhase);
     }
     return _buildFileCard(hollow, isComplete, isDownloading, progress, bytesReceived, vaultPhase);
+  }
+
+  /// True when this attachment should be rendered as a video bubble.
+  /// Either it's a vault video (videoThumb is set) or its extension matches
+  /// a video format (DM / <6 server direct P2P video).
+  bool _isVideoAttachment() {
+    if (attachment.videoThumb != null) return true;
+    // Don't claim images even if their ext somehow matches.
+    if (attachment.isImage) return false;
+    return _videoExtensions.contains(attachment.fileExt.toLowerCase());
   }
 
   Widget _buildImagePreview(

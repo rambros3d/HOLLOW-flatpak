@@ -70,6 +70,11 @@ pub(crate) struct StoredFile {
     pub completed_at: Option<i64>,
     pub disk_path: Option<String>,
     pub hidden_at: Option<i64>,
+    /// Video thumbnail back-reference (Phase 6.75 video preview).
+    /// When this file is a thumbnail image for a vault-stored video, this field
+    /// holds the link back to the underlying video. Persisted as JSON in the
+    /// `video_thumb_json` column. None for regular files and images.
+    pub video_thumb: Option<crate::node::VideoThumbRef>,
 }
 
 /// Encrypted SQLite message store.
@@ -440,6 +445,13 @@ impl MessageStore {
             [],
         )
         .map_err(|e| format!("Failed to create files context index: {e}"))?;
+
+        // -- Migration: video_thumb_json column (Phase 6.75 video preview).
+        // Stores a JSON-encoded VideoThumbRef when this file is a thumbnail
+        // for a vault-stored video. Wrapped in unwrap_or to handle re-runs.
+        conn.execute_batch(
+            "ALTER TABLE files ADD COLUMN video_thumb_json TEXT;"
+        ).unwrap_or(());
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS file_chunks (
@@ -2043,6 +2055,7 @@ impl MessageStore {
     // ── File sharing storage ────────────────────────────────────────
 
     /// Insert file metadata (called when FileHeader is received or file is sent).
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_file_metadata(
         &self,
         file_id: &str,
@@ -2060,24 +2073,34 @@ impl MessageStore {
         sender_id: &str,
         is_mine: bool,
         created_at: i64,
+        video_thumb: Option<&crate::node::VideoThumbRef>,
     ) -> Result<(), String> {
+        let vthumb_json = video_thumb
+            .and_then(|v| serde_json::to_string(v).ok());
         self.conn
             .execute(
                 "INSERT OR IGNORE INTO files
                  (file_id, file_name, file_ext, mime_type, size_bytes,
                   chunk_count, is_image, width, height, message_id,
-                  context_type, context_id, sender_id, is_mine, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                  context_type, context_id, sender_id, is_mine, created_at,
+                  video_thumb_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
                 params![
                     file_id, file_name, file_ext, mime_type,
                     size_bytes as i64, chunk_count, is_image as i32,
                     width.map(|w| w as i64), height.map(|h| h as i64),
                     message_id, context_type, context_id, sender_id,
-                    is_mine as i32, created_at,
+                    is_mine as i32, created_at, vthumb_json,
                 ],
             )
             .map_err(|e| format!("Failed to insert file metadata: {e}"))?;
         Ok(())
+    }
+
+    /// Helper: deserialize a VideoThumbRef JSON blob from the DB. Returns None
+    /// on null or parse failure (forward-compat).
+    fn parse_video_thumb_json(json: Option<String>) -> Option<crate::node::VideoThumbRef> {
+        json.and_then(|s| serde_json::from_str(&s).ok())
     }
 
     /// Mark a chunk as received. Returns the new chunks_received count.
@@ -2147,7 +2170,8 @@ impl MessageStore {
                 "SELECT file_id, file_name, file_ext, mime_type, size_bytes,
                         chunk_count, chunks_received, is_image, width, height,
                         message_id, context_type, context_id, sender_id, is_mine,
-                        created_at, completed_at, disk_path, hidden_at
+                        created_at, completed_at, disk_path, hidden_at,
+                        video_thumb_json
                  FROM files WHERE file_id = ?1",
             )
             .map_err(|e| format!("Failed to prepare file query: {e}"))?;
@@ -2174,6 +2198,7 @@ impl MessageStore {
                     completed_at: row.get(16)?,
                     disk_path: row.get(17)?,
                     hidden_at: row.get(18)?,
+                    video_thumb: Self::parse_video_thumb_json(row.get::<_, Option<String>>(19)?),
                 })
             })
             .ok();
@@ -2189,7 +2214,8 @@ impl MessageStore {
                 "SELECT file_id, file_name, file_ext, mime_type, size_bytes,
                         chunk_count, chunks_received, is_image, width, height,
                         message_id, context_type, context_id, sender_id, is_mine,
-                        created_at, completed_at, disk_path, hidden_at
+                        created_at, completed_at, disk_path, hidden_at,
+                        video_thumb_json
                  FROM files WHERE message_id = ?1",
             )
             .map_err(|e| format!("Failed to prepare files query: {e}"))?;
@@ -2216,6 +2242,7 @@ impl MessageStore {
                     completed_at: row.get(16)?,
                     disk_path: row.get(17)?,
                     hidden_at: row.get(18)?,
+                    video_thumb: Self::parse_video_thumb_json(row.get::<_, Option<String>>(19)?),
                 })
             })
             .map_err(|e| format!("Failed to query files: {e}"))?;
@@ -2235,7 +2262,8 @@ impl MessageStore {
                 "SELECT file_id, file_name, file_ext, mime_type, size_bytes,
                         chunk_count, chunks_received, is_image, width, height,
                         message_id, context_type, context_id, sender_id, is_mine,
-                        created_at, completed_at, disk_path, hidden_at
+                        created_at, completed_at, disk_path, hidden_at,
+                        video_thumb_json
                  FROM files WHERE completed_at IS NULL AND hidden_at IS NULL",
             )
             .map_err(|e| format!("Failed to prepare incomplete files query: {e}"))?;
@@ -2262,6 +2290,7 @@ impl MessageStore {
                     completed_at: row.get(16)?,
                     disk_path: row.get(17)?,
                     hidden_at: row.get(18)?,
+                    video_thumb: Self::parse_video_thumb_json(row.get::<_, Option<String>>(19)?),
                 })
             })
             .map_err(|e| format!("Failed to query incomplete files: {e}"))?;

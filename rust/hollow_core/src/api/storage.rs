@@ -453,6 +453,11 @@ pub struct StoredFileInfo {
     pub created_at: i64,
     pub completed_at: Option<i64>,
     pub disk_path: Option<String>,
+    /// Video thumbnail back-reference (Phase 6.75 video preview).
+    /// When non-null, this file is a thumbnail image for a vault-stored video.
+    /// The Dart UI uses this to render a play button overlay and trigger the
+    /// vault download on tap.
+    pub video_thumb: Option<crate::api::network::VideoThumbRef>,
 }
 
 fn stored_file_to_ffi(f: crate::storage::messages::StoredFile) -> StoredFileInfo {
@@ -475,6 +480,7 @@ fn stored_file_to_ffi(f: crate::storage::messages::StoredFile) -> StoredFileInfo
         created_at: f.created_at,
         completed_at: f.completed_at,
         disk_path: f.disk_path,
+        video_thumb: f.video_thumb.map(crate::api::network::VideoThumbRef::from),
     }
 }
 

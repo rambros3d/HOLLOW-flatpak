@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:fvp/fvp.dart' as fvp;
 import 'package:hollow/src/core/providers/member_panel_provider.dart';
 import 'package:hollow/src/core/providers/webrtc_provider.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
@@ -149,6 +150,12 @@ Future<void> main() async {
   await HollowShaderWarmUp().execute();
 
   await RustLib.init();
+
+  // Phase 6.75 video preview: register fvp as the platform implementation for
+  // video_player on Windows/Linux (where the official video_player has no
+  // native backend). On Android/iOS/macOS the official video_player works
+  // natively and registerWith() is a no-op for those platforms.
+  fvp.registerWith();
 
   final container = ProviderContainer();
   _container = container;

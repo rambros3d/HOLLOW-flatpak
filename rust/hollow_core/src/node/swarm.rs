@@ -115,6 +115,9 @@ pub(crate) enum NetworkEvent {
         sender_id: String,
         server_id: String,    // empty for DMs
         channel_id: String,   // peer_id for DMs
+        /// Video thumbnail back-reference (Phase 6.75 video preview).
+        /// Present when the received FileHeader is a thumbnail for a vault video.
+        video_thumb: Option<VideoThumbRef>,
     },
     FileProgress {
         file_id: String,
@@ -252,6 +255,18 @@ pub(crate) enum NodeCommand {
         file_path: String,                 // Local path to file
         message_id: String,
         message_text: String,
+        /// Video thumbnail back-reference (Phase 6.75 video preview).
+        /// When set, the file at `file_path` is a thumbnail image for the
+        /// vault-stored video identified by `vthumb.cid`. Forwarded into
+        /// the FileHeader envelope so receivers can render a play button.
+        vthumb: Option<VideoThumbRef>,
+        /// Override width for the FileHeader. Used by the video preview
+        /// pipeline (Phase 6.75) to populate the underlying VIDEO's pixel
+        /// dimensions in the FileHeader so receivers can render the bubble at
+        /// the correct aspect ratio before downloading the video itself.
+        /// Ignored for image files (Rust extracts those dimensions itself).
+        override_width: Option<u32>,
+        override_height: Option<u32>,
     },
     RequestFile {
         file_id: String,
@@ -895,6 +910,12 @@ enum MessageEnvelope {
         /// Target peer (only that peer processes; others decrypt but discard).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target: Option<String>,
+        /// Video thumbnail back-reference (Phase 6.75 video preview).
+        /// When present, this file is a thumbnail image for a vault-stored video;
+        /// `vthumb.cid` points to the vault content_id of the actual video bytes.
+        /// Old clients lacking this field deserialize it as None.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        vthumb: Option<VideoThumbRef>,
     },
 
     /// A single file chunk (base64-encoded data).
@@ -1439,6 +1460,38 @@ struct SyncFileMetaItem {
     mid: Option<String>,
     ts: i64,
     sender: String,
+    /// Video thumbnail back-reference (Phase 6.75 video preview).
+    /// Present when this file is a thumbnail for a vault-stored video.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    vthumb: Option<VideoThumbRef>,
+}
+
+/// Back-reference from a thumbnail image (sent via the image P2P path) to the
+/// underlying video bytes (stored in the vault). Carried in `MessageEnvelope::FileHeader`
+/// and persisted alongside file metadata.
+///
+/// All fields are needed by the receiver to: (a) display the thumbnail with
+/// duration/size badges, (b) trigger a `vault_download_file` on play, (c) Save
+/// the underlying video with its original name.
+///
+/// Phase 6.75 video preview in chats. See HOLLOW_PLAN.md.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoThumbRef {
+    /// Vault content_id (sha256 of ciphertext) of the underlying video.
+    #[serde(default)]
+    pub cid: String,
+    /// Original video file extension (mp4, webm, mkv, ...).
+    #[serde(default)]
+    pub ext: String,
+    /// Original video file name (used as the default for the Save As dialog).
+    #[serde(default)]
+    pub name: String,
+    /// Video size in bytes.
+    #[serde(default)]
+    pub size: u64,
+    /// Video duration in milliseconds.
+    #[serde(default)]
+    pub dur_ms: u32,
 }
 
 /// A single DM in a DM sync batch.
@@ -4611,7 +4664,7 @@ async fn run_event_loop(
                         }
 
                     // -- File sharing (Phase 3.5) --
-                    NodeCommand::SendFile { peer_id, server_id, channel_id, file_path, message_id, message_text } => {
+                    NodeCommand::SendFile { peer_id, server_id, channel_id, file_path, message_id, message_text, vthumb, override_width, override_height } => {
                         use crate::node::file_transfer;
                         use crate::node::image_convert;
 
@@ -4679,7 +4732,9 @@ async fn run_event_loop(
                             let dims = image_convert::get_image_dimensions(&file_data).ok();
                             (file_data.clone(), original_ext.clone(), dims.map(|d| d.0), dims.map(|d| d.1))
                         } else {
-                            (file_data.clone(), original_ext.clone(), None, None)
+                            // Non-image files: use Dart-supplied dimensions if any (Phase 6.75
+                            // video preview passes the source video's dimensions through here).
+                            (file_data.clone(), original_ext.clone(), override_width, override_height)
                         };
 
                         // 5. Generate file ID.
@@ -4736,6 +4791,7 @@ async fn run_event_loop(
                                     width, height,
                                     Some(&message_id), ctx_type, &ctx_id,
                                     &local_peer, true, timestamp,
+                                    vthumb.as_ref(),
                                 );
                                 if store_full_file {
                                     let _ = store.mark_file_complete(
@@ -4744,6 +4800,21 @@ async fn run_event_loop(
                                     );
                                 }
                             }
+                        }
+
+                        // Emit FileCompleted on the sender side too, so the
+                        // sender's UI reloads the chat from the DB and picks
+                        // up the real width/height/videoThumb/etc that Rust
+                        // wrote to the local row. Without this, the sender's
+                        // optimistic FileAttachment (built without dimensions
+                        // by addFileMessage) is stuck with the wrong size.
+                        // Receivers already get this via the stream-receive
+                        // code path at swarm.rs:6898; sender path was missing.
+                        if store_full_file {
+                            let _ = event_tx.send(NetworkEvent::FileCompleted {
+                                file_id: file_id.clone(),
+                                disk_path: final_path.to_string_lossy().to_string(),
+                            }).await;
                         }
 
                         // 8. Build and send the message with file_id.
@@ -4825,6 +4896,7 @@ async fn run_event_loop(
                                             aes_key: Some(aes_key_hex),
                                             aes_nonce: Some(aes_nonce_hex),
                                             target: None,
+                                            vthumb: vthumb.clone(),
                                         };
                                         let header_json = serde_json::to_string(&header).unwrap_or_default();
                                         send_encrypted_message(
@@ -4935,6 +5007,7 @@ async fn run_event_loop(
                                     aes_key: Some(aes_key_hex),
                                     aes_nonce: Some(aes_nonce_hex),
                                     target: None,
+                                    vthumb: vthumb.clone(),
                                 };
                                 let header_json = serde_json::to_string(&header).unwrap_or_default();
 
@@ -7781,6 +7854,7 @@ async fn handle_incoming_request(
                                         fm.size, 0, fm.img, fm.w, fm.h,
                                         fm.mid.as_deref(), "channel", &ctx_id,
                                         &fm.sender, msg.s == local_peer, fm.ts,
+                                        fm.vthumb.as_ref(),
                                     );
                                     let _ = event_tx.send(NetworkEvent::FileHeaderReceived {
                                         file_id: fm.fid.clone(),
@@ -7793,6 +7867,7 @@ async fn handle_incoming_request(
                                         sender_id: fm.sender.clone(),
                                         server_id: sid.clone(),
                                         channel_id: cid.clone(),
+                                        video_thumb: fm.vthumb.clone(),
                                     }).await;
                                 }
 
@@ -7950,6 +8025,7 @@ async fn handle_incoming_request(
                                         fm.size, 0, fm.img, fm.w, fm.h,
                                         fm.mid.as_deref(), "dm", &peer_str,
                                         &fm.sender, false, fm.ts,
+                                        fm.vthumb.as_ref(),
                                     );
                                     let _ = event_tx.send(NetworkEvent::FileHeaderReceived {
                                         file_id: fm.fid.clone(),
@@ -7962,6 +8038,7 @@ async fn handle_incoming_request(
                                         sender_id: fm.sender.clone(),
                                         server_id: String::new(),
                                         channel_id: peer_str.to_string(),
+                                        video_thumb: fm.vthumb.clone(),
                                     }).await;
                                 }
 
@@ -8190,7 +8267,7 @@ async fn handle_incoming_request(
                     }
                 }
                 // -- File transfer receive handlers --
-                Ok(MessageEnvelope::FileHeader { fid, name, ext, mime, size, chunks, img, w, h, mid, sid, cid, ts, aes_key, aes_nonce, .. }) => {
+                Ok(MessageEnvelope::FileHeader { fid, name, ext, mime, size, chunks, img, w, h, mid, sid, cid, ts, aes_key, aes_nonce, vthumb, .. }) => {
                     use crate::node::file_transfer;
                     hollow_log!("[HOLLOW-FILE] FileHeader received: {fid} ({name}, {size} bytes, {chunks} chunks)");
 
@@ -8231,6 +8308,7 @@ async fn handle_incoming_request(
                                 w, h,
                                 mid.as_deref(), ctx_type, &ctx_id,
                                 &peer_str, false, ts,
+                                vthumb.as_ref(),
                             );
                         }
                     }
@@ -8286,6 +8364,7 @@ async fn handle_incoming_request(
                         sender_id: peer_str.to_string(),
                         server_id: sid_str,
                         channel_id: cid_str,
+                        video_thumb: vthumb,
                     }).await;
                 }
                 Ok(MessageEnvelope::FileChunk { fid, idx, data }) => {
@@ -9690,6 +9769,7 @@ async fn handle_incoming_request(
                                     mid: f.message_id,
                                     ts: f.created_at,
                                     sender: f.sender_id,
+                                    vthumb: f.video_thumb,
                                 })
                             });
                             SyncMessageItem {
@@ -9880,6 +9960,7 @@ async fn handle_incoming_request(
                                     mid: f.message_id,
                                     ts: f.created_at,
                                     sender: f.sender_id,
+                                    vthumb: f.video_thumb,
                                 })
                             });
                             DmSyncItem {
@@ -10142,7 +10223,7 @@ async fn handle_incoming_request(
                                     }).await;
                                 }
                             }
-                            MessageEnvelope::FileHeader { fid, name, ext, mime, size, chunks, img, w, h, mid, sid, cid, ts, aes_key, aes_nonce, .. } => {
+                            MessageEnvelope::FileHeader { fid, name, ext, mime, size, chunks, img, w, h, mid, sid, cid, ts, aes_key, aes_nonce, vthumb, .. } => {
                                 use crate::node::file_transfer;
                                 hollow_log!("[HOLLOW-FILE] MLS FileHeader: {fid} ({name}, {size} bytes, {chunks} chunks)");
 
@@ -10174,6 +10255,7 @@ async fn handle_incoming_request(
                                         w, h,
                                         mid.as_deref(), ctx_type, &ctx_id,
                                         &sender_peer_id, false, ts,
+                                        vthumb.as_ref(),
                                     );
                                 }
 
@@ -10224,6 +10306,7 @@ async fn handle_incoming_request(
                                     sender_id: sender_peer_id.clone(),
                                     server_id: sid.unwrap_or(server_id.clone()),
                                     channel_id: cid.unwrap_or_default(),
+                                    video_thumb: vthumb,
                                 }).await;
                             }
                             MessageEnvelope::FileChunk { fid, idx, data } => {
@@ -10582,6 +10665,7 @@ async fn handle_incoming_request(
                                                     fid: f.file_id, name: f.file_name, ext: f.file_ext, mime: f.mime_type,
                                                     size: f.size_bytes, img: f.is_image, w: f.width, h: f.height,
                                                     mid: f.message_id, ts: f.created_at, sender: f.sender_id,
+                                                    vthumb: f.video_thumb,
                                                 })
                                             });
                                             SyncMessageItem {
@@ -10709,6 +10793,7 @@ async fn handle_incoming_request(
                                                 fm.size, 0, fm.img, fm.w, fm.h,
                                                 fm.mid.as_deref(), "channel", &ctx_id,
                                                 &fm.sender, msg.s == local_peer, fm.ts,
+                                                fm.vthumb.as_ref(),
                                             );
                                             let _ = event_tx.send(NetworkEvent::FileHeaderReceived {
                                                 file_id: fm.fid.clone(), file_name: fm.name.clone(),
@@ -10717,6 +10802,7 @@ async fn handle_incoming_request(
                                                 message_id: fm.mid.clone().unwrap_or_default(),
                                                 sender_id: fm.sender.clone(),
                                                 server_id: sid.clone(), channel_id: cid.clone(),
+                                                video_thumb: fm.vthumb.clone(),
                                             }).await;
                                         }
                                         // Sync reactions.
@@ -11837,6 +11923,7 @@ async fn handle_incoming_request(
                                             aes_key: Some(hex::encode(enc.key)),
                                             aes_nonce: Some(hex::encode(enc.nonce)),
                                             target: None,
+                                            vthumb: file_meta.video_thumb.clone(),
                                         };
                                         // Send FileHeader via MLS (targeted) if possible, Olm fallback.
                                             let ctx_sid = file_meta.context_id.split(':').next().unwrap_or("").to_string();
@@ -12292,6 +12379,7 @@ async fn flush_pending_sync_requests(
                             mid: f.message_id,
                             ts: f.created_at,
                             sender: f.sender_id,
+                            vthumb: f.video_thumb,
                         })
                     });
                     SyncMessageItem {

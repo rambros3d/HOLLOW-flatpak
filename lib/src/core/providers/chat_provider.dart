@@ -259,6 +259,7 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
               chunksReceived: info.chunksReceived,
               isComplete: info.completedAt != null,
               diskPath: info.diskPath,
+              videoThumb: info.videoThumb,
             );
           }
         } catch (_) {}

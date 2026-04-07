@@ -53,6 +53,9 @@ rust/hollow_core/target/
 rust/target/
 relay/target/
 
+# Bundled native binaries (fetched via scripts/fetch_ffmpeg.{ps1,sh})
+vendor/ffmpeg/
+
 # flutter_rust_bridge
 .flutter-plugins
 

@@ -114,3 +114,19 @@ install(FILES
   "${OPENSSL_BIN_DIR}/libssl-3-x64.dll"
   DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
+
+# Copy bundled ffmpeg binary used by VideoThumbnailService for first-frame
+# WebP thumbnail extraction. Sourced via scripts/fetch_ffmpeg.ps1.
+# See HOLLOW_PLAN.md Phase 6.75 "Video preview in chats".
+set(BUNDLED_FFMPEG_SRC "${CMAKE_SOURCE_DIR}/../vendor/ffmpeg/ffmpeg-win-x64.exe")
+if(EXISTS "${BUNDLED_FFMPEG_SRC}")
+  install(PROGRAMS "${BUNDLED_FFMPEG_SRC}"
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    RENAME "ffmpeg.exe"
+    COMPONENT Runtime)
+else()
+  message(WARNING
+    "vendor/ffmpeg/ffmpeg-win-x64.exe not found. "
+    "Run scripts/fetch_ffmpeg.ps1 to populate it. "
+    "Video thumbnail extraction will be disabled at runtime.")
+endif()

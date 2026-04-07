@@ -10,6 +10,7 @@ part 'network.freezed.dart';
 
 // These functions are ignored because they are not marked as `pub`: `event_forwarding_task`, `get_event_rx`, `get_node`, `get_runtime`, `to_ffi_event`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `NodeState`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `from`, `from`
 
 /// Start the libp2p node with mDNS peer discovery and E2EE.
 /// Uses the persistent identity from disk.
@@ -234,6 +235,14 @@ Future<void> stopNode() => RustLib.instance.api.crateApiNetworkStopNode();
 /// Send a file to a DM peer or server channel.
 /// `peer_id`: target peer (for DMs, empty for channels).
 /// `server_id` + `channel_id`: target channel (for servers, empty for DMs).
+/// `vthumb`: optional video thumbnail back-reference. When set, the file at
+///           `file_path` is a thumbnail image for the vault-stored video
+///           identified by `vthumb.cid`. Phase 6.75 video preview.
+/// `override_width` / `override_height`: Phase 6.75 video preview — when the
+///           file at `file_path` is a video, Dart passes the video's pixel
+///           dimensions here so the FileHeader carries them and receivers can
+///           render the bubble at the correct aspect ratio. Ignored for image
+///           files (Rust extracts those dimensions itself).
 Future<void> sendFile({
   String? peerId,
   String? serverId,
@@ -241,6 +250,9 @@ Future<void> sendFile({
   required String filePath,
   required String messageId,
   required String messageText,
+  VideoThumbRef? vthumb,
+  int? overrideWidth,
+  int? overrideHeight,
 }) => RustLib.instance.api.crateApiNetworkSendFile(
   peerId: peerId,
   serverId: serverId,
@@ -248,6 +260,9 @@ Future<void> sendFile({
   filePath: filePath,
   messageId: messageId,
   messageText: messageText,
+  vthumb: vthumb,
+  overrideWidth: overrideWidth,
+  overrideHeight: overrideHeight,
 );
 
 /// Request file chunks from a specific peer.
@@ -627,6 +642,10 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String senderId,
     required String serverId,
     required String channelId,
+
+    /// Video thumbnail back-reference (Phase 6.75 video preview).
+    /// Present when the received FileHeader is a thumbnail for a vault video.
+    VideoThumbRef? videoThumb,
   }) = NetworkEvent_FileHeaderReceived;
   const factory NetworkEvent.fileProgress({
     required String fileId,
@@ -803,4 +822,56 @@ sealed class NetworkEvent with _$NetworkEvent {
     required BigInt epoch,
     required Uint8List sframeKey,
   }) = NetworkEvent_MlsEpochChanged;
+}
+
+/// FFI-facing video thumbnail back-reference.
+///
+/// When a `FileHeaderReceived` event carries this, the file is a thumbnail
+/// image for an underlying video stored in the vault. Dart side uses these
+/// fields to render the play button overlay, format duration/size badges,
+/// and trigger `vault_download_file(cid)` when the user taps play.
+///
+/// Phase 6.75 video preview in chats. See HOLLOW_PLAN.md.
+class VideoThumbRef {
+  /// Vault content_id (sha256 of ciphertext) of the underlying video.
+  final String cid;
+
+  /// Original video file extension (mp4, webm, mkv, ...).
+  final String ext;
+
+  /// Original video file name (used as the default for the Save As dialog).
+  final String name;
+
+  /// Video size in bytes.
+  final BigInt size;
+
+  /// Video duration in milliseconds.
+  final int durMs;
+
+  const VideoThumbRef({
+    required this.cid,
+    required this.ext,
+    required this.name,
+    required this.size,
+    required this.durMs,
+  });
+
+  @override
+  int get hashCode =>
+      cid.hashCode ^
+      ext.hashCode ^
+      name.hashCode ^
+      size.hashCode ^
+      durMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is VideoThumbRef &&
+          runtimeType == other.runtimeType &&
+          cid == other.cid &&
+          ext == other.ext &&
+          name == other.name &&
+          size == other.size &&
+          durMs == other.durMs;
 }

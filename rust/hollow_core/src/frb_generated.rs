@@ -2948,6 +2948,10 @@ fn wire__crate__api__network__send_file_impl(
             let api_file_path = <String>::sse_decode(&mut deserializer);
             let api_message_id = <String>::sse_decode(&mut deserializer);
             let api_message_text = <String>::sse_decode(&mut deserializer);
+            let api_vthumb =
+                <Option<crate::api::network::VideoThumbRef>>::sse_decode(&mut deserializer);
+            let api_override_width = <Option<u32>>::sse_decode(&mut deserializer);
+            let api_override_height = <Option<u32>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, String>((move || {
@@ -2958,6 +2962,9 @@ fn wire__crate__api__network__send_file_impl(
                         api_file_path,
                         api_message_id,
                         api_message_text,
+                        api_vthumb,
+                        api_override_width,
+                        api_override_height,
                     )?;
                     Ok(output_ok)
                 })())
@@ -4624,6 +4631,8 @@ impl SseDecode for crate::api::network::NetworkEvent {
                 let mut var_senderId = <String>::sse_decode(deserializer);
                 let mut var_serverId = <String>::sse_decode(deserializer);
                 let mut var_channelId = <String>::sse_decode(deserializer);
+                let mut var_videoThumb =
+                    <Option<crate::api::network::VideoThumbRef>>::sse_decode(deserializer);
                 return crate::api::network::NetworkEvent::FileHeaderReceived {
                     file_id: var_fileId,
                     file_name: var_fileName,
@@ -4635,6 +4644,7 @@ impl SseDecode for crate::api::network::NetworkEvent {
                     sender_id: var_senderId,
                     server_id: var_serverId,
                     channel_id: var_channelId,
+                    video_thumb: var_videoThumb,
                 };
             }
             45 => {
@@ -5056,6 +5066,19 @@ impl SseDecode for Option<crate::api::storage::UserProfile> {
     }
 }
 
+impl SseDecode for Option<crate::api::network::VideoThumbRef> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::network::VideoThumbRef>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<Vec<u8>> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -5160,6 +5183,8 @@ impl SseDecode for crate::api::storage::StoredFileInfo {
         let mut var_createdAt = <i64>::sse_decode(deserializer);
         let mut var_completedAt = <Option<i64>>::sse_decode(deserializer);
         let mut var_diskPath = <Option<String>>::sse_decode(deserializer);
+        let mut var_videoThumb =
+            <Option<crate::api::network::VideoThumbRef>>::sse_decode(deserializer);
         return crate::api::storage::StoredFileInfo {
             file_id: var_fileId,
             file_name: var_fileName,
@@ -5179,6 +5204,7 @@ impl SseDecode for crate::api::storage::StoredFileInfo {
             created_at: var_createdAt,
             completed_at: var_completedAt,
             disk_path: var_diskPath,
+            video_thumb: var_videoThumb,
         };
     }
 }
@@ -5290,6 +5316,24 @@ impl SseDecode for usize {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         deserializer.cursor.read_u64::<NativeEndian>().unwrap() as _
+    }
+}
+
+impl SseDecode for crate::api::network::VideoThumbRef {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_cid = <String>::sse_decode(deserializer);
+        let mut var_ext = <String>::sse_decode(deserializer);
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_size = <u64>::sse_decode(deserializer);
+        let mut var_durMs = <u32>::sse_decode(deserializer);
+        return crate::api::network::VideoThumbRef {
+            cid: var_cid,
+            ext: var_ext,
+            name: var_name,
+            size: var_size,
+            dur_ms: var_durMs,
+        };
     }
 }
 
@@ -6027,6 +6071,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::network::NetworkEvent {
                 sender_id,
                 server_id,
                 channel_id,
+                video_thumb,
             } => [
                 44.into_dart(),
                 file_id.into_into_dart().into_dart(),
@@ -6039,6 +6084,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::network::NetworkEvent {
                 sender_id.into_into_dart().into_dart(),
                 server_id.into_into_dart().into_dart(),
                 channel_id.into_into_dart().into_dart(),
+                video_thumb.into_into_dart().into_dart(),
             ]
             .into_dart(),
             crate::api::network::NetworkEvent::FileProgress {
@@ -6507,6 +6553,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::storage::StoredFileInfo {
             self.created_at.into_into_dart().into_dart(),
             self.completed_at.into_into_dart().into_dart(),
             self.disk_path.into_into_dart().into_dart(),
+            self.video_thumb.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -6599,6 +6646,30 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::storage::UserProfile>
     for crate::api::storage::UserProfile
 {
     fn into_into_dart(self) -> crate::api::storage::UserProfile {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::network::VideoThumbRef {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.cid.into_into_dart().into_dart(),
+            self.ext.into_into_dart().into_dart(),
+            self.name.into_into_dart().into_dart(),
+            self.size.into_into_dart().into_dart(),
+            self.dur_ms.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::network::VideoThumbRef
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::network::VideoThumbRef>
+    for crate::api::network::VideoThumbRef
+{
+    fn into_into_dart(self) -> crate::api::network::VideoThumbRef {
         self
     }
 }
@@ -7181,6 +7252,7 @@ impl SseEncode for crate::api::network::NetworkEvent {
                 sender_id,
                 server_id,
                 channel_id,
+                video_thumb,
             } => {
                 <i32>::sse_encode(44, serializer);
                 <String>::sse_encode(file_id, serializer);
@@ -7193,6 +7265,7 @@ impl SseEncode for crate::api::network::NetworkEvent {
                 <String>::sse_encode(sender_id, serializer);
                 <String>::sse_encode(server_id, serializer);
                 <String>::sse_encode(channel_id, serializer);
+                <Option<crate::api::network::VideoThumbRef>>::sse_encode(video_thumb, serializer);
             }
             crate::api::network::NetworkEvent::FileProgress {
                 file_id,
@@ -7586,6 +7659,16 @@ impl SseEncode for Option<crate::api::storage::UserProfile> {
     }
 }
 
+impl SseEncode for Option<crate::api::network::VideoThumbRef> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::network::VideoThumbRef>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<Vec<u8>> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -7659,6 +7742,7 @@ impl SseEncode for crate::api::storage::StoredFileInfo {
         <i64>::sse_encode(self.created_at, serializer);
         <Option<i64>>::sse_encode(self.completed_at, serializer);
         <Option<String>>::sse_encode(self.disk_path, serializer);
+        <Option<crate::api::network::VideoThumbRef>>::sse_encode(self.video_thumb, serializer);
     }
 }
 
@@ -7743,6 +7827,17 @@ impl SseEncode for usize {
             .cursor
             .write_u64::<NativeEndian>(self as _)
             .unwrap();
+    }
+}
+
+impl SseEncode for crate::api::network::VideoThumbRef {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.cid, serializer);
+        <String>::sse_encode(self.ext, serializer);
+        <String>::sse_encode(self.name, serializer);
+        <u64>::sse_encode(self.size, serializer);
+        <u32>::sse_encode(self.dur_ms, serializer);
     }
 }
 

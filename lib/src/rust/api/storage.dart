@@ -4,6 +4,7 @@
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
 import '../frb_generated.dart';
+import 'network.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `derive_db_key`, `get_store`, `stored_file_to_ffi`
@@ -364,6 +365,12 @@ class StoredFileInfo {
   final PlatformInt64? completedAt;
   final String? diskPath;
 
+  /// Video thumbnail back-reference (Phase 6.75 video preview).
+  /// When non-null, this file is a thumbnail image for a vault-stored video.
+  /// The Dart UI uses this to render a play button overlay and trigger the
+  /// vault download on tap.
+  final VideoThumbRef? videoThumb;
+
   const StoredFileInfo({
     required this.fileId,
     required this.fileName,
@@ -383,6 +390,7 @@ class StoredFileInfo {
     required this.createdAt,
     this.completedAt,
     this.diskPath,
+    this.videoThumb,
   });
 
   @override
@@ -404,7 +412,8 @@ class StoredFileInfo {
       isMine.hashCode ^
       createdAt.hashCode ^
       completedAt.hashCode ^
-      diskPath.hashCode;
+      diskPath.hashCode ^
+      videoThumb.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -428,7 +437,8 @@ class StoredFileInfo {
           isMine == other.isMine &&
           createdAt == other.createdAt &&
           completedAt == other.completedAt &&
-          diskPath == other.diskPath;
+          diskPath == other.diskPath &&
+          videoThumb == other.videoThumb;
 }
 
 /// A message returned to Dart from the local database.

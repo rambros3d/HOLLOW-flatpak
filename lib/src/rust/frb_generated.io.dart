@@ -55,6 +55,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   UserProfile dco_decode_box_autoadd_user_profile(dynamic raw);
 
   @protected
+  VideoThumbRef dco_decode_box_autoadd_video_thumb_ref(dynamic raw);
+
+  @protected
   ChannelFfi dco_decode_channel_ffi(dynamic raw);
 
   @protected
@@ -144,6 +147,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   UserProfile? dco_decode_opt_box_autoadd_user_profile(dynamic raw);
 
   @protected
+  VideoThumbRef? dco_decode_opt_box_autoadd_video_thumb_ref(dynamic raw);
+
+  @protected
   Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw);
 
   @protected
@@ -186,6 +192,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BigInt dco_decode_usize(dynamic raw);
 
   @protected
+  VideoThumbRef dco_decode_video_thumb_ref(dynamic raw);
+
+  @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
 
   @protected
@@ -222,6 +231,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   UserProfile sse_decode_box_autoadd_user_profile(SseDeserializer deserializer);
+
+  @protected
+  VideoThumbRef sse_decode_box_autoadd_video_thumb_ref(
+    SseDeserializer deserializer,
+  );
 
   @protected
   ChannelFfi sse_decode_channel_ffi(SseDeserializer deserializer);
@@ -325,6 +339,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  VideoThumbRef? sse_decode_opt_box_autoadd_video_thumb_ref(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
@@ -367,6 +386,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BigInt sse_decode_usize(SseDeserializer deserializer);
+
+  @protected
+  VideoThumbRef sse_decode_video_thumb_ref(SseDeserializer deserializer);
 
   @protected
   void sse_encode_AnyhowException(
@@ -416,6 +438,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_user_profile(
     UserProfile self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_video_thumb_ref(
+    VideoThumbRef self,
     SseSerializer serializer,
   );
 
@@ -558,6 +586,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_video_thumb_ref(
+    VideoThumbRef? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_list_prim_u_8_strict(
     Uint8List? self,
     SseSerializer serializer,
@@ -613,6 +647,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_usize(BigInt self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_video_thumb_ref(VideoThumbRef self, SseSerializer serializer);
 }
 
 // Section: wire_class

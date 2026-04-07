@@ -409,6 +409,9 @@ abstract class RustLibApi extends BaseApi {
     required String filePath,
     required String messageId,
     required String messageText,
+    VideoThumbRef? vthumb,
+    int? overrideWidth,
+    int? overrideHeight,
   });
 
   Future<void> crateApiNetworkSendFriendRequest({required String peerId});
@@ -3236,6 +3239,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required String filePath,
     required String messageId,
     required String messageText,
+    VideoThumbRef? vthumb,
+    int? overrideWidth,
+    int? overrideHeight,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -3247,6 +3253,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(filePath, serializer);
           sse_encode_String(messageId, serializer);
           sse_encode_String(messageText, serializer);
+          sse_encode_opt_box_autoadd_video_thumb_ref(vthumb, serializer);
+          sse_encode_opt_box_autoadd_u_32(overrideWidth, serializer);
+          sse_encode_opt_box_autoadd_u_32(overrideHeight, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -3266,6 +3275,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           filePath,
           messageId,
           messageText,
+          vthumb,
+          overrideWidth,
+          overrideHeight,
         ],
         apiImpl: this,
       ),
@@ -3281,6 +3293,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       "filePath",
       "messageId",
       "messageText",
+      "vthumb",
+      "overrideWidth",
+      "overrideHeight",
     ],
   );
 
@@ -4306,6 +4321,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  VideoThumbRef dco_decode_box_autoadd_video_thumb_ref(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_video_thumb_ref(raw);
+  }
+
+  @protected
   ChannelFfi dco_decode_channel_ffi(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -4718,6 +4739,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           senderId: dco_decode_String(raw[8]),
           serverId: dco_decode_String(raw[9]),
           channelId: dco_decode_String(raw[10]),
+          videoThumb: dco_decode_opt_box_autoadd_video_thumb_ref(raw[11]),
         );
       case 45:
         return NetworkEvent_FileProgress(
@@ -4960,6 +4982,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  VideoThumbRef? dco_decode_opt_box_autoadd_video_thumb_ref(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_video_thumb_ref(raw);
+  }
+
+  @protected
   Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_list_prim_u_8_strict(raw);
@@ -5023,8 +5051,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   StoredFileInfo dco_decode_stored_file_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 18)
-      throw Exception('unexpected arr length: expect 18 but see ${arr.length}');
+    if (arr.length != 19)
+      throw Exception('unexpected arr length: expect 19 but see ${arr.length}');
     return StoredFileInfo(
       fileId: dco_decode_String(arr[0]),
       fileName: dco_decode_String(arr[1]),
@@ -5044,6 +5072,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       createdAt: dco_decode_i_64(arr[15]),
       completedAt: dco_decode_opt_box_autoadd_i_64(arr[16]),
       diskPath: dco_decode_opt_String(arr[17]),
+      videoThumb: dco_decode_opt_box_autoadd_video_thumb_ref(arr[18]),
     );
   }
 
@@ -5137,6 +5166,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  VideoThumbRef dco_decode_video_thumb_ref(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return VideoThumbRef(
+      cid: dco_decode_String(arr[0]),
+      ext: dco_decode_String(arr[1]),
+      name: dco_decode_String(arr[2]),
+      size: dco_decode_u_64(arr[3]),
+      durMs: dco_decode_u_32(arr[4]),
+    );
+  }
+
+  @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_String(deserializer);
@@ -5206,6 +5250,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_user_profile(deserializer));
+  }
+
+  @protected
+  VideoThumbRef sse_decode_box_autoadd_video_thumb_ref(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_video_thumb_ref(deserializer));
   }
 
   @protected
@@ -5787,6 +5839,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         var var_senderId = sse_decode_String(deserializer);
         var var_serverId = sse_decode_String(deserializer);
         var var_channelId = sse_decode_String(deserializer);
+        var var_videoThumb = sse_decode_opt_box_autoadd_video_thumb_ref(
+          deserializer,
+        );
         return NetworkEvent_FileHeaderReceived(
           fileId: var_fileId,
           fileName: var_fileName,
@@ -5798,6 +5853,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           senderId: var_senderId,
           serverId: var_serverId,
           channelId: var_channelId,
+          videoThumb: var_videoThumb,
         );
       case 45:
         var var_fileId = sse_decode_String(deserializer);
@@ -6176,6 +6232,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  VideoThumbRef? sse_decode_opt_box_autoadd_video_thumb_ref(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_video_thumb_ref(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -6278,6 +6347,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_createdAt = sse_decode_i_64(deserializer);
     var var_completedAt = sse_decode_opt_box_autoadd_i_64(deserializer);
     var var_diskPath = sse_decode_opt_String(deserializer);
+    var var_videoThumb = sse_decode_opt_box_autoadd_video_thumb_ref(
+      deserializer,
+    );
     return StoredFileInfo(
       fileId: var_fileId,
       fileName: var_fileName,
@@ -6297,6 +6369,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       createdAt: var_createdAt,
       completedAt: var_completedAt,
       diskPath: var_diskPath,
+      videoThumb: var_videoThumb,
     );
   }
 
@@ -6403,6 +6476,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  VideoThumbRef sse_decode_video_thumb_ref(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_cid = sse_decode_String(deserializer);
+    var var_ext = sse_decode_String(deserializer);
+    var var_name = sse_decode_String(deserializer);
+    var var_size = sse_decode_u_64(deserializer);
+    var var_durMs = sse_decode_u_32(deserializer);
+    return VideoThumbRef(
+      cid: var_cid,
+      ext: var_ext,
+      name: var_name,
+      size: var_size,
+      durMs: var_durMs,
+    );
+  }
+
+  @protected
   void sse_encode_AnyhowException(
     AnyhowException self,
     SseSerializer serializer,
@@ -6489,6 +6579,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_user_profile(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_video_thumb_ref(
+    VideoThumbRef self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_video_thumb_ref(self, serializer);
   }
 
   @protected
@@ -7055,6 +7154,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         senderId: final senderId,
         serverId: final serverId,
         channelId: final channelId,
+        videoThumb: final videoThumb,
       ):
         sse_encode_i_32(44, serializer);
         sse_encode_String(fileId, serializer);
@@ -7067,6 +7167,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(senderId, serializer);
         sse_encode_String(serverId, serializer);
         sse_encode_String(channelId, serializer);
+        sse_encode_opt_box_autoadd_video_thumb_ref(videoThumb, serializer);
       case NetworkEvent_FileProgress(
         fileId: final fileId,
         chunksReceived: final chunksReceived,
@@ -7442,6 +7543,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_video_thumb_ref(
+    VideoThumbRef? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_video_thumb_ref(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_list_prim_u_8_strict(
     Uint8List? self,
     SseSerializer serializer,
@@ -7523,6 +7637,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_64(self.createdAt, serializer);
     sse_encode_opt_box_autoadd_i_64(self.completedAt, serializer);
     sse_encode_opt_String(self.diskPath, serializer);
+    sse_encode_opt_box_autoadd_video_thumb_ref(self.videoThumb, serializer);
   }
 
   @protected
@@ -7599,5 +7714,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_usize(BigInt self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putBigUint64(self);
+  }
+
+  @protected
+  void sse_encode_video_thumb_ref(
+    VideoThumbRef self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.cid, serializer);
+    sse_encode_String(self.ext, serializer);
+    sse_encode_String(self.name, serializer);
+    sse_encode_u_64(self.size, serializer);
+    sse_encode_u_32(self.durMs, serializer);
   }
 }

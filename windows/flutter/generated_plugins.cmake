@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_windows
   desktop_drop
   flutter_webrtc
+  fvp
   irondash_engine_context
   local_notifier
   record_windows
