@@ -1,4 +1,5 @@
 import 'package:hollow/src/core/models/file_attachment.dart';
+import 'package:hollow/src/rust/api/network.dart' as network_api;
 
 /// A single channel chat message.
 class ChannelChatMessage {
@@ -16,6 +17,10 @@ class ChannelChatMessage {
   final Map<String, List<String>> reactions;
   /// File attachment (null if text-only message).
   final FileAttachment? fileAttachment;
+  /// OG link preview for the first URL in the message (Phase 6.75).
+  /// Null when the message has no URL, when the OG fetch failed, or when
+  /// the message was sent before link previews existed.
+  final network_api.LinkPreviewRef? linkPreview;
 
   ChannelChatMessage({
     required this.senderId,
@@ -30,6 +35,7 @@ class ChannelChatMessage {
     this.replyToMid,
     Map<String, List<String>>? reactions,
     this.fileAttachment,
+    this.linkPreview,
   })  : timestamp = timestamp ?? DateTime.now(),
         reactions = reactions ?? const {};
 
@@ -40,6 +46,7 @@ class ChannelChatMessage {
     DateTime? hiddenAt,
     Map<String, List<String>>? reactions,
     FileAttachment? fileAttachment,
+    network_api.LinkPreviewRef? linkPreview,
   }) {
     return ChannelChatMessage(
       senderId: senderId,
@@ -54,6 +61,7 @@ class ChannelChatMessage {
       replyToMid: replyToMid,
       reactions: reactions ?? this.reactions,
       fileAttachment: fileAttachment ?? this.fileAttachment,
+      linkPreview: linkPreview ?? this.linkPreview,
     );
   }
 }

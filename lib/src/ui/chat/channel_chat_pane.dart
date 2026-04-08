@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -30,6 +31,7 @@ import 'package:hollow/src/ui/chat/chat_input_shortcuts.dart';
 import 'package:hollow/src/ui/chat/chat_pane.dart';
 import 'package:hollow/src/ui/chat/message_action_bar.dart';
 import 'package:hollow/src/ui/components/connection_progress.dart';
+import 'package:hollow/src/ui/chat/staged_link_preview_card.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
@@ -90,6 +92,14 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   String? _stagedFilePath;
   String? _stagedFileName;
   bool _stagedFileIsImage = false;
+  /// Staged link preview (Phase 6.75).
+  String? _stagedPreviewUrl;
+  network_api.LinkPreviewRef? _stagedPreview;
+  bool _stagedPreviewLoading = false;
+  Timer? _urlDebounce;
+  /// First http/https URL in a string. Conservative match — excludes
+  /// whitespace and common markup delimiters.
+  static final RegExp _urlRegex = RegExp(r'https?://[^\s<>"' "'" r')\]}]+');
   /// GlobalKeys for reply-tap-scroll (keyed by messageId).
   final Map<String, GlobalKey> _messageKeys = {};
 
@@ -151,6 +161,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
 
   @override
   void dispose() {
+    _urlDebounce?.cancel();
     _scrollController.removeListener(_onScrollChanged);
     _scrollController.dispose();
     _controller.dispose();
@@ -394,6 +405,10 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   }
 
   void _onTextChanged(String text) {
+    // Debounced URL detection for link previews (Phase 6.75).
+    _urlDebounce?.cancel();
+    _urlDebounce = Timer(const Duration(milliseconds: 600), _detectUrl);
+
     if (text.isEmpty) return;
     final now = DateTime.now();
     if (_lastTypingSent != null &&
@@ -409,6 +424,49 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     } catch (_) {}
   }
 
+  /// Extract the first URL from the current compose text and, if it
+  /// differs from what's staged, kick off a background OG fetch. If the
+  /// URL was removed, clear the staged preview.
+  void _detectUrl() {
+    if (!mounted) return;
+    final text = _controller.text;
+    final match = _urlRegex.firstMatch(text);
+    final url = match?.group(0);
+    if (url == _stagedPreviewUrl) return;
+    if (url == null) {
+      setState(() {
+        _stagedPreviewUrl = null;
+        _stagedPreview = null;
+        _stagedPreviewLoading = false;
+      });
+      return;
+    }
+    setState(() {
+      _stagedPreviewUrl = url;
+      _stagedPreview = null;
+      _stagedPreviewLoading = true;
+    });
+    _fetchPreview(url);
+  }
+
+  Future<void> _fetchPreview(String url) async {
+    try {
+      final preview = await network_api.fetchLinkPreview(url: url);
+      if (!mounted || _stagedPreviewUrl != url) return;
+      setState(() {
+        _stagedPreview = preview;
+        _stagedPreviewLoading = false;
+      });
+    } catch (_) {
+      if (!mounted || _stagedPreviewUrl != url) return;
+      setState(() {
+        _stagedPreviewUrl = null;
+        _stagedPreview = null;
+        _stagedPreviewLoading = false;
+      });
+    }
+  }
+
   Future<void> _handleSend() async {
     // If a file is staged, send it (with optional text).
     if (_stagedFilePath != null) {
@@ -421,16 +479,22 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     _lastTypingSent = null;
     _focusNode.requestFocus();
     final replyMid = _replyToMessageId;
+    // Capture staged preview BEFORE clearing state.
+    final preview = _stagedPreview;
+    _urlDebounce?.cancel();
     setState(() {
       _replyToMessageId = null;
       _replyToText = null;
       _replyToSenderName = null;
       _replyToImagePath = null;
+      _stagedPreviewUrl = null;
+      _stagedPreview = null;
+      _stagedPreviewLoading = false;
     });
     await ref
         .read(channelChatProvider.notifier)
         .sendMessage(widget.serverId, widget.channelId, text,
-            replyToMid: replyMid);
+            replyToMid: replyMid, linkPreview: preview);
     _scrollToBottom();
   }
 
@@ -1580,6 +1644,22 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
             ),
           ),
 
+        // Staged link preview (Phase 6.75).
+        if (_stagedPreviewUrl != null)
+          StagedLinkPreviewCard(
+            url: _stagedPreviewUrl!,
+            preview: _stagedPreview,
+            loading: _stagedPreviewLoading,
+            onDismiss: () {
+              _urlDebounce?.cancel();
+              setState(() {
+                _stagedPreviewUrl = null;
+                _stagedPreview = null;
+                _stagedPreviewLoading = false;
+              });
+            },
+          ),
+
         // Input bar
         Container(
           padding: const EdgeInsets.symmetric(
@@ -1589,7 +1669,9 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
           decoration: BoxDecoration(
             color: hollow.surface,
             border: Border(
-              top: (_replyToMessageId != null || _stagedFilePath != null)
+              top: (_replyToMessageId != null ||
+                      _stagedFilePath != null ||
+                      _stagedPreviewUrl != null)
                   ? BorderSide.none
                   : BorderSide(color: hollow.border),
             ),

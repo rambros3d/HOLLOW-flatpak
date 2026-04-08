@@ -29,6 +29,10 @@ pub(crate) struct StoredMessage {
     pub hidden_at: Option<i64>,
     pub reply_to_mid: Option<String>,
     pub file_id: Option<String>,
+    /// Link preview for the first URL in the message (Phase 6.75).
+    /// Persisted as JSON in the `link_preview_json` column. None for
+    /// messages with no previewable URL.
+    pub link_preview: Option<crate::node::LinkPreviewRef>,
 }
 
 /// A stored channel message.
@@ -47,6 +51,10 @@ pub(crate) struct StoredChannelMessage {
     pub hidden_at: Option<i64>,
     pub reply_to_mid: Option<String>,
     pub file_id: Option<String>,
+    /// Link preview for the first URL in the message (Phase 6.75).
+    /// Persisted as JSON in the `link_preview_json` column. None for
+    /// messages with no previewable URL.
+    pub link_preview: Option<crate::node::LinkPreviewRef>,
 }
 
 /// A stored file metadata entry.
@@ -472,6 +480,17 @@ impl MessageStore {
             "ALTER TABLE channel_messages ADD COLUMN file_id TEXT;"
         ).unwrap_or(());
 
+        // -- Migration: link_preview_json column (Phase 6.75 link previews).
+        // Stores a JSON-encoded LinkPreviewRef for messages that previewed a URL.
+        // Populated by update_link_preview / update_channel_link_preview after
+        // the message row is inserted.
+        conn.execute_batch(
+            "ALTER TABLE messages ADD COLUMN link_preview_json TEXT;"
+        ).unwrap_or(());
+        conn.execute_batch(
+            "ALTER TABLE channel_messages ADD COLUMN link_preview_json TEXT;"
+        ).unwrap_or(());
+
         // -- Migration: avatar/banner BLOB columns on user_profiles --
         conn.execute_batch(
             "ALTER TABLE user_profiles ADD COLUMN avatar BLOB;"
@@ -512,6 +531,30 @@ impl MessageStore {
         } else {
             Ok(0) // Duplicate — ignored.
         }
+    }
+
+    /// Set the link preview JSON for a DM row identified by `message_id`.
+    /// No-op if no row matches. Phase 6.75.
+    pub fn update_link_preview(&self, message_id: &str, link_preview_json: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE messages SET link_preview_json = ?1 WHERE message_id = ?2",
+                params![link_preview_json, message_id],
+            )
+            .map_err(|e| format!("Failed to update link preview: {e}"))?;
+        Ok(())
+    }
+
+    /// Set the link preview JSON for a channel message row identified by `message_id`.
+    /// No-op if no row matches. Phase 6.75.
+    pub fn update_channel_link_preview(&self, message_id: &str, link_preview_json: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE channel_messages SET link_preview_json = ?1 WHERE message_id = ?2",
+                params![link_preview_json, message_id],
+            )
+            .map_err(|e| format!("Failed to update channel link preview: {e}"))?;
+        Ok(())
     }
 
     // -- Olm persistence --
@@ -599,7 +642,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id
+                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id, link_preview_json
                  FROM messages
                  WHERE peer_id = ?1 AND hidden_at IS NULL
                  ORDER BY timestamp DESC, id DESC
@@ -622,6 +665,8 @@ impl MessageStore {
                     hidden_at: row.get(9)?,
                     reply_to_mid: row.get(10)?,
                     file_id: row.get(11)?,
+                    link_preview: row.get::<_, Option<String>>(12)?
+                        .and_then(|s| serde_json::from_str(&s).ok()),
                 })
             })
             .map_err(|e| format!("Failed to query messages: {e}"))?;
@@ -670,7 +715,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id
+                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id, link_preview_json
                  FROM messages
                  WHERE peer_id = ?1 AND timestamp >= ?2 AND is_mine = 1
                  ORDER BY timestamp ASC
@@ -693,6 +738,8 @@ impl MessageStore {
                     hidden_at: row.get(9)?,
                     reply_to_mid: row.get(10)?,
                     file_id: row.get(11)?,
+                    link_preview: row.get::<_, Option<String>>(12)?
+                        .and_then(|s| serde_json::from_str(&s).ok()),
                 })
             })
             .map_err(|e| format!("Failed to query dm_messages_since: {e}"))?;
@@ -861,7 +908,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id
+                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id, link_preview_json
                  FROM channel_messages
                  WHERE server_id = ?1 AND channel_id = ?2 AND hidden_at IS NULL
                  ORDER BY timestamp DESC, sender_id DESC, id DESC
@@ -886,6 +933,8 @@ impl MessageStore {
                     hidden_at: row.get(11)?,
                     reply_to_mid: row.get(12)?,
                     file_id: row.get(13)?,
+                    link_preview: row.get::<_, Option<String>>(14)?
+                        .and_then(|s| serde_json::from_str(&s).ok()),
                 })
             })
             .map_err(|e| format!("Failed to query channel_messages: {e}"))?;
@@ -935,7 +984,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id
+                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id, link_preview_json
                  FROM channel_messages
                  WHERE server_id = ?1 AND channel_id = ?2 AND timestamp > ?3
                  ORDER BY timestamp ASC
@@ -962,6 +1011,8 @@ impl MessageStore {
                         hidden_at: row.get(11)?,
                         reply_to_mid: row.get(12)?,
                         file_id: row.get(13)?,
+                        link_preview: row.get::<_, Option<String>>(14)?
+                            .and_then(|s| serde_json::from_str(&s).ok()),
                     })
                 },
             )
@@ -1178,7 +1229,7 @@ impl MessageStore {
 
         let where_clause = conditions.join(" OR ");
         let sql = format!(
-            "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id
+            "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id, link_preview_json
              FROM channel_messages
              WHERE server_id = ?1 AND channel_id = ?2 AND ({where_clause})
              ORDER BY timestamp ASC
@@ -1208,6 +1259,8 @@ impl MessageStore {
                     hidden_at: row.get(11)?,
                     reply_to_mid: row.get(12)?,
                     file_id: row.get(13)?,
+                    link_preview: row.get::<_, Option<String>>(14)?
+                        .and_then(|s| serde_json::from_str(&s).ok()),
                 })
             })
             .map_err(|e| format!("Failed to query per_sender_since: {e}"))?;
@@ -1854,7 +1907,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id
+                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id, link_preview_json
                  FROM channel_messages
                  WHERE server_id = ?1 AND channel_id = ?2 AND hidden_at IS NULL AND text LIKE ?3
                  ORDER BY id DESC
@@ -1879,6 +1932,8 @@ impl MessageStore {
                     hidden_at: row.get(11)?,
                     reply_to_mid: row.get(12)?,
                     file_id: row.get(13)?,
+                    link_preview: row.get::<_, Option<String>>(14)?
+                        .and_then(|s| serde_json::from_str(&s).ok()),
                 })
             })
             .map_err(|e| format!("Failed to search messages: {e}"))?;
@@ -1902,7 +1957,7 @@ impl MessageStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id
+                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id, link_preview_json
                  FROM messages
                  WHERE peer_id = ?1 AND hidden_at IS NULL AND text LIKE ?2
                  ORDER BY id DESC
@@ -1925,6 +1980,8 @@ impl MessageStore {
                     hidden_at: row.get(9)?,
                     reply_to_mid: row.get(10)?,
                     file_id: row.get(11)?,
+                    link_preview: row.get::<_, Option<String>>(12)?
+                        .and_then(|s| serde_json::from_str(&s).ok()),
                 })
             })
             .map_err(|e| format!("Failed to search DM messages: {e}"))?;

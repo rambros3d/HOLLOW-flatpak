@@ -289,6 +289,9 @@ class StoredChannelMessage {
   final String? replyToMid;
   final String? fileId;
 
+  /// Link preview for the first URL in this message (Phase 6.75).
+  final LinkPreviewRef? linkPreview;
+
   const StoredChannelMessage({
     required this.id,
     required this.serverId,
@@ -304,6 +307,7 @@ class StoredChannelMessage {
     this.hiddenAt,
     this.replyToMid,
     this.fileId,
+    this.linkPreview,
   });
 
   @override
@@ -321,7 +325,8 @@ class StoredChannelMessage {
       editedAt.hashCode ^
       hiddenAt.hashCode ^
       replyToMid.hashCode ^
-      fileId.hashCode;
+      fileId.hashCode ^
+      linkPreview.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -341,7 +346,8 @@ class StoredChannelMessage {
           editedAt == other.editedAt &&
           hiddenAt == other.hiddenAt &&
           replyToMid == other.replyToMid &&
-          fileId == other.fileId;
+          fileId == other.fileId &&
+          linkPreview == other.linkPreview;
 }
 
 /// File metadata returned to Dart.
@@ -456,6 +462,9 @@ class StoredMessage {
   final String? replyToMid;
   final String? fileId;
 
+  /// Link preview for the first URL in this message (Phase 6.75).
+  final LinkPreviewRef? linkPreview;
+
   const StoredMessage({
     required this.id,
     required this.peerId,
@@ -469,6 +478,7 @@ class StoredMessage {
     this.hiddenAt,
     this.replyToMid,
     this.fileId,
+    this.linkPreview,
   });
 
   @override
@@ -484,7 +494,8 @@ class StoredMessage {
       editedAt.hashCode ^
       hiddenAt.hashCode ^
       replyToMid.hashCode ^
-      fileId.hashCode;
+      fileId.hashCode ^
+      linkPreview.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -502,7 +513,8 @@ class StoredMessage {
           editedAt == other.editedAt &&
           hiddenAt == other.hiddenAt &&
           replyToMid == other.replyToMid &&
-          fileId == other.fileId;
+          fileId == other.fileId &&
+          linkPreview == other.linkPreview;
 }
 
 class StoredReaction {

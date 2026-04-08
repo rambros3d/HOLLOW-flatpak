@@ -33,6 +33,7 @@ import 'package:hollow/src/ui/animations/hollow_curves.dart';
 import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/components/hollow_avatar.dart';
 import 'package:hollow/src/ui/components/hollow_button.dart';
+import 'package:hollow/src/ui/chat/staged_link_preview_card.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/ui/components/profile_card_popup.dart';
 import 'package:hollow/src/ui/components/hollow_text_field.dart';
@@ -182,6 +183,15 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
   String? _stagedFilePath;
   String? _stagedFileName;
   bool _stagedFileIsImage = false;
+  /// Staged link preview (Phase 6.75). Set while the user is typing a URL
+  /// and Hollow is fetching its OG metadata in the background.
+  String? _stagedPreviewUrl;
+  network_api.LinkPreviewRef? _stagedPreview;
+  bool _stagedPreviewLoading = false;
+  Timer? _urlDebounce;
+  /// First http/https URL in a string. Conservative match — excludes
+  /// whitespace and common markup delimiters.
+  static final RegExp _urlRegex = RegExp(r'https?://[^\s<>"' "'" r')\]}]+');
   Timer? _overlayHideTimer;
   bool _overlaysVisible = true;
   bool _chatOverlayPinned = false; // User explicitly toggled chat open
@@ -360,6 +370,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
   @override
   void dispose() {
     _overlayHideTimer?.cancel();
+    _urlDebounce?.cancel();
     _scrollController.removeListener(_onScrollChanged);
     _scrollController.dispose();
     _controller.dispose();
@@ -407,6 +418,10 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
   }
 
   void _onTextChanged(String text) {
+    // Debounced URL detection for link previews (Phase 6.75).
+    _urlDebounce?.cancel();
+    _urlDebounce = Timer(const Duration(milliseconds: 600), _detectUrl);
+
     if (text.isEmpty) return;
     final now = DateTime.now();
     if (_lastTypingSent != null &&
@@ -422,6 +437,53 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     } catch (_) {}
   }
 
+  /// Extract the first URL from the current compose text and, if it
+  /// differs from what's staged, kick off a background OG fetch. If the
+  /// URL was removed, clear the staged preview.
+  void _detectUrl() {
+    if (!mounted) return;
+    final text = _controller.text;
+    final match = _urlRegex.firstMatch(text);
+    final url = match?.group(0);
+    if (url == _stagedPreviewUrl) return; // Same URL — no work to do.
+    if (url == null) {
+      // URL removed from text → drop staged preview.
+      setState(() {
+        _stagedPreviewUrl = null;
+        _stagedPreview = null;
+        _stagedPreviewLoading = false;
+      });
+      return;
+    }
+    setState(() {
+      _stagedPreviewUrl = url;
+      _stagedPreview = null;
+      _stagedPreviewLoading = true;
+    });
+    _fetchPreview(url);
+  }
+
+  Future<void> _fetchPreview(String url) async {
+    try {
+      final preview = await network_api.fetchLinkPreview(url: url);
+      // Bail out if the user changed the URL (or dismissed it) while we
+      // were fetching.
+      if (!mounted || _stagedPreviewUrl != url) return;
+      setState(() {
+        _stagedPreview = preview;
+        _stagedPreviewLoading = false;
+      });
+    } catch (_) {
+      if (!mounted || _stagedPreviewUrl != url) return;
+      // Failed silently — keep the URL but drop the staged card entirely.
+      setState(() {
+        _stagedPreviewUrl = null;
+        _stagedPreview = null;
+        _stagedPreviewLoading = false;
+      });
+    }
+  }
+
   Future<void> _handleSend() async {
     if (_stagedFilePath != null) {
       await _sendStagedFile();
@@ -433,15 +495,22 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     _lastTypingSent = null;
     _focusNode.requestFocus();
     final replyMid = _replyToMessageId;
+    // Capture staged preview BEFORE clearing state.
+    final preview = _stagedPreview;
+    _urlDebounce?.cancel();
     setState(() {
       _replyToMessageId = null;
       _replyToText = null;
       _replyToSenderName = null;
       _replyToImagePath = null;
+      _stagedPreviewUrl = null;
+      _stagedPreview = null;
+      _stagedPreviewLoading = false;
     });
     await ref
         .read(chatProvider.notifier)
-        .sendMessage(widget.peerId, text, replyToMid: replyMid);
+        .sendMessage(widget.peerId, text,
+            replyToMid: replyMid, linkPreview: preview);
     _scrollToBottom();
   }
 
@@ -1430,6 +1499,23 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
           ),
         ),
 
+      // Staged link preview (Phase 6.75).
+      // Hidden once the fetch fails (cleared back to null in _fetchPreview).
+      if (_stagedPreviewUrl != null)
+        StagedLinkPreviewCard(
+          url: _stagedPreviewUrl!,
+          preview: _stagedPreview,
+          loading: _stagedPreviewLoading,
+          onDismiss: () {
+            _urlDebounce?.cancel();
+            setState(() {
+              _stagedPreviewUrl = null;
+              _stagedPreview = null;
+              _stagedPreviewLoading = false;
+            });
+          },
+        ),
+
       // Input bar
       Container(
         padding: const EdgeInsets.symmetric(
@@ -1439,7 +1525,9 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
         decoration: BoxDecoration(
           color: hollow.surface,
           border: Border(
-            top: (_replyToMessageId != null || _stagedFilePath != null)
+            top: (_replyToMessageId != null ||
+                    _stagedFilePath != null ||
+                    _stagedPreviewUrl != null)
                 ? BorderSide.none
                 : BorderSide(color: hollow.border),
           ),

@@ -19,6 +19,8 @@ pub struct StoredMessage {
     pub hidden_at: Option<i64>,
     pub reply_to_mid: Option<String>,
     pub file_id: Option<String>,
+    /// Link preview for the first URL in this message (Phase 6.75).
+    pub link_preview: Option<crate::api::network::LinkPreviewRef>,
 }
 
 // Global message store: None = not opened, Some = ready.
@@ -107,6 +109,7 @@ pub fn load_messages(peer_id: String, limit: i32) -> Result<Vec<StoredMessage>, 
             hidden_at: r.hidden_at,
             reply_to_mid: r.reply_to_mid,
             file_id: r.file_id,
+            link_preview: r.link_preview.map(Into::into),
         })
         .collect())
 }
@@ -294,6 +297,7 @@ pub fn search_channel_messages(
                     hidden_at: m.hidden_at,
                     reply_to_mid: m.reply_to_mid,
                     file_id: m.file_id,
+                    link_preview: m.link_preview.map(Into::into),
                 })
                 .collect()
         })
@@ -325,6 +329,7 @@ pub fn search_dm_messages(
                     hidden_at: m.hidden_at,
                     reply_to_mid: m.reply_to_mid,
                     file_id: m.file_id,
+                    link_preview: m.link_preview.map(Into::into),
                 })
                 .collect()
         })
@@ -376,6 +381,8 @@ pub struct StoredChannelMessage {
     pub hidden_at: Option<i64>,
     pub reply_to_mid: Option<String>,
     pub file_id: Option<String>,
+    /// Link preview for the first URL in this message (Phase 6.75).
+    pub link_preview: Option<crate::api::network::LinkPreviewRef>,
 }
 
 /// Save a channel message to the local database.
@@ -427,6 +434,7 @@ pub fn load_channel_messages(
             hidden_at: r.hidden_at,
             reply_to_mid: r.reply_to_mid,
             file_id: r.file_id,
+            link_preview: r.link_preview.map(Into::into),
         })
         .collect())
 }

@@ -23,7 +23,7 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
   /// Send a message to a peer (FFI + update state).
   /// DB persistence happens in Rust (SendMessage handler) with Rust-generated timestamp.
   Future<void> sendMessage(String peerId, String text,
-      {String? replyToMid}) async {
+      {String? replyToMid, network_api.LinkPreviewRef? linkPreview}) async {
     final networkService = ref.read(networkServiceProvider);
     final messageId = generateMessageId();
 
@@ -32,6 +32,7 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
       text: text,
       messageId: messageId,
       replyToMid: replyToMid,
+      linkPreview: linkPreview,
     );
 
     final now = DateTime.now();
@@ -41,6 +42,7 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
       timestamp: now,
       messageId: messageId,
       replyToMid: replyToMid,
+      linkPreview: linkPreview,
     );
 
     _addMessage(peerId, msg);
@@ -49,7 +51,8 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
   /// Receive a message from a peer (from network events).
   /// DB persistence happens in Rust (DirectMessage handler) with sender's timestamp.
   void receiveMessage(String fromPeer, String text, int timestamp,
-      String messageId, String replyToMid) {
+      String messageId, String replyToMid,
+      {network_api.LinkPreviewRef? linkPreview}) {
     final ts = DateTime.fromMillisecondsSinceEpoch(timestamp);
     final msg = ChatMessage(
       text: text,
@@ -57,6 +60,7 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
       timestamp: ts,
       messageId: messageId.isNotEmpty ? messageId : null,
       replyToMid: replyToMid.isNotEmpty ? replyToMid : null,
+      linkPreview: linkPreview,
     );
     _addMessage(fromPeer, msg);
   }
@@ -284,6 +288,7 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
                 fileAttachment: m.fileId != null
                     ? fileMap[m.fileId]
                     : null,
+                linkPreview: m.linkPreview,
               ))
           .toList();
 

@@ -101,8 +101,8 @@ class EventStreamNotifier extends Notifier<bool> {
       case NetworkEvent_Listening(:final address):
         debugPrint('[HOLLOW] Listening: $address');
 
-      case NetworkEvent_MessageReceived(:final fromPeer, :final text, :final timestamp, :final messageId, :final replyToMid):
-        ref.read(chatProvider.notifier).receiveMessage(fromPeer, text, timestamp, messageId, replyToMid);
+      case NetworkEvent_MessageReceived(:final fromPeer, :final text, :final timestamp, :final messageId, :final replyToMid, :final linkPreview):
+        ref.read(chatProvider.notifier).receiveMessage(fromPeer, text, timestamp, messageId, replyToMid, linkPreview: linkPreview);
         ref.read(typingProvider.notifier).clearTyping(fromPeer, fromPeer);
         // Track unread DM — only if not muted.
         // Window must be visible AND viewing this DM to count as "viewing".
@@ -128,10 +128,10 @@ class EventStreamNotifier extends Notifier<bool> {
         }
 
       case NetworkEvent_ChannelMessageReceived(
-            :final serverId, :final channelId, :final fromPeer, :final text, :final timestamp, :final messageId, :final replyToMid):
+            :final serverId, :final channelId, :final fromPeer, :final text, :final timestamp, :final messageId, :final replyToMid, :final linkPreview):
         ref
             .read(channelChatProvider.notifier)
-            .receiveMessage(serverId, channelId, fromPeer, text, timestamp, messageId, replyToMid);
+            .receiveMessage(serverId, channelId, fromPeer, text, timestamp, messageId, replyToMid, linkPreview: linkPreview);
         ref.read(typingProvider.notifier).clearTyping('$serverId:$channelId', fromPeer);
         // Track unread channel message — only if not muted.
         // Must be visible, viewing this channel, AND scrolled to bottom.

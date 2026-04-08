@@ -11,6 +11,7 @@ import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:hollow/src/ui/chat/message_bubble.dart';
 import 'package:hollow/src/ui/chat/file_attachment_widget.dart';
+import 'package:hollow/src/ui/chat/link_preview_card.dart';
 import 'package:hollow/src/ui/chat/message_text_parser.dart';
 import 'package:hollow/src/ui/chat/reaction_bar.dart';
 import 'package:hollow/src/ui/components/hollow_avatar.dart';
@@ -153,6 +154,13 @@ class ChannelMessageBubble extends ConsumerWidget {
                 : null,
           );
 
+    final linkPreviewWidget = message.linkPreview != null
+        ? Padding(
+            padding: const EdgeInsets.only(top: HollowSpacing.xs),
+            child: LinkPreviewCard(preview: message.linkPreview!),
+          )
+        : null;
+
     final fileWidget = message.fileAttachment != null
         ? Padding(
             padding: const EdgeInsets.only(top: HollowSpacing.xs),
@@ -232,6 +240,7 @@ class ChannelMessageBubble extends ConsumerWidget {
                   const SizedBox(height: 3),
                   ?replyWidget,
                   ?messageTextWidget,
+                  ?linkPreviewWidget,
                   ?fileWidget,
                   ?reactionBarWidget,
                 ],
@@ -259,6 +268,7 @@ class ChannelMessageBubble extends ConsumerWidget {
         children: [
           ?replyWidget,
           ?messageTextWidget,
+          ?linkPreviewWidget,
           ?fileWidget,
           ?reactionBarWidget,
         ],

@@ -18,7 +18,7 @@ class ChannelChatNotifier
 
   /// Send a message to a channel.
   Future<void> sendMessage(String serverId, String channelId, String text,
-      {String? replyToMid}) async {
+      {String? replyToMid, network_api.LinkPreviewRef? linkPreview}) async {
     final networkService = ref.read(networkServiceProvider);
     final localPeerId = ref.read(identityProvider).peerId ?? 'unknown';
     final messageId = generateMessageId();
@@ -30,6 +30,7 @@ class ChannelChatNotifier
       text: text,
       messageId: messageId,
       replyToMid: replyToMid,
+      linkPreview: linkPreview,
     );
 
     // Add to in-memory state for instant UI feedback.
@@ -41,6 +42,7 @@ class ChannelChatNotifier
       timestamp: now,
       messageId: messageId,
       replyToMid: replyToMid,
+      linkPreview: linkPreview,
     );
     _addMessage(serverId, channelId, msg);
   }
@@ -49,7 +51,8 @@ class ChannelChatNotifier
   /// Called only for genuinely new messages (Rust deduplicates before emitting).
   /// [timestampMs] is the sender's original timestamp in milliseconds.
   void receiveMessage(String serverId, String channelId, String fromPeer,
-      String text, int timestampMs, String messageId, String replyToMid) {
+      String text, int timestampMs, String messageId, String replyToMid,
+      {network_api.LinkPreviewRef? linkPreview}) {
     final key = _key(serverId, channelId);
     final existing = state[key] ?? [];
 
@@ -66,6 +69,7 @@ class ChannelChatNotifier
       timestamp: ts,
       messageId: messageId.isNotEmpty ? messageId : null,
       replyToMid: replyToMid.isNotEmpty ? replyToMid : null,
+      linkPreview: linkPreview,
     );
     _addMessage(serverId, channelId, msg);
     // No DB save here — Rust already persisted before emitting the event.
@@ -305,6 +309,7 @@ class ChannelChatNotifier
                   fileAttachment: m.fileId != null
                       ? fileMap[m.fileId]
                       : null,
+                  linkPreview: m.linkPreview,
                 ))
             .toList();
 
@@ -440,6 +445,7 @@ class ChannelChatNotifier
           reactions:
               m.messageId != null ? reactionsMap[m.messageId] : null,
           fileAttachment: m.fileId != null ? fileMap[m.fileId] : null,
+          linkPreview: m.linkPreview,
         ));
       }
 

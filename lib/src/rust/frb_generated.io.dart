@@ -43,6 +43,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
 
   @protected
+  LinkPreviewRef dco_decode_box_autoadd_link_preview_ref(dynamic raw);
+
+  @protected
   NetworkEvent dco_decode_box_autoadd_network_event(dynamic raw);
 
   @protected
@@ -77,6 +80,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   IdentityInfo dco_decode_identity_info(dynamic raw);
+
+  @protected
+  LinkPreviewRef dco_decode_link_preview_ref(dynamic raw);
 
   @protected
   List<String> dco_decode_list_String(dynamic raw);
@@ -133,6 +139,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
+
+  @protected
+  LinkPreviewRef? dco_decode_opt_box_autoadd_link_preview_ref(dynamic raw);
 
   @protected
   NetworkEvent? dco_decode_opt_box_autoadd_network_event(dynamic raw);
@@ -217,6 +226,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
+  LinkPreviewRef sse_decode_box_autoadd_link_preview_ref(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   NetworkEvent sse_decode_box_autoadd_network_event(
     SseDeserializer deserializer,
   );
@@ -257,6 +271,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   IdentityInfo sse_decode_identity_info(SseDeserializer deserializer);
+
+  @protected
+  LinkPreviewRef sse_decode_link_preview_ref(SseDeserializer deserializer);
 
   @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
@@ -319,6 +336,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
+
+  @protected
+  LinkPreviewRef? sse_decode_opt_box_autoadd_link_preview_ref(
+    SseDeserializer deserializer,
+  );
 
   @protected
   NetworkEvent? sse_decode_opt_box_autoadd_network_event(
@@ -421,6 +443,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_link_preview_ref(
+    LinkPreviewRef self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_network_event(
     NetworkEvent self,
     SseSerializer serializer,
@@ -470,6 +498,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_identity_info(IdentityInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_link_preview_ref(
+    LinkPreviewRef self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
@@ -561,6 +595,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_i_64(
     PlatformInt64? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_link_preview_ref(
+    LinkPreviewRef? self,
     SseSerializer serializer,
   );
 

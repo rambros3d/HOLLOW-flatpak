@@ -17,11 +17,13 @@ class NetworkService {
     required String text,
     required String messageId,
     String? replyToMid,
+    ffi.LinkPreviewRef? linkPreview,
   }) => ffi.sendMessage(
     peerId: peerId,
     text: text,
     messageId: messageId,
     replyToMid: replyToMid,
+    linkPreview: linkPreview,
   );
 
   Future<void> sendChannelMessage({
@@ -30,12 +32,14 @@ class NetworkService {
     required String text,
     required String messageId,
     String? replyToMid,
+    ffi.LinkPreviewRef? linkPreview,
   }) => ffi.sendChannelMessage(
     serverId: serverId,
     channelId: channelId,
     text: text,
     messageId: messageId,
     replyToMid: replyToMid,
+    linkPreview: linkPreview,
   );
 
   Future<void> joinRoom({required String roomCode}) =>
