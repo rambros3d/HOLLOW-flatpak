@@ -170,12 +170,12 @@ class CallNotifier extends Notifier<CallState> {
       }
     };
 
-    _voiceService!.onDisconnected = (peerId) {
+    _voiceService!.onDisconnected = (peerId) async {
       debugPrint('[HOLLOW-CALL] Voice disconnected from $peerId');
       if (state.status == CallStatus.active ||
           state.status == CallStatus.connecting) {
         _sendSignal(peerId, 'end', state.callId ?? '');
-        _cleanup();
+        await _cleanup();
       }
     };
 
@@ -246,12 +246,12 @@ class CallNotifier extends Notifier<CallState> {
 
     // 30-second ring timeout.
     _ringTimer?.cancel();
-    _ringTimer = Timer(const Duration(seconds: 30), () {
+    _ringTimer = Timer(const Duration(seconds: 30), () async {
       if (state.status == CallStatus.ringing &&
           state.direction == CallDirection.outgoing) {
         debugPrint('[HOLLOW-CALL] Ring timeout, ending call');
         _sendSignal(peerId, 'end', callId);
-        _cleanup();
+        await _cleanup();
       }
     });
   }
@@ -278,14 +278,14 @@ class CallNotifier extends Notifier<CallState> {
   }
 
   /// Reject an incoming call.
-  void rejectCall() {
+  Future<void> rejectCall() async {
     if (state.status != CallStatus.ringing ||
         state.direction != CallDirection.incoming) {
       return;
     }
 
     _sendSignal(state.peerId!, 'reject', state.callId!);
-    _cleanup();
+    await _cleanup();
   }
 
   /// End the current call (active or ringing).
@@ -305,7 +305,7 @@ class CallNotifier extends Notifier<CallState> {
     _incomingScreenShare = null;
 
     await _service.endCall();
-    _cleanup();
+    await _cleanup();
   }
 
   /// Toggle microphone mute.
@@ -492,11 +492,11 @@ class CallNotifier extends Notifier<CallState> {
   }
 
   /// Handle peer going offline — auto-end any call with them.
-  void handlePeerDisconnected(String peerId) {
+  Future<void> handlePeerDisconnected(String peerId) async {
     if (state.peerId == peerId && state.status != CallStatus.idle) {
       debugPrint('[HOLLOW-CALL] Peer $peerId disconnected, ending call');
-      _service.endCall();
-      _cleanup();
+      await _service.endCall();
+      await _cleanup();
     }
   }
 
@@ -678,10 +678,10 @@ class CallNotifier extends Notifier<CallState> {
     _sendSignal(peerId, 'sdp_offer', sdpPayload);
   }
 
-  void _handleReject(String peerId, String callId) {
+  Future<void> _handleReject(String peerId, String callId) async {
     if (state.callId != callId) return;
     debugPrint('[HOLLOW-CALL] Call rejected by $peerId');
-    _cleanup();
+    await _cleanup();
   }
 
   Future<void> _handleEnd(String peerId, String callId) async {
@@ -692,13 +692,13 @@ class CallNotifier extends Notifier<CallState> {
     await _incomingScreenShare?.close();
     _incomingScreenShare = null;
     await _service.endCall();
-    _cleanup();
+    await _cleanup();
   }
 
-  void _handleBusy(String peerId, String callId) {
+  Future<void> _handleBusy(String peerId, String callId) async {
     if (state.callId != callId) return;
     debugPrint('[HOLLOW-CALL] Peer $peerId is busy');
-    _cleanup();
+    await _cleanup();
   }
 
   Future<void> _handleSdpOffer(String peerId, String payload) async {
@@ -907,16 +907,16 @@ class CallNotifier extends Notifier<CallState> {
     );
   }
 
-  void _cleanup() {
+  Future<void> _cleanup() async {
     _ringTimer?.cancel();
     _ringTimer = null;
     _statsTimer?.cancel();
     _statsTimer = null;
     _renegotiationInProgress = false;
     // Phase 6.25: Dispose screen share services to prevent GPU/memory leaks.
-    _outgoingScreenShare?.close();
+    await _outgoingScreenShare?.close();
     _outgoingScreenShare = null;
-    _incomingScreenShare?.close();
+    await _incomingScreenShare?.close();
     _incomingScreenShare = null;
     // Reset the screen-share view focus so the next call starts fresh.
     ref.read(focusedDmSourceProvider.notifier).state =

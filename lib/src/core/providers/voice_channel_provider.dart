@@ -206,6 +206,7 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
 
   /// Shared screen capture stream (captured once, shared across outgoing PCs).
   MediaStream? _screenCaptureStream;
+  RTCVideoRenderer? _localScreenPreviewRenderer;
 
   /// Timer that polls for screen track ending (window closed).
   Timer? _screenTrackPoller;
@@ -231,6 +232,12 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
   /// Get the renderer for an incoming screen share from a specific peer.
   RTCVideoRenderer? getScreenShareRenderer(String peerId) =>
       _incomingScreenShares[peerId]?.remoteRenderer;
+
+  /// Get the local screen share renderer (self-preview of what we're sharing).
+  /// Uses a dedicated renderer tied to the capture stream, independent of
+  /// whether any peers are connected (works even when alone in the channel).
+  RTCVideoRenderer? get localScreenShareRenderer =>
+      _localScreenPreviewRenderer;
 
   /// Get the camera renderer for a peer (or self).
   RTCVideoRenderer? getCameraRenderer(String peerId) {
@@ -396,7 +403,7 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     // Clean up screen sharing for this peer.
     await _cleanupPeerScreenShare(peerId);
     // Clean up camera state for this peer.
-    _cleanupPeerCamera(peerId);
+    await _cleanupPeerCamera(peerId);
   }
 
   /// Handle incoming WebRTC signal for voice channel.
@@ -528,7 +535,7 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
   }
 
   /// Handle peer disconnect — remove from all voice channels.
-  void onPeerDisconnected(String peerId) {
+  Future<void> onPeerDisconnected(String peerId) async {
     final updated = _deepCopyParticipants();
     for (final serverChannels in updated.values) {
       for (final channelPeers in serverChannels.values) {
@@ -544,9 +551,9 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     // Tear down WebRTC connection if they were in our channel.
     _service?.closePeer(peerId);
     // Clean up screen sharing for this peer.
-    _cleanupPeerScreenShare(peerId);
+    await _cleanupPeerScreenShare(peerId);
     // Clean up camera state for this peer.
-    _cleanupPeerCamera(peerId);
+    await _cleanupPeerCamera(peerId);
   }
 
   // ---------------------------------------------------------------
@@ -644,11 +651,11 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
   }
 
   /// Clean up camera state for a peer that left.
-  void _cleanupPeerCamera(String peerId) {
+  Future<void> _cleanupPeerCamera(String peerId) async {
     final renderer = _remoteCameraRenderers.remove(peerId);
     if (renderer != null) {
       renderer.srcObject = null;
-      renderer.dispose();
+      await renderer.dispose();
     }
     if (state.peerCameraOn.containsKey(peerId)) {
       final cameras = Map.of(state.peerCameraOn)..remove(peerId);
@@ -710,6 +717,11 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
       'audio': shareAudio,
     });
 
+    // Create local preview renderer so the sharer can see their own screen.
+    _localScreenPreviewRenderer = RTCVideoRenderer();
+    await _localScreenPreviewRenderer!.initialize();
+    _localScreenPreviewRenderer!.srcObject = _screenCaptureStream;
+
     final localPeerId = ref.read(identityProvider).peerId ?? '';
     state = state.copyWith(
       isScreenSharing: true,
@@ -748,6 +760,13 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
         try { await service.close(); } catch (_) {}
       }
       _outgoingScreenShares.clear();
+
+      // Dispose local preview renderer.
+      if (_localScreenPreviewRenderer != null) {
+        _localScreenPreviewRenderer!.srcObject = null;
+        await _localScreenPreviewRenderer!.dispose();
+        _localScreenPreviewRenderer = null;
+      }
 
       // Stop capture stream.
       _screenCaptureStream?.getTracks().forEach((t) => t.stop());
@@ -1097,8 +1116,14 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     }
     _incomingScreenShares.clear();
 
+    if (_localScreenPreviewRenderer != null) {
+      _localScreenPreviewRenderer!.srcObject = null;
+      await _localScreenPreviewRenderer!.dispose();
+      _localScreenPreviewRenderer = null;
+    }
+
     _screenCaptureStream?.getTracks().forEach((t) => t.stop());
-    _screenCaptureStream?.dispose();
+    await _screenCaptureStream?.dispose();
     _screenCaptureStream = null;
     _earlyScreenIce.clear();
 

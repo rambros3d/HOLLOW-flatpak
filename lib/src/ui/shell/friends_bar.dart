@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/providers/favourite_friends_provider.dart';
 import 'package:hollow/src/core/providers/friends_provider.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
@@ -39,6 +40,8 @@ class FriendsBar extends ConsumerWidget {
     final notifSettings = ref.watch(notificationSettingsProvider.notifier);
     final selectedPeerId = ref.watch(selectedPeerProvider);
 
+    final favourites = ref.watch(favouriteFriendsProvider);
+
     // Accepted friends sorted: online first, then alphabetical by display name.
     final accepted = friends.values
         .where((f) => f.status == 'accepted')
@@ -51,6 +54,16 @@ class FriendsBar extends ConsumerWidget {
       final bName = displayNameFor(profiles, b.peerId);
       return aName.compareTo(bName);
     });
+
+    // When favourites exist, show only favourites in their custom order.
+    // Filter out any stale favourites (removed friends).
+    final acceptedIds = accepted.map((f) => f.peerId).toSet();
+    final displayList = favourites.isNotEmpty
+        ? favourites
+            .where((id) => acceptedIds.contains(id))
+            .map((id) => accepted.firstWhere((f) => f.peerId == id))
+            .toList()
+        : accepted;
 
     // Count pending requests for badge.
     final pendingCount = friends.values
@@ -126,7 +139,7 @@ class FriendsBar extends ConsumerWidget {
 
           // Friends list (horizontal scroll)
           Expanded(
-            child: accepted.isEmpty
+            child: displayList.isEmpty
                 ? Padding(
                     padding: const EdgeInsets.only(left: HollowSpacing.sm),
                     child: Text(
@@ -138,12 +151,12 @@ class FriendsBar extends ConsumerWidget {
                   )
                 : ListView.builder(
                     scrollDirection: Axis.horizontal,
-                    itemCount: accepted.length,
+                    itemCount: displayList.length,
                     padding: const EdgeInsets.symmetric(
                       horizontal: HollowSpacing.xs,
                     ),
                     itemBuilder: (context, index) {
-                      final friend = accepted[index];
+                      final friend = displayList[index];
                       final isOnline = peers.containsKey(friend.peerId);
                       final isSelected = friend.peerId == selectedPeerId;
                       final name = displayNameFor(profiles, friend.peerId);
@@ -220,7 +233,7 @@ class _FriendsManager extends ConsumerStatefulWidget {
   ConsumerState<_FriendsManager> createState() => _FriendsManagerState();
 }
 
-enum _FriendsTab { friends, incoming, outgoing, add }
+enum _FriendsTab { friends, favourites, incoming, outgoing, add }
 
 class _FriendsManagerState extends ConsumerState<_FriendsManager> {
   _FriendsTab _activeTab = _FriendsTab.friends;
@@ -332,6 +345,14 @@ class _FriendsManagerState extends ConsumerState<_FriendsManager> {
                         () => _activeTab = _FriendsTab.friends),
                   ),
                   _TabButton(
+                    label: 'Favourites',
+                    count: ref.watch(favouriteFriendsProvider).length,
+                    isActive: _activeTab == _FriendsTab.favourites,
+                    icon: LucideIcons.star,
+                    onTap: () => setState(
+                        () => _activeTab = _FriendsTab.favourites),
+                  ),
+                  _TabButton(
                     label: 'Incoming',
                     count: incoming.length,
                     isActive: _activeTab == _FriendsTab.incoming,
@@ -364,6 +385,10 @@ class _FriendsManagerState extends ConsumerState<_FriendsManager> {
                 child: switch (_activeTab) {
                   _FriendsTab.friends => _FriendsListTab(
                       key: const ValueKey('friends'),
+                      accepted: accepted,
+                    ),
+                  _FriendsTab.favourites => _FavouritesReorderTab(
+                      key: const ValueKey('favourites'),
                       accepted: accepted,
                     ),
                   _FriendsTab.incoming => _RequestsTab(
@@ -568,6 +593,31 @@ class _FriendsListTab extends ConsumerWidget {
                     ],
                   ),
                 ),
+                Builder(builder: (context) {
+                  final isFav = ref.watch(favouriteFriendsProvider)
+                      .contains(friend.peerId);
+                  return HollowTooltip(
+                    message: isFav
+                        ? 'Remove from favourites'
+                        : 'Add to favourites',
+                    child: HollowPressable(
+                      onTap: () => ref
+                          .read(favouriteFriendsProvider.notifier)
+                          .toggle(friend.peerId),
+                      borderRadius:
+                          BorderRadius.circular(hollow.radiusSm),
+                      padding: const EdgeInsets.all(HollowSpacing.xs),
+                      child: Icon(
+                        isFav ? LucideIcons.star : LucideIcons.star,
+                        size: 16,
+                        color: isFav
+                            ? hollow.warning
+                            : hollow.textSecondary.withValues(alpha: 0.4),
+                      ),
+                    ),
+                  );
+                }),
+                const SizedBox(width: 2),
                 HollowTooltip(
                   message: 'Remove friend',
                   child: HollowPressable(
@@ -576,6 +626,10 @@ class _FriendsListTab extends ConsumerWidget {
                       ref
                           .read(friendsProvider.notifier)
                           .removeFriend(peerId);
+                      // Also remove from favourites.
+                      ref
+                          .read(favouriteFriendsProvider.notifier)
+                          .remove(peerId);
                       // Close chat if viewing this friend.
                       if (ref.read(selectedPeerProvider) == peerId) {
                         ref.read(selectedPeerProvider.notifier).state =
@@ -595,6 +649,142 @@ class _FriendsListTab extends ConsumerWidget {
                     padding: const EdgeInsets.all(HollowSpacing.xs),
                     child: Icon(LucideIcons.userMinus, size: 16,
                         color: hollow.error),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Favourites reorder tab — drag to reposition favourite friends.
+class _FavouritesReorderTab extends ConsumerWidget {
+  final List<FriendInfo> accepted;
+  const _FavouritesReorderTab({super.key, required this.accepted});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hollow = HollowTheme.of(context);
+    final favourites = ref.watch(favouriteFriendsProvider);
+    final profiles = ref.watch(profileProvider);
+    final peers = ref.watch(peersProvider);
+    final acceptedIds = accepted.map((f) => f.peerId).toSet();
+
+    // Filter to valid favourites only.
+    final validFavs = favourites.where((id) => acceptedIds.contains(id)).toList();
+
+    if (validFavs.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(LucideIcons.star, size: 40,
+                color: hollow.textSecondary.withValues(alpha: 0.3)),
+            const SizedBox(height: HollowSpacing.md),
+            Text('No favourites yet',
+                style: HollowTypography.body
+                    .copyWith(color: hollow.textSecondary)),
+            const SizedBox(height: HollowSpacing.xs),
+            Text(
+              'Star a friend in the Friends tab to add them here',
+              style: HollowTypography.caption
+                  .copyWith(color: hollow.textSecondary),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ReorderableListView.builder(
+      padding: const EdgeInsets.all(HollowSpacing.md),
+      itemCount: validFavs.length,
+      buildDefaultDragHandles: false,
+      proxyDecorator: (child, index, animation) {
+        return AnimatedBuilder(
+          animation: animation,
+          builder: (ctx, child) => Material(
+            color: Colors.transparent,
+            elevation: 4,
+            shadowColor: Colors.black26,
+            borderRadius: BorderRadius.circular(hollow.radiusMd),
+            child: child,
+          ),
+          child: child,
+        );
+      },
+      onReorder: (oldIndex, newIndex) {
+        ref.read(favouriteFriendsProvider.notifier).reorder(oldIndex, newIndex);
+      },
+      itemBuilder: (context, index) {
+        final peerId = validFavs[index];
+        final name = displayNameFor(profiles, peerId);
+        final isOnline = peers.containsKey(peerId);
+
+        return Padding(
+          key: ValueKey(peerId),
+          padding: const EdgeInsets.only(bottom: HollowSpacing.xs),
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: HollowSpacing.sm + 2,
+              vertical: HollowSpacing.sm,
+            ),
+            decoration: BoxDecoration(
+              color: hollow.elevated,
+              borderRadius: BorderRadius.circular(hollow.radiusMd),
+            ),
+            child: Row(
+              children: [
+                ReorderableDragStartListener(
+                  index: index,
+                  child: Icon(LucideIcons.gripVertical,
+                      size: 16, color: hollow.textSecondary),
+                ),
+                const SizedBox(width: HollowSpacing.sm),
+                HollowAvatar(
+                  peerId: peerId,
+                  size: 28,
+                  imageBytes: profiles[peerId]?.avatarBytes,
+                ),
+                const SizedBox(width: HollowSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: HollowTypography.body.copyWith(
+                          color: hollow.textPrimary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        isOnline ? 'Online' : 'Offline',
+                        style: HollowTypography.caption.copyWith(
+                          color: isOnline
+                              ? hollow.success
+                              : hollow.textSecondary,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                HollowTooltip(
+                  message: 'Remove from favourites',
+                  child: HollowPressable(
+                    onTap: () => ref
+                        .read(favouriteFriendsProvider.notifier)
+                        .remove(peerId),
+                    borderRadius:
+                        BorderRadius.circular(hollow.radiusSm),
+                    padding: const EdgeInsets.all(HollowSpacing.xs),
+                    child: Icon(LucideIcons.x, size: 14,
+                        color: hollow.textSecondary),
                   ),
                 ),
               ],

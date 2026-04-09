@@ -786,35 +786,56 @@ class _VoiceChannelPaneState extends ConsumerState<VoiceChannelPane> {
     bool isLocalFocused,
   ) {
     if (isLocalFocused && vcState.isScreenSharing) {
-      // We are the focused sharer — show banner.
-      return Container(
-        color: Colors.black,
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(LucideIcons.monitor,
-                  size: 56, color: hollow.accent.withValues(alpha: 0.5)),
-              const SizedBox(height: HollowSpacing.lg),
-              Text('You are sharing your screen',
-                  style: HollowTypography.heading.copyWith(
-                    color: hollow.textPrimary,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 18,
-                  )),
-              const SizedBox(height: HollowSpacing.sm),
-              Text('Others can see your screen',
-                  style: HollowTypography.body
-                      .copyWith(color: hollow.textSecondary)),
-              const SizedBox(height: HollowSpacing.lg),
-              HollowButton.danger(
-                onPressed: () =>
-                    ref.read(voiceChannelProvider.notifier).stopScreenShare(),
-                child: const Text('Stop Sharing'),
-              ),
-            ],
+      // We are the focused sharer — show self-preview with stop button.
+      final localRenderer =
+          ref.read(voiceChannelProvider.notifier).localScreenShareRenderer;
+      return Stack(
+        children: [
+          Positioned.fill(
+            child: Container(
+              color: Colors.black,
+              child: localRenderer != null
+                  ? RTCVideoView(
+                      localRenderer,
+                      objectFit:
+                          RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                    )
+                  : Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(LucideIcons.monitor,
+                              size: 56,
+                              color:
+                                  hollow.accent.withValues(alpha: 0.5)),
+                          const SizedBox(height: HollowSpacing.lg),
+                          Text('You are sharing your screen',
+                              style: HollowTypography.heading.copyWith(
+                                color: hollow.textPrimary,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 18,
+                              )),
+                          const SizedBox(height: HollowSpacing.sm),
+                          Text('Others can see your screen',
+                              style: HollowTypography.body.copyWith(
+                                  color: hollow.textSecondary)),
+                        ],
+                      ),
+                    ),
+            ),
           ),
-        ),
+          Positioned(
+            top: HollowSpacing.md,
+            right: HollowSpacing.md,
+            child: HollowButton.danger(
+              onPressed: () =>
+                  ref.read(voiceChannelProvider.notifier).stopScreenShare(),
+              compact: true,
+              icon: const Icon(LucideIcons.monitorOff, size: 14),
+              child: const Text('Stop sharing'),
+            ),
+          ),
+        ],
       );
     }
 

@@ -1607,8 +1607,7 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 - [x] `chat_pane.dart` + `channel_chat_pane.dart` — call overlay shimmer already uses SelectionShimmer (now shared). SpinningRefreshIcon uses RotationTransition (GPU-composited, negligible cost)
 
 #### TODO — Features
-- [ ] Download manager UI — show background file re-downloads, vault shard transfers, auto-recovery progress
-- [ ] Read/unread messages tick if possible
+
 - [X] Fix the camera turning on when calling with video call
 - [X] Add pill for camera/screen switching in DMs, just like it is in voice channels
 - [X] Copying messages / Paste + drag-and-drop images into the input bar
@@ -1618,8 +1617,6 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
   - [x] Text + file together (type message AND attach file in same send)
   - [X] Drag-and-drop files onto chat (desktop_drop package, drop zone on chat pane)
   - [ ] Multiple files per message (model change: FileAttachment? → List — touches Rust/DB/wire protocol)
-- [ ] Different fonts/elements like hearts or sparkles on Profile and maybe nicknames
-- [ ] Proper roles on the server and editing of permissions
 - [X] **Video preview in chats — DONE (Apr 7, 2026).** Inline preview-in-place player with auto-fading control bar (play/pause + scrub + timestamps + fullscreen) and a fullscreen viewer overlay. Tested working in DMs and <6 member servers; vault path implemented but not user-tested (no 6+ peer testbed).
   - [X] **ffmpeg distribution** — Bundled BtbN/FFmpeg-Builds LGPL static binary at `vendor/ffmpeg/ffmpeg-win-x64.exe` (~164MB unstripped), fetched via `scripts/fetch_ffmpeg.ps1` (gitignored). Bundled into Windows builds via `windows/CMakeLists.txt` install rule + `windows/runner/CMakeLists.txt` POST_BUILD copy for `flutter run` dev mode. macOS/Linux fetch scripts + bundling deferred until those builds happen. **Binary minification deferred to Phase 7** — see Phase 7 line "Strip / minimize bundled ffmpeg binary" entry. Establishes the first native-binary-bundling pattern in Hollow.
   - [X] **`VideoThumbnailService` (Dart)** — `lib/src/core/services/video_thumbnail_service.dart`. `findFfmpegBinary()` locates the binary next to `Platform.resolvedExecutable`. `extractVideoThumbnail({videoPath, targetHeight=480})` invokes ffmpeg via `Process.run` with `-vf scale=-2:480 -c:v libwebp -lossless 1 -compression_level 6` → returns `VideoThumbnailResult(webpBytes, durationMs, sourceWidth, sourceHeight)`. 10s timeout. Stderr regex parser extracts `Duration:` and the first `Stream Video: WxH` for source dimensions. Never throws — all failures return null. `ensureCachedThumb(videoPath)` writes `{file_id}.thumb.webp` next to the source video for lazy receiver-side extraction.
@@ -1643,15 +1640,22 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
     - **`ffmpeg-next` Rust crate is brutal on Windows.** vcpkg ffmpeg port is famously broken. Bundled binary + `Process.run` is the right call for desktop. Mobile (when we get there) will need a different path — `video_thumbnail` Dart package for Android/iOS via native AVAssetImageGenerator/MediaMetadataRetriever, since iOS/Android sandboxes block executing arbitrary binaries.
 - [X] Link previews (URL metadata fetch + embed card rendering)
 - [X] Image quality tiers (user-configurable WebP Q: Lossless / Balanced 50% default / Small 30%, ~95% bandwidth + storage savings)
-- [ ] Discord import system (full implementation — parse GDPR export ZIP, map servers/channels/roles/messages, placeholder identities, member claiming) == reflect to the discord_migration_plan.md
-- [ ] Data export system (messages, files, identity — verifiable with Ed25519 signatures)
-- [ ] Server template export/import (share server structures)
 - [X] **Cryptographic message verification ("The RAT Files")** — prove message authenticity, defeat fake screenshots
   - [x] Message Info panel: shieldCheck icon in hover toolbar + right-click opens RAT Files dialog — sender peer ID, timestamp, Ed25519 signature, public key fingerprint, SIGNED/UNSIGNED badge
   - [x] "Export Proof" button: copies JSON proof with message text, timestamp, context (server/channel/DM), signature, sender public key, canonical payload, verification instructions — anyone can verify with standard Ed25519
   - [x] "Verify Peer" in Security tab: your fingerprint display, peer ID lookup with fingerprint comparison, "Mark as Verified" button, verified peers list with unverify. Backed by `verified_peers` SQLCipher table + Riverpod provider
   - [x] In-app proof verifier: "Verify a Proof" section in Security tab — paste JSON or import .json file, runs Ed25519 verification via Rust FFI, shows VERIFIED/INVALID with message text, sender, context, timestamp. Replaces standalone CLI/web tool
-- [ ] Favourites for the Friends strip instead of the "dump-all-friends" approach
+- [X] Favourites for the Friends strip instead of the "dump-all-friends" approach
+- [X] Use the same screen sharing for voice channels as in DMs (show your own screen)
+- [ ] Proper profiling for the high RAM usage during the call with screen sharing and afterwards
+
+- [ ] Download manager UI — show background file re-downloads, vault shard transfers, auto-recovery progress
+- [ ] Read/unread messages tick if possible
+- [ ] Different fonts/elements like hearts or sparkles on Profile and maybe nicknames
+- [ ] Proper roles on the server and editing of permissions
+- [ ] Discord import system (full implementation — parse GDPR export ZIP, map servers/channels/roles/messages, placeholder identities, member claiming) == reflect to the discord_migration_plan.md
+- [ ] Data export system (messages, files, identity — verifiable with Ed25519 signatures)
+- [ ] Server template export/import (share server structures)
 - [ ] Evidence Recovery UI tool (cooperative shard gathering for ex-members) — depends on Phase 4 shard system
 - [ ] Device linking via QR code (multi-device identity sync) — requires MLS + CRDTs. 🎞️ Animate: QR scan success celebration, device linked confirmation
 - [ ] Mobile platform testing & platform-specific fixes (adaptive layout built in Phase 2.5)
@@ -1721,6 +1725,7 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 - [ ] Beta testing program
 - [ ] Security audit (third-party review of E2EE implementation - OTF Security Lab funding)
 - [ ] **Strip / minimize bundled ffmpeg binary** — Initial bundled binary (BtbN LGPL static, `vendor/ffmpeg/ffmpeg-win-x64.exe`) is ~164 MB unstripped and includes a huge codec/library zoo we don't actually use (libdav1d, libvpx, libsvtav1, libplacebo, vulkan, opencl, AMF, NVENC/NVDEC, libjxl, libwhisper, librav1e, libopenh264, all the audio codecs, etc.). After the video preview pipeline is shipped and stable, profile what ffmpeg arguments / codecs our actual usage requires (just thumbnail extraction via libwebp encoder + a small set of video demuxers/decoders for whichever container formats users actually upload), then either (a) strip the existing binary with `strip` to drop debug symbols (~15-20% reduction), or (b) build a custom minimal ffmpeg with only the required components (`--disable-everything --enable-encoder=libwebp --enable-decoder=h264,hevc,vp9,av1 --enable-demuxer=mov,matroska,webm` etc.) — target ~10 MB per arch. Same for macOS/Linux when those builds happen. No code changes needed when swapping the binary — just replace `vendor/ffmpeg/ffmpeg-{platform}` and rebuild.
+- [ ] LRU-eviction (optimization for loading only what you can see on the screen such as friends profiles or avatars)
 
 **Deliverable:** Public release across all platforms.
 
