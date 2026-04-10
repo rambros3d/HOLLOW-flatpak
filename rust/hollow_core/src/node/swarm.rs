@@ -628,6 +628,8 @@ enum HavenMessage {
         call_id: String,
         #[serde(default)]
         enabled: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quality: Option<String>,
     },
 
     /// SDP offer for screen share WebRTC connection (separate PC).
@@ -698,6 +700,8 @@ enum HavenMessage {
         channel_id: String,
         #[serde(default)]
         enabled: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quality: Option<String>,
     },
 
     /// Broadcast: camera state (on/off) in a voice channel.
@@ -1271,6 +1275,8 @@ enum MessageEnvelope {
         enabled: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quality: Option<String>,
     },
 
     // -- Voice channel camera (Phase 5B) --
@@ -4813,8 +4819,16 @@ async fn run_event_loop(
                                 }
                             }
                         } else if is_image && original_ext == "webp" {
-                            let dims = image_convert::get_image_dimensions(&file_data).ok();
-                            (file_data.clone(), original_ext.clone(), dims.map(|d| d.0), dims.map(|d| d.1))
+                            // WebP passthrough — strip metadata by decode+re-encode.
+                            let stripped = image_convert::strip_webp_metadata(&file_data)
+                                .unwrap_or_else(|_| file_data.clone());
+                            let dims = image_convert::get_image_dimensions(&stripped).ok();
+                            (stripped, original_ext.clone(), dims.map(|d| d.0), dims.map(|d| d.1))
+                        } else if is_image && original_ext == "gif" {
+                            // GIF passthrough — strip EXIF/metadata while preserving animation.
+                            let stripped = image_convert::strip_gif_metadata(&file_data);
+                            let dims = image_convert::get_image_dimensions(&stripped).ok();
+                            (stripped, original_ext.clone(), dims.map(|d| d.0), dims.map(|d| d.1))
                         } else {
                             // Non-image files: use Dart-supplied dimensions if any (Phase 6.75
                             // video preview passes the source video's dimensions through here).
@@ -5416,6 +5430,7 @@ async fn run_event_loop(
                                     HavenMessage::CallScreenState {
                                         call_id: v["call_id"].as_str().unwrap_or("").to_string(),
                                         enabled: v["enabled"].as_bool().unwrap_or(false),
+                                        quality: v["quality"].as_str().map(|s| s.to_string()),
                                     }
                                 } else {
                                     hollow_log!("[HOLLOW-CALL] Failed to parse screen_state payload");
@@ -5635,6 +5650,7 @@ async fn run_event_loop(
                                         cid: channel_id.clone(),
                                         enabled: v["enabled"].as_bool().unwrap_or(false),
                                         target: None,
+                                        quality: v["quality"].as_str().map(|s| s.to_string()),
                                     }
                                 } else { continue; }
                             }
@@ -5697,6 +5713,7 @@ async fn run_event_loop(
                                             Some(HavenMessage::VoiceChannelScreenState {
                                                 server_id: server_id.clone(), channel_id: channel_id.clone(),
                                                 enabled: v["enabled"].as_bool().unwrap_or(false),
+                                                quality: v["quality"].as_str().map(|s| s.to_string()),
                                             })
                                         } else { None }
                                     }
@@ -11409,14 +11426,18 @@ async fn handle_incoming_request(
                                     }).await;
                                 }
                             }
-                            MessageEnvelope::VoiceChannelScreenState { sid, cid, enabled, .. } => {
+                            MessageEnvelope::VoiceChannelScreenState { sid, cid, enabled, quality, .. } => {
                                 let vc_key = format!("{sid}:{cid}");
                                 let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
                                 if !is_participant {
                                     hollow_log!("[HOLLOW-SECURITY] BLOCKED VC screen state from non-participant {sender_peer_id} in {cid}");
                                 } else {
-                                    hollow_log!("[HOLLOW-VC] Screen state from {sender_peer_id}: enabled={enabled}");
-                                    let payload = serde_json::json!({"enabled": enabled}).to_string();
+                                    hollow_log!("[HOLLOW-VC] Screen state from {sender_peer_id}: enabled={enabled} quality={quality:?}");
+                                    let mut json = serde_json::json!({"enabled": enabled});
+                                    if let Some(q) = &quality {
+                                        json["quality"] = serde_json::Value::String(q.clone());
+                                    }
+                                    let payload = json.to_string();
                                     let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
                                         server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
                                         signal_type: "screen_state".to_string(), payload,
@@ -12243,12 +12264,16 @@ async fn handle_incoming_request(
                 payload,
             }).await;
         }
-        HavenMessage::CallScreenState { call_id, enabled } => {
-            hollow_log!("[HOLLOW-CALL] CallScreenState from {peer_str} call={call_id} enabled={enabled}");
-            let payload = serde_json::json!({
+        HavenMessage::CallScreenState { call_id, enabled, quality } => {
+            hollow_log!("[HOLLOW-CALL] CallScreenState from {peer_str} call={call_id} enabled={enabled} quality={quality:?}");
+            let mut json = serde_json::json!({
                 "call_id": call_id,
                 "enabled": enabled,
-            }).to_string();
+            });
+            if let Some(q) = &quality {
+                json["quality"] = serde_json::Value::String(q.clone());
+            }
+            let payload = json.to_string();
             let _ = event_tx.send(NetworkEvent::CallSignal {
                 peer_id: peer_str.to_string(),
                 signal_type: "screen_state".to_string(),
@@ -12410,13 +12435,17 @@ async fn handle_incoming_request(
             }
         }
 
-        HavenMessage::VoiceChannelScreenState { server_id, channel_id, enabled } => {
+        HavenMessage::VoiceChannelScreenState { server_id, channel_id, enabled, quality } => {
             let vc_key = format!("{server_id}:{channel_id}");
             let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(peer_str)).unwrap_or(false);
             if !is_participant {
                 hollow_log!("[HOLLOW-SECURITY] BLOCKED plaintext VC screen state from non-participant {peer_str} in {channel_id}");
             } else {
-                let payload = serde_json::json!({"enabled": enabled}).to_string();
+                let mut json = serde_json::json!({"enabled": enabled});
+                if let Some(q) = &quality {
+                    json["quality"] = serde_json::Value::String(q.clone());
+                }
+                let payload = json.to_string();
                 let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
                     server_id, channel_id, peer_id: peer_str.to_string(),
                     signal_type: "screen_state".to_string(), payload,

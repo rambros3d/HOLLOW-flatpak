@@ -57,8 +57,14 @@ class VoiceChannelState {
   /// Whether the local user is sharing their screen.
   final bool isScreenSharing;
 
+  /// Quality label for the local screen share (e.g. "1080p60"). Null when not sharing.
+  final String? screenShareLabel;
+
   /// Remote peers currently sharing their screen (peer_id -> true).
   final Map<String, bool> peerScreenSharing;
+
+  /// Quality labels for remote peers' screen shares (peer_id -> label).
+  final Map<String, String> peerScreenShareLabels;
 
   /// Which sharer is displayed full-bleed (null = none).
   final String? focusedScreenSharePeerId;
@@ -86,7 +92,9 @@ class VoiceChannelState {
     this.gossipNeighbors = const {},
     this.joinedAt,
     this.isScreenSharing = false,
+    this.screenShareLabel,
     this.peerScreenSharing = const {},
+    this.peerScreenShareLabels = const {},
     this.focusedScreenSharePeerId,
     this.focusedSourceType = 'screen',
     this.isCameraOn = false,
@@ -135,7 +143,10 @@ class VoiceChannelState {
     Set<String>? gossipNeighbors,
     DateTime? joinedAt,
     bool? isScreenSharing,
+    String? screenShareLabel,
+    bool clearScreenShareLabel = false,
     Map<String, bool>? peerScreenSharing,
+    Map<String, String>? peerScreenShareLabels,
     String? focusedScreenSharePeerId,
     bool clearFocusedSharer = false,
     bool clearCurrent = false,
@@ -172,9 +183,15 @@ class VoiceChannelState {
       isScreenSharing: clearCurrent
           ? false
           : (isScreenSharing ?? this.isScreenSharing),
+      screenShareLabel: clearCurrent || clearScreenShareLabel
+          ? null
+          : (screenShareLabel ?? this.screenShareLabel),
       peerScreenSharing: clearCurrent
           ? const {}
           : (peerScreenSharing ?? this.peerScreenSharing),
+      peerScreenShareLabels: clearCurrent
+          ? const {}
+          : (peerScreenShareLabels ?? this.peerScreenShareLabels),
       focusedScreenSharePeerId: clearCurrent || clearFocusedSharer
           ? null
           : (focusedScreenSharePeerId ?? this.focusedScreenSharePeerId),
@@ -215,6 +232,9 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
 
   /// Guard to prevent concurrent leaveChannel calls and actions during leave.
   bool _leaving = false;
+
+  /// Channel that was selected before joining the VC (restored on leave).
+  String? preVcChannelId;
 
   // ---------------------------------------------------------------
   //  Camera (video) state
@@ -376,12 +396,16 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     // PC reaches connected state (via onPeerConnected callback), ensuring
     // MLS is ready and the peer can decrypt it.
     if (state.isScreenSharing && _screenCaptureStream != null) {
+      final json = <String, dynamic>{'enabled': true};
+      if (state.screenShareLabel != null) {
+        json['quality'] = state.screenShareLabel;
+      }
       network_api.voiceChannelSendSignal(
         serverId: state.currentServerId!,
         channelId: state.currentChannelId!,
         peerId: peerId,
         signalType: 'screen_state',
-        payload: jsonEncode({'enabled': true}),
+        payload: jsonEncode(json),
       );
     }
 
@@ -726,9 +750,14 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     await _localScreenPreviewRenderer!.initialize();
     _localScreenPreviewRenderer!.srcObject = _screenCaptureStream;
 
+    // Build quality label (e.g. "1080p60", "4K30").
+    const resLabels = {360: '360p', 480: '480p', 720: '720p', 1080: '1080p', 1440: '1440p', 2160: '4K'};
+    final qualityLabel = '${resLabels[height] ?? '${height}p'}$fps';
+
     final localPeerId = ref.read(identityProvider).peerId ?? '';
     state = state.copyWith(
       isScreenSharing: true,
+      screenShareLabel: qualityLabel,
       focusedScreenSharePeerId: localPeerId,
     );
 
@@ -795,6 +824,7 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
       }
       state = state.copyWith(
         isScreenSharing: false,
+        clearScreenShareLabel: true,
         focusedScreenSharePeerId: clearFocus ? null : newFocus,
         clearFocusedSharer: clearFocus,
       );
@@ -1017,22 +1047,27 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
   void _handleScreenState(String peerId, String payload) {
     final v = jsonDecode(payload);
     final enabled = v['enabled'] as bool? ?? false;
+    final quality = v['quality'] as String?;
 
-    debugPrint('[HOLLOW-VC] Screen state from $peerId: enabled=$enabled');
+    debugPrint('[HOLLOW-VC] Screen state from $peerId: enabled=$enabled quality=$quality');
 
     final sharing = Map.of(state.peerScreenSharing);
+    final labels = Map.of(state.peerScreenShareLabels);
     if (enabled) {
       sharing[peerId] = true;
+      if (quality != null) labels[peerId] = quality;
       // Auto-focus if no one is focused.
       if (state.focusedScreenSharePeerId == null) {
         state = state.copyWith(
           peerScreenSharing: sharing,
+          peerScreenShareLabels: labels,
           focusedScreenSharePeerId: peerId,
         );
         return;
       }
     } else {
       sharing.remove(peerId);
+      labels.remove(peerId);
       // Clean up incoming service.
       _cleanupPeerScreenShare(peerId);
       // If the leaving sharer was focused, switch to another.
@@ -1046,13 +1081,17 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
                 .firstOrNull;
         state = state.copyWith(
           peerScreenSharing: sharing,
+          peerScreenShareLabels: labels,
           focusedScreenSharePeerId: nextFocus,
           clearFocusedSharer: nextFocus == null,
         );
         return;
       }
     }
-    state = state.copyWith(peerScreenSharing: sharing);
+    state = state.copyWith(
+      peerScreenSharing: sharing,
+      peerScreenShareLabels: labels,
+    );
   }
 
   /// Broadcast our screen share state to all peers.
@@ -1061,7 +1100,11 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     final localPeerId = ref.read(identityProvider).peerId ?? '';
     final peers = state.getParticipants(
         state.currentServerId!, state.currentChannelId!);
-    final payload = jsonEncode({'enabled': enabled});
+    final json = <String, dynamic>{'enabled': enabled};
+    if (enabled && state.screenShareLabel != null) {
+      json['quality'] = state.screenShareLabel;
+    }
+    final payload = jsonEncode(json);
     for (final peerId in peers) {
       if (peerId == localPeerId) continue;
       network_api.voiceChannelSendSignal(

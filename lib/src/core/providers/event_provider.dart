@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/connection_status_provider.dart';
 import 'package:hollow/src/core/providers/channel_chat_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
-import 'package:hollow/src/core/models/channel_info.dart';
+
 import 'package:hollow/src/core/providers/channel_provider.dart';
 import 'package:hollow/src/core/providers/chat_provider.dart';
 import 'package:hollow/src/core/providers/node_provider.dart';
@@ -274,13 +274,15 @@ class EventStreamNotifier extends Notifier<bool> {
         ref.read(selectedServerProvider.notifier).state = serverId;
         ref.read(selectedPeerProvider.notifier).state = null;
         ref.read(serverSettingsOpenProvider.notifier).state = false;
-        ref.read(channelListProvider.notifier).loadForServer(serverId).then((_) {
-          ref.read(channelLayoutProvider.notifier).loadForServer(serverId);
-          // Auto-select first channel after load completes
+        ref.read(channelListProvider.notifier).loadForServer(serverId).then((_) async {
+          await ref.read(channelLayoutProvider.notifier).loadForServer(serverId);
+          // Auto-select first text channel in layout order after load completes.
           final joinedChannels = ref.read(channelListProvider);
           if (joinedChannels.isNotEmpty) {
+            final layout = ref.read(channelLayoutProvider);
             ref.read(selectedChannelProvider.notifier).state =
-                joinedChannels.keys.first;
+                firstTextChannelInLayout(joinedChannels, layout)
+                    ?? joinedChannels.keys.first;
           }
         });
         // Toast feedback
@@ -673,6 +675,8 @@ class EventStreamNotifier extends Notifier<bool> {
         vcNotifier.onPeerJoined(serverId, channelId, peerId);
         final localPeerId = ref.read(identityProvider).peerId ?? '';
         if (peerId == localPeerId) {
+          // Cache the currently selected channel so we can restore it on leave.
+          vcNotifier.preVcChannelId = ref.read(selectedChannelProvider);
           vcNotifier.onLocalJoined(serverId, channelId);
           // Auto-select the voice channel for the main pane.
           ref.read(selectedChannelProvider.notifier).state = channelId;
@@ -691,16 +695,21 @@ class EventStreamNotifier extends Notifier<bool> {
         vcNotifier.onPeerLeft(serverId, channelId, peerId);
         final localPeerId = ref.read(identityProvider).peerId ?? '';
         if (peerId == localPeerId) {
-          vcNotifier.onLocalLeft();
-          // Switch away from voice channel to first text channel.
+          // Restore the channel that was selected before joining the VC.
+          // Fall back to first text channel if the cached one is gone.
           if (ref.read(selectedChannelProvider) == channelId) {
+            final cached = vcNotifier.preVcChannelId;
             final channels = ref.read(channelListProvider);
-            final firstTextChannel = channels.values
-                .where((ch) => ch.channelType == ChannelType.text)
-                .firstOrNull;
-            ref.read(selectedChannelProvider.notifier).state =
-                firstTextChannel?.channelId;
+            if (cached != null && channels.containsKey(cached)) {
+              ref.read(selectedChannelProvider.notifier).state = cached;
+            } else {
+              final layout = ref.read(channelLayoutProvider);
+              ref.read(selectedChannelProvider.notifier).state =
+                  firstTextChannelInLayout(channels, layout);
+            }
           }
+          vcNotifier.preVcChannelId = null;
+          vcNotifier.onLocalLeft();
         } else {
           vcNotifier.onRemotePeerLeft(peerId);
         }

@@ -64,6 +64,177 @@ pub fn should_convert_to_webp(ext: &str) -> bool {
     )
 }
 
+/// Strip metadata from a WebP file by decoding to pixels and re-encoding.
+/// Returns the cleaned WebP bytes with the same quality. Since the input is
+/// already WebP, we use lossless re-encode to avoid generation loss.
+pub fn strip_webp_metadata(data: &[u8]) -> Result<Vec<u8>, String> {
+    let img = image::load_from_memory(data)
+        .map_err(|e| format!("Failed to decode WebP for metadata strip: {e}"))?;
+    let mut buf = Vec::new();
+    let mut cursor = std::io::Cursor::new(&mut buf);
+    img.write_to(&mut cursor, ImageFormat::WebP)
+        .map_err(|e| format!("Failed to re-encode WebP: {e}"))?;
+    Ok(buf)
+}
+
+/// Strip EXIF/metadata from a GIF without re-encoding (preserves animation).
+/// GIF metadata lives in Application Extension blocks (APP1/XMP) and Comment
+/// Extension blocks. We keep only the essential GIF structure: Header,
+/// Logical Screen Descriptor, Global Color Table, and image/animation data.
+///
+/// Strategy: rebuild the GIF keeping only recognized essential blocks.
+/// This is simpler and safer than trying to surgically remove specific chunks.
+pub fn strip_gif_metadata(data: &[u8]) -> Vec<u8> {
+    // GIF files can contain metadata in:
+    // - Comment Extension (0x21, 0xFE)
+    // - Application Extension (0x21, 0xFF) — EXIF, XMP, etc.
+    //   Exception: NETSCAPE2.0 extension (animation loop control) must be kept.
+    //
+    // We scan the GIF and copy everything EXCEPT Comment and non-NETSCAPE
+    // Application Extension blocks.
+
+    if data.len() < 13 || &data[0..3] != b"GIF" {
+        return data.to_vec(); // Not a GIF, return as-is.
+    }
+
+    let mut out = Vec::with_capacity(data.len());
+    let mut i = 0;
+
+    // Copy header (6 bytes) + Logical Screen Descriptor (7 bytes).
+    let lsd_end = 13;
+    if data.len() < lsd_end {
+        return data.to_vec();
+    }
+    out.extend_from_slice(&data[..lsd_end]);
+    i = lsd_end;
+
+    // Copy Global Color Table if present.
+    let packed = data[10];
+    let has_gct = (packed & 0x80) != 0;
+    if has_gct {
+        let gct_size = 3 * (1 << ((packed & 0x07) + 1));
+        let gct_end = i + gct_size as usize;
+        if gct_end > data.len() {
+            return data.to_vec();
+        }
+        out.extend_from_slice(&data[i..gct_end]);
+        i = gct_end;
+    }
+
+    // Process blocks.
+    while i < data.len() {
+        match data[i] {
+            0x3B => {
+                // Trailer — end of GIF.
+                out.push(0x3B);
+                break;
+            }
+            0x2C => {
+                // Image Descriptor — always keep.
+                // Copy: Image Descriptor (10 bytes) + optional LCT + image data.
+                if i + 10 > data.len() { break; }
+                out.extend_from_slice(&data[i..i + 10]);
+                let img_packed = data[i + 9];
+                let has_lct = (img_packed & 0x80) != 0;
+                i += 10;
+                if has_lct {
+                    let lct_size = 3 * (1 << ((img_packed & 0x07) + 1));
+                    let lct_end = i + lct_size as usize;
+                    if lct_end > data.len() { break; }
+                    out.extend_from_slice(&data[i..lct_end]);
+                    i = lct_end;
+                }
+                // LZW Minimum Code Size byte.
+                if i >= data.len() { break; }
+                out.push(data[i]);
+                i += 1;
+                // Sub-blocks until block terminator (0x00).
+                while i < data.len() {
+                    let block_size = data[i] as usize;
+                    out.push(data[i]);
+                    i += 1;
+                    if block_size == 0 { break; }
+                    if i + block_size > data.len() { break; }
+                    out.extend_from_slice(&data[i..i + block_size]);
+                    i += block_size;
+                }
+            }
+            0x21 => {
+                // Extension block.
+                if i + 2 > data.len() { break; }
+                let label = data[i + 1];
+                match label {
+                    0xF9 => {
+                        // Graphic Control Extension — always keep (animation timing).
+                        // Fixed size: 2 (introducer+label) + 1 (block size=4) + 4 + 1 (terminator) = 8
+                        let block_end = i + 8;
+                        if block_end > data.len() { break; }
+                        out.extend_from_slice(&data[i..block_end]);
+                        i = block_end;
+                    }
+                    0xFF => {
+                        // Application Extension — keep only NETSCAPE2.0 (animation loop).
+                        // Read past: introducer(1) + label(1) + block_size(1) + app_id(block_size) + sub-blocks
+                        if i + 3 > data.len() { break; }
+                        let app_block_size = data[i + 2] as usize;
+                        let app_id_end = i + 3 + app_block_size;
+                        if app_id_end > data.len() { break; }
+
+                        let is_netscape = app_block_size >= 11
+                            && &data[i + 3..i + 3 + 8] == b"NETSCAPE";
+
+                        // Collect the full extension (header + all sub-blocks).
+                        let ext_start = i;
+                        i = app_id_end;
+                        // Skip sub-blocks.
+                        while i < data.len() {
+                            let sb = data[i] as usize;
+                            i += 1;
+                            if sb == 0 { break; }
+                            i += sb;
+                        }
+
+                        if is_netscape {
+                            out.extend_from_slice(&data[ext_start..i]);
+                        }
+                        // Otherwise: skip (strips EXIF, XMP, ICC, etc.)
+                    }
+                    0xFE => {
+                        // Comment Extension — skip entirely.
+                        i += 2;
+                        while i < data.len() {
+                            let sb = data[i] as usize;
+                            i += 1;
+                            if sb == 0 { break; }
+                            i += sb;
+                        }
+                    }
+                    _ => {
+                        // Unknown extension — keep it (could be essential).
+                        let ext_start = i;
+                        i += 2;
+                        // Skip sub-blocks.
+                        while i < data.len() {
+                            let sb = data[i] as usize;
+                            i += 1;
+                            if sb == 0 { break; }
+                            i += sb;
+                        }
+                        out.extend_from_slice(&data[ext_start..i]);
+                    }
+                }
+            }
+            _ => {
+                // Unknown block type — just copy byte and advance.
+                out.push(data[i]);
+                i += 1;
+            }
+        }
+    }
+
+    out
+}
+
 /// Convert image bytes to lossless WebP.
 /// Returns (webp_bytes, width, height).
 pub fn convert_to_webp_lossless(data: &[u8]) -> Result<(Vec<u8>, u32, u32), String> {

@@ -393,14 +393,17 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
     final lastChannel = lastChannels[serverId];
 
     await ref.read(channelListProvider.notifier).loadForServer(serverId);
-    ref.read(channelLayoutProvider.notifier).loadForServer(serverId);
+    await ref.read(channelLayoutProvider.notifier).loadForServer(serverId);
 
     final channels = ref.read(channelListProvider);
     String? channelToSelect;
     if (lastChannel != null && channels.containsKey(lastChannel)) {
       channelToSelect = lastChannel;
     } else if (channels.isNotEmpty) {
-      channelToSelect = channels.keys.first;
+      // Prefer the first text channel in layout order.
+      final layout = ref.read(channelLayoutProvider);
+      channelToSelect = firstTextChannelInLayout(channels, layout)
+          ?? channels.keys.first;
     }
     ref.read(selectedChannelProvider.notifier).state = channelToSelect;
     if (channelToSelect != null) {

@@ -51,6 +51,13 @@ class ScreenShareSelection {
     required this.fps,
     this.shareAudio = false,
   });
+
+  /// Human-readable quality label, e.g. "1080p60", "4K30".
+  String get qualityLabel {
+    const resLabels = {360: '360p', 480: '480p', 720: '720p', 1080: '1080p', 1440: '1440p', 2160: '4K'};
+    final res = resLabels[height] ?? '${height}p';
+    return '$res$fps';
+  }
 }
 
 /// Show the screen share picker dialog.

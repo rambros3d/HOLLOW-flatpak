@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/models/channel_info.dart';
@@ -108,3 +110,35 @@ class ChannelLayoutNotifier extends Notifier<String> {
 
 final channelLayoutProvider =
     NotifierProvider<ChannelLayoutNotifier, String>(ChannelLayoutNotifier.new);
+
+/// Returns the first text channel ID in visual sidebar order, or null if none.
+/// Mirrors the sidebar rendering: placed channels (layout order) first,
+/// then unplaced channels (alphabetical).
+String? firstTextChannelInLayout(
+    Map<String, ChannelInfo> channels, String layoutJson) {
+  final placedIds = <String>{};
+
+  // 1. Walk placed channels in layout order.
+  try {
+    final List<dynamic> layout = jsonDecode(layoutJson);
+    for (final item in layout) {
+      if (item['type'] == 'channel') {
+        final id = item['channel_id'] as String;
+        placedIds.add(id);
+        final ch = channels[id];
+        if (ch != null && ch.channelType == ChannelType.text) return id;
+      }
+    }
+  } catch (_) {}
+
+  // 2. Walk unplaced channels in alphabetical order (same as sidebar).
+  final unplaced = channels.values
+      .where((ch) => !placedIds.contains(ch.channelId))
+      .toList()
+    ..sort((a, b) => a.name.compareTo(b.name));
+  for (final ch in unplaced) {
+    if (ch.channelType == ChannelType.text) return ch.channelId;
+  }
+
+  return null;
+}

@@ -1648,18 +1648,16 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 - [X] Favourites for the Friends strip instead of the "dump-all-friends" approach
 - [X] Use the same screen sharing for voice channels as in DMs (show your own screen; DONE - and we put the max bitrate capping)
 - [X] Proper profiling for the high RAM usage during the call with screen sharing and afterwards
-
+- [X] Full images metadata strip for WebP/GIF
+- [X] Add floating pill about sender/receiver screen share quality
+- [X] Shows the audio channel as the default selection on the server (should select first text channel)
+- [ ] Data export system (messages, files, identity — verifiable with Ed25519 signatures)
+- [ ] Server template export/import (share server structures)
+- [ ] Add ability to choose your camera device in User Settings
 - [ ] Download manager UI — show background file re-downloads, vault shard transfers, auto-recovery progress
 - [ ] Read/unread messages tick if possible
 - [ ] Different fonts/elements like hearts or sparkles on Profile and maybe nicknames
-- [ ] Proper roles on the server and editing of permissions
-- [ ] Discord import system (full implementation — parse GDPR export ZIP, map servers/channels/roles/messages, placeholder identities, member claiming) == reflect to the discord_migration_plan.md
-- [ ] Data export system (messages, files, identity — verifiable with Ed25519 signatures)
-- [ ] Server template export/import (share server structures)
 - [ ] Evidence Recovery UI tool (cooperative shard gathering for ex-members) — depends on Phase 4 shard system
-- [ ] Device linking via QR code (multi-device identity sync) — requires MLS + CRDTs. 🎞️ Animate: QR scan success celebration, device linked confirmation
-- [ ] Mobile platform testing & platform-specific fixes (adaptive layout built in Phase 2.5)
-- [ ] Accessibility (screen reader support, high contrast)
 - [ ] **swarm.rs modularization refactor** — split the 12,600-line monolith into focused modules (like the libp2p removal session)
   - [ ] Create `SwarmContext` struct to hold the ~35 shared state variables (peer maps, pending transfers, voice participants, etc.)
   - [ ] Extract `vault_ops.rs` (~1,000 lines) — shard store/retrieve, upload/download pipeline, rebalance/retention timer
@@ -1670,6 +1668,7 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
   - [ ] Extract `gossip_relay.rs` (~600 lines) — overlay management, broadcast, peer exchange, rotation/eviction timers
   - [ ] Extract `message_ops.rs` (~500 lines) — edit/delete/reactions/pins for both DMs and channels
   - [ ] Extract `social.rs` (~450 lines) — friends, profiles, typing indicators
+  - [ ] Clean up dead code: remove superseded chunk-based transfer functions (`chunk_file`, `chunk_count`, `CHUNK_SIZE`, `file_stream_request`, `shard_stream_request`, `get_missing_chunks`), unused `CrdtStore` actor, unused vault placement helpers (`xor_distance`, `local_placements`, `remote_placements`, `detect_departures`), unused Olm utilities (`generate_one_time_keys_batch`, `is_outbound_only`), stale signaling variants (`Register`, `UpdateAddresses`)
   - [ ] Update `mod.rs` to re-export, verify `cargo check` + `cargo test` pass, run full app smoke test
 - [ ] **System audio capture plugin (screen share audio)**
   - [ ] Flutter plugin package (`system_audio_capture`) — single Dart API, platform-specific native implementations
@@ -1707,6 +1706,12 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
     - [ ] ISP-invisible — looks like normal WebRTC traffic, no protocol fingerprint to throttle
     - [ ] Optional E2EE on chunks — encrypt file before sharing, include decryption key in the share link (only link holders can read)
   - Note: Builds entirely on existing infrastructure — WebRTC data channels (Phase 5A), gossip overlay (Phase 5D), content-addressed storage (Phase 4), chunked transfer protocol. Estimated new code: ~1 Rust module (sharing swarm) + ~1 Dart service + UI tab
+
+- [ ] Proper roles on the server and editing of permissions
+- [ ] Discord import system (full implementation — parse GDPR export ZIP, map servers/channels/roles/messages, placeholder identities, member claiming) == reflect to the discord_migration_plan.md
+- [ ] Device linking via QR code (multi-device identity sync) — requires MLS + CRDTs. 🎞️ Animate: QR scan success celebration, device linked confirmation
+- [ ] Mobile platform testing & platform-specific fixes (adaptive layout built in Phase 2.5)
+- [ ] Accessibility (screen reader support, high contrast)
 
 **Deliverable:** A polished, feature-complete communication platform ready for public release — with private, encrypted P2P file sharing that rivals torrent performance without any of the privacy/legal exposure.
 

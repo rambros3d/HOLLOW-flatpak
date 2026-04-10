@@ -39,6 +39,12 @@ class CallState {
   final bool remoteScreenSharing;
   final String sframeKey; // hex-encoded 32-byte SFrame key for E2EE
 
+  /// Quality label for the local screen share (e.g. "1080p60"). Null when not sharing.
+  final String? screenShareLabel;
+
+  /// Quality label for the remote peer's screen share. Null when they're not sharing.
+  final String? remoteScreenShareLabel;
+
   const CallState({
     this.status = CallStatus.idle,
     this.peerId,
@@ -52,6 +58,8 @@ class CallState {
     this.isScreenSharing = false,
     this.remoteScreenSharing = false,
     this.sframeKey = '',
+    this.screenShareLabel,
+    this.remoteScreenShareLabel,
   });
 
   CallState copyWith({
@@ -67,6 +75,10 @@ class CallState {
     bool? isScreenSharing,
     bool? remoteScreenSharing,
     String? sframeKey,
+    String? screenShareLabel,
+    bool clearScreenShareLabel = false,
+    String? remoteScreenShareLabel,
+    bool clearRemoteScreenShareLabel = false,
   }) =>
       CallState(
         status: status ?? this.status,
@@ -81,6 +93,12 @@ class CallState {
         isScreenSharing: isScreenSharing ?? this.isScreenSharing,
         remoteScreenSharing: remoteScreenSharing ?? this.remoteScreenSharing,
         sframeKey: sframeKey ?? this.sframeKey,
+        screenShareLabel: clearScreenShareLabel
+            ? null
+            : (screenShareLabel ?? this.screenShareLabel),
+        remoteScreenShareLabel: clearRemoteScreenShareLabel
+            ? null
+            : (remoteScreenShareLabel ?? this.remoteScreenShareLabel),
       );
 
   static const idle = CallState();
@@ -427,12 +445,15 @@ class CallNotifier extends Notifier<CallState> {
         shareAudio: shareAudio,
       );
 
-      state = state.copyWith(isScreenSharing: true);
+      // Build quality label (e.g. "1080p60", "4K30").
+      const resLabels = {360: '360p', 480: '480p', 720: '720p', 1080: '1080p', 1440: '1440p', 2160: '4K'};
+      final qualityLabel = '${resLabels[height] ?? '${height}p'}$fps';
+      state = state.copyWith(isScreenSharing: true, screenShareLabel: qualityLabel);
 
       _sendSignal(peerId, 'screen_offer',
           jsonEncode({'call_id': callId, 'sdp': offerSdp}));
       _sendSignal(peerId, 'screen_state',
-          jsonEncode({'call_id': callId, 'enabled': true}));
+          jsonEncode({'call_id': callId, 'enabled': true, 'quality': qualityLabel}));
     } catch (e) {
       debugPrint('[HOLLOW-CALL] Failed to start screen share: $e');
       await _outgoingScreenShare?.close();
@@ -444,7 +465,7 @@ class CallNotifier extends Notifier<CallState> {
   Future<void> stopScreenShare() async {
     await _outgoingScreenShare?.close();
     _outgoingScreenShare = null;
-    state = state.copyWith(isScreenSharing: false);
+    state = state.copyWith(isScreenSharing: false, clearScreenShareLabel: true);
 
     final peerId = state.peerId;
     final callId = state.callId;
@@ -793,11 +814,12 @@ class CallNotifier extends Notifier<CallState> {
     final json = jsonDecode(payload) as Map<String, dynamic>;
     final callId = json['call_id'] as String;
     final enabled = json['enabled'] as bool;
+    final quality = json['quality'] as String?;
 
     if (state.callId != callId) return;
 
     debugPrint(
-        '[HOLLOW-CALL] Remote screen share: enabled=$enabled from $peerId');
+        '[HOLLOW-CALL] Remote screen share: enabled=$enabled quality=$quality from $peerId');
 
     if (!enabled) {
       // Remote stopped sharing — tear down the incoming screen share PC.
@@ -805,7 +827,11 @@ class CallNotifier extends Notifier<CallState> {
       _incomingScreenShare = null;
     }
 
-    state = state.copyWith(remoteScreenSharing: enabled);
+    state = state.copyWith(
+      remoteScreenSharing: enabled,
+      remoteScreenShareLabel: enabled ? quality : null,
+      clearRemoteScreenShareLabel: !enabled,
+    );
   }
 
   Future<void> _handleScreenOffer(String peerId, String payload) async {

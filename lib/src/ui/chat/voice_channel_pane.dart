@@ -78,9 +78,13 @@ class _VoiceChannelPaneState extends ConsumerState<VoiceChannelPane> {
     final isInThisChannel = vcState.currentServerId == widget.serverId &&
         vcState.currentChannelId == widget.channelId;
 
-    // Not in this voice channel — show join prompt.
+    // Not in this voice channel — show channel text chat (no join prompt).
     if (!isInThisChannel) {
-      return _buildJoinPrompt(hollow);
+      return ChannelChatPane(
+        serverId: widget.serverId,
+        channelId: widget.channelId,
+        channelName: widget.channelName,
+      );
     }
 
     // Screen share active — full-bleed view (mixed mode if cameras too).
@@ -98,51 +102,6 @@ class _VoiceChannelPaneState extends ConsumerState<VoiceChannelPane> {
       serverId: widget.serverId,
       channelId: widget.channelId,
       channelName: widget.channelName,
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Join prompt
-  // ---------------------------------------------------------------------------
-
-  Widget _buildJoinPrompt(HollowTheme hollow) {
-    return Container(
-      color: hollow.background,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              LucideIcons.volume2,
-              size: 56,
-              color: hollow.textSecondary.withValues(alpha: 0.3),
-            ),
-            const SizedBox(height: HollowSpacing.lg),
-            Text(
-              widget.channelName,
-              style: HollowTypography.heading.copyWith(
-                color: hollow.textPrimary,
-                fontWeight: FontWeight.w600,
-                fontSize: 20,
-              ),
-            ),
-            const SizedBox(height: HollowSpacing.sm),
-            Text(
-              'Join this voice channel to start talking',
-              style: HollowTypography.body.copyWith(
-                color: hollow.textSecondary,
-              ),
-            ),
-            const SizedBox(height: HollowSpacing.xl),
-            HollowButton.filled(
-              onPressed: () => ref.read(voiceChannelProvider.notifier)
-                  .joinChannel(widget.serverId, widget.channelId),
-              icon: const Icon(LucideIcons.phoneCall, size: 16),
-              child: const Text('Join Voice'),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -827,12 +786,39 @@ class _VoiceChannelPaneState extends ConsumerState<VoiceChannelPane> {
           Positioned(
             top: HollowSpacing.md,
             right: HollowSpacing.md,
-            child: HollowButton.danger(
-              onPressed: () =>
-                  ref.read(voiceChannelProvider.notifier).stopScreenShare(),
-              compact: true,
-              icon: const Icon(LucideIcons.monitorOff, size: 14),
-              child: const Text('Stop sharing'),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (vcState.screenShareLabel != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: HollowSpacing.sm,
+                      vertical: HollowSpacing.xs,
+                    ),
+                    decoration: BoxDecoration(
+                      color: hollow.surface.withValues(alpha: 0.85),
+                      borderRadius: BorderRadius.circular(hollow.radiusSm),
+                      border: Border.all(color: hollow.border),
+                    ),
+                    child: Text(
+                      vcState.screenShareLabel!,
+                      style: HollowTypography.caption.copyWith(
+                        color: hollow.textSecondary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                if (vcState.screenShareLabel != null)
+                  const SizedBox(width: HollowSpacing.sm),
+                HollowButton.danger(
+                  onPressed: () =>
+                      ref.read(voiceChannelProvider.notifier).stopScreenShare(),
+                  compact: true,
+                  icon: const Icon(LucideIcons.monitorOff, size: 14),
+                  child: const Text('Stop sharing'),
+                ),
+              ],
             ),
           ),
         ],
@@ -863,31 +849,62 @@ class _VoiceChannelPaneState extends ConsumerState<VoiceChannelPane> {
     final renderer = ref
         .read(voiceChannelProvider.notifier)
         .getScreenShareRenderer(focusedPeerId);
+    final remoteLabel = vcState.peerScreenShareLabels[focusedPeerId];
 
-    return Container(
-      color: Colors.black,
-      child: renderer != null
-          ? RepaintBoundary(
-              child: RTCVideoView(
-                renderer,
-                mirror: false,
-                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Container(
+            color: Colors.black,
+            child: renderer != null
+                ? RepaintBoundary(
+                    child: RTCVideoView(
+                      renderer,
+                      mirror: false,
+                      objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                    ),
+                  )
+                : Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(LucideIcons.monitor,
+                            size: 48,
+                            color: hollow.textSecondary.withValues(alpha: 0.3)),
+                        const SizedBox(height: HollowSpacing.md),
+                        Text('Connecting to screen share...',
+                            style: HollowTypography.caption
+                                .copyWith(color: hollow.textSecondary)),
+                      ],
+                    ),
+                  ),
+          ),
+        ),
+        if (remoteLabel != null)
+          Positioned(
+            top: HollowSpacing.md,
+            right: HollowSpacing.md,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: HollowSpacing.sm,
+                vertical: HollowSpacing.xs,
               ),
-            )
-          : Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(LucideIcons.monitor,
-                      size: 48,
-                      color: hollow.textSecondary.withValues(alpha: 0.3)),
-                  const SizedBox(height: HollowSpacing.md),
-                  Text('Connecting to screen share...',
-                      style: HollowTypography.caption
-                          .copyWith(color: hollow.textSecondary)),
-                ],
+              decoration: BoxDecoration(
+                color: hollow.surface.withValues(alpha: 0.85),
+                borderRadius: BorderRadius.circular(hollow.radiusSm),
+                border: Border.all(color: hollow.border),
+              ),
+              child: Text(
+                remoteLabel,
+                style: HollowTypography.caption.copyWith(
+                  color: hollow.textSecondary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
+          ),
+      ],
     );
   }
 

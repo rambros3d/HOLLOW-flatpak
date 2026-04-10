@@ -2359,18 +2359,48 @@ class _InlineCallPanelState extends ConsumerState<_InlineCallPanel> {
           // Remote screen (top, takes most space)
           Expanded(
             flex: 3,
-            child: Container(
-              color: Colors.black,
-              child: remoteRenderer != null
-                  ? RepaintBoundary(
-                      child: RTCVideoView(
-                        remoteRenderer,
-                        mirror: false,
-                        objectFit:
-                            RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Container(
+                    color: Colors.black,
+                    child: remoteRenderer != null
+                        ? RepaintBoundary(
+                            child: RTCVideoView(
+                              remoteRenderer,
+                              mirror: false,
+                              objectFit:
+                                  RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ),
+                if (call.remoteScreenShareLabel != null)
+                  Positioned(
+                    top: HollowSpacing.md,
+                    right: HollowSpacing.md,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: HollowSpacing.sm,
+                        vertical: HollowSpacing.xs,
                       ),
-                    )
-                  : const SizedBox.shrink(),
+                      decoration: BoxDecoration(
+                        color: hollow.surface.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(hollow.radiusSm),
+                        border: Border.all(color: hollow.border),
+                      ),
+                      child: Text(
+                        call.remoteScreenShareLabel!,
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.textSecondary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           // Local banner (bottom, compact)
@@ -2390,6 +2420,28 @@ class _InlineCallPanelState extends ConsumerState<_InlineCallPanel> {
                     fontSize: 12,
                   ),
                 ),
+                if (call.screenShareLabel != null) ...[
+                  const SizedBox(width: HollowSpacing.sm),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: HollowSpacing.sm,
+                      vertical: HollowSpacing.xs,
+                    ),
+                    decoration: BoxDecoration(
+                      color: hollow.surface.withValues(alpha: 0.85),
+                      borderRadius: BorderRadius.circular(hollow.radiusSm),
+                      border: Border.all(color: hollow.border),
+                    ),
+                    child: Text(
+                      call.screenShareLabel!,
+                      style: HollowTypography.caption.copyWith(
+                        color: hollow.textSecondary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(width: HollowSpacing.md),
                 HollowButton.danger(
                   onPressed: () =>
@@ -2423,6 +2475,28 @@ class _InlineCallPanelState extends ConsumerState<_InlineCallPanel> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
+              if (call.screenShareLabel != null) ...[
+                const SizedBox(height: HollowSpacing.sm),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: HollowSpacing.sm,
+                    vertical: HollowSpacing.xs,
+                  ),
+                  decoration: BoxDecoration(
+                    color: hollow.surface.withValues(alpha: 0.85),
+                    borderRadius: BorderRadius.circular(hollow.radiusSm),
+                    border: Border.all(color: hollow.border),
+                  ),
+                  child: Text(
+                    call.screenShareLabel!,
+                    style: HollowTypography.caption.copyWith(
+                      color: hollow.textSecondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: HollowSpacing.md),
               HollowButton.danger(
                 onPressed: () =>
@@ -2436,24 +2510,54 @@ class _InlineCallPanelState extends ConsumerState<_InlineCallPanel> {
       );
     } else {
       // Only remote sharing — show their screen (Contain, never mirror).
-      return Container(
-        color: Colors.black,
-        child: remoteRenderer != null
-            ? RepaintBoundary(
-                child: RTCVideoView(
-                  remoteRenderer,
-                  mirror: false,
-                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+      return Stack(
+        children: [
+          Positioned.fill(
+            child: Container(
+              color: Colors.black,
+              child: remoteRenderer != null
+                  ? RepaintBoundary(
+                      child: RTCVideoView(
+                        remoteRenderer,
+                        mirror: false,
+                        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                      ),
+                    )
+                  : Center(
+                      child: Text(
+                        'Waiting for screen share...',
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.textSecondary,
+                        ),
+                      ),
+                    ),
+            ),
+          ),
+          if (call.remoteScreenShareLabel != null)
+            Positioned(
+              top: HollowSpacing.md,
+              right: HollowSpacing.md,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: HollowSpacing.sm,
+                  vertical: HollowSpacing.xs,
                 ),
-              )
-            : Center(
+                decoration: BoxDecoration(
+                  color: hollow.surface.withValues(alpha: 0.85),
+                  borderRadius: BorderRadius.circular(hollow.radiusSm),
+                  border: Border.all(color: hollow.border),
+                ),
                 child: Text(
-                  'Waiting for screen share...',
+                  call.remoteScreenShareLabel!,
                   style: HollowTypography.caption.copyWith(
                     color: hollow.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
+            ),
+        ],
       );
     }
   }
@@ -2795,6 +2899,36 @@ class _ScreenShareFullView extends ConsumerWidget {
               ),
             ),
           ),
+          // Quality label for the big tile (top-left).
+          if (!bigChoice.isCamera) ...[
+            if (bigChoice.isLocal && call.screenShareLabel != null ||
+                !bigChoice.isLocal && call.remoteScreenShareLabel != null)
+              Positioned(
+                top: HollowSpacing.md,
+                left: HollowSpacing.md,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: HollowSpacing.sm,
+                    vertical: HollowSpacing.xs,
+                  ),
+                  decoration: BoxDecoration(
+                    color: hollow.surface.withValues(alpha: 0.85),
+                    borderRadius: BorderRadius.circular(hollow.radiusSm),
+                    border: Border.all(color: hollow.border),
+                  ),
+                  child: Text(
+                    bigChoice.isLocal
+                        ? call.screenShareLabel!
+                        : call.remoteScreenShareLabel!,
+                    style: HollowTypography.caption.copyWith(
+                      color: hollow.textSecondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+          ],
           // Small "Stop sharing" affordance, top-right.
           Positioned(
             top: HollowSpacing.md,
@@ -2846,15 +2980,67 @@ class _ScreenShareFullView extends ConsumerWidget {
                     ),
             ),
           ),
+          // Quality label + stop button (local sharing) or just quality label (remote sharing).
           if (call.isScreenSharing)
             Positioned(
               top: HollowSpacing.md,
               right: HollowSpacing.md,
-              child: HollowButton.danger(
-                onPressed: () => notifier.stopScreenShare(),
-                compact: true,
-                icon: const Icon(LucideIcons.monitorOff, size: 14),
-                child: const Text('Stop sharing'),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (call.screenShareLabel != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: HollowSpacing.sm,
+                        vertical: HollowSpacing.xs,
+                      ),
+                      decoration: BoxDecoration(
+                        color: hollow.surface.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(hollow.radiusSm),
+                        border: Border.all(color: hollow.border),
+                      ),
+                      child: Text(
+                        call.screenShareLabel!,
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.textSecondary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  if (call.screenShareLabel != null)
+                    const SizedBox(width: HollowSpacing.sm),
+                  HollowButton.danger(
+                    onPressed: () => notifier.stopScreenShare(),
+                    compact: true,
+                    icon: const Icon(LucideIcons.monitorOff, size: 14),
+                    child: const Text('Stop sharing'),
+                  ),
+                ],
+              ),
+            )
+          else if (call.remoteScreenSharing && call.remoteScreenShareLabel != null)
+            Positioned(
+              top: HollowSpacing.md,
+              right: HollowSpacing.md,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: HollowSpacing.sm,
+                  vertical: HollowSpacing.xs,
+                ),
+                decoration: BoxDecoration(
+                  color: hollow.surface.withValues(alpha: 0.85),
+                  borderRadius: BorderRadius.circular(hollow.radiusSm),
+                  border: Border.all(color: hollow.border),
+                ),
+                child: Text(
+                  call.remoteScreenShareLabel!,
+                  style: HollowTypography.caption.copyWith(
+                    color: hollow.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
         ],

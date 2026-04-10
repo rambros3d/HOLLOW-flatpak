@@ -351,7 +351,11 @@ class _BottomBarState extends ConsumerState<BottomBar> {
             channels.any((c) => c.channelId == lastChannel)) {
           channelToSelect = lastChannel;
         } else if (channels.isNotEmpty) {
-          channelToSelect = channels.first.channelId;
+          // Prefer first text channel over voice channels.
+          channelToSelect = channels
+              .where((c) => c.channelType == 'text')
+              .firstOrNull
+              ?.channelId ?? channels.first.channelId;
         }
         ref.read(splitViewProvider.notifier).navigateRightToServer(
               serverId,
@@ -368,7 +372,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
     ref.read(serverSettingsOpenProvider.notifier).state = false;
 
     await ref.read(channelListProvider.notifier).loadForServer(serverId);
-    ref.read(channelLayoutProvider.notifier).loadForServer(serverId);
+    await ref.read(channelLayoutProvider.notifier).loadForServer(serverId);
 
     // Now set the server — sidebar appears with channels already loaded.
     ref.read(selectedServerProvider.notifier).state = serverId;
@@ -381,7 +385,10 @@ class _BottomBarState extends ConsumerState<BottomBar> {
     if (lastChannel != null && channels.containsKey(lastChannel)) {
       channelToSelect = lastChannel;
     } else if (channels.isNotEmpty) {
-      channelToSelect = channels.keys.first;
+      // Prefer first text channel in layout order.
+      final layout = ref.read(channelLayoutProvider);
+      channelToSelect = firstTextChannelInLayout(channels, layout)
+          ?? channels.keys.first;
     }
     ref.read(selectedChannelProvider.notifier).state = channelToSelect;
     if (channelToSelect != null) {
