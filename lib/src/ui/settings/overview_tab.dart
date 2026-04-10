@@ -15,6 +15,7 @@ import 'package:hollow/src/ui/components/hollow_button.dart';
 import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/dialogs/image_crop_dialog.dart';
+import 'package:hollow/src/ui/settings/server_template.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:lucide_icons/lucide_icons.dart';
 
@@ -418,6 +419,46 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
                   fontWeight: FontWeight.w600,
                   fontSize: 13,
                 ),
+              ),
+            ],
+          ),
+          const SizedBox(height: HollowSpacing.xl),
+          Divider(color: hollow.border),
+          const SizedBox(height: HollowSpacing.xl),
+
+          // Server Template
+          Text(
+            'SERVER TEMPLATE',
+            style: HollowTypography.caption.copyWith(
+              color: hollow.textSecondary,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: HollowSpacing.sm),
+          Text(
+            'Export your server structure as a template, or import one to reconfigure this server.',
+            style: HollowTypography.caption.copyWith(
+              color: hollow.textSecondary,
+            ),
+          ),
+          const SizedBox(height: HollowSpacing.md),
+          Row(
+            children: [
+              HollowButton.outline(
+                onPressed: () =>
+                    exportServerTemplate(context, widget.server),
+                icon: const Icon(LucideIcons.upload, size: 14),
+                compact: true,
+                child: const Text('Export'),
+              ),
+              const SizedBox(width: HollowSpacing.sm),
+              HollowButton.outline(
+                onPressed: () =>
+                    importServerTemplate(context, ref, widget.server),
+                icon: const Icon(LucideIcons.download, size: 14),
+                compact: true,
+                child: const Text('Import'),
               ),
             ],
           ),

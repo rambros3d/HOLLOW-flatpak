@@ -110,6 +110,13 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   @override
   void initState() {
     super.initState();
+    // Close search bar when (re-)entering a channel — cannot reset in dispose
+    // because Riverpod forbids all ref usage once the element is unmounted.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(channelSearchOpenProvider.notifier).state = false;
+      }
+    });
     _loadHistory();
     _scrollController.addListener(_onScrollChanged);
   }
@@ -147,10 +154,11 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     await ref
         .read(channelChatProvider.notifier)
         .loadHistory(widget.serverId, widget.channelId);
+    if (!mounted) return;
     ref.read(pinnedProvider.notifier).loadPins(widget.serverId, widget.channelId);
     _historyLoaded = true;
     _loadingHistory = false;
-    if (mounted) setState(() {});
+    setState(() {});
     // Mark channel as read now that messages are loaded.
     final msgs = ref.read(channelChatProvider)['${widget.serverId}:${widget.channelId}'];
     final latestId = msgs != null && msgs.isNotEmpty
@@ -169,11 +177,6 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     _focusNode.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
-    // Reset search state when leaving this pane.
-    // Guard: ref may already be invalidated during widget tree teardown.
-    try {
-      ref.read(channelSearchOpenProvider.notifier).state = false;
-    } catch (_) {}
     super.dispose();
   }
 

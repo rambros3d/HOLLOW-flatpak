@@ -339,6 +339,8 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
         await ref.read(audioInputDeviceProvider.future);
     _service!.preferredAudioOutputDeviceId =
         await ref.read(audioOutputDeviceProvider.future);
+    _service!.preferredCameraDeviceId =
+        await ref.read(cameraDeviceProvider.future);
 
     // Load audio quality preset.
     final preset = await ref.read(audioQualityProvider.future);

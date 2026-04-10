@@ -44,6 +44,7 @@ class VoiceChannelService {
   /// Device preferences.
   String? preferredAudioInputDeviceId;
   String? preferredAudioOutputDeviceId;
+  String? preferredCameraDeviceId;
 
   /// VAD: set of currently speaking peer IDs (updated every 200ms).
   final Set<String> _speakingPeers = {};
@@ -84,6 +85,12 @@ class VoiceChannelService {
 
   /// Per-peer remote video streams.
   final Map<String, MediaStream> _remoteVideoStreams = {};
+
+  /// Tracks which remote video streams are synthetic (Dart-owned).
+  /// Streams from onTrack event.streams.first are owned by libwebrtc and
+  /// must NOT be disposed from Dart — only synthetic streams we created
+  /// via createLocalMediaStream are safe to dispose.
+  final Map<String, bool> _remoteVideoStreamSynthetic = {};
 
   /// Callback when a remote peer's video track arrives or is removed.
   void Function(String peerId, RTCVideoRenderer? renderer)? onRemoteVideoChanged;
@@ -358,7 +365,15 @@ class VoiceChannelService {
       await renderer.dispose();
       onRemoteVideoChanged?.call(peerId, null);
     }
-    _remoteVideoStreams.remove(peerId)?.dispose();
+    final removedStream = _remoteVideoStreams.remove(peerId);
+    final wasSynthetic = _remoteVideoStreamSynthetic.remove(peerId) ?? false;
+    if (removedStream != null && wasSynthetic) {
+      try {
+        await removedStream.dispose();
+      } catch (e) {
+        _vcLog('[HOLLOW-VC] Stream dispose failed for $peerId (non-fatal): $e');
+      }
+    }
 
     // Phase 6.25 leak fixes: clean up per-peer state.
     _forwardedSources.remove(peerId);
@@ -444,12 +459,15 @@ class VoiceChannelService {
 
     // Get or create MediaStream for the video track.
     MediaStream stream;
+    bool isSynthetic;
     if (event.streams.isNotEmpty) {
       stream = event.streams.first;
+      isSynthetic = false;
     } else {
       // Windows/libwebrtc quirk: streams can be empty. Create a synthetic one.
       stream = await createLocalMediaStream('video-$peerId');
       stream.addTrack(event.track);
+      isSynthetic = true;
     }
 
     // Dispose any existing renderer for this peer.
@@ -458,7 +476,17 @@ class VoiceChannelService {
       oldRenderer.srcObject = null;
       await oldRenderer.dispose();
     }
-    _remoteVideoStreams.remove(peerId)?.dispose();
+    // Only dispose old stream if we own it (synthetic). libwebrtc-owned
+    // streams throw MediaStreamDisposeFailed when disposed from Dart.
+    final oldStream = _remoteVideoStreams.remove(peerId);
+    final oldWasSynthetic = _remoteVideoStreamSynthetic.remove(peerId) ?? false;
+    if (oldStream != null && oldWasSynthetic) {
+      try {
+        await oldStream.dispose();
+      } catch (e) {
+        _vcLog('[HOLLOW-VC] Old stream dispose failed for $peerId (non-fatal): $e');
+      }
+    }
 
     // Create new renderer.
     final renderer = RTCVideoRenderer();
@@ -466,6 +494,7 @@ class VoiceChannelService {
     renderer.srcObject = stream;
     _remoteVideoRenderers[peerId] = renderer;
     _remoteVideoStreams[peerId] = stream;
+    _remoteVideoStreamSynthetic[peerId] = isSynthetic;
 
     // Enable SFrame decryption for the video track.
     await _enableSframeReceiverVideo(peerId, pc);
@@ -528,10 +557,18 @@ class VoiceChannelService {
       await renderer.dispose();
     }
     _remoteVideoRenderers.clear();
-    for (final stream in _remoteVideoStreams.values) {
-      await stream.dispose();
+    for (final entry in _remoteVideoStreams.entries) {
+      final synthetic = _remoteVideoStreamSynthetic[entry.key] ?? false;
+      if (synthetic) {
+        try {
+          await entry.value.dispose();
+        } catch (e) {
+          _vcLog('[HOLLOW-VC] Stream dispose failed for ${entry.key} (non-fatal): $e');
+        }
+      }
     }
     _remoteVideoStreams.clear();
+    _remoteVideoStreamSynthetic.clear();
 
     _isMuted = false;
     _serverId = null;
@@ -594,13 +631,17 @@ class VoiceChannelService {
     if (_isCameraOn) return _localVideoStream;
 
     try {
+      final videoConstraints = <String, dynamic>{
+        'width': {'ideal': 640},
+        'height': {'ideal': 480},
+        'frameRate': {'ideal': 30},
+      };
+      if (preferredCameraDeviceId != null) {
+        videoConstraints['deviceId'] = {'exact': preferredCameraDeviceId};
+      }
       _localVideoStream = await navigator.mediaDevices.getUserMedia({
         'audio': false,
-        'video': {
-          'width': {'ideal': 640},
-          'height': {'ideal': 480},
-          'frameRate': {'ideal': 30},
-        },
+        'video': videoConstraints,
       });
       _isCameraOn = true;
       _vcLog('[HOLLOW-VC] Camera started, tracks=${_localVideoStream!.getVideoTracks().length}');
@@ -768,6 +809,7 @@ class VoiceChannelService {
             renderer.srcObject = stream;
             _remoteVideoRenderers[peerId] = renderer;
             _remoteVideoStreams[peerId] = stream;
+            _remoteVideoStreamSynthetic[peerId] = true; // always synthetic here
 
             await _enableSframeReceiverVideo(peerId, pc);
 

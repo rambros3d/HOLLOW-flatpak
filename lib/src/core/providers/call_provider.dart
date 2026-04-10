@@ -143,6 +143,8 @@ class CallNotifier extends Notifier<CallState> {
         ref.read(audioInputDeviceProvider).valueOrNull;
     _voiceService!.preferredAudioOutputDeviceId =
         ref.read(audioOutputDeviceProvider).valueOrNull;
+    _voiceService!.preferredCameraDeviceId =
+        ref.read(cameraDeviceProvider).valueOrNull;
     return _voiceService!;
   }
 

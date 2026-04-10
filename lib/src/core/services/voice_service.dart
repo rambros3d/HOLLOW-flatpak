@@ -55,6 +55,7 @@ class VoiceService {
   /// Preferred device IDs (set by CallNotifier from settings providers).
   String? preferredAudioInputDeviceId;
   String? preferredAudioOutputDeviceId;
+  String? preferredCameraDeviceId;
 
   /// SFrame encryption service for DM call E2EE.
   FrameCryptorService? _frameCryptor;
@@ -429,14 +430,20 @@ class VoiceService {
       // gets a new onTrack event and builds a new renderer.
       _log('[HOLLOW-VOICE] Capturing camera for video enable');
       try {
+        final videoConstraints = <String, dynamic>{
+          'width': {'ideal': 640},
+          'height': {'ideal': 480},
+          'frameRate': {'ideal': 30},
+        };
+        if (preferredCameraDeviceId != null) {
+          videoConstraints['deviceId'] = {'exact': preferredCameraDeviceId};
+        } else {
+          videoConstraints['facingMode'] =
+              _useFrontCamera ? 'user' : 'environment';
+        }
         final constraints = {
           'audio': false,
-          'video': {
-            'facingMode': _useFrontCamera ? 'user' : 'environment',
-            'width': {'ideal': 640},
-            'height': {'ideal': 480},
-            'frameRate': {'ideal': 30},
-          },
+          'video': videoConstraints,
         };
         // Belt-and-suspenders cleanup of any leaked stream from a
         // previous failed enable.
@@ -734,15 +741,22 @@ class VoiceService {
   /// call setup when the user accepts/places a video call — mid-call camera
   /// enable goes through [toggleVideo] which has its own capture path.
   Future<bool> _startCamera(RTCPeerConnection pc) async {
-    _log('[HOLLOW-VOICE] Starting camera (front=$_useFrontCamera)');
+    _log('[HOLLOW-VOICE] Starting camera (front=$_useFrontCamera, '
+        'preferred=${preferredCameraDeviceId ?? "default"})');
+    final videoConstraints = <String, dynamic>{
+      'width': {'ideal': 640},
+      'height': {'ideal': 480},
+      'frameRate': {'ideal': 30},
+    };
+    if (preferredCameraDeviceId != null) {
+      videoConstraints['deviceId'] = {'exact': preferredCameraDeviceId};
+    } else {
+      videoConstraints['facingMode'] =
+          _useFrontCamera ? 'user' : 'environment';
+    }
     final constraints = {
       'audio': false,
-      'video': {
-        'facingMode': _useFrontCamera ? 'user' : 'environment',
-        'width': {'ideal': 640},
-        'height': {'ideal': 480},
-        'frameRate': {'ideal': 30},
-      },
+      'video': videoConstraints,
     };
 
     try {

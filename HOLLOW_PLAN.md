@@ -1652,12 +1652,14 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 - [X] Add floating pill about sender/receiver screen share quality
 - [X] Shows the audio channel as the default selection on the server (should select first text channel)
 - [X] Fix bugged dialog for "Set Passphrase" (double press needed somehow) / Data export system (messages, files, identity — verifiable with Ed25519 signatures)
-- [ ] Fix the crash error (reflect to second_debug.log)
-- [ ] Server template export/import (share server structures)
-- [ ] Add ability to choose your camera device in User Settings
+- [X] Fix the crash error (reflect to second_debug.log)
+- [X] Server template export/import (share server structures)
+  - [ ] Roles copying - deferred to checkbox later
+- [X] Add ability to choose your camera device in User Settings
 - [ ] Download manager UI — show background file re-downloads, vault shard transfers, auto-recovery progress
 - [ ] Read/unread messages tick if possible
 - [ ] Different fonts/elements like hearts or sparkles on Profile and maybe nicknames
+- [ ] View the data that you have in the DB inside the app in a designated viewer, which should show server data, previous DMs that might not be visible to you because you're not friends with someone anymore etc.
 - [ ] Evidence Recovery UI tool (cooperative shard gathering for ex-members) — depends on Phase 4 shard system
 - [ ] **swarm.rs modularization refactor** — split the 12,600-line monolith into focused modules (like the libp2p removal session)
   - [ ] Create `SwarmContext` struct to hold the ~35 shared state variables (peer maps, pending transfers, voice participants, etc.)

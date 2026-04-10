@@ -2139,6 +2139,7 @@ class _AudioDeviceSettings extends ConsumerStatefulWidget {
 class _AudioDeviceSettingsState extends ConsumerState<_AudioDeviceSettings> {
   List<win32audio.AudioDevice> _audioInputs = [];
   List<win32audio.AudioDevice> _audioOutputs = [];
+  List<webrtc.MediaDeviceInfo> _cameras = [];
   bool _loading = true;
   rec.AudioRecorder? _recorder;
   StreamSubscription<rec.Amplitude>? _ampSub;
@@ -2200,10 +2201,22 @@ class _AudioDeviceSettingsState extends ConsumerState<_AudioDeviceSettings> {
         debugPrint('[HOLLOW] Device enumeration failed: $e');
       }
 
+      // Enumerate cameras via flutter_webrtc.
+      List<webrtc.MediaDeviceInfo> cameras = [];
+      try {
+        final devices =
+            await webrtc.navigator.mediaDevices.enumerateDevices();
+        cameras =
+            devices.where((d) => d.kind == 'videoinput').toList();
+      } catch (e) {
+        debugPrint('[HOLLOW] Camera enumeration failed: $e');
+      }
+
       if (!mounted) return;
       setState(() {
         _audioInputs = inputs;
         _audioOutputs = outputs;
+        _cameras = cameras;
         _loading = false;
       });
 
@@ -2221,6 +2234,11 @@ class _AudioDeviceSettingsState extends ConsumerState<_AudioDeviceSettings> {
             (d) => d.isActive,
             orElse: () => outputs.first);
         ref.read(audioOutputDeviceProvider.notifier).setDevice(active.id);
+      }
+      final savedCamera = ref.read(cameraDeviceProvider).valueOrNull;
+      if (savedCamera == null && cameras.isNotEmpty) {
+        ref.read(cameraDeviceProvider.notifier).setDevice(
+            cameras.first.deviceId);
       }
     } catch (e) {
       if (!mounted) return;
@@ -2293,6 +2311,8 @@ class _AudioDeviceSettingsState extends ConsumerState<_AudioDeviceSettings> {
         ref.watch(audioInputDeviceProvider).valueOrNull;
     final selectedOutput =
         ref.watch(audioOutputDeviceProvider).valueOrNull;
+    final selectedCamera =
+        ref.watch(cameraDeviceProvider).valueOrNull;
 
     if (_loading) {
       return Padding(
@@ -2353,6 +2373,31 @@ class _AudioDeviceSettingsState extends ConsumerState<_AudioDeviceSettings> {
           },
         ),
         const SizedBox(height: HollowSpacing.md),
+
+        // Camera (flutter_webrtc enumerateDevices)
+        if (_cameras.isNotEmpty)
+          _buildDeviceRow(
+            hollow: hollow,
+            icon: LucideIcons.camera,
+            label: 'Camera',
+            items: _cameras.map((d) => DropdownMenuItem<String?>(
+                  value: d.deviceId,
+                  child: Text(
+                    d.label.isNotEmpty
+                        ? d.label
+                        : 'Camera ${d.deviceId.substring(0, d.deviceId.length.clamp(0, 8))}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                )).toList(),
+            selectedValue: _resolveCameraValue(selectedCamera),
+            onChanged: (deviceId) {
+              if (deviceId != null) {
+                ref.read(cameraDeviceProvider.notifier).setDevice(deviceId);
+              }
+            },
+          ),
+        if (_cameras.isNotEmpty)
+          const SizedBox(height: HollowSpacing.md),
 
         // Audio quality preset
         _buildDeviceRow(
@@ -2629,6 +2674,12 @@ class _AudioDeviceSettingsState extends ConsumerState<_AudioDeviceSettings> {
     if (_audioOutputs.any((d) => d.id == savedId)) return savedId;
     final active = _audioOutputs.where((d) => d.isActive);
     return active.isNotEmpty ? active.first.id : _audioOutputs.first.id;
+  }
+
+  String? _resolveCameraValue(String? savedId) {
+    if (savedId == null || _cameras.isEmpty) return null;
+    if (_cameras.any((d) => d.deviceId == savedId)) return savedId;
+    return _cameras.first.deviceId;
   }
 
   Widget _buildDeviceRow({

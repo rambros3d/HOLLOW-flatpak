@@ -86,13 +86,13 @@ class _HollowPressableState extends State<HollowPressable>
   }
 
   void _onPointerUp(PointerUpEvent _) {
-    if (!_pressing) return;
+    if (!_pressing || !mounted) return;
     setState(() => _pressing = false);
     _controller.reverse();
   }
 
   void _onPointerCancel(PointerCancelEvent _) {
-    if (!_pressing) return;
+    if (!_pressing || !mounted) return;
     setState(() => _pressing = false);
     _controller.reverse();
   }

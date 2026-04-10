@@ -65,6 +65,27 @@ class AudioOutputDeviceNotifier extends AsyncNotifier<String?> {
   }
 }
 
+/// Preferred camera device ID. Null/empty = system default.
+final cameraDeviceProvider =
+    AsyncNotifierProvider<CameraDeviceNotifier, String?>(
+        CameraDeviceNotifier.new);
+
+class CameraDeviceNotifier extends AsyncNotifier<String?> {
+  @override
+  Future<String?> build() async {
+    final val = await storage_api.loadSetting(key: 'camera_device');
+    return (val == null || val.isEmpty) ? null : val;
+  }
+
+  Future<void> setDevice(String? deviceId) async {
+    await storage_api.saveSetting(
+      key: 'camera_device',
+      value: deviceId ?? '',
+    );
+    state = AsyncData(deviceId);
+  }
+}
+
 /// Outgoing image quality tier.
 ///
 /// Controls the Rust-side WebP encoder in `image_convert::convert_to_webp_with_quality`.
