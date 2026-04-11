@@ -1643,8 +1643,8 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 - [X] **Cryptographic message verification ("The RAT Files")** — prove message authenticity, defeat fake screenshots
   - [x] Message Info panel: shieldCheck icon in hover toolbar + right-click opens RAT Files dialog — sender peer ID, timestamp, Ed25519 signature, public key fingerprint, SIGNED/UNSIGNED badge
   - [x] "Export Proof" button: copies JSON proof with message text, timestamp, context (server/channel/DM), signature, sender public key, canonical payload, verification instructions — anyone can verify with standard Ed25519
-  - [x] "Verify Peer" in Security tab: your fingerprint display, peer ID lookup with fingerprint comparison, "Mark as Verified" button, verified peers list with unverify. Backed by `verified_peers` SQLCipher table + Riverpod provider
   - [x] In-app proof verifier: "Verify a Proof" section in Security tab — paste JSON or import .json file, runs Ed25519 verification via Rust FFI, shows VERIFIED/INVALID with message text, sender, context, timestamp. Replaces standalone CLI/web tool
+  - [X] Fix UI bug in Message Proof for new messages + edits — canonical edit/delete signing payload (was ad-hoc `"edit:..."` / `"delete:..."`), `edit_*_message` main-row sig/pk overwrite, sig/pk threaded through all receive/send/edit events + providers, Proof dialog uses `editedAt` timestamp for edited messages, optimistic-send timestamp now hydrated from Rust's signed value (fixes VM timer-drift verification failures).
 - [X] Favourites for the Friends strip instead of the "dump-all-friends" approach
 - [X] Use the same screen sharing for voice channels as in DMs (show your own screen; DONE - and we put the max bitrate capping)
 - [X] Proper profiling for the high RAM usage during the call with screen sharing and afterwards
@@ -1658,10 +1658,41 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 - [X] Add ability to choose your camera device in User Settings
   - [ ] Add a package for camera device selection + test
 - [X] Download manager UI — popup card showing manually-saved files (Save button) with thumbnails + save paths + click-to-reveal in Explorer (with Win32 foreground lock bypass), plus active shard rebalance status
-- [ ] Read/unread messages tick if possible
-- [ ] Different fonts/elements like hearts or sparkles on Profile and maybe nicknames
-- [ ] View the data that you have in the DB inside the app in a designated viewer, which should show server data, previous DMs that might not be visible to you because you're not friends with someone anymore etc.
-- [ ] Evidence Recovery UI tool (cooperative shard gathering for ex-members) — depends on Phase 4 shard system
+- [ ] **Archive tab — personal data viewer + signed `.hollow-archive` export/import (part of "The RAT Files" protocol)**
+  - **Philosophy:** SQLCipher DB is fully encrypted — the only way to see your own historical data (left servers, DMs with ex-friends, kicked channels, deleted messages you still have copies of) is through an in-app viewer. Combined with a portable, cryptographically-verifiable export format, this turns "your data is yours" from a slogan into a testable property. No PDF/EPUB/TXT support — those formats can be trivially edited, and shipping "signed PDF" would be security theater that undermines Hollow's reputation for cryptographic seriousness. **One format, one truth.**
+  - [ ] **`.hollow-archive` format** — zip-based custom bundle
+    - [ ] `manifest.json` — archive metadata (type: dm/channel, participants, message count, export timestamp, Hollow version, file mode used)
+    - [ ] `messages/` — per-message JSON files with full metadata (sender, timestamp, current text, `hidden_at` marker if soft-deleted, reactions, reply refs, file_id ref). Include hidden messages too — they're forensic evidence, not absent data.
+    - [ ] `edits/` — full `message_edits` table rows per message (old_text, new_text, edited_at, per-edit signature). Serializes the entire edit chain so the POV viewer can show "edited 3 times — click to see history" with each version independently verifiable.
+    - [ ] `deletions/` — full `message_deletions` table rows (deleted_text, deleted_at, per-delete signature). Each deletion is itself a signed event ("Alice signed a delete op for message X at time T"), not just a tombstone marker.
+    - [ ] `signatures.json` — per-message Ed25519 signatures preserved from the DB (same canonical payload as Message Proof dialog). Archive-level signature covers messages + edits + deletions, so tampering with any historical state change breaks verification.
+    - [ ] `pubkeys.json` — sender public keys for offline verification
+    - [ ] `files/` — attached media honoring the three file modes (see below)
+    - [ ] `archive_signature.bin` — **archive-level Ed25519 signature** signed by the exporter over a canonical hash of manifest + all message JSONs + file hashes. Turns the archive from "bag of signed messages" into "a snapshot I, peer X, attest to as my complete record." Catches selective omission without requiring a neutral god-view.
+  - [ ] **File embedding modes** (chosen at export time)
+    - [ ] Full — every file referenced by the conversation is embedded (biggest, best fidelity, fully offline-usable)
+    - [ ] Images only — embed thumbnails + images, skip videos and large files (compromise — conversation reads visually but archive stays small)
+    - [ ] Placeholder — no files embedded, just references with original filenames/sizes/hashes (smallest — viewer shows grey placeholder cards with metadata)
+  - [ ] **Archive tab UI** — new top-level tab with icon on server strip (left of Downloads icon), replaces main screen when active (like Home tab today)
+    - [ ] **Sub-tab 1: "My Data"** — read-only browser of everything in your own DB including inactive DMs (ex-friends), left servers, kicked channels, deleted messages you still have. High-fidelity POV renderer (reuses `MessageBubble`/`ChannelMessageBubble` with read-only data source). Right-click any conversation → "Export as `.hollow-archive`..." opens export dialog (pick file mode, save path, sign as self).
+    - [ ] **Sub-tab 2: "Imported Archives"** — list of `.hollow-archive` files loaded from disk. Drag-and-drop or file picker. On load: verification runs (per-message signatures + archive-level signature + pubkey → peer_id derivation). Shows banner at top: "✓ Verified — 847 messages signed by original senders, exported by <peer_id> on 2026-04-11" or "⚠ Verification failed — <reason>". Clicking an imported archive enters POV viewer in the main pane with shield icons on every message (same Message Proof dialog available per-message via hover).
+  - [ ] **Export dialog** — accessible from right-click menu on any DM or channel + from "My Data" tab
+    - [ ] Choose file mode (full/images/placeholder)
+    - [ ] Choose save path
+    - [ ] Archive is always generated by hashing the DB slice + signing with the exporter's Ed25519 key
+    - [ ] Success toast: "Archive saved — <path>. Verify anywhere by loading into Hollow or dragging onto archive.hollow.app"
+  - [ ] **`.hollow-archive` loader** — Rust-side crate (`archive_loader.rs`) that takes a zip, validates manifest, verifies every per-message signature, verifies the archive-level signature, reconstructs a read-only `ArchiveDataSource` that the Flutter UI can render exactly like live chat. Zero DB writes — archives are viewed ephemerally.
+  - [ ] **Web viewer — `archive.hollow.app` (deferred but architecturally committed)**
+    - [ ] Flutter Web build of the same POV viewer code (~95% shared with the desktop app — `ChannelMessageBubble`, `MessageBubble`, theme system, proof dialog all reusable)
+    - [ ] Pure client-side: drag-and-drop a `.hollow-archive` file → parse in browser → verify signatures in browser → render. **No data ever leaves the user's machine.** No Rust backend required — Ed25519 verification via `cryptography` / `@noble/ed25519` WASM or pure JS
+    - [ ] Static hosting (Cloudflare Pages / Netlify / GitHub Pages) — no server state, no database, no telemetry
+    - [ ] Open-source in a separate public repo so anyone can audit the verification code and self-host mirrors
+    - [ ] Killer use case: journalists, researchers, legal contexts — "here's a link to a `.hollow-archive` and a URL where you can verify it without installing anything"
+  - [ ] **UI framing rules** — always use the shield icon + accent color for archive badges. Verification status is shown at the top of every imported archive. "Exported by" line with full peer_id always visible. Never hide cryptographic provenance behind "advanced" menus — it's the point of the feature.
+  - [ ] **Edit/delete propagation model.** Edits and deletes are NOT CRDT-synced — they travel as dedicated `MessageEnvelope::EditMessage` / `DeleteMessage` envelopes through the normal encrypted message channel (Olm for DMs, MLS for channels). Both sender and receiver call `edit_dm_message()`/`edit_channel_message()` on their respective DBs, which means the `message_edits` and `message_deletions` rows — *with signatures* — are written on both sides. Two peers' archives of the same DM should agree on all edit/delete state. Security: only the original sender can edit/delete their own message (verified server-side at `swarm.rs:8237` and `:8293` — rejected otherwise). Archive-level signature still matters, but for catching **selective omission at export time** (exporter chose to include only a slice), not for smoothing over propagation gaps.
+  - [ ] **POV viewer edit/delete rendering** — hovering a message with `message_edits` rows shows "Edited N times ⟶ view history" → expands a timeline of every prior version with its own timestamp + signature. Messages with a `hidden_at` timestamp render as greyed-out bubbles with a "deleted at T" banner and the original text still visible (sourced from `message_deletions`). Both states are independently verifiable via the same Message Proof dialog used today.
+  - [ ] **Follow-up cleanup (not part of this feature):** `hide_dm_message()` / `hide_channel_message()` in `storage/messages.rs` don't cascade `hidden_at` to the `files` table, so deleted messages' file references stay queryable. File this as a separate fix — not an archive blocker, but worth noting. The archive exporter should handle file references on hidden messages gracefully regardless.
+- [ ] Evidence Recovery UI tool (cooperative shard gathering for ex-members) — depends on Phase 4 shard system. Feeds into the Archive tab: gathered shards → reconstruct DB slice → view in POV viewer → export as `.hollow-archive` if desired. Design together but implement later — full-replication for images/messages means most historical data is already available without shard recovery, so the Archive tab ships first.
 - [ ] **swarm.rs modularization refactor** — split the 12,600-line monolith into focused modules (like the libp2p removal session)
   - [ ] Create `SwarmContext` struct to hold the ~35 shared state variables (peer maps, pending transfers, voice participants, etc.)
   - [ ] Extract `vault_ops.rs` (~1,000 lines) — shard store/retrieve, upload/download pipeline, rebalance/retention timer
@@ -1713,6 +1744,7 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 
 - [ ] Proper roles on the server and editing of permissions
 - [ ] Discord import system (full implementation — parse GDPR export ZIP, map servers/channels/roles/messages, placeholder identities, member claiming) == reflect to the discord_migration_plan.md
+- [ ] Security of the community servers. To prevent massive spam/abuse in terms of files and such - add for example OAuth for Twitch and allow the server joining if you're a follower for 1 day or something (use Twitch API like for getting the follow: https://dev.twitch.tv/docs/api/reference#get-followed-channels)
 - [ ] Device linking via QR code (multi-device identity sync) — requires MLS + CRDTs. 🎞️ Animate: QR scan success celebration, device linked confirmation
 - [ ] Mobile platform testing & platform-specific fixes (adaptive layout built in Phase 2.5)
 - [ ] Accessibility (screen reader support, high contrast)
@@ -1735,6 +1767,8 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 - [ ] Security audit (third-party review of E2EE implementation - OTF Security Lab funding)
 - [ ] **Strip / minimize bundled ffmpeg binary** — Initial bundled binary (BtbN LGPL static, `vendor/ffmpeg/ffmpeg-win-x64.exe`) is ~164 MB unstripped and includes a huge codec/library zoo we don't actually use (libdav1d, libvpx, libsvtav1, libplacebo, vulkan, opencl, AMF, NVENC/NVDEC, libjxl, libwhisper, librav1e, libopenh264, all the audio codecs, etc.). After the video preview pipeline is shipped and stable, profile what ffmpeg arguments / codecs our actual usage requires (just thumbnail extraction via libwebp encoder + a small set of video demuxers/decoders for whichever container formats users actually upload), then either (a) strip the existing binary with `strip` to drop debug symbols (~15-20% reduction), or (b) build a custom minimal ffmpeg with only the required components (`--disable-everything --enable-encoder=libwebp --enable-decoder=h264,hevc,vp9,av1 --enable-demuxer=mov,matroska,webm` etc.) — target ~10 MB per arch. Same for macOS/Linux when those builds happen. No code changes needed when swapping the binary — just replace `vendor/ffmpeg/ffmpeg-{platform}` and rebuild.
 - [ ] LRU-eviction (optimization for loading only what you can see on the screen such as friends profiles or avatars)
+- [ ] **Theme system** — structured theme manifest (colors, fonts, spacing, radii, optional cosmetics like profile decorations/nickname accents), `.hollow-theme` bundle format (manifest + asset files, signed for integrity), in-app import/export UI with live preview, curated community gallery repo on GitHub. Per-user local only — themes never travel with messages. Data-only schema (no HTML/CSS/JS, no arbitrary code execution) so community-shared themes are provably safe to apply. Absorbs the old "hearts/sparkles on profiles + custom fonts" idea as one set of knobs among many. Build on existing `HollowTheme` ThemeExtension by making it loadable from a manifest instead of hardcoded.
+
 
 **Deliverable:** Public release across all platforms.
 

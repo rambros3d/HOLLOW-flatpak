@@ -578,6 +578,8 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String messageId,
     required String replyToMid,
     LinkPreviewRef? linkPreview,
+    String? signature,
+    String? publicKey,
   }) = NetworkEvent_MessageReceived;
   const factory NetworkEvent.channelMessageReceived({
     required String serverId,
@@ -588,9 +590,24 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String messageId,
     required String replyToMid,
     LinkPreviewRef? linkPreview,
+    String? signature,
+    String? publicKey,
   }) = NetworkEvent_ChannelMessageReceived;
-  const factory NetworkEvent.messageSent({required String toPeer}) =
-      NetworkEvent_MessageSent;
+  const factory NetworkEvent.messageSent({
+    required String toPeer,
+    required String messageId,
+    required PlatformInt64 timestamp,
+    String? signature,
+    String? publicKey,
+  }) = NetworkEvent_MessageSent;
+  const factory NetworkEvent.channelMessageSent({
+    required String serverId,
+    required String channelId,
+    required String messageId,
+    required PlatformInt64 timestamp,
+    String? signature,
+    String? publicKey,
+  }) = NetworkEvent_ChannelMessageSent;
   const factory NetworkEvent.messageSendFailed({
     required String toPeer,
     required String error,
@@ -677,12 +694,16 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String messageId,
     required String newText,
     required PlatformInt64 editedAt,
+    String? signature,
+    String? publicKey,
   }) = NetworkEvent_ChannelMessageEdited;
   const factory NetworkEvent.dmMessageEdited({
     required String peerId,
     required String messageId,
     required String newText,
     required PlatformInt64 editedAt,
+    String? signature,
+    String? publicKey,
   }) = NetworkEvent_DmMessageEdited;
   const factory NetworkEvent.channelMessageDeleted({
     required String serverId,

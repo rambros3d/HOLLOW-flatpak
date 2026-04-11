@@ -1539,6 +1539,32 @@ impl MessageStore {
             .ok()
     }
 
+    /// Returns the current text of a channel message by message_id.
+    /// Used when signing deletions so the canonical payload reflects the
+    /// text at deletion time (rather than the ad-hoc "delete:..." format).
+    pub fn get_channel_message_text(&self, message_id: &str) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT text FROM channel_messages WHERE message_id = ?1",
+                params![message_id],
+                |row| row.get(0),
+            )
+            .ok()
+    }
+
+    /// Returns the current text of a DM message by message_id.
+    /// Used when signing deletions so the canonical payload reflects the
+    /// text at deletion time (rather than the ad-hoc "delete:..." format).
+    pub fn get_dm_message_text(&self, message_id: &str) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT text FROM messages WHERE message_id = ?1",
+                params![message_id],
+                |row| row.get(0),
+            )
+            .ok()
+    }
+
     pub fn edit_channel_message(
         &self,
         message_id: &str,
@@ -1574,12 +1600,15 @@ impl MessageStore {
             )
             .map_err(|e| format!("Failed to insert edit history: {e}"))?;
 
-        // 3. Update the message text and edited_at timestamp.
+        // 3. Update the message text, edited_at, and overwrite the main-row
+        // signature/public_key so the canonical payload (built from the new
+        // text + edited_at) matches the stored signature on cold loads.
+        // The full edit chain with prior signatures still lives in message_edits.
         let rows = self
             .conn
             .execute(
-                "UPDATE channel_messages SET text = ?1, edited_at = ?2 WHERE message_id = ?3",
-                params![new_text, edited_at, message_id],
+                "UPDATE channel_messages SET text = ?1, edited_at = ?2, signature = ?3, public_key = ?4 WHERE message_id = ?5",
+                params![new_text, edited_at, signature, public_key, message_id],
             )
             .map_err(|e| format!("Failed to update channel message: {e}"))?;
 
@@ -1623,12 +1652,14 @@ impl MessageStore {
             )
             .map_err(|e| format!("Failed to insert edit history: {e}"))?;
 
-        // 3. Update the message.
+        // 3. Update the message. Overwrite the main-row signature/public_key
+        // alongside text+edited_at so the canonical payload matches the
+        // stored signature on cold loads. Prior signatures stay in message_edits.
         let rows = self
             .conn
             .execute(
-                "UPDATE messages SET text = ?1, edited_at = ?2 WHERE message_id = ?3",
-                params![new_text, edited_at, message_id],
+                "UPDATE messages SET text = ?1, edited_at = ?2, signature = ?3, public_key = ?4 WHERE message_id = ?5",
+                params![new_text, edited_at, signature, public_key, message_id],
             )
             .map_err(|e| format!("Failed to update DM message: {e}"))?;
 

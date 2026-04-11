@@ -42,19 +42,22 @@ class ChannelChatMessage {
   /// Create a copy with updated fields (for editing/deletion/reactions).
   ChannelChatMessage copyWith({
     String? text,
+    DateTime? timestamp,
     DateTime? editedAt,
     DateTime? hiddenAt,
     Map<String, List<String>>? reactions,
     FileAttachment? fileAttachment,
     network_api.LinkPreviewRef? linkPreview,
+    String? signature,
+    String? publicKey,
   }) {
     return ChannelChatMessage(
       senderId: senderId,
       text: text ?? this.text,
       isMe: isMe,
-      timestamp: timestamp,
-      signature: signature,
-      publicKey: publicKey,
+      timestamp: timestamp ?? this.timestamp,
+      signature: signature ?? this.signature,
+      publicKey: publicKey ?? this.publicKey,
       messageId: messageId,
       editedAt: editedAt ?? this.editedAt,
       hiddenAt: hiddenAt ?? this.hiddenAt,

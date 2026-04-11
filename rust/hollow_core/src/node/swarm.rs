@@ -56,9 +56,10 @@ pub(crate) enum NetworkEvent {
     PeerDisconnected { peer_id: String },
     RoomCleared,
     Listening { address: String },
-    MessageReceived { from_peer: String, text: String, timestamp: i64, message_id: String, reply_to_mid: String, link_preview: Option<LinkPreviewRef> },
-    ChannelMessageReceived { server_id: String, channel_id: String, from_peer: String, text: String, timestamp: i64, message_id: String, reply_to_mid: String, link_preview: Option<LinkPreviewRef> },
-    MessageSent { to_peer: String },
+    MessageReceived { from_peer: String, text: String, timestamp: i64, message_id: String, reply_to_mid: String, link_preview: Option<LinkPreviewRef>, signature: Option<String>, public_key: Option<String> },
+    ChannelMessageReceived { server_id: String, channel_id: String, from_peer: String, text: String, timestamp: i64, message_id: String, reply_to_mid: String, link_preview: Option<LinkPreviewRef>, signature: Option<String>, public_key: Option<String> },
+    MessageSent { to_peer: String, message_id: String, timestamp: i64, signature: Option<String>, public_key: Option<String> },
+    ChannelMessageSent { server_id: String, channel_id: String, message_id: String, timestamp: i64, signature: Option<String>, public_key: Option<String> },
     MessageSendFailed { to_peer: String, error: String },
     SessionEstablished { peer_id: String },
     Error { message: String },
@@ -83,8 +84,8 @@ pub(crate) enum NetworkEvent {
     // -- Profile events (Phase 3.5) --
     ProfileUpdated { peer_id: String },
     // -- Message editing events (Phase 3.5) --
-    ChannelMessageEdited { server_id: String, channel_id: String, message_id: String, new_text: String, edited_at: i64 },
-    DmMessageEdited { peer_id: String, message_id: String, new_text: String, edited_at: i64 },
+    ChannelMessageEdited { server_id: String, channel_id: String, message_id: String, new_text: String, edited_at: i64, signature: Option<String>, public_key: Option<String> },
+    DmMessageEdited { peer_id: String, message_id: String, new_text: String, edited_at: i64, signature: Option<String>, public_key: Option<String> },
     // -- Message deletion events (Phase 3.5) --
     ChannelMessageDeleted { server_id: String, channel_id: String, message_id: String, deleted_at: i64 },
     DmMessageDeleted { peer_id: String, message_id: String, deleted_at: i64 },
@@ -2208,6 +2209,16 @@ async fn run_event_loop(
                                 }
                             }
                         }
+
+                        // Hydrate the optimistic Dart entry with sig/pk so the
+                        // Message Proof dialog shows VERIFIED without a restart.
+                        let _ = event_tx.send(NetworkEvent::MessageSent {
+                            to_peer: peer_id_str.clone(),
+                            message_id: message_id.clone(),
+                            timestamp: dm_timestamp,
+                            signature: sig.clone(),
+                            public_key: pk.clone(),
+                        }).await;
                     }
 
                     NodeCommand::SendChannelMessage { server_id, channel_id, text, message_id, reply_to_mid, link_preview } => {
@@ -2303,6 +2314,17 @@ async fn run_event_loop(
                                 }
                             }
                         }
+
+                        // Hydrate the optimistic Dart entry with sig/pk so the
+                        // Message Proof dialog shows VERIFIED without a restart.
+                        let _ = event_tx.send(NetworkEvent::ChannelMessageSent {
+                            server_id: server_id.clone(),
+                            channel_id: channel_id.clone(),
+                            message_id: message_id.clone(),
+                            timestamp,
+                            signature: sig.clone(),
+                            public_key: pk.clone(),
+                        }).await;
                     }
 
                     // -- CRDT commands (Phase 3) --
@@ -3214,8 +3236,16 @@ async fn run_event_loop(
                             .unwrap_or_default()
                             .as_millis() as i64;
 
-                        // Sign the edit.
-                        let signing_payload = format!("edit:{}:{}:{}", message_id, new_text, edit_timestamp);
+                        // Sign the edit using the canonical payload format so
+                        // the Dart verifier (which reconstructs from the current
+                        // message state) can verify edited messages.
+                        let signing_payload = message_signing_payload(
+                            "ch",
+                            &format!("{}:{}", server_id, channel_id),
+                            &local_peer,
+                            edit_timestamp,
+                            &new_text,
+                        );
                         let (sig, pk) = sign_message(&bundle_keypair, &pub_key_b64, &signing_payload);
 
                         // Update local DB (preserves old text in message_edits table).
@@ -3278,26 +3308,39 @@ async fn run_event_loop(
                             }
                         }
 
-                        // Emit event so Dart updates UI.
+                        // Emit event so Dart updates UI — include sig/pk so the
+                        // in-memory message's fields match the canonical payload
+                        // reconstructed by the Message Proof dialog.
                         let _ = event_tx.send(NetworkEvent::ChannelMessageEdited {
                             server_id,
                             channel_id,
                             message_id,
                             new_text,
                             edited_at: edit_timestamp,
+                            signature: sig,
+                            public_key: pk,
                         }).await;
                     }
 
                     NodeCommand::EditDmMessage { peer_id: peer_id_str, message_id, new_text } => {
                         hollow_log!("[HOLLOW-SWARM] EditDmMessage {message_id} for {peer_id_str}");
 
+                        let local_peer = local_peer_str.to_string();
                         let edit_timestamp = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_millis() as i64;
 
-                        // Sign the edit.
-                        let signing_payload = format!("edit:{}:{}:{}", message_id, new_text, edit_timestamp);
+                        // Sign the edit using the canonical payload format so
+                        // the Dart verifier (which reconstructs from the current
+                        // message state) can verify edited messages.
+                        let signing_payload = message_signing_payload(
+                            "dm",
+                            &peer_id_str,
+                            &local_peer,
+                            edit_timestamp,
+                            &new_text,
+                        );
                         let (sig, pk) = sign_message(&bundle_keypair, &pub_key_b64, &signing_payload);
 
                         // Update local DB.
@@ -3335,12 +3378,15 @@ async fn run_event_loop(
                             ).await;
                         }
 
-                        // Emit event so Dart updates UI.
+                        // Emit event so Dart updates UI — include sig/pk so the
+                        // in-memory message's fields match the canonical payload.
                         let _ = event_tx.send(NetworkEvent::DmMessageEdited {
                             peer_id: peer_id_str,
                             message_id,
                             new_text,
                             edited_at: edit_timestamp,
+                            signature: sig,
+                            public_key: pk,
                         }).await;
                     }
 
@@ -3363,16 +3409,32 @@ async fn run_event_loop(
                             .unwrap_or_default()
                             .as_millis() as i64;
 
-                        // Sign the deletion.
-                        let signing_payload = format!("delete:{}:{}", message_id, delete_timestamp);
+                        // Sign the deletion using the canonical payload format
+                        // with the text at deletion time. Uses "ch-delete" msg
+                        // type so a delete signature cannot be confused with or
+                        // replayed as a send signature. Fetches current text
+                        // from DB so the archive viewer (later) can verify the
+                        // delete against the same state the exporter saw.
+                        let data_dir = crate::identity::data_dir().unwrap_or_default();
+                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        let current_text = crate::storage::MessageStore::open(&db_path, &passphrase)
+                            .ok()
+                            .and_then(|store| store.get_channel_message_text(&message_id))
+                            .unwrap_or_default();
+
+                        let signing_payload = message_signing_payload(
+                            "ch-delete",
+                            &format!("{}:{}", server_id, channel_id),
+                            &local_peer,
+                            delete_timestamp,
+                            &current_text,
+                        );
                         let (sig, pk) = sign_message(&bundle_keypair, &pub_key_b64, &signing_payload);
 
                         // Hide in local DB (preserves text in message_deletions table).
                         {
-                            let data_dir = crate::identity::data_dir().unwrap_or_default();
-                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
                             if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
                                 let _ = store.hide_channel_message(
                                     &message_id, delete_timestamp,
@@ -3438,21 +3500,35 @@ async fn run_event_loop(
                     NodeCommand::DeleteDmMessage { peer_id: peer_id_str, message_id } => {
                         hollow_log!("[HOLLOW-SWARM] DeleteDmMessage {message_id} for {peer_id_str}");
 
+                        let local_peer = local_peer_str.to_string();
                         let delete_timestamp = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_millis() as i64;
 
-                        // Sign the deletion.
-                        let signing_payload = format!("delete:{}:{}", message_id, delete_timestamp);
+                        // Sign the deletion using the canonical payload format
+                        // with the text at deletion time. Uses "dm-delete" msg
+                        // type — distinct from "dm" to prevent replay.
+                        let data_dir = crate::identity::data_dir().unwrap_or_default();
+                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        let current_text = crate::storage::MessageStore::open(&db_path, &passphrase)
+                            .ok()
+                            .and_then(|store| store.get_dm_message_text(&message_id))
+                            .unwrap_or_default();
+
+                        let signing_payload = message_signing_payload(
+                            "dm-delete",
+                            &peer_id_str,
+                            &local_peer,
+                            delete_timestamp,
+                            &current_text,
+                        );
                         let (sig, pk) = sign_message(&bundle_keypair, &pub_key_b64, &signing_payload);
 
                         // Hide in local DB.
                         {
-                            let data_dir = crate::identity::data_dir().unwrap_or_default();
-                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
                             if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
                                 let _ = store.hide_dm_message(
                                     &message_id, delete_timestamp,
@@ -7933,6 +8009,8 @@ async fn handle_incoming_request(
                                 message_id: mid.unwrap_or_default(),
                                 reply_to_mid: reply_to.unwrap_or_default(),
                                 link_preview,
+                                signature: sig,
+                                public_key: pk,
                             })
                             .await;
                     }
@@ -8112,6 +8190,8 @@ async fn handle_incoming_request(
                                 message_id: mid.unwrap_or_default(),
                                 reply_to_mid: reply_to.unwrap_or_default(),
                                 link_preview,
+                                signature: sig,
+                                public_key: pk,
                             })
                             .await;
                     }
@@ -8259,7 +8339,9 @@ async fn handle_incoming_request(
                         }
                     }
 
-                    // Emit event so Dart updates UI.
+                    // Emit event so Dart updates UI — include sig/pk so the
+                    // receiver's Proof dialog verifies against the edit's
+                    // signature, not the original's.
                     if edit_applied {
                         if let (Some(server_id), Some(channel_id)) = (sid, cid) {
                             let _ = event_tx.send(NetworkEvent::ChannelMessageEdited {
@@ -8268,6 +8350,8 @@ async fn handle_incoming_request(
                                 message_id: mid,
                                 new_text,
                                 edited_at: ts,
+                                signature: sig,
+                                public_key: pk,
                             }).await;
                         } else {
                             let _ = event_tx.send(NetworkEvent::DmMessageEdited {
@@ -8275,6 +8359,8 @@ async fn handle_incoming_request(
                                 message_id: mid,
                                 new_text,
                                 edited_at: ts,
+                                signature: sig,
+                                public_key: pk,
                             }).await;
                         }
                     }
@@ -9261,7 +9347,8 @@ async fn handle_incoming_request(
                 }
 
                 Err(_) => {
-                    // Legacy raw-text DM (backward compatible).
+                    // Legacy raw-text DM (backward compatible). No signature
+                    // available since these aren't wrapped in signed envelopes.
                     let legacy_ts = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
@@ -9274,6 +9361,8 @@ async fn handle_incoming_request(
                             message_id: String::new(),
                             reply_to_mid: String::new(),
                             link_preview: None,
+                            signature: None,
+                            public_key: None,
                         })
                         .await;
                 }
@@ -10267,6 +10356,8 @@ async fn handle_incoming_request(
                                             message_id: mid.unwrap_or_default(),
                                             reply_to_mid: reply_to.unwrap_or_default(),
                                             link_preview,
+                                            signature: sig,
+                                            public_key: pk,
                                         }).await;
                                     }
                                 }
@@ -10297,6 +10388,8 @@ async fn handle_incoming_request(
                                             message_id: mid,
                                             new_text,
                                             edited_at: ts,
+                                            signature: sig,
+                                            public_key: pk,
                                         }).await;
                                     }
                                 }

@@ -52,7 +52,9 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
   /// DB persistence happens in Rust (DirectMessage handler) with sender's timestamp.
   void receiveMessage(String fromPeer, String text, int timestamp,
       String messageId, String replyToMid,
-      {network_api.LinkPreviewRef? linkPreview}) {
+      {network_api.LinkPreviewRef? linkPreview,
+      String? signature,
+      String? publicKey}) {
     final ts = DateTime.fromMillisecondsSinceEpoch(timestamp);
     final msg = ChatMessage(
       text: text,
@@ -61,8 +63,35 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
       messageId: messageId.isNotEmpty ? messageId : null,
       replyToMid: replyToMid.isNotEmpty ? replyToMid : null,
       linkPreview: linkPreview,
+      signature: signature,
+      publicKey: publicKey,
     );
     _addMessage(fromPeer, msg);
+  }
+
+  /// Hydrate signature, public key, and (critically) timestamp on an existing
+  /// in-memory message. Called from the MessageSent event handler after Rust
+  /// has signed+persisted the message — we overwrite the optimistic Dart-side
+  /// `DateTime.now()` timestamp with Rust's exact `SystemTime::now()` value
+  /// that the signature was actually computed over. Without the timestamp
+  /// replacement, the Dart verifier reconstructs the canonical payload with a
+  /// slightly different millisecond, which breaks signature verification on
+  /// machines with coarse OS timer resolution (e.g. VMs).
+  void hydrateSignature(String peerId, String messageId, int timestampMs,
+      String? signature, String? publicKey) {
+    final current = state[peerId];
+    if (current == null) return;
+    final idx = current.indexWhere((m) => m.messageId == messageId);
+    if (idx == -1) return;
+    final updatedList = List<ChatMessage>.from(current);
+    updatedList[idx] = updatedList[idx].copyWith(
+      timestamp: DateTime.fromMillisecondsSinceEpoch(timestampMs),
+      signature: signature,
+      publicKey: publicKey,
+    );
+    final updated = Map.of(state);
+    updated[peerId] = updatedList;
+    state = updated;
   }
 
   /// Edit a message we sent.
@@ -77,8 +106,11 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
   }
 
   /// Apply an edit to an in-memory message (from network event or own edit).
+  /// Updates signature + publicKey alongside text so the Message Proof dialog
+  /// verifies against the edit's own signature, not the original's.
   void applyEdit(
-      String peerId, String messageId, String newText, int editedAtMs) {
+      String peerId, String messageId, String newText, int editedAtMs,
+      {String? signature, String? publicKey}) {
     final current = state[peerId];
     if (current == null) return;
 
@@ -87,8 +119,12 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
     if (idx == -1) return;
 
     final updatedList = List<ChatMessage>.from(current);
-    updatedList[idx] =
-        updatedList[idx].copyWith(text: newText, editedAt: editedAt);
+    updatedList[idx] = updatedList[idx].copyWith(
+      text: newText,
+      editedAt: editedAt,
+      signature: signature,
+      publicKey: publicKey,
+    );
     final updated = Map.of(state);
     updated[peerId] = updatedList;
     state = updated;

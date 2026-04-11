@@ -1286,8 +1286,13 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                                         senderAvatar:
                                             profiles[senderPeerId]?.avatarBytes,
                                         text: msg.text,
-                                        timestampMs:
-                                            msg.timestamp.millisecondsSinceEpoch,
+                                        // If the message has been edited, the
+                                        // signature was computed over the edit
+                                        // timestamp + new text — use editedAt
+                                        // to reconstruct the canonical payload.
+                                        timestampMs: (msg.editedAt ??
+                                                msg.timestamp)
+                                            .millisecondsSinceEpoch,
                                         signature: msg.signature,
                                         publicKey: msg.publicKey,
                                         messageId: msg.messageId,

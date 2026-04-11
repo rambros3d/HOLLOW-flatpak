@@ -125,9 +125,10 @@ pub enum NetworkEvent {
     PeerDisconnected { peer_id: String },
     RoomCleared,
     Listening { address: String },
-    MessageReceived { from_peer: String, text: String, timestamp: i64, message_id: String, reply_to_mid: String, link_preview: Option<LinkPreviewRef> },
-    ChannelMessageReceived { server_id: String, channel_id: String, from_peer: String, text: String, timestamp: i64, message_id: String, reply_to_mid: String, link_preview: Option<LinkPreviewRef> },
-    MessageSent { to_peer: String },
+    MessageReceived { from_peer: String, text: String, timestamp: i64, message_id: String, reply_to_mid: String, link_preview: Option<LinkPreviewRef>, signature: Option<String>, public_key: Option<String> },
+    ChannelMessageReceived { server_id: String, channel_id: String, from_peer: String, text: String, timestamp: i64, message_id: String, reply_to_mid: String, link_preview: Option<LinkPreviewRef>, signature: Option<String>, public_key: Option<String> },
+    MessageSent { to_peer: String, message_id: String, timestamp: i64, signature: Option<String>, public_key: Option<String> },
+    ChannelMessageSent { server_id: String, channel_id: String, message_id: String, timestamp: i64, signature: Option<String>, public_key: Option<String> },
     MessageSendFailed { to_peer: String, error: String },
     SessionEstablished { peer_id: String },
     Error { message: String },
@@ -152,8 +153,8 @@ pub enum NetworkEvent {
     // -- Profile events (Phase 3.5) --
     ProfileUpdated { peer_id: String },
     // -- Message editing events (Phase 3.5) --
-    ChannelMessageEdited { server_id: String, channel_id: String, message_id: String, new_text: String, edited_at: i64 },
-    DmMessageEdited { peer_id: String, message_id: String, new_text: String, edited_at: i64 },
+    ChannelMessageEdited { server_id: String, channel_id: String, message_id: String, new_text: String, edited_at: i64, signature: Option<String>, public_key: Option<String> },
+    DmMessageEdited { peer_id: String, message_id: String, new_text: String, edited_at: i64, signature: Option<String>, public_key: Option<String> },
     // -- Message deletion events (Phase 3.5) --
     ChannelMessageDeleted { server_id: String, channel_id: String, message_id: String, deleted_at: i64 },
     DmMessageDeleted { peer_id: String, message_id: String, deleted_at: i64 },
@@ -321,8 +322,11 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, .. } => {
             hollow_log!("[HOLLOW] Channel message from {from_peer} in {channel_id} ({server_id})");
         }
-        node::NetworkEvent::MessageSent { to_peer } => {
+        node::NetworkEvent::MessageSent { to_peer, .. } => {
             hollow_log!("[HOLLOW] Message sent to: {to_peer}");
+        }
+        node::NetworkEvent::ChannelMessageSent { server_id, channel_id, message_id, .. } => {
+            hollow_log!("[HOLLOW] Channel message {message_id} sent in {server_id}/{channel_id}");
         }
         node::NetworkEvent::MessageSendFailed { to_peer, error } => {
             hollow_log!("[HOLLOW] Message send failed to {to_peer}: {error}");
@@ -456,13 +460,18 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::RoomCleared => NetworkEvent::RoomCleared,
         node::NetworkEvent::Listening { address } => NetworkEvent::Listening { address },
-        node::NetworkEvent::MessageReceived { from_peer, text, timestamp, message_id, reply_to_mid, link_preview } => {
-            NetworkEvent::MessageReceived { from_peer, text, timestamp, message_id, reply_to_mid, link_preview: link_preview.map(Into::into) }
+        node::NetworkEvent::MessageReceived { from_peer, text, timestamp, message_id, reply_to_mid, link_preview, signature, public_key } => {
+            NetworkEvent::MessageReceived { from_peer, text, timestamp, message_id, reply_to_mid, link_preview: link_preview.map(Into::into), signature, public_key }
         }
-        node::NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, text, timestamp, message_id, reply_to_mid, link_preview } => {
-            NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, text, timestamp, message_id, reply_to_mid, link_preview: link_preview.map(Into::into) }
+        node::NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, text, timestamp, message_id, reply_to_mid, link_preview, signature, public_key } => {
+            NetworkEvent::ChannelMessageReceived { server_id, channel_id, from_peer, text, timestamp, message_id, reply_to_mid, link_preview: link_preview.map(Into::into), signature, public_key }
         }
-        node::NetworkEvent::MessageSent { to_peer } => NetworkEvent::MessageSent { to_peer },
+        node::NetworkEvent::MessageSent { to_peer, message_id, timestamp, signature, public_key } => {
+            NetworkEvent::MessageSent { to_peer, message_id, timestamp, signature, public_key }
+        }
+        node::NetworkEvent::ChannelMessageSent { server_id, channel_id, message_id, timestamp, signature, public_key } => {
+            NetworkEvent::ChannelMessageSent { server_id, channel_id, message_id, timestamp, signature, public_key }
+        }
         node::NetworkEvent::MessageSendFailed { to_peer, error } => {
             NetworkEvent::MessageSendFailed { to_peer, error }
         }
@@ -524,11 +533,11 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::ProfileUpdated { peer_id } => {
             NetworkEvent::ProfileUpdated { peer_id }
         }
-        node::NetworkEvent::ChannelMessageEdited { server_id, channel_id, message_id, new_text, edited_at } => {
-            NetworkEvent::ChannelMessageEdited { server_id, channel_id, message_id, new_text, edited_at }
+        node::NetworkEvent::ChannelMessageEdited { server_id, channel_id, message_id, new_text, edited_at, signature, public_key } => {
+            NetworkEvent::ChannelMessageEdited { server_id, channel_id, message_id, new_text, edited_at, signature, public_key }
         }
-        node::NetworkEvent::DmMessageEdited { peer_id, message_id, new_text, edited_at } => {
-            NetworkEvent::DmMessageEdited { peer_id, message_id, new_text, edited_at }
+        node::NetworkEvent::DmMessageEdited { peer_id, message_id, new_text, edited_at, signature, public_key } => {
+            NetworkEvent::DmMessageEdited { peer_id, message_id, new_text, edited_at, signature, public_key }
         }
         node::NetworkEvent::ChannelMessageDeleted { server_id, channel_id, message_id, deleted_at } => {
             NetworkEvent::ChannelMessageDeleted { server_id, channel_id, message_id, deleted_at }

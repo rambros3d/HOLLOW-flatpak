@@ -102,8 +102,13 @@ class EventStreamNotifier extends Notifier<bool> {
       case NetworkEvent_Listening(:final address):
         debugPrint('[HOLLOW] Listening: $address');
 
-      case NetworkEvent_MessageReceived(:final fromPeer, :final text, :final timestamp, :final messageId, :final replyToMid, :final linkPreview):
-        ref.read(chatProvider.notifier).receiveMessage(fromPeer, text, timestamp, messageId, replyToMid, linkPreview: linkPreview);
+      case NetworkEvent_MessageReceived(:final fromPeer, :final text, :final timestamp, :final messageId, :final replyToMid, :final linkPreview, :final signature, :final publicKey):
+        ref.read(chatProvider.notifier).receiveMessage(
+              fromPeer, text, timestamp, messageId, replyToMid,
+              linkPreview: linkPreview,
+              signature: signature,
+              publicKey: publicKey,
+            );
         ref.read(typingProvider.notifier).clearTyping(fromPeer, fromPeer);
         // Track unread DM — only if not muted.
         // Window must be visible AND viewing this DM to count as "viewing".
@@ -129,10 +134,13 @@ class EventStreamNotifier extends Notifier<bool> {
         }
 
       case NetworkEvent_ChannelMessageReceived(
-            :final serverId, :final channelId, :final fromPeer, :final text, :final timestamp, :final messageId, :final replyToMid, :final linkPreview):
-        ref
-            .read(channelChatProvider.notifier)
-            .receiveMessage(serverId, channelId, fromPeer, text, timestamp, messageId, replyToMid, linkPreview: linkPreview);
+            :final serverId, :final channelId, :final fromPeer, :final text, :final timestamp, :final messageId, :final replyToMid, :final linkPreview, :final signature, :final publicKey):
+        ref.read(channelChatProvider.notifier).receiveMessage(
+              serverId, channelId, fromPeer, text, timestamp, messageId, replyToMid,
+              linkPreview: linkPreview,
+              signature: signature,
+              publicKey: publicKey,
+            );
         ref.read(typingProvider.notifier).clearTyping('$serverId:$channelId', fromPeer);
         // Track unread channel message — only if not muted.
         // Must be visible, viewing this channel, AND scrolled to bottom.
@@ -165,8 +173,22 @@ class EventStreamNotifier extends Notifier<bool> {
         // Proactively establish WebRTC data channel for P2P file transfers.
         ref.read(webRtcProvider.notifier).ensureConnection(peerId);
 
-      case NetworkEvent_MessageSent():
-        break;
+      case NetworkEvent_MessageSent(
+            :final toPeer, :final messageId, :final timestamp, :final signature, :final publicKey):
+        // Hydrate the optimistic in-memory entry with Rust's signed timestamp
+        // + sig/pk so the Message Proof dialog shows VERIFIED on fresh sends.
+        // The Dart-side DateTime.now() used at optimistic-add time can differ
+        // from Rust's SystemTime::now() by a few ms on machines with coarse
+        // OS timer resolution (e.g. VMs), breaking canonical payload parity.
+        ref.read(chatProvider.notifier).hydrateSignature(
+              toPeer, messageId, timestamp.toInt(), signature, publicKey,
+            );
+
+      case NetworkEvent_ChannelMessageSent(
+            :final serverId, :final channelId, :final messageId, :final timestamp, :final signature, :final publicKey):
+        ref.read(channelChatProvider.notifier).hydrateSignature(
+              serverId, channelId, messageId, timestamp.toInt(), signature, publicKey,
+            );
 
       case NetworkEvent_MessageSendFailed(:final toPeer, :final error):
         ref.read(chatProvider.notifier).addSendFailure(toPeer, error);
@@ -443,16 +465,22 @@ class EventStreamNotifier extends Notifier<bool> {
         ref.read(profileProvider.notifier).reloadProfile(peerId);
 
       case NetworkEvent_ChannelMessageEdited(
-            :final serverId, :final channelId, :final messageId, :final newText, :final editedAt):
+            :final serverId, :final channelId, :final messageId, :final newText, :final editedAt, :final signature, :final publicKey):
         debugPrint('[HOLLOW] Channel message edited: $messageId in $serverId/$channelId');
         ref.read(channelChatProvider.notifier).applyEdit(
-            serverId, channelId, messageId, newText, editedAt);
+              serverId, channelId, messageId, newText, editedAt,
+              signature: signature,
+              publicKey: publicKey,
+            );
 
       case NetworkEvent_DmMessageEdited(
-            :final peerId, :final messageId, :final newText, :final editedAt):
+            :final peerId, :final messageId, :final newText, :final editedAt, :final signature, :final publicKey):
         debugPrint('[HOLLOW] DM message edited: $messageId from $peerId');
         ref.read(chatProvider.notifier).applyEdit(
-            peerId, messageId, newText, editedAt);
+              peerId, messageId, newText, editedAt,
+              signature: signature,
+              publicKey: publicKey,
+            );
 
       case NetworkEvent_ChannelMessageDeleted(
             :final serverId, :final channelId, :final messageId, :final deletedAt):
