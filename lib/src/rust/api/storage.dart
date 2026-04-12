@@ -41,6 +41,34 @@ Future<List<StoredMessage>> loadMessages({
   limit: limit,
 );
 
+/// Load ALL DM messages for a peer, including soft-deleted (hidden_at set).
+/// No limit, ordered oldest-first. Used by the archive "My Data" viewer.
+Future<List<StoredMessage>> loadAllDmMessages({required String peerId}) =>
+    RustLib.instance.api.crateApiStorageLoadAllDmMessages(peerId: peerId);
+
+/// Load ALL channel messages, including soft-deleted (hidden_at set).
+/// No limit, ordered oldest-first. Used by the archive "My Data" viewer.
+Future<List<StoredChannelMessage>> loadAllChannelMessages({
+  required String serverId,
+  required String channelId,
+}) => RustLib.instance.api.crateApiStorageLoadAllChannelMessages(
+  serverId: serverId,
+  channelId: channelId,
+);
+
+/// Count all DM messages for a peer (including hidden/deleted).
+Future<int> countDmMessages({required String peerId}) =>
+    RustLib.instance.api.crateApiStorageCountDmMessages(peerId: peerId);
+
+/// Count all channel messages (including hidden/deleted).
+Future<int> countChannelMessagesFfi({
+  required String serverId,
+  required String channelId,
+}) => RustLib.instance.api.crateApiStorageCountChannelMessagesFfi(
+  serverId: serverId,
+  channelId: channelId,
+);
+
 /// Get a profile for a specific peer (or ourselves). Returns None if no profile stored.
 Future<UserProfile?> getProfile({required String peerId}) =>
     RustLib.instance.api.crateApiStorageGetProfile(peerId: peerId);

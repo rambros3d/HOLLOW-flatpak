@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/providers/archive_provider.dart';
 import 'package:hollow/src/core/providers/channel_provider.dart';
 import 'package:hollow/src/core/providers/selected_peer_provider.dart';
 import 'package:hollow/src/core/models/strip_item.dart';
@@ -51,13 +52,16 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
         dmUnreadTotal += entry.value;
       }
     }
+    final archiveOpen = ref.watch(archiveTabOpenProvider);
+
     Widget homeIcon = _ServerIconWithIndicator(
-      isSelected: selectedServerId == null,
+      isSelected: selectedServerId == null && !archiveOpen,
       unreadCount: selectedServerId != null ? dmUnreadTotal : 0,
       child: _ServerIcon(
-        isSelected: selectedServerId == null,
+        isSelected: selectedServerId == null && !archiveOpen,
         backgroundColor: hollow.accent,
         onTap: () {
+          ref.read(archiveTabOpenProvider.notifier).state = false;
           ref.read(selectedServerProvider.notifier).state = null;
           ref.read(channelListProvider.notifier).clear();
           ref.read(selectedChannelProvider.notifier).state = null;
@@ -70,6 +74,31 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
             fontSize: 22,
             fontWeight: FontWeight.w700,
           ),
+        ),
+      ),
+    );
+
+    Widget archiveIcon = _ServerIconWithIndicator(
+      isSelected: archiveOpen,
+      child: _ServerIcon(
+        isSelected: archiveOpen,
+        backgroundColor: hollow.elevated,
+        tooltip: 'Archive',
+        onTap: () {
+          ref.invalidate(archiveDmListProvider);
+          ref.invalidate(archiveChannelListProvider);
+          ref.read(archiveSelectedDmProvider.notifier).state = null;
+          ref.read(archiveSelectedChannelProvider.notifier).state = null;
+          ref.read(archiveTabOpenProvider.notifier).state = true;
+          ref.read(selectedServerProvider.notifier).state = null;
+          ref.read(channelListProvider.notifier).clear();
+          ref.read(selectedChannelProvider.notifier).state = null;
+          ref.read(serverSettingsOpenProvider.notifier).state = false;
+        },
+        child: Icon(
+          LucideIcons.archive,
+          color: archiveOpen ? hollow.accent : hollow.textSecondary,
+          size: 20,
         ),
       ),
     );
@@ -118,6 +147,8 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
         children: [
           const SizedBox(height: HollowSpacing.md),
           homeIcon,
+          const SizedBox(height: HollowSpacing.xs),
+          archiveIcon,
           const SizedBox(height: HollowSpacing.sm),
           divider,
           const SizedBox(height: HollowSpacing.sm),
@@ -402,6 +433,7 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
 
     // Batch all provider writes synchronously — single rebuild with
     // consistent server + channels + selectedChannel state.
+    ref.read(archiveTabOpenProvider.notifier).state = false;
     ref.read(selectedPeerProvider.notifier).state = null;
     ref.read(serverSettingsOpenProvider.notifier).state = false;
     ref.read(channelListProvider.notifier).setChannels(channels);

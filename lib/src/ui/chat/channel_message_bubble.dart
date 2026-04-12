@@ -170,11 +170,11 @@ class ChannelMessageBubble extends ConsumerWidget {
           )
         : null;
 
-    final reactionBarWidget = message.reactions.isNotEmpty && onToggleReaction != null
+    final reactionBarWidget = message.reactions.isNotEmpty
         ? ReactionBar(
             reactions: message.reactions,
             localPeerId: localPeerId,
-            onToggleReaction: onToggleReaction!,
+            onToggleReaction: onToggleReaction,
           )
         : null;
 

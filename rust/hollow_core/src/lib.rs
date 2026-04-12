@@ -58,6 +58,7 @@ macro_rules! hollow_log {
 }
 
 pub mod api;
+mod archive;
 mod crdt;
 mod crypto;
 mod frb_generated;

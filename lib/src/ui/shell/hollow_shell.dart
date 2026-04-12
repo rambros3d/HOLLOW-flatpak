@@ -54,6 +54,8 @@ import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:hollow/src/ui/shell/bottom_bar.dart';
 import 'package:hollow/src/ui/shell/channel_sidebar.dart';
 import 'package:hollow/src/ui/shell/friends_bar.dart';
+import 'package:hollow/src/core/providers/archive_provider.dart';
+import 'package:hollow/src/ui/shell/archive_dashboard.dart';
 import 'package:hollow/src/ui/shell/home_dashboard.dart';
 import 'package:hollow/src/ui/shell/member_panel.dart';
 import 'package:hollow/src/ui/shell/mobile_nav.dart';
@@ -337,6 +339,7 @@ class _HollowShellState extends ConsumerState<HollowShell>
       dockMode: dockMode,
       showUserBar: !dockMode,
       onPeerSelected: (peerId) {
+        ref.read(archiveTabOpenProvider.notifier).state = false;
         ref.read(selectedPeerProvider.notifier).state = peerId;
         // Mark DM as read.
         final msgs = chatHistory[peerId];
@@ -491,6 +494,12 @@ class _HollowShellState extends ConsumerState<HollowShell>
     required String? selectedChannelId,
     required Map<String, ChannelInfo> channels,
   }) {
+    // Archive tab view
+    final archiveOpen = ref.watch(archiveTabOpenProvider);
+    if (archiveOpen) {
+      return const ArchiveDashboard();
+    }
+
     // Server channel view
     if (selectedChannelId != null) {
       final channel = channels[selectedChannelId];
@@ -765,7 +774,8 @@ class _HollowShellState extends ConsumerState<HollowShell>
                           },
                           child: Container(
                             key: ValueKey(
-                                settingsOpen && selectedServer != null
+                                ref.watch(archiveTabOpenProvider) ? 'archive'
+                                    : settingsOpen && selectedServer != null
                                     ? 'settings-${selectedServer.serverId}'
                                     : selectedChannelId ?? selectedPeerId ?? 'empty'),
                             color: hollow.background,
@@ -949,7 +959,9 @@ class _HollowShellState extends ConsumerState<HollowShell>
                                     );
                                   },
                                   child: Container(
-                                    key: ValueKey(settingsOpen &&
+                                    key: ValueKey(ref.watch(archiveTabOpenProvider)
+                                        ? 'archive'
+                                        : settingsOpen &&
                                             selectedServer != null
                                         ? 'settings-${selectedServer.serverId}'
                                         : selectedChannelId ??
@@ -1046,8 +1058,9 @@ class _HollowShellState extends ConsumerState<HollowShell>
             switchInCurve: HollowCurves.enter,
             switchOutCurve: HollowCurves.exit,
             child: Container(
-              key: ValueKey(
-                  selectedChannelId ?? selectedPeerId ?? 'empty'),
+              key: ValueKey(ref.watch(archiveTabOpenProvider)
+                  ? 'archive'
+                  : selectedChannelId ?? selectedPeerId ?? 'empty'),
               color: hollow.background,
               child: _buildChatOrEmpty(
                 hollow: hollow,

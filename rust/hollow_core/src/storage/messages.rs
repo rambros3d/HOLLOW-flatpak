@@ -1038,6 +1038,17 @@ impl MessageStore {
     }
 
     /// Total message count for a channel (for health check comparison).
+    /// Count all DM messages for a peer (including hidden/deleted). Used by archive sidebar.
+    pub fn count_dm_messages(&self, peer_id: &str) -> u32 {
+        self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE peer_id = ?1",
+                params![peer_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap_or(0) as u32
+    }
+
     pub fn count_channel_messages(
         &self,
         server_id: &str,
@@ -1927,6 +1938,215 @@ impl MessageStore {
         for row in rows {
             let (mid, emoji, peer_id, added_at, sig, pk) = row.map_err(|e| format!("Failed to read reaction sync row: {e}"))?;
             result.entry(mid).or_default().push((emoji, peer_id, added_at, sig, pk));
+        }
+        Ok(result)
+    }
+
+    // ── Archive queries ─────────────────────────────────────────
+
+    /// Load ALL DM messages for a peer, including soft-deleted (hidden_at set).
+    /// No limit, ordered oldest-first. Used by the archive exporter.
+    pub fn load_all_dm_messages(
+        &self,
+        peer_id: &str,
+    ) -> Result<Vec<StoredMessage>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id, link_preview_json
+                 FROM messages
+                 WHERE peer_id = ?1
+                 ORDER BY timestamp ASC, id ASC",
+            )
+            .map_err(|e| format!("Failed to prepare load_all_dm_messages query: {e}"))?;
+
+        let rows = stmt
+            .query_map(params![peer_id], |row| {
+                Ok(StoredMessage {
+                    id: row.get(0)?,
+                    peer_id: row.get(1)?,
+                    text: row.get(2)?,
+                    is_mine: row.get::<_, i32>(3)? != 0,
+                    timestamp: row.get(4)?,
+                    signature: row.get(5)?,
+                    public_key: row.get(6)?,
+                    message_id: row.get(7)?,
+                    edited_at: row.get(8)?,
+                    hidden_at: row.get(9)?,
+                    reply_to_mid: row.get(10)?,
+                    file_id: row.get(11)?,
+                    link_preview: row.get::<_, Option<String>>(12)?
+                        .and_then(|s| serde_json::from_str(&s).ok()),
+                })
+            })
+            .map_err(|e| format!("Failed to query all DM messages: {e}"))?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            messages.push(row.map_err(|e| format!("Failed to read DM message row: {e}"))?);
+        }
+        Ok(messages)
+    }
+
+    /// Load ALL channel messages, including soft-deleted (hidden_at set).
+    /// No limit, ordered oldest-first. Used by the archive exporter.
+    pub fn load_all_channel_messages(
+        &self,
+        server_id: &str,
+        channel_id: &str,
+    ) -> Result<Vec<StoredChannelMessage>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id, link_preview_json
+                 FROM channel_messages
+                 WHERE server_id = ?1 AND channel_id = ?2
+                 ORDER BY timestamp ASC, id ASC",
+            )
+            .map_err(|e| format!("Failed to prepare load_all_channel_messages query: {e}"))?;
+
+        let rows = stmt
+            .query_map(params![server_id, channel_id], |row| {
+                Ok(StoredChannelMessage {
+                    id: row.get(0)?,
+                    server_id: row.get(1)?,
+                    channel_id: row.get(2)?,
+                    sender_id: row.get(3)?,
+                    text: row.get(4)?,
+                    is_mine: row.get::<_, i32>(5)? != 0,
+                    timestamp: row.get(6)?,
+                    signature: row.get(7)?,
+                    public_key: row.get(8)?,
+                    message_id: row.get(9)?,
+                    edited_at: row.get(10)?,
+                    hidden_at: row.get(11)?,
+                    reply_to_mid: row.get(12)?,
+                    file_id: row.get(13)?,
+                    link_preview: row.get::<_, Option<String>>(14)?
+                        .and_then(|s| serde_json::from_str(&s).ok()),
+                })
+            })
+            .map_err(|e| format!("Failed to query all channel messages: {e}"))?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            messages.push(row.map_err(|e| format!("Failed to read channel message row: {e}"))?);
+        }
+        Ok(messages)
+    }
+
+    /// Load edit history for a batch of message IDs.
+    /// Returns a map of message_id → Vec<(old_text, new_text, edited_at, signature, public_key)>.
+    pub fn load_edits_for_messages(
+        &self,
+        message_ids: &[String],
+    ) -> Result<HashMap<String, Vec<(String, String, i64, Option<String>, Option<String>)>>, String> {
+        if message_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let placeholders: Vec<String> = message_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+        let sql = format!(
+            "SELECT message_id, old_text, new_text, edited_at, signature, public_key FROM message_edits WHERE message_id IN ({}) ORDER BY edited_at ASC",
+            placeholders.join(", ")
+        );
+
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| format!("Failed to prepare edits query: {e}"))?;
+        let params_vec: Vec<&dyn rusqlite::types::ToSql> = message_ids.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+        let rows = stmt
+            .query_map(params_vec.as_slice(), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                ))
+            })
+            .map_err(|e| format!("Failed to query edits: {e}"))?;
+
+        let mut result: HashMap<String, Vec<(String, String, i64, Option<String>, Option<String>)>> = HashMap::new();
+        for row in rows {
+            let (mid, old_text, new_text, edited_at, sig, pk) = row.map_err(|e| format!("Failed to read edit row: {e}"))?;
+            result.entry(mid).or_default().push((old_text, new_text, edited_at, sig, pk));
+        }
+        Ok(result)
+    }
+
+    /// Load deletion evidence for a batch of message IDs.
+    /// Returns a map of message_id → Vec<(deleted_text, deleted_at, signature, public_key)>.
+    pub fn load_deletions_for_messages(
+        &self,
+        message_ids: &[String],
+    ) -> Result<HashMap<String, Vec<(String, i64, Option<String>, Option<String>)>>, String> {
+        if message_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let placeholders: Vec<String> = message_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+        let sql = format!(
+            "SELECT message_id, deleted_text, deleted_at, signature, public_key FROM message_deletions WHERE message_id IN ({}) ORDER BY deleted_at ASC",
+            placeholders.join(", ")
+        );
+
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| format!("Failed to prepare deletions query: {e}"))?;
+        let params_vec: Vec<&dyn rusqlite::types::ToSql> = message_ids.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+        let rows = stmt
+            .query_map(params_vec.as_slice(), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })
+            .map_err(|e| format!("Failed to query deletions: {e}"))?;
+
+        let mut result: HashMap<String, Vec<(String, i64, Option<String>, Option<String>)>> = HashMap::new();
+        for row in rows {
+            let (mid, deleted_text, deleted_at, sig, pk) = row.map_err(|e| format!("Failed to read deletion row: {e}"))?;
+            result.entry(mid).or_default().push((deleted_text, deleted_at, sig, pk));
+        }
+        Ok(result)
+    }
+
+    /// Load reaction removal evidence for a batch of message IDs.
+    /// Returns a map of message_id → Vec<(emoji, peer_id, removed_at, signature, public_key)>.
+    pub fn load_reaction_removals_for_messages(
+        &self,
+        message_ids: &[String],
+    ) -> Result<HashMap<String, Vec<(String, String, i64, Option<String>, Option<String>)>>, String> {
+        if message_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let placeholders: Vec<String> = message_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+        let sql = format!(
+            "SELECT message_id, emoji, peer_id, removed_at, signature, public_key FROM reaction_removals WHERE message_id IN ({}) ORDER BY removed_at ASC",
+            placeholders.join(", ")
+        );
+
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| format!("Failed to prepare reaction removals query: {e}"))?;
+        let params_vec: Vec<&dyn rusqlite::types::ToSql> = message_ids.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+        let rows = stmt
+            .query_map(params_vec.as_slice(), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                ))
+            })
+            .map_err(|e| format!("Failed to query reaction removals: {e}"))?;
+
+        let mut result: HashMap<String, Vec<(String, String, i64, Option<String>, Option<String>)>> = HashMap::new();
+        for row in rows {
+            let (mid, emoji, peer_id, removed_at, sig, pk) = row.map_err(|e| format!("Failed to read reaction removal row: {e}"))?;
+            result.entry(mid).or_default().push((emoji, peer_id, removed_at, sig, pk));
         }
         Ok(result)
     }

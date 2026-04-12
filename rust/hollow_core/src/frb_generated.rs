@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -510019529;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -184327896;
 
 // Section: executor
 
@@ -370,6 +370,76 @@ fn wire__crate__api__storage__count_all_unread_dm_impl(
             move |context| {
                 transform_result_sse::<_, String>((move || {
                     let output_ok = crate::api::storage::count_all_unread_dm(api_peer_id)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__storage__count_channel_messages_ffi_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "count_channel_messages_ffi",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_server_id = <String>::sse_decode(&mut deserializer);
+            let api_channel_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::storage::count_channel_messages_ffi(
+                        api_server_id,
+                        api_channel_id,
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__storage__count_dm_messages_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "count_dm_messages",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_peer_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::storage::count_dm_messages(api_peer_id)?;
                     Ok(output_ok)
                 })())
             }
@@ -782,6 +852,88 @@ fn wire__crate__api__storage__export_backup_impl(
                         api_include_vault,
                         api_include_files,
                         api_passphrase,
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__archive__export_channel_archive_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "export_channel_archive",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_server_id = <String>::sse_decode(&mut deserializer);
+            let api_channel_id = <String>::sse_decode(&mut deserializer);
+            let api_channel_name = <Option<String>>::sse_decode(&mut deserializer);
+            let api_output_path = <String>::sse_decode(&mut deserializer);
+            let api_file_mode = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::archive::export_channel_archive(
+                        api_server_id,
+                        api_channel_id,
+                        api_channel_name,
+                        api_output_path,
+                        api_file_mode,
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__archive__export_dm_archive_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "export_dm_archive",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_peer_id = <String>::sse_decode(&mut deserializer);
+            let api_output_path = <String>::sse_decode(&mut deserializer);
+            let api_file_mode = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::archive::export_dm_archive(
+                        api_peer_id,
+                        api_output_path,
+                        api_file_mode,
                     )?;
                     Ok(output_ok)
                 })())
@@ -1931,6 +2083,109 @@ fn wire__crate__api__crdt__kick_member_impl(
             move |context| {
                 transform_result_sse::<_, String>((move || {
                     let output_ok = crate::api::crdt::kick_member(api_server_id, api_peer_id)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__storage__load_all_channel_messages_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "load_all_channel_messages",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_server_id = <String>::sse_decode(&mut deserializer);
+            let api_channel_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::storage::load_all_channel_messages(
+                        api_server_id,
+                        api_channel_id,
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__storage__load_all_dm_messages_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "load_all_dm_messages",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_peer_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::storage::load_all_dm_messages(api_peer_id)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__archive__load_archive_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "load_archive",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_archive_path = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::archive::load_archive(api_archive_path)?;
                     Ok(output_ok)
                 })())
             }
@@ -3684,6 +3939,39 @@ fn wire__crate__api__crdt__vault_upload_file_impl(
         },
     )
 }
+fn wire__crate__api__archive__verify_archive_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "verify_archive",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_archive_path = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::archive::verify_archive(api_archive_path)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__network__verify_message_proof_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -4212,6 +4500,236 @@ impl SseDecode for String {
     }
 }
 
+impl SseDecode for crate::api::archive::ArchiveData {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_archiveType = <String>::sse_decode(deserializer);
+        let mut var_exporterPeerId = <String>::sse_decode(deserializer);
+        let mut var_exportTimestamp = <i64>::sse_decode(deserializer);
+        let mut var_fileMode = <String>::sse_decode(deserializer);
+        let mut var_peerId = <Option<String>>::sse_decode(deserializer);
+        let mut var_serverId = <Option<String>>::sse_decode(deserializer);
+        let mut var_channelId = <Option<String>>::sse_decode(deserializer);
+        let mut var_channelName = <Option<String>>::sse_decode(deserializer);
+        let mut var_participants = <Vec<String>>::sse_decode(deserializer);
+        let mut var_messages =
+            <Vec<crate::api::archive::ArchiveMessageFfi>>::sse_decode(deserializer);
+        let mut var_edits = <Vec<crate::api::archive::ArchiveEditFfi>>::sse_decode(deserializer);
+        let mut var_deletions =
+            <Vec<crate::api::archive::ArchiveDeletionFfi>>::sse_decode(deserializer);
+        let mut var_reactionRemovals =
+            <Vec<crate::api::archive::ArchiveReactionRemovalFfi>>::sse_decode(deserializer);
+        let mut var_pubkeys =
+            <Vec<crate::api::archive::ArchivePubKeyFfi>>::sse_decode(deserializer);
+        let mut var_files = <Vec<crate::api::archive::ArchiveFileFfi>>::sse_decode(deserializer);
+        let mut var_verification =
+            <crate::api::archive::ArchiveVerifyResult>::sse_decode(deserializer);
+        let mut var_filesDir = <Option<String>>::sse_decode(deserializer);
+        return crate::api::archive::ArchiveData {
+            archive_type: var_archiveType,
+            exporter_peer_id: var_exporterPeerId,
+            export_timestamp: var_exportTimestamp,
+            file_mode: var_fileMode,
+            peer_id: var_peerId,
+            server_id: var_serverId,
+            channel_id: var_channelId,
+            channel_name: var_channelName,
+            participants: var_participants,
+            messages: var_messages,
+            edits: var_edits,
+            deletions: var_deletions,
+            reaction_removals: var_reactionRemovals,
+            pubkeys: var_pubkeys,
+            files: var_files,
+            verification: var_verification,
+            files_dir: var_filesDir,
+        };
+    }
+}
+
+impl SseDecode for crate::api::archive::ArchiveDeletionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_messageId = <String>::sse_decode(deserializer);
+        let mut var_deletedText = <String>::sse_decode(deserializer);
+        let mut var_deletedAt = <i64>::sse_decode(deserializer);
+        let mut var_signature = <Option<String>>::sse_decode(deserializer);
+        let mut var_publicKey = <Option<String>>::sse_decode(deserializer);
+        return crate::api::archive::ArchiveDeletionFfi {
+            message_id: var_messageId,
+            deleted_text: var_deletedText,
+            deleted_at: var_deletedAt,
+            signature: var_signature,
+            public_key: var_publicKey,
+        };
+    }
+}
+
+impl SseDecode for crate::api::archive::ArchiveEditFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_messageId = <String>::sse_decode(deserializer);
+        let mut var_oldText = <String>::sse_decode(deserializer);
+        let mut var_newText = <String>::sse_decode(deserializer);
+        let mut var_editedAt = <i64>::sse_decode(deserializer);
+        let mut var_signature = <Option<String>>::sse_decode(deserializer);
+        let mut var_publicKey = <Option<String>>::sse_decode(deserializer);
+        return crate::api::archive::ArchiveEditFfi {
+            message_id: var_messageId,
+            old_text: var_oldText,
+            new_text: var_newText,
+            edited_at: var_editedAt,
+            signature: var_signature,
+            public_key: var_publicKey,
+        };
+    }
+}
+
+impl SseDecode for crate::api::archive::ArchiveFileFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_fileId = <String>::sse_decode(deserializer);
+        let mut var_fileName = <String>::sse_decode(deserializer);
+        let mut var_fileExt = <String>::sse_decode(deserializer);
+        let mut var_mimeType = <String>::sse_decode(deserializer);
+        let mut var_sizeBytes = <u64>::sse_decode(deserializer);
+        let mut var_isImage = <bool>::sse_decode(deserializer);
+        let mut var_width = <Option<u32>>::sse_decode(deserializer);
+        let mut var_height = <Option<u32>>::sse_decode(deserializer);
+        let mut var_sha256 = <Option<String>>::sse_decode(deserializer);
+        let mut var_included = <bool>::sse_decode(deserializer);
+        return crate::api::archive::ArchiveFileFfi {
+            file_id: var_fileId,
+            file_name: var_fileName,
+            file_ext: var_fileExt,
+            mime_type: var_mimeType,
+            size_bytes: var_sizeBytes,
+            is_image: var_isImage,
+            width: var_width,
+            height: var_height,
+            sha256: var_sha256,
+            included: var_included,
+        };
+    }
+}
+
+impl SseDecode for crate::api::archive::ArchiveMessageFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_messageId = <String>::sse_decode(deserializer);
+        let mut var_senderId = <String>::sse_decode(deserializer);
+        let mut var_text = <String>::sse_decode(deserializer);
+        let mut var_timestamp = <i64>::sse_decode(deserializer);
+        let mut var_signature = <Option<String>>::sse_decode(deserializer);
+        let mut var_publicKey = <Option<String>>::sse_decode(deserializer);
+        let mut var_editedAt = <Option<i64>>::sse_decode(deserializer);
+        let mut var_hiddenAt = <Option<i64>>::sse_decode(deserializer);
+        let mut var_replyToMid = <Option<String>>::sse_decode(deserializer);
+        let mut var_fileId = <Option<String>>::sse_decode(deserializer);
+        let mut var_reactions =
+            <Vec<crate::api::archive::ArchiveReactionFfi>>::sse_decode(deserializer);
+        let mut var_signatureValid = <Option<bool>>::sse_decode(deserializer);
+        return crate::api::archive::ArchiveMessageFfi {
+            message_id: var_messageId,
+            sender_id: var_senderId,
+            text: var_text,
+            timestamp: var_timestamp,
+            signature: var_signature,
+            public_key: var_publicKey,
+            edited_at: var_editedAt,
+            hidden_at: var_hiddenAt,
+            reply_to_mid: var_replyToMid,
+            file_id: var_fileId,
+            reactions: var_reactions,
+            signature_valid: var_signatureValid,
+        };
+    }
+}
+
+impl SseDecode for crate::api::archive::ArchivePubKeyFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_peerId = <String>::sse_decode(deserializer);
+        let mut var_publicKeyB64 = <String>::sse_decode(deserializer);
+        return crate::api::archive::ArchivePubKeyFfi {
+            peer_id: var_peerId,
+            public_key_b64: var_publicKeyB64,
+        };
+    }
+}
+
+impl SseDecode for crate::api::archive::ArchiveReactionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_emoji = <String>::sse_decode(deserializer);
+        let mut var_peerId = <String>::sse_decode(deserializer);
+        let mut var_addedAt = <i64>::sse_decode(deserializer);
+        let mut var_signature = <Option<String>>::sse_decode(deserializer);
+        let mut var_publicKey = <Option<String>>::sse_decode(deserializer);
+        return crate::api::archive::ArchiveReactionFfi {
+            emoji: var_emoji,
+            peer_id: var_peerId,
+            added_at: var_addedAt,
+            signature: var_signature,
+            public_key: var_publicKey,
+        };
+    }
+}
+
+impl SseDecode for crate::api::archive::ArchiveReactionRemovalFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_messageId = <String>::sse_decode(deserializer);
+        let mut var_emoji = <String>::sse_decode(deserializer);
+        let mut var_peerId = <String>::sse_decode(deserializer);
+        let mut var_removedAt = <i64>::sse_decode(deserializer);
+        let mut var_signature = <Option<String>>::sse_decode(deserializer);
+        let mut var_publicKey = <Option<String>>::sse_decode(deserializer);
+        return crate::api::archive::ArchiveReactionRemovalFfi {
+            message_id: var_messageId,
+            emoji: var_emoji,
+            peer_id: var_peerId,
+            removed_at: var_removedAt,
+            signature: var_signature,
+            public_key: var_publicKey,
+        };
+    }
+}
+
+impl SseDecode for crate::api::archive::ArchiveVerifyResult {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_archiveType = <String>::sse_decode(deserializer);
+        let mut var_exporterPeerId = <String>::sse_decode(deserializer);
+        let mut var_exportTimestamp = <i64>::sse_decode(deserializer);
+        let mut var_messageCount = <u32>::sse_decode(deserializer);
+        let mut var_archiveSignatureValid = <bool>::sse_decode(deserializer);
+        let mut var_messagesWithValidSig = <u32>::sse_decode(deserializer);
+        let mut var_messagesWithInvalidSig = <u32>::sse_decode(deserializer);
+        let mut var_messagesWithoutSig = <u32>::sse_decode(deserializer);
+        let mut var_participantIds = <Vec<String>>::sse_decode(deserializer);
+        let mut var_peerId = <Option<String>>::sse_decode(deserializer);
+        let mut var_serverId = <Option<String>>::sse_decode(deserializer);
+        let mut var_channelId = <Option<String>>::sse_decode(deserializer);
+        let mut var_channelName = <Option<String>>::sse_decode(deserializer);
+        return crate::api::archive::ArchiveVerifyResult {
+            archive_type: var_archiveType,
+            exporter_peer_id: var_exporterPeerId,
+            export_timestamp: var_exportTimestamp,
+            message_count: var_messageCount,
+            archive_signature_valid: var_archiveSignatureValid,
+            messages_with_valid_sig: var_messagesWithValidSig,
+            messages_with_invalid_sig: var_messagesWithInvalidSig,
+            messages_without_sig: var_messagesWithoutSig,
+            participant_ids: var_participantIds,
+            peer_id: var_peerId,
+            server_id: var_serverId,
+            channel_id: var_channelId,
+            channel_name: var_channelName,
+        };
+    }
+}
+
 impl SseDecode for bool {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -4329,6 +4847,102 @@ impl SseDecode for Vec<String> {
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
             ans_.push(<String>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::archive::ArchiveDeletionFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::archive::ArchiveDeletionFfi>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::archive::ArchiveEditFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::archive::ArchiveEditFfi>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::archive::ArchiveFileFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::archive::ArchiveFileFfi>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::archive::ArchiveMessageFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::archive::ArchiveMessageFfi>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::archive::ArchivePubKeyFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::archive::ArchivePubKeyFfi>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::archive::ArchiveReactionFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::archive::ArchiveReactionFfi>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::archive::ArchiveReactionRemovalFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::archive::ArchiveReactionRemovalFfi>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -5335,6 +5949,17 @@ impl SseDecode for Option<String> {
     }
 }
 
+impl SseDecode for Option<bool> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<bool>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<i64> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -5722,225 +6347,252 @@ fn pde_ffi_dispatcher_primary_impl(
             data_len,
         ),
         9 => wire__crate__api__storage__count_all_unread_dm_impl(port, ptr, rust_vec_len, data_len),
-        10 => {
+        10 => wire__crate__api__storage__count_channel_messages_ffi_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        11 => wire__crate__api__storage__count_dm_messages_impl(port, ptr, rust_vec_len, data_len),
+        12 => {
             wire__crate__api__storage__count_unread_channel_impl(port, ptr, rust_vec_len, data_len)
         }
-        11 => wire__crate__api__storage__count_unread_dm_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__crdt__create_channel_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__crdt__create_server_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__network__delete_channel_message_impl(
+        13 => wire__crate__api__storage__count_unread_dm_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__crdt__create_channel_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__crdt__create_server_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__network__delete_channel_message_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        15 => wire__crate__api__network__delete_dm_message_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__crdt__delete_server_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__api__crdt__delete_vault_content_impl(port, ptr, rust_vec_len, data_len),
-        18 => {
+        17 => wire__crate__api__network__delete_dm_message_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__crdt__delete_server_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__crdt__delete_vault_content_impl(port, ptr, rust_vec_len, data_len),
+        20 => {
             wire__crate__api__network__edit_channel_message_impl(port, ptr, rust_vec_len, data_len)
         }
-        19 => wire__crate__api__network__edit_dm_message_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__api__storage__export_backup_impl(port, ptr, rust_vec_len, data_len),
-        21 => wire__crate__api__network__fetch_link_preview_impl(port, ptr, rust_vec_len, data_len),
-        22 => wire__crate__api__identity__generate_new_identity_impl(
+        21 => wire__crate__api__network__edit_dm_message_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__storage__export_backup_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__archive__export_channel_archive_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        23 => wire__crate__api__storage__get_all_profiles_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__api__crdt__get_channel_layout_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__storage__get_content_id_for_file_impl(
+        24 => wire__crate__api__archive__export_dm_archive_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__network__fetch_link_preview_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__identity__generate_new_identity_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        26 => wire__crate__api__storage__get_dm_peer_ids_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__storage__get_file_metadata_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__api__network__get_files_dir_impl(port, ptr, rust_vec_len, data_len),
-        29 => {
+        27 => wire__crate__api__storage__get_all_profiles_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__crdt__get_channel_layout_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__storage__get_content_id_for_file_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        30 => wire__crate__api__storage__get_dm_peer_ids_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__storage__get_file_metadata_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__api__network__get_files_dir_impl(port, ptr, rust_vec_len, data_len),
+        33 => {
             wire__crate__api__storage__get_files_for_message_impl(port, ptr, rust_vec_len, data_len)
         }
-        30 => {
+        34 => {
             wire__crate__api__storage__get_incomplete_files_impl(port, ptr, rust_vec_len, data_len)
         }
-        31 => wire__crate__api__crdt__get_joined_servers_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__network__get_local_peer_id_impl(port, ptr, rust_vec_len, data_len),
-        33 => {
+        35 => wire__crate__api__crdt__get_joined_servers_impl(port, ptr, rust_vec_len, data_len),
+        36 => wire__crate__api__network__get_local_peer_id_impl(port, ptr, rust_vec_len, data_len),
+        37 => {
             wire__crate__api__network__get_local_public_key_impl(port, ptr, rust_vec_len, data_len)
         }
-        34 => {
+        38 => {
             wire__crate__api__storage__get_missing_file_ids_impl(port, ptr, rust_vec_len, data_len)
         }
-        35 => wire__crate__api__storage__get_missing_image_file_ids_for_server_impl(
+        39 => wire__crate__api__storage__get_missing_image_file_ids_for_server_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        36 => wire__crate__api__storage__get_mnemonic_impl(port, ptr, rust_vec_len, data_len),
-        37 => wire__crate__api__crdt__get_my_permissions_impl(port, ptr, rust_vec_len, data_len),
-        38 => wire__crate__api__crdt__get_my_role_impl(port, ptr, rust_vec_len, data_len),
-        39 => {
+        40 => wire__crate__api__storage__get_mnemonic_impl(port, ptr, rust_vec_len, data_len),
+        41 => wire__crate__api__crdt__get_my_permissions_impl(port, ptr, rust_vec_len, data_len),
+        42 => wire__crate__api__crdt__get_my_role_impl(port, ptr, rust_vec_len, data_len),
+        43 => {
             wire__crate__api__network__get_olm_fingerprint_impl(port, ptr, rust_vec_len, data_len)
         }
-        40 => wire__crate__api__crdt__get_pinned_messages_impl(port, ptr, rust_vec_len, data_len),
-        41 => wire__crate__api__storage__get_profile_impl(port, ptr, rust_vec_len, data_len),
-        42 => wire__crate__api__crdt__get_server_avatar_impl(port, ptr, rust_vec_len, data_len),
-        43 => wire__crate__api__crdt__get_server_channels_impl(port, ptr, rust_vec_len, data_len),
-        44 => wire__crate__api__crdt__get_server_members_impl(port, ptr, rust_vec_len, data_len),
-        45 => wire__crate__api__crdt__get_server_setting_impl(port, ptr, rust_vec_len, data_len),
-        46 => wire__crate__api__crdt__get_storage_stats_impl(port, ptr, rust_vec_len, data_len),
-        47 => wire__crate__api__storage__get_verified_peers_impl(port, ptr, rust_vec_len, data_len),
-        49 => wire__crate__api__storage__has_identity_impl(port, ptr, rust_vec_len, data_len),
-        50 => wire__crate__api__storage__import_backup_impl(port, ptr, rust_vec_len, data_len),
-        51 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
-        52 => wire__crate__api__storage__is_peer_verified_impl(port, ptr, rust_vec_len, data_len),
-        53 => wire__crate__api__network__join_room_impl(port, ptr, rust_vec_len, data_len),
-        54 => wire__crate__api__crdt__join_server_impl(port, ptr, rust_vec_len, data_len),
-        55 => wire__crate__api__crdt__kick_member_impl(port, ptr, rust_vec_len, data_len),
-        56 => {
+        44 => wire__crate__api__crdt__get_pinned_messages_impl(port, ptr, rust_vec_len, data_len),
+        45 => wire__crate__api__storage__get_profile_impl(port, ptr, rust_vec_len, data_len),
+        46 => wire__crate__api__crdt__get_server_avatar_impl(port, ptr, rust_vec_len, data_len),
+        47 => wire__crate__api__crdt__get_server_channels_impl(port, ptr, rust_vec_len, data_len),
+        48 => wire__crate__api__crdt__get_server_members_impl(port, ptr, rust_vec_len, data_len),
+        49 => wire__crate__api__crdt__get_server_setting_impl(port, ptr, rust_vec_len, data_len),
+        50 => wire__crate__api__crdt__get_storage_stats_impl(port, ptr, rust_vec_len, data_len),
+        51 => wire__crate__api__storage__get_verified_peers_impl(port, ptr, rust_vec_len, data_len),
+        53 => wire__crate__api__storage__has_identity_impl(port, ptr, rust_vec_len, data_len),
+        54 => wire__crate__api__storage__import_backup_impl(port, ptr, rust_vec_len, data_len),
+        55 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
+        56 => wire__crate__api__storage__is_peer_verified_impl(port, ptr, rust_vec_len, data_len),
+        57 => wire__crate__api__network__join_room_impl(port, ptr, rust_vec_len, data_len),
+        58 => wire__crate__api__crdt__join_server_impl(port, ptr, rust_vec_len, data_len),
+        59 => wire__crate__api__crdt__kick_member_impl(port, ptr, rust_vec_len, data_len),
+        60 => wire__crate__api__storage__load_all_channel_messages_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        61 => {
+            wire__crate__api__storage__load_all_dm_messages_impl(port, ptr, rust_vec_len, data_len)
+        }
+        62 => wire__crate__api__archive__load_archive_impl(port, ptr, rust_vec_len, data_len),
+        63 => {
             wire__crate__api__storage__load_channel_messages_impl(port, ptr, rust_vec_len, data_len)
         }
-        57 => wire__crate__api__storage__load_friends_impl(port, ptr, rust_vec_len, data_len),
-        58 => wire__crate__api__storage__load_messages_impl(port, ptr, rust_vec_len, data_len),
-        59 => wire__crate__api__identity__load_or_create_identity_impl(
+        64 => wire__crate__api__storage__load_friends_impl(port, ptr, rust_vec_len, data_len),
+        65 => wire__crate__api__storage__load_messages_impl(port, ptr, rust_vec_len, data_len),
+        66 => wire__crate__api__identity__load_or_create_identity_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        60 => wire__crate__api__storage__load_reactions_impl(port, ptr, rust_vec_len, data_len),
-        61 => wire__crate__api__storage__load_setting_impl(port, ptr, rust_vec_len, data_len),
-        62 => wire__crate__api__network__log_from_dart_impl(port, ptr, rust_vec_len, data_len),
-        63 => wire__crate__api__network__notify_shutdown_impl(port, ptr, rust_vec_len, data_len),
-        64 => wire__crate__api__storage__open_message_store_impl(port, ptr, rust_vec_len, data_len),
-        65 => wire__crate__api__crdt__pin_message_impl(port, ptr, rust_vec_len, data_len),
-        66 => wire__crate__api__network__poll_network_event_impl(port, ptr, rust_vec_len, data_len),
-        67 => wire__crate__api__network__process_avatar_impl(port, ptr, rust_vec_len, data_len),
-        68 => wire__crate__api__network__process_banner_impl(port, ptr, rust_vec_len, data_len),
-        69 => {
+        67 => wire__crate__api__storage__load_reactions_impl(port, ptr, rust_vec_len, data_len),
+        68 => wire__crate__api__storage__load_setting_impl(port, ptr, rust_vec_len, data_len),
+        69 => wire__crate__api__network__log_from_dart_impl(port, ptr, rust_vec_len, data_len),
+        70 => wire__crate__api__network__notify_shutdown_impl(port, ptr, rust_vec_len, data_len),
+        71 => wire__crate__api__storage__open_message_store_impl(port, ptr, rust_vec_len, data_len),
+        72 => wire__crate__api__crdt__pin_message_impl(port, ptr, rust_vec_len, data_len),
+        73 => wire__crate__api__network__poll_network_event_impl(port, ptr, rust_vec_len, data_len),
+        74 => wire__crate__api__network__process_avatar_impl(port, ptr, rust_vec_len, data_len),
+        75 => wire__crate__api__network__process_banner_impl(port, ptr, rust_vec_len, data_len),
+        76 => {
             wire__crate__api__network__reject_friend_request_impl(port, ptr, rust_vec_len, data_len)
         }
-        70 => wire__crate__api__crdt__remove_channel_impl(port, ptr, rust_vec_len, data_len),
-        71 => wire__crate__api__network__remove_channel_reaction_impl(
+        77 => wire__crate__api__crdt__remove_channel_impl(port, ptr, rust_vec_len, data_len),
+        78 => wire__crate__api__network__remove_channel_reaction_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        72 => wire__crate__api__network__remove_dm_reaction_impl(port, ptr, rust_vec_len, data_len),
-        73 => wire__crate__api__network__remove_friend_impl(port, ptr, rust_vec_len, data_len),
-        74 => {
+        79 => wire__crate__api__network__remove_dm_reaction_impl(port, ptr, rust_vec_len, data_len),
+        80 => wire__crate__api__network__remove_friend_impl(port, ptr, rust_vec_len, data_len),
+        81 => {
             wire__crate__api__storage__remove_peer_verified_impl(port, ptr, rust_vec_len, data_len)
         }
-        75 => wire__crate__api__crdt__rename_channel_impl(port, ptr, rust_vec_len, data_len),
-        76 => wire__crate__api__crdt__rename_server_impl(port, ptr, rust_vec_len, data_len),
-        77 => {
+        82 => wire__crate__api__crdt__rename_channel_impl(port, ptr, rust_vec_len, data_len),
+        83 => wire__crate__api__crdt__rename_server_impl(port, ptr, rust_vec_len, data_len),
+        84 => {
             wire__crate__api__network__request_channel_sync_impl(port, ptr, rust_vec_len, data_len)
         }
-        78 => wire__crate__api__network__request_file_from_peer_impl(
+        85 => wire__crate__api__network__request_file_from_peer_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        79 => wire__crate__api__storage__reset_stale_files_impl(port, ptr, rust_vec_len, data_len),
-        80 => wire__crate__api__identity__restore_identity_from_mnemonic_impl(
+        86 => wire__crate__api__storage__reset_stale_files_impl(port, ptr, rust_vec_len, data_len),
+        87 => wire__crate__api__identity__restore_identity_from_mnemonic_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        81 => {
+        88 => {
             wire__crate__api__storage__save_channel_message_impl(port, ptr, rust_vec_len, data_len)
         }
-        82 => wire__crate__api__storage__save_message_impl(port, ptr, rust_vec_len, data_len),
-        83 => wire__crate__api__storage__save_mnemonic_impl(port, ptr, rust_vec_len, data_len),
-        84 => wire__crate__api__storage__save_setting_impl(port, ptr, rust_vec_len, data_len),
-        85 => wire__crate__api__storage__search_channel_messages_impl(
+        89 => wire__crate__api__storage__save_message_impl(port, ptr, rust_vec_len, data_len),
+        90 => wire__crate__api__storage__save_mnemonic_impl(port, ptr, rust_vec_len, data_len),
+        91 => wire__crate__api__storage__save_setting_impl(port, ptr, rust_vec_len, data_len),
+        92 => wire__crate__api__storage__search_channel_messages_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        86 => wire__crate__api__storage__search_dm_messages_impl(port, ptr, rust_vec_len, data_len),
-        87 => {
+        93 => wire__crate__api__storage__search_dm_messages_impl(port, ptr, rust_vec_len, data_len),
+        94 => {
             wire__crate__api__network__send_channel_message_impl(port, ptr, rust_vec_len, data_len)
         }
-        88 => wire__crate__api__network__send_file_impl(port, ptr, rust_vec_len, data_len),
-        89 => {
+        95 => wire__crate__api__network__send_file_impl(port, ptr, rust_vec_len, data_len),
+        96 => {
             wire__crate__api__network__send_friend_request_impl(port, ptr, rust_vec_len, data_len)
         }
-        90 => wire__crate__api__network__send_message_impl(port, ptr, rust_vec_len, data_len),
-        91 => {
+        97 => wire__crate__api__network__send_message_impl(port, ptr, rust_vec_len, data_len),
+        98 => {
             wire__crate__api__network__send_typing_indicator_impl(port, ptr, rust_vec_len, data_len)
         }
-        92 => wire__crate__api__crdt__set_nickname_impl(port, ptr, rust_vec_len, data_len),
-        93 => wire__crate__api__storage__set_peer_verified_impl(port, ptr, rust_vec_len, data_len),
-        94 => wire__crate__api__crdt__set_server_avatar_impl(port, ptr, rust_vec_len, data_len),
-        95 => wire__crate__api__crdt__set_storage_pledge_impl(port, ptr, rust_vec_len, data_len),
-        96 => wire__crate__api__network__start_node_impl(port, ptr, rust_vec_len, data_len),
-        97 => wire__crate__api__network__stop_node_impl(port, ptr, rust_vec_len, data_len),
-        98 => wire__crate__api__crdt__unpin_message_impl(port, ptr, rust_vec_len, data_len),
-        99 => wire__crate__api__crdt__update_channel_layout_impl(port, ptr, rust_vec_len, data_len),
-        100 => wire__crate__api__network__update_profile_impl(port, ptr, rust_vec_len, data_len),
-        101 => {
+        99 => wire__crate__api__crdt__set_nickname_impl(port, ptr, rust_vec_len, data_len),
+        100 => wire__crate__api__storage__set_peer_verified_impl(port, ptr, rust_vec_len, data_len),
+        101 => wire__crate__api__crdt__set_server_avatar_impl(port, ptr, rust_vec_len, data_len),
+        102 => wire__crate__api__crdt__set_storage_pledge_impl(port, ptr, rust_vec_len, data_len),
+        103 => wire__crate__api__network__start_node_impl(port, ptr, rust_vec_len, data_len),
+        104 => wire__crate__api__network__stop_node_impl(port, ptr, rust_vec_len, data_len),
+        105 => wire__crate__api__crdt__unpin_message_impl(port, ptr, rust_vec_len, data_len),
+        106 => {
+            wire__crate__api__crdt__update_channel_layout_impl(port, ptr, rust_vec_len, data_len)
+        }
+        107 => wire__crate__api__network__update_profile_impl(port, ptr, rust_vec_len, data_len),
+        108 => {
             wire__crate__api__crdt__update_server_setting_impl(port, ptr, rust_vec_len, data_len)
         }
-        102 => wire__crate__api__crdt__vault_download_file_impl(port, ptr, rust_vec_len, data_len),
-        103 => wire__crate__api__crdt__vault_upload_file_impl(port, ptr, rust_vec_len, data_len),
-        104 => {
+        109 => wire__crate__api__crdt__vault_download_file_impl(port, ptr, rust_vec_len, data_len),
+        110 => wire__crate__api__crdt__vault_upload_file_impl(port, ptr, rust_vec_len, data_len),
+        111 => wire__crate__api__archive__verify_archive_impl(port, ptr, rust_vec_len, data_len),
+        112 => {
             wire__crate__api__network__verify_message_proof_impl(port, ptr, rust_vec_len, data_len)
         }
-        105 => {
+        113 => {
             wire__crate__api__network__voice_channel_join_impl(port, ptr, rust_vec_len, data_len)
         }
-        106 => {
+        114 => {
             wire__crate__api__network__voice_channel_leave_impl(port, ptr, rust_vec_len, data_len)
         }
-        107 => wire__crate__api__network__voice_channel_send_signal_impl(
+        115 => wire__crate__api__network__voice_channel_send_signal_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        108 => {
+        116 => {
             wire__crate__api__network__watch_network_events_impl(port, ptr, rust_vec_len, data_len)
         }
-        109 => wire__crate__api__network__webrtc_broadcast_received_impl(
+        117 => wire__crate__api__network__webrtc_broadcast_received_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        110 => {
+        118 => {
             wire__crate__api__network__webrtc_peer_connected_impl(port, ptr, rust_vec_len, data_len)
         }
-        111 => wire__crate__api__network__webrtc_peer_disconnected_impl(
+        119 => wire__crate__api__network__webrtc_peer_disconnected_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        112 => {
+        120 => {
             wire__crate__api__network__webrtc_ping_report_impl(port, ptr, rust_vec_len, data_len)
         }
-        113 => {
+        121 => {
             wire__crate__api__network__webrtc_send_complete_impl(port, ptr, rust_vec_len, data_len)
         }
-        114 => {
+        122 => {
             wire__crate__api__network__webrtc_send_signal_impl(port, ptr, rust_vec_len, data_len)
         }
-        115 => wire__crate__api__network__webrtc_transfer_complete_impl(
+        123 => wire__crate__api__network__webrtc_transfer_complete_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        116 => wire__crate__api__network__webrtc_transfer_failed_impl(
+        124 => wire__crate__api__network__webrtc_transfer_failed_impl(
             port,
             ptr,
             rust_vec_len,
@@ -5958,13 +6610,260 @@ fn pde_ffi_dispatcher_sync_impl(
 ) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
-        48 => wire__crate__api__simple__greet_impl(ptr, rust_vec_len, data_len),
+        52 => wire__crate__api__simple__greet_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
 
 // Section: rust2dart
 
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::archive::ArchiveData {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.archive_type.into_into_dart().into_dart(),
+            self.exporter_peer_id.into_into_dart().into_dart(),
+            self.export_timestamp.into_into_dart().into_dart(),
+            self.file_mode.into_into_dart().into_dart(),
+            self.peer_id.into_into_dart().into_dart(),
+            self.server_id.into_into_dart().into_dart(),
+            self.channel_id.into_into_dart().into_dart(),
+            self.channel_name.into_into_dart().into_dart(),
+            self.participants.into_into_dart().into_dart(),
+            self.messages.into_into_dart().into_dart(),
+            self.edits.into_into_dart().into_dart(),
+            self.deletions.into_into_dart().into_dart(),
+            self.reaction_removals.into_into_dart().into_dart(),
+            self.pubkeys.into_into_dart().into_dart(),
+            self.files.into_into_dart().into_dart(),
+            self.verification.into_into_dart().into_dart(),
+            self.files_dir.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::archive::ArchiveData
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::archive::ArchiveData>
+    for crate::api::archive::ArchiveData
+{
+    fn into_into_dart(self) -> crate::api::archive::ArchiveData {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::archive::ArchiveDeletionFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.message_id.into_into_dart().into_dart(),
+            self.deleted_text.into_into_dart().into_dart(),
+            self.deleted_at.into_into_dart().into_dart(),
+            self.signature.into_into_dart().into_dart(),
+            self.public_key.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::archive::ArchiveDeletionFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::archive::ArchiveDeletionFfi>
+    for crate::api::archive::ArchiveDeletionFfi
+{
+    fn into_into_dart(self) -> crate::api::archive::ArchiveDeletionFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::archive::ArchiveEditFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.message_id.into_into_dart().into_dart(),
+            self.old_text.into_into_dart().into_dart(),
+            self.new_text.into_into_dart().into_dart(),
+            self.edited_at.into_into_dart().into_dart(),
+            self.signature.into_into_dart().into_dart(),
+            self.public_key.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::archive::ArchiveEditFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::archive::ArchiveEditFfi>
+    for crate::api::archive::ArchiveEditFfi
+{
+    fn into_into_dart(self) -> crate::api::archive::ArchiveEditFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::archive::ArchiveFileFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.file_id.into_into_dart().into_dart(),
+            self.file_name.into_into_dart().into_dart(),
+            self.file_ext.into_into_dart().into_dart(),
+            self.mime_type.into_into_dart().into_dart(),
+            self.size_bytes.into_into_dart().into_dart(),
+            self.is_image.into_into_dart().into_dart(),
+            self.width.into_into_dart().into_dart(),
+            self.height.into_into_dart().into_dart(),
+            self.sha256.into_into_dart().into_dart(),
+            self.included.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::archive::ArchiveFileFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::archive::ArchiveFileFfi>
+    for crate::api::archive::ArchiveFileFfi
+{
+    fn into_into_dart(self) -> crate::api::archive::ArchiveFileFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::archive::ArchiveMessageFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.message_id.into_into_dart().into_dart(),
+            self.sender_id.into_into_dart().into_dart(),
+            self.text.into_into_dart().into_dart(),
+            self.timestamp.into_into_dart().into_dart(),
+            self.signature.into_into_dart().into_dart(),
+            self.public_key.into_into_dart().into_dart(),
+            self.edited_at.into_into_dart().into_dart(),
+            self.hidden_at.into_into_dart().into_dart(),
+            self.reply_to_mid.into_into_dart().into_dart(),
+            self.file_id.into_into_dart().into_dart(),
+            self.reactions.into_into_dart().into_dart(),
+            self.signature_valid.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::archive::ArchiveMessageFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::archive::ArchiveMessageFfi>
+    for crate::api::archive::ArchiveMessageFfi
+{
+    fn into_into_dart(self) -> crate::api::archive::ArchiveMessageFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::archive::ArchivePubKeyFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.peer_id.into_into_dart().into_dart(),
+            self.public_key_b64.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::archive::ArchivePubKeyFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::archive::ArchivePubKeyFfi>
+    for crate::api::archive::ArchivePubKeyFfi
+{
+    fn into_into_dart(self) -> crate::api::archive::ArchivePubKeyFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::archive::ArchiveReactionFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.emoji.into_into_dart().into_dart(),
+            self.peer_id.into_into_dart().into_dart(),
+            self.added_at.into_into_dart().into_dart(),
+            self.signature.into_into_dart().into_dart(),
+            self.public_key.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::archive::ArchiveReactionFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::archive::ArchiveReactionFfi>
+    for crate::api::archive::ArchiveReactionFfi
+{
+    fn into_into_dart(self) -> crate::api::archive::ArchiveReactionFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::archive::ArchiveReactionRemovalFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.message_id.into_into_dart().into_dart(),
+            self.emoji.into_into_dart().into_dart(),
+            self.peer_id.into_into_dart().into_dart(),
+            self.removed_at.into_into_dart().into_dart(),
+            self.signature.into_into_dart().into_dart(),
+            self.public_key.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::archive::ArchiveReactionRemovalFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::archive::ArchiveReactionRemovalFfi>
+    for crate::api::archive::ArchiveReactionRemovalFfi
+{
+    fn into_into_dart(self) -> crate::api::archive::ArchiveReactionRemovalFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::archive::ArchiveVerifyResult {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.archive_type.into_into_dart().into_dart(),
+            self.exporter_peer_id.into_into_dart().into_dart(),
+            self.export_timestamp.into_into_dart().into_dart(),
+            self.message_count.into_into_dart().into_dart(),
+            self.archive_signature_valid.into_into_dart().into_dart(),
+            self.messages_with_valid_sig.into_into_dart().into_dart(),
+            self.messages_with_invalid_sig.into_into_dart().into_dart(),
+            self.messages_without_sig.into_into_dart().into_dart(),
+            self.participant_ids.into_into_dart().into_dart(),
+            self.peer_id.into_into_dart().into_dart(),
+            self.server_id.into_into_dart().into_dart(),
+            self.channel_id.into_into_dart().into_dart(),
+            self.channel_name.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::archive::ArchiveVerifyResult
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::archive::ArchiveVerifyResult>
+    for crate::api::archive::ArchiveVerifyResult
+{
+    fn into_into_dart(self) -> crate::api::archive::ArchiveVerifyResult {
+        self
+    }
+}
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::crdt::ChannelFfi {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
@@ -7148,6 +8047,139 @@ impl SseEncode for String {
     }
 }
 
+impl SseEncode for crate::api::archive::ArchiveData {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.archive_type, serializer);
+        <String>::sse_encode(self.exporter_peer_id, serializer);
+        <i64>::sse_encode(self.export_timestamp, serializer);
+        <String>::sse_encode(self.file_mode, serializer);
+        <Option<String>>::sse_encode(self.peer_id, serializer);
+        <Option<String>>::sse_encode(self.server_id, serializer);
+        <Option<String>>::sse_encode(self.channel_id, serializer);
+        <Option<String>>::sse_encode(self.channel_name, serializer);
+        <Vec<String>>::sse_encode(self.participants, serializer);
+        <Vec<crate::api::archive::ArchiveMessageFfi>>::sse_encode(self.messages, serializer);
+        <Vec<crate::api::archive::ArchiveEditFfi>>::sse_encode(self.edits, serializer);
+        <Vec<crate::api::archive::ArchiveDeletionFfi>>::sse_encode(self.deletions, serializer);
+        <Vec<crate::api::archive::ArchiveReactionRemovalFfi>>::sse_encode(
+            self.reaction_removals,
+            serializer,
+        );
+        <Vec<crate::api::archive::ArchivePubKeyFfi>>::sse_encode(self.pubkeys, serializer);
+        <Vec<crate::api::archive::ArchiveFileFfi>>::sse_encode(self.files, serializer);
+        <crate::api::archive::ArchiveVerifyResult>::sse_encode(self.verification, serializer);
+        <Option<String>>::sse_encode(self.files_dir, serializer);
+    }
+}
+
+impl SseEncode for crate::api::archive::ArchiveDeletionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.message_id, serializer);
+        <String>::sse_encode(self.deleted_text, serializer);
+        <i64>::sse_encode(self.deleted_at, serializer);
+        <Option<String>>::sse_encode(self.signature, serializer);
+        <Option<String>>::sse_encode(self.public_key, serializer);
+    }
+}
+
+impl SseEncode for crate::api::archive::ArchiveEditFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.message_id, serializer);
+        <String>::sse_encode(self.old_text, serializer);
+        <String>::sse_encode(self.new_text, serializer);
+        <i64>::sse_encode(self.edited_at, serializer);
+        <Option<String>>::sse_encode(self.signature, serializer);
+        <Option<String>>::sse_encode(self.public_key, serializer);
+    }
+}
+
+impl SseEncode for crate::api::archive::ArchiveFileFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.file_id, serializer);
+        <String>::sse_encode(self.file_name, serializer);
+        <String>::sse_encode(self.file_ext, serializer);
+        <String>::sse_encode(self.mime_type, serializer);
+        <u64>::sse_encode(self.size_bytes, serializer);
+        <bool>::sse_encode(self.is_image, serializer);
+        <Option<u32>>::sse_encode(self.width, serializer);
+        <Option<u32>>::sse_encode(self.height, serializer);
+        <Option<String>>::sse_encode(self.sha256, serializer);
+        <bool>::sse_encode(self.included, serializer);
+    }
+}
+
+impl SseEncode for crate::api::archive::ArchiveMessageFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.message_id, serializer);
+        <String>::sse_encode(self.sender_id, serializer);
+        <String>::sse_encode(self.text, serializer);
+        <i64>::sse_encode(self.timestamp, serializer);
+        <Option<String>>::sse_encode(self.signature, serializer);
+        <Option<String>>::sse_encode(self.public_key, serializer);
+        <Option<i64>>::sse_encode(self.edited_at, serializer);
+        <Option<i64>>::sse_encode(self.hidden_at, serializer);
+        <Option<String>>::sse_encode(self.reply_to_mid, serializer);
+        <Option<String>>::sse_encode(self.file_id, serializer);
+        <Vec<crate::api::archive::ArchiveReactionFfi>>::sse_encode(self.reactions, serializer);
+        <Option<bool>>::sse_encode(self.signature_valid, serializer);
+    }
+}
+
+impl SseEncode for crate::api::archive::ArchivePubKeyFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.peer_id, serializer);
+        <String>::sse_encode(self.public_key_b64, serializer);
+    }
+}
+
+impl SseEncode for crate::api::archive::ArchiveReactionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.emoji, serializer);
+        <String>::sse_encode(self.peer_id, serializer);
+        <i64>::sse_encode(self.added_at, serializer);
+        <Option<String>>::sse_encode(self.signature, serializer);
+        <Option<String>>::sse_encode(self.public_key, serializer);
+    }
+}
+
+impl SseEncode for crate::api::archive::ArchiveReactionRemovalFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.message_id, serializer);
+        <String>::sse_encode(self.emoji, serializer);
+        <String>::sse_encode(self.peer_id, serializer);
+        <i64>::sse_encode(self.removed_at, serializer);
+        <Option<String>>::sse_encode(self.signature, serializer);
+        <Option<String>>::sse_encode(self.public_key, serializer);
+    }
+}
+
+impl SseEncode for crate::api::archive::ArchiveVerifyResult {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.archive_type, serializer);
+        <String>::sse_encode(self.exporter_peer_id, serializer);
+        <i64>::sse_encode(self.export_timestamp, serializer);
+        <u32>::sse_encode(self.message_count, serializer);
+        <bool>::sse_encode(self.archive_signature_valid, serializer);
+        <u32>::sse_encode(self.messages_with_valid_sig, serializer);
+        <u32>::sse_encode(self.messages_with_invalid_sig, serializer);
+        <u32>::sse_encode(self.messages_without_sig, serializer);
+        <Vec<String>>::sse_encode(self.participant_ids, serializer);
+        <Option<String>>::sse_encode(self.peer_id, serializer);
+        <Option<String>>::sse_encode(self.server_id, serializer);
+        <Option<String>>::sse_encode(self.channel_id, serializer);
+        <Option<String>>::sse_encode(self.channel_name, serializer);
+    }
+}
+
 impl SseEncode for bool {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -7233,6 +8265,76 @@ impl SseEncode for Vec<String> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <String>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::archive::ArchiveDeletionFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::archive::ArchiveDeletionFfi>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::archive::ArchiveEditFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::archive::ArchiveEditFfi>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::archive::ArchiveFileFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::archive::ArchiveFileFfi>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::archive::ArchiveMessageFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::archive::ArchiveMessageFfi>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::archive::ArchivePubKeyFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::archive::ArchivePubKeyFfi>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::archive::ArchiveReactionFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::archive::ArchiveReactionFfi>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::archive::ArchiveReactionRemovalFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::archive::ArchiveReactionRemovalFfi>::sse_encode(item, serializer);
         }
     }
 }
@@ -8126,6 +9228,16 @@ impl SseEncode for Option<String> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <String>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<bool> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <bool>::sse_encode(value, serializer);
         }
     }
 }

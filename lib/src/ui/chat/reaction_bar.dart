@@ -14,13 +14,14 @@ class ReactionBar extends StatelessWidget {
   final String localPeerId;
 
   /// Called when the user taps a reaction pill to toggle it.
-  final void Function(String emoji) onToggleReaction;
+  /// Null in read-only mode (archive viewer) — pills render but aren't tappable.
+  final void Function(String emoji)? onToggleReaction;
 
   const ReactionBar({
     super.key,
     required this.reactions,
     required this.localPeerId,
-    required this.onToggleReaction,
+    this.onToggleReaction,
   });
 
   @override
@@ -44,7 +45,7 @@ class ReactionBar extends StatelessWidget {
           final isMine = reactors.contains(localPeerId);
 
           return HollowPressable(
-            onTap: () => onToggleReaction(emoji),
+            onTap: onToggleReaction != null ? () => onToggleReaction!(emoji) : null,
             borderRadius: BorderRadius.circular(12),
             padding: EdgeInsets.zero,
             child: Container(

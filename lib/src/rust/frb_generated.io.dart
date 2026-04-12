@@ -3,6 +3,7 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
+import 'api/archive.dart';
 import 'api/crdt.dart';
 import 'api/identity.dart';
 import 'api/network.dart';
@@ -34,7 +35,39 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  ArchiveData dco_decode_archive_data(dynamic raw);
+
+  @protected
+  ArchiveDeletionFfi dco_decode_archive_deletion_ffi(dynamic raw);
+
+  @protected
+  ArchiveEditFfi dco_decode_archive_edit_ffi(dynamic raw);
+
+  @protected
+  ArchiveFileFfi dco_decode_archive_file_ffi(dynamic raw);
+
+  @protected
+  ArchiveMessageFfi dco_decode_archive_message_ffi(dynamic raw);
+
+  @protected
+  ArchivePubKeyFfi dco_decode_archive_pub_key_ffi(dynamic raw);
+
+  @protected
+  ArchiveReactionFfi dco_decode_archive_reaction_ffi(dynamic raw);
+
+  @protected
+  ArchiveReactionRemovalFfi dco_decode_archive_reaction_removal_ffi(
+    dynamic raw,
+  );
+
+  @protected
+  ArchiveVerifyResult dco_decode_archive_verify_result(dynamic raw);
+
+  @protected
   bool dco_decode_bool(dynamic raw);
+
+  @protected
+  bool dco_decode_box_autoadd_bool(dynamic raw);
 
   @protected
   DiscoveredPeer dco_decode_box_autoadd_discovered_peer(dynamic raw);
@@ -88,6 +121,29 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<String> dco_decode_list_String(dynamic raw);
 
   @protected
+  List<ArchiveDeletionFfi> dco_decode_list_archive_deletion_ffi(dynamic raw);
+
+  @protected
+  List<ArchiveEditFfi> dco_decode_list_archive_edit_ffi(dynamic raw);
+
+  @protected
+  List<ArchiveFileFfi> dco_decode_list_archive_file_ffi(dynamic raw);
+
+  @protected
+  List<ArchiveMessageFfi> dco_decode_list_archive_message_ffi(dynamic raw);
+
+  @protected
+  List<ArchivePubKeyFfi> dco_decode_list_archive_pub_key_ffi(dynamic raw);
+
+  @protected
+  List<ArchiveReactionFfi> dco_decode_list_archive_reaction_ffi(dynamic raw);
+
+  @protected
+  List<ArchiveReactionRemovalFfi> dco_decode_list_archive_reaction_removal_ffi(
+    dynamic raw,
+  );
+
+  @protected
   List<ChannelFfi> dco_decode_list_channel_ffi(dynamic raw);
 
   @protected
@@ -139,6 +195,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
+
+  @protected
+  bool? dco_decode_opt_box_autoadd_bool(dynamic raw);
 
   @protected
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
@@ -221,7 +280,47 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
+  ArchiveData sse_decode_archive_data(SseDeserializer deserializer);
+
+  @protected
+  ArchiveDeletionFfi sse_decode_archive_deletion_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ArchiveEditFfi sse_decode_archive_edit_ffi(SseDeserializer deserializer);
+
+  @protected
+  ArchiveFileFfi sse_decode_archive_file_ffi(SseDeserializer deserializer);
+
+  @protected
+  ArchiveMessageFfi sse_decode_archive_message_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ArchivePubKeyFfi sse_decode_archive_pub_key_ffi(SseDeserializer deserializer);
+
+  @protected
+  ArchiveReactionFfi sse_decode_archive_reaction_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ArchiveReactionRemovalFfi sse_decode_archive_reaction_removal_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ArchiveVerifyResult sse_decode_archive_verify_result(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   bool sse_decode_bool(SseDeserializer deserializer);
+
+  @protected
+  bool sse_decode_box_autoadd_bool(SseDeserializer deserializer);
 
   @protected
   DiscoveredPeer sse_decode_box_autoadd_discovered_peer(
@@ -285,6 +384,41 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<String> sse_decode_list_String(SseDeserializer deserializer);
 
   @protected
+  List<ArchiveDeletionFfi> sse_decode_list_archive_deletion_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ArchiveEditFfi> sse_decode_list_archive_edit_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ArchiveFileFfi> sse_decode_list_archive_file_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ArchiveMessageFfi> sse_decode_list_archive_message_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ArchivePubKeyFfi> sse_decode_list_archive_pub_key_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ArchiveReactionFfi> sse_decode_list_archive_reaction_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ArchiveReactionRemovalFfi> sse_decode_list_archive_reaction_removal_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<ChannelFfi> sse_decode_list_channel_ffi(SseDeserializer deserializer);
 
   @protected
@@ -344,6 +478,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
+
+  @protected
+  bool? sse_decode_opt_box_autoadd_bool(SseDeserializer deserializer);
 
   @protected
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
@@ -444,7 +581,61 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
+  void sse_encode_archive_data(ArchiveData self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_archive_deletion_ffi(
+    ArchiveDeletionFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_archive_edit_ffi(
+    ArchiveEditFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_archive_file_ffi(
+    ArchiveFileFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_archive_message_ffi(
+    ArchiveMessageFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_archive_pub_key_ffi(
+    ArchivePubKeyFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_archive_reaction_ffi(
+    ArchiveReactionFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_archive_reaction_removal_ffi(
+    ArchiveReactionRemovalFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_archive_verify_result(
+    ArchiveVerifyResult self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_bool(bool self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_discovered_peer(
@@ -523,6 +714,48 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_archive_deletion_ffi(
+    List<ArchiveDeletionFfi> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_archive_edit_ffi(
+    List<ArchiveEditFfi> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_archive_file_ffi(
+    List<ArchiveFileFfi> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_archive_message_ffi(
+    List<ArchiveMessageFfi> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_archive_pub_key_ffi(
+    List<ArchivePubKeyFfi> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_archive_reaction_ffi(
+    List<ArchiveReactionFfi> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_archive_reaction_removal_ffi(
+    List<ArchiveReactionRemovalFfi> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_channel_ffi(
@@ -613,6 +846,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_bool(bool? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_i_64(

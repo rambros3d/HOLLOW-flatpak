@@ -21,6 +21,7 @@ import 'package:hollow/src/ui/animations/hollow_curves.dart';
 import 'package:hollow/src/ui/components/hollow_avatar.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/ui/components/hollow_tooltip.dart';
+import 'package:hollow/src/core/providers/archive_provider.dart';
 import 'package:hollow/src/ui/components/download_icon_button.dart';
 import 'package:hollow/src/ui/components/server_folder_popup.dart';
 import 'package:hollow/src/ui/components/profile_card_popup.dart';
@@ -75,6 +76,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
       }
     }
 
+    final archiveOpen = ref.watch(archiveTabOpenProvider);
     final stripLayout = ref.watch(serverStripLayoutProvider);
     final splitState = ref.watch(splitViewProvider);
 
@@ -167,7 +169,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
 
                 // Home button (pinned left)
                 _BottomServerIcon(
-                  isSelected: selectedServerId == null,
+                  isSelected: selectedServerId == null && !archiveOpen,
                   unreadCount:
                       selectedServerId != null ? dmUnreadTotal : 0,
                   tooltip: 'Home',
@@ -282,10 +284,26 @@ class _BottomBarState extends ConsumerState<BottomBar> {
 
           // ── Right: Utility Buttons (same width as left for symmetry) ──
           SizedBox(
-            width: 140,
+            width: 170,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                HollowTooltip(
+                  message: 'Archive',
+                  child: HollowPressable(
+                    onTap: () => _openArchive(ref),
+                    borderRadius:
+                        BorderRadius.circular(hollow.radiusSm),
+                    padding: const EdgeInsets.all(HollowSpacing.xs),
+                    child: Icon(
+                      LucideIcons.archive,
+                      size: 18,
+                      color: archiveOpen
+                          ? hollow.accent
+                          : hollow.textSecondary,
+                    ),
+                  ),
+                ),
                 const DownloadIconButton(iconSize: 18),
                 HollowTooltip(
                   message: 'Settings',
@@ -331,6 +349,25 @@ class _BottomBarState extends ConsumerState<BottomBar> {
     if (split.isSplit) {
       ref.read(splitViewProvider.notifier).closeSplit();
     }
+    ref.read(archiveTabOpenProvider.notifier).state = false;
+    ref.read(selectedServerProvider.notifier).state = null;
+    ref.read(channelListProvider.notifier).clear();
+    ref.read(selectedChannelProvider.notifier).state = null;
+    ref.read(selectedPeerProvider.notifier).state = null;
+    ref.read(serverSettingsOpenProvider.notifier).state = false;
+  }
+
+  void _openArchive(WidgetRef ref) {
+    final split = ref.read(splitViewProvider);
+    if (split.isSplit) {
+      ref.read(splitViewProvider.notifier).closeSplit();
+    }
+    // Invalidate cached data so it reloads fresh from DB.
+    ref.invalidate(archiveDmListProvider);
+    ref.invalidate(archiveChannelListProvider);
+    ref.read(archiveSelectedDmProvider.notifier).state = null;
+    ref.read(archiveSelectedChannelProvider.notifier).state = null;
+    ref.read(archiveTabOpenProvider.notifier).state = true;
     ref.read(selectedServerProvider.notifier).state = null;
     ref.read(channelListProvider.notifier).clear();
     ref.read(selectedChannelProvider.notifier).state = null;
@@ -386,6 +423,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
 
     // Batch all provider writes synchronously — single rebuild with
     // consistent server + channels + selectedChannel state.
+    ref.read(archiveTabOpenProvider.notifier).state = false;
     ref.read(selectedPeerProvider.notifier).state = null;
     ref.read(serverSettingsOpenProvider.notifier).state = false;
     ref.read(channelListProvider.notifier).setChannels(channels);

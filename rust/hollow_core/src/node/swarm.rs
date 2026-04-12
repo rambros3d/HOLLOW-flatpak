@@ -1739,7 +1739,7 @@ impl SyncCoordinator {
 /// Format: "haven-msg:{type}:{context}:{sender}:{ts}:{text}"
 /// - Channel: type="ch", context="{sid}:{cid}"
 /// - DM:      type="dm", context="{recipient_peer_id}"
-fn message_signing_payload(
+pub(crate) fn message_signing_payload(
     msg_type: &str,
     context: &str,
     sender: &str,

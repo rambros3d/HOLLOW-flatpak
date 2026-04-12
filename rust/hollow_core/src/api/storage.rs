@@ -26,7 +26,7 @@ pub struct StoredMessage {
 // Global message store: None = not opened, Some = ready.
 static STORE: OnceLock<Mutex<Option<MessageStore>>> = OnceLock::new();
 
-fn get_store() -> &'static Mutex<Option<MessageStore>> {
+pub(crate) fn get_store() -> &'static Mutex<Option<MessageStore>> {
     STORE.get_or_init(|| Mutex::new(None))
 }
 
@@ -112,6 +112,84 @@ pub fn load_messages(peer_id: String, limit: i32) -> Result<Vec<StoredMessage>, 
             link_preview: r.link_preview.map(Into::into),
         })
         .collect())
+}
+
+/// Load ALL DM messages for a peer, including soft-deleted (hidden_at set).
+/// No limit, ordered oldest-first. Used by the archive "My Data" viewer.
+#[frb]
+pub fn load_all_dm_messages(peer_id: String) -> Result<Vec<StoredMessage>, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+
+    let rows = ms.load_all_dm_messages(&peer_id)?;
+    Ok(rows
+        .into_iter()
+        .map(|r| StoredMessage {
+            id: r.id,
+            peer_id: r.peer_id,
+            text: r.text,
+            is_mine: r.is_mine,
+            timestamp: r.timestamp,
+            signature: r.signature,
+            public_key: r.public_key,
+            message_id: r.message_id,
+            edited_at: r.edited_at,
+            hidden_at: r.hidden_at,
+            reply_to_mid: r.reply_to_mid,
+            file_id: r.file_id,
+            link_preview: r.link_preview.map(Into::into),
+        })
+        .collect())
+}
+
+/// Load ALL channel messages, including soft-deleted (hidden_at set).
+/// No limit, ordered oldest-first. Used by the archive "My Data" viewer.
+#[frb]
+pub fn load_all_channel_messages(server_id: String, channel_id: String) -> Result<Vec<StoredChannelMessage>, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+
+    let rows = ms.load_all_channel_messages(&server_id, &channel_id)?;
+    Ok(rows
+        .into_iter()
+        .map(|r| StoredChannelMessage {
+            id: r.id,
+            server_id: r.server_id,
+            channel_id: r.channel_id,
+            sender_id: r.sender_id,
+            text: r.text,
+            is_mine: r.is_mine,
+            timestamp: r.timestamp,
+            signature: r.signature,
+            public_key: r.public_key,
+            message_id: r.message_id,
+            edited_at: r.edited_at,
+            hidden_at: r.hidden_at,
+            reply_to_mid: r.reply_to_mid,
+            file_id: r.file_id,
+            link_preview: r.link_preview.map(Into::into),
+        })
+        .collect())
+}
+
+/// Count all DM messages for a peer (including hidden/deleted).
+#[frb]
+pub fn count_dm_messages(peer_id: String) -> Result<u32, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+    Ok(ms.count_dm_messages(&peer_id))
+}
+
+/// Count all channel messages (including hidden/deleted).
+#[frb]
+pub fn count_channel_messages_ffi(server_id: String, channel_id: String) -> Result<u32, String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+    Ok(ms.count_channel_messages(&server_id, &channel_id))
 }
 
 /// A user profile returned to Dart.

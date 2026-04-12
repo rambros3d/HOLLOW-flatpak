@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/providers/archive_provider.dart';
 import 'package:hollow/src/core/providers/favourite_friends_provider.dart';
 import 'package:hollow/src/core/providers/friends_provider.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
@@ -189,6 +190,7 @@ class FriendsBar extends ConsumerWidget {
     if (split.isSplit && split.focusedPane == 1) {
       ref.read(splitViewProvider.notifier).navigateRightToPeer(peerId);
     } else {
+      ref.read(archiveTabOpenProvider.notifier).state = false;
       ref.read(selectedPeerProvider.notifier).state = peerId;
       ref.read(selectedServerProvider.notifier).state = null;
       ref.read(channelListProvider.notifier).clear();

@@ -1683,6 +1683,45 @@ class _VerifyProofSectionState extends State<_VerifyProofSection> {
         return;
       }
 
+      // Validate envelope fields that must have exact expected values.
+      final version = map['version'];
+      final protocol = map['protocol'] as String?;
+      final algorithm = sig['algorithm'] as String?;
+
+      if (version != 1) {
+        setState(() {
+          _verifying = false;
+          _result = _ProofResult(
+            valid: false,
+            error: 'Unknown proof version: $version (expected 1).',
+          );
+        });
+        _scrollToResult();
+        return;
+      }
+      if (protocol != 'hollow-proof-v1') {
+        setState(() {
+          _verifying = false;
+          _result = _ProofResult(
+            valid: false,
+            error: 'Unknown protocol: "$protocol" (expected "hollow-proof-v1").',
+          );
+        });
+        _scrollToResult();
+        return;
+      }
+      if (algorithm != 'Ed25519') {
+        setState(() {
+          _verifying = false;
+          _result = _ProofResult(
+            valid: false,
+            error: 'Unknown algorithm: "$algorithm" (expected "Ed25519").',
+          );
+        });
+        _scrollToResult();
+        return;
+      }
+
       final text = message['text'] as String? ?? '';
       final timestampMs = message['timestamp_ms'] as int? ?? 0;
       final messageId = message['message_id'] as String?;
@@ -1699,6 +1738,34 @@ class _VerifyProofSectionState extends State<_VerifyProofSection> {
           _result = _ProofResult(
             valid: false,
             error: 'Proof is missing signature or public key data.',
+          );
+        });
+        _scrollToResult();
+        return;
+      }
+
+      // Reconstruct the canonical payload from the individual JSON fields
+      // and verify it matches the embedded one. This catches field tampering
+      // (e.g. changing message text while keeping the old canonical_payload).
+      // Map human-readable context type back to the canonical short form
+      // used in the signing payload ('dm'/'ch'/'dm-delete'/'ch-delete').
+      final msgType = contextType == 'direct_message'
+          ? 'dm'
+          : contextType == 'channel'
+              ? 'ch'
+              : contextType; // pass through delete types as-is
+      final reconstructed =
+          'haven-msg:$msgType:$contextId:$peerId:$timestampMs:$text';
+      if (reconstructed != canonicalPayload) {
+        setState(() {
+          _verifying = false;
+          _result = _ProofResult(
+            valid: false,
+            error:
+                'Payload mismatch — the message fields do not match the '
+                'canonical payload. The proof JSON may have been tampered with.\n\n'
+                'Expected: $reconstructed\n'
+                'Got: $canonicalPayload',
           );
         });
         _scrollToResult();
