@@ -504,7 +504,7 @@ class _CategoryHeaderState extends State<_CategoryHeader> {
           children: [
             AnimatedRotation(
               turns: _collapsed ? -0.25 : 0,
-              duration: const Duration(milliseconds: 150),
+              duration: HollowDurations.fast,
               child: Icon(LucideIcons.chevronDown,
                   size: 10, color: widget.hollow.textSecondary),
             ),

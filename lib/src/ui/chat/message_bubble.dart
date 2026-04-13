@@ -10,6 +10,7 @@ import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:hollow/src/ui/chat/file_attachment_widget.dart';
 import 'package:hollow/src/ui/chat/link_preview_card.dart';
+import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/chat/message_text_parser.dart';
 import 'package:hollow/src/ui/chat/reaction_bar.dart';
 import 'package:hollow/src/ui/components/hollow_avatar.dart';
@@ -111,12 +112,19 @@ class MessageBubble extends ConsumerWidget {
               padding: const EdgeInsets.only(left: HollowSpacing.sm),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(4),
-                child: Image.file(
-                  File(replyToImagePath!),
-                  width: 32,
-                  height: 32,
-                  fit: BoxFit.cover,
-                ),
+                child: replyToImagePath!.toLowerCase().endsWith('.gif')
+                    ? GifFileImage(
+                        diskPath: replyToImagePath!,
+                        width: 32,
+                        height: 32,
+                        fit: BoxFit.cover,
+                      )
+                    : Image.file(
+                        File(replyToImagePath!),
+                        width: 32,
+                        height: 32,
+                        fit: BoxFit.cover,
+                      ),
               ),
             ),
         ],

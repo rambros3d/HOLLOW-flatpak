@@ -1486,12 +1486,19 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                             File(_replyToImagePath!).existsSync()) ...[
                           ClipRRect(
                             borderRadius: BorderRadius.circular(4),
-                            child: Image.file(
-                              File(_replyToImagePath!),
-                              width: 32,
-                              height: 32,
-                              fit: BoxFit.cover,
-                            ),
+                            child: _replyToImagePath!.toLowerCase().endsWith('.gif')
+                                ? GifFileImage(
+                                    diskPath: _replyToImagePath!,
+                                    width: 32,
+                                    height: 32,
+                                    fit: BoxFit.cover,
+                                  )
+                                : Image.file(
+                                    File(_replyToImagePath!),
+                                    width: 32,
+                                    height: 32,
+                                    fit: BoxFit.cover,
+                                  ),
                           ),
                           const SizedBox(width: HollowSpacing.xs),
                         ],
@@ -1540,10 +1547,15 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
               if (_stagedFileIsImage)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(6),
-                  child: Image.file(
-                    File(_stagedFilePath!),
-                    width: 48, height: 48, fit: BoxFit.cover,
-                  ),
+                  child: _stagedFilePath!.toLowerCase().endsWith('.gif')
+                      ? GifFileImage(
+                          diskPath: _stagedFilePath!,
+                          width: 48, height: 48, fit: BoxFit.cover,
+                        )
+                      : Image.file(
+                          File(_stagedFilePath!),
+                          width: 48, height: 48, fit: BoxFit.cover,
+                        ),
                 )
               else
                 Container(
@@ -1712,7 +1724,8 @@ class _InlineCallPanelSliderState extends ConsumerState<_InlineCallPanelSlider>
         (call.status == CallStatus.active ||
          call.status == CallStatus.connecting);
 
-    // Drive animation.
+    // Drive animation (duration re-evaluated for disable toggle).
+    _controller.duration = HollowDurations.normal;
     if (isCallWithThisPeer) {
       _controller.forward();
     } else {
@@ -2770,6 +2783,7 @@ class _ChatOverlaySliderState extends State<_ChatOverlaySlider>
   void didUpdateWidget(covariant _ChatOverlaySlider oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.visible != oldWidget.visible) {
+      _controller.duration = HollowDurations.normal;
       if (widget.visible) {
         _controller.forward();
       } else {
@@ -3401,6 +3415,7 @@ class _DmProfilePanelSliderState extends State<_DmProfilePanelSlider>
   void didUpdateWidget(_DmProfilePanelSlider old) {
     super.didUpdateWidget(old);
     if (widget.visible != old.visible) {
+      _controller.duration = HollowDurations.normal;
       widget.visible ? _controller.forward() : _controller.reverse();
     }
   }

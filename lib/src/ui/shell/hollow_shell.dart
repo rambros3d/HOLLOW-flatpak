@@ -21,6 +21,7 @@ import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/core/providers/selected_peer_provider.dart';
 import 'package:hollow/src/core/providers/accent_color_provider.dart';
 import 'package:hollow/src/core/providers/background_provider.dart';
+import 'package:hollow/src/core/shared_tickers.dart';
 import 'package:hollow/src/core/providers/local_nickname_provider.dart';
 import 'package:hollow/src/core/providers/server_avatar_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
@@ -162,6 +163,21 @@ class _HollowShellState extends ConsumerState<HollowShell>
 
     final identity = ref.read(identityProvider);
     if (identity.error != null) return;
+
+    // Restore animation toggle from DB (must be after identity load opens DB).
+    try {
+      final disableAnim =
+          await storage_api.loadSetting(key: 'disable_animations');
+      if (disableAnim == 'true') {
+        HollowDurations.animationsDisabled = true;
+        SharedTickers.instance.disabled = true;
+        SharedTickers.instance.pause();
+        // Skip the startup reveal animation instantly.
+        if (!_revealController.isCompleted) {
+          _revealController.value = 1.0;
+        }
+      }
+    } catch (_) {}
 
     if (identity.mnemonic != null && mounted) {
       // New identity was generated — save mnemonic to DB then show dialog.
@@ -1142,6 +1158,7 @@ class _MemberPanelSliderState extends State<_MemberPanelSlider>
   void didUpdateWidget(_MemberPanelSlider oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.visible != oldWidget.visible) {
+      _controller.duration = HollowDurations.normal;
       if (widget.visible) {
         // Opening — unfreeze content, update server ID.
         _isClosing = false;
@@ -1244,6 +1261,7 @@ class _DockSidebarSliderState extends State<_DockSidebarSlider>
   void didUpdateWidget(_DockSidebarSlider oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.visible != oldWidget.visible) {
+      _controller.duration = HollowDurations.normal;
       if (widget.visible) {
         _isClosing = false;
         _frozenChild = widget.child;

@@ -283,7 +283,7 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
           ),
           childWhenDragging: AnimatedOpacity(
             opacity: 0.3,
-            duration: const Duration(milliseconds: 150),
+            duration: HollowDurations.fast,
             child: _ServerIconWithIndicator(
               isSelected: false,
               child: _ServerIcon(
@@ -294,7 +294,7 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
           ),
           child: AnimatedScale(
             scale: isMergeTarget ? 1.08 : 1.0,
-            duration: const Duration(milliseconds: 150),
+            duration: HollowDurations.fast,
             child: _ServerIconWithIndicator(
               isSelected: isSelected,
               unreadCount: serverUnreads,
@@ -357,7 +357,7 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
           ),
           childWhenDragging: AnimatedOpacity(
             opacity: 0.3,
-            duration: const Duration(milliseconds: 150),
+            duration: HollowDurations.fast,
             child: _ServerIconWithIndicator(
               isSelected: false,
               child: _ServerIcon(
@@ -368,7 +368,7 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
           ),
           child: AnimatedScale(
             scale: isDropTarget ? 1.08 : 1.0,
-            duration: const Duration(milliseconds: 150),
+            duration: HollowDurations.fast,
             child: _ServerIconWithIndicator(
               isSelected: isSelected,
               unreadCount: isSelected ? 0 : folderUnreads,
@@ -473,7 +473,7 @@ class _VerticalReorderGap extends StatelessWidget {
         final isActive = candidateData.isNotEmpty;
         return Center(
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 100),
+            duration: HollowDurations.fast,
             width: 36,
             height: isActive ? 4 : HollowSpacing.xs,
             margin: EdgeInsets.symmetric(vertical: isActive ? 2 : 0),
@@ -663,7 +663,7 @@ class _ServerIconState extends State<_ServerIcon> {
       child: GestureDetector(
         onTap: widget.onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
+          duration: HollowDurations.fast,
           curve: Curves.easeOutCubic,
           width: 48,
           height: 48,
@@ -713,7 +713,7 @@ class _ScaleBounceEntryState extends State<_ScaleBounceEntry>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 400),
+      duration: HollowDurations.animationsDisabled ? Duration.zero : const Duration(milliseconds: 400),
     );
     _scale = TweenSequence<double>([
       TweenSequenceItem(

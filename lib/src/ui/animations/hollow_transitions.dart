@@ -7,12 +7,12 @@ class FadeSlideTransition extends StatefulWidget {
   final Duration duration;
   final Offset beginOffset;
 
-  const FadeSlideTransition({
+  FadeSlideTransition({
     super.key,
     required this.child,
-    this.duration = HollowDurations.normal,
+    Duration? duration,
     this.beginOffset = const Offset(0, 0.1),
-  });
+  }) : duration = duration ?? HollowDurations.normal;
 
   @override
   State<FadeSlideTransition> createState() => _FadeSlideTransitionState();
@@ -68,11 +68,11 @@ class ScaleFadeTransition extends StatefulWidget {
   final Widget child;
   final Duration duration;
 
-  const ScaleFadeTransition({
+  ScaleFadeTransition({
     super.key,
     required this.child,
-    this.duration = HollowDurations.normal,
-  });
+    Duration? duration,
+  }) : duration = duration ?? HollowDurations.normal;
 
   @override
   State<ScaleFadeTransition> createState() => _ScaleFadeTransitionState();

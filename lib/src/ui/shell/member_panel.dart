@@ -177,8 +177,11 @@ class _SpinningRefreshIconState extends State<_SpinningRefreshIcon>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat();
+      duration: HollowDurations.animationsDisabled
+          ? Duration.zero
+          : const Duration(milliseconds: 1500),
+    );
+    if (!HollowDurations.animationsDisabled) _controller.repeat();
   }
 
   @override

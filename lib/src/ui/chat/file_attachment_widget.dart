@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/models/file_attachment.dart';
 import 'package:hollow/src/core/providers/file_transfer_provider.dart';
+import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/components/hollow_dialog.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
@@ -95,9 +96,11 @@ class FileAttachmentWidget extends ConsumerWidget {
     }
 
     if (isComplete && diskPath != null && File(diskPath).existsSync()) {
+      final isGif = attachment.fileExt.toLowerCase() == 'gif';
+
       // Show the actual image — tap to open fullscreen.
       return GestureDetector(
-        onTap: () => _showFullscreen(context, diskPath),
+        onTap: () => _showFullscreen(context, diskPath, isGif: isGif),
         child: MouseRegion(
           cursor: SystemMouseCursors.click,
           child: ConstrainedBox(
@@ -107,12 +110,19 @@ class FileAttachmentWidget extends ConsumerWidget {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(hollow.radiusSm),
-              child: Image.file(
-                File(diskPath),
-                fit: BoxFit.contain,
-                errorBuilder: (_, e, st) => _buildPlaceholder(
-                    hollow, displayWidth, displayHeight, false, 1.0, 0, null),
-              ),
+              child: isGif
+                  ? GifFileImage(
+                      diskPath: diskPath,
+                      fit: BoxFit.contain,
+                      errorWidget: _buildPlaceholder(
+                          hollow, displayWidth, displayHeight, false, 1.0, 0, null),
+                    )
+                  : Image.file(
+                      File(diskPath),
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, e, st) => _buildPlaceholder(
+                          hollow, displayWidth, displayHeight, false, 1.0, 0, null),
+                    ),
             ),
           ),
         ),
@@ -286,10 +296,10 @@ class FileAttachmentWidget extends ConsumerWidget {
   }
 
   /// Open image in fullscreen overlay with blur backdrop.
-  static void _showFullscreen(BuildContext context, String diskPath) {
+  static void _showFullscreen(BuildContext context, String diskPath, {bool isGif = false}) {
     showHollowDialog(
       context: context,
-      builder: (ctx) => _FullscreenImageView(diskPath: diskPath),
+      builder: (ctx) => _FullscreenImageView(diskPath: diskPath, isGif: isGif),
     );
   }
 }
@@ -297,8 +307,9 @@ class FileAttachmentWidget extends ConsumerWidget {
 /// Fullscreen image view with blur backdrop and close button.
 class _FullscreenImageView extends StatelessWidget {
   final String diskPath;
+  final bool isGif;
 
-  const _FullscreenImageView({required this.diskPath});
+  const _FullscreenImageView({required this.diskPath, this.isGif = false});
 
   @override
   Widget build(BuildContext context) {
@@ -314,10 +325,15 @@ class _FullscreenImageView extends StatelessWidget {
               padding: const EdgeInsets.all(HollowSpacing.xxl),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(hollow.radiusMd),
-                child: Image.file(
-                  File(diskPath),
-                  fit: BoxFit.contain,
-                ),
+                child: isGif
+                    ? GifFileImage(
+                        diskPath: diskPath,
+                        fit: BoxFit.contain,
+                      )
+                    : Image.file(
+                        File(diskPath),
+                        fit: BoxFit.contain,
+                      ),
               ),
             ),
 

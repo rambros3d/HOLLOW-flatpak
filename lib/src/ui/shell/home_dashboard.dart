@@ -20,6 +20,7 @@ import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:hollow/src/ui/components/hollow_avatar.dart';
+import 'package:hollow/src/ui/animations/hollow_curves.dart';
 import 'package:hollow/src/ui/animations/startup_reveal.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
@@ -1053,7 +1054,7 @@ class _StatBar extends StatelessWidget {
                 Container(color: hollow.border),
                 TweenAnimationBuilder<double>(
                   tween: Tween(begin: 0, end: progress.clamp(0.0, 1.0)),
-                  duration: const Duration(milliseconds: 600),
+                  duration: HollowDurations.slow,
                   curve: Curves.easeOutCubic,
                   builder: (context, value, _) => FractionallySizedBox(
                     alignment: Alignment.centerLeft,

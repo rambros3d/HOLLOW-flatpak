@@ -1714,7 +1714,8 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 - [X] Count the chat messages sizes in the Server Storage inside servers — Added `total_message_storage_for_server()` (`SUM(LENGTH(text))` on `channel_messages`), wired into `get_storage_stats()` for both `total_used_bytes` and `my_used_bytes`.
 - [X] Add "disable animations" toggle in User Settings — `disableAnimationsProvider` + `HollowDurations` mutable getters + `SharedTickers.disabled` flag. Toggle in System tab LAYOUT section. Covers core Hollow components, shell transitions, popups, notifications, channel sidebar.
 - [ ] Audio file preview (listening inside the app; same as already working video previews)
-- [ ] Look into the logic of GIFs in the chat/profile (comparison; fix the "speedups" bug if present)
+- [X] Look into the logic of GIFs in the chat/profile (comparison; fix the "speedups" bug if present)
+- [ ] Add .gif for Save / Conversion of GIF to animated WebP
 - [ ] Evidence Recovery UI tool (cooperative shard gathering for ex-members) — depends on Phase 4 shard system. Feeds into the Archive tab: gathered shards → reconstruct DB slice → view in POV viewer → export as `.hollow-archive` if desired. Design together but implement later — full-replication for images/messages means most historical data is already available without shard recovery, so the Archive tab ships first.
 - [ ] **swarm.rs modularization refactor** — split the 12,600-line monolith into focused modules (like the libp2p removal session)
   - [ ] Create `SwarmContext` struct to hold the ~35 shared state variables (peer maps, pending transfers, voice participants, etc.)

@@ -32,6 +32,7 @@ import 'package:hollow/src/ui/chat/chat_input_shortcuts.dart';
 import 'package:hollow/src/ui/chat/chat_pane.dart';
 import 'package:hollow/src/ui/chat/message_action_bar.dart';
 import 'package:hollow/src/ui/dialogs/message_proof_dialog.dart';
+import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/components/connection_progress.dart';
 import 'package:hollow/src/ui/chat/staged_link_preview_card.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
@@ -341,11 +342,17 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                                     File(msg.fileAttachment!.diskPath!).existsSync())
                                   ClipRRect(
                                     borderRadius: BorderRadius.circular(hollow.radiusSm),
-                                    child: Image.file(
-                                      File(msg.fileAttachment!.diskPath!),
-                                      height: 80,
-                                      fit: BoxFit.cover,
-                                    ),
+                                    child: msg.fileAttachment!.diskPath!.toLowerCase().endsWith('.gif')
+                                        ? GifFileImage(
+                                            diskPath: msg.fileAttachment!.diskPath!,
+                                            height: 80,
+                                            fit: BoxFit.cover,
+                                          )
+                                        : Image.file(
+                                            File(msg.fileAttachment!.diskPath!),
+                                            height: 80,
+                                            fit: BoxFit.cover,
+                                          ),
                                   )
                                 else
                                   Text(
@@ -1617,12 +1624,19 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                           if (_replyToImagePath != null && File(_replyToImagePath!).existsSync()) ...[
                             ClipRRect(
                               borderRadius: BorderRadius.circular(4),
-                              child: Image.file(
-                                File(_replyToImagePath!),
-                                width: 32,
-                                height: 32,
-                                fit: BoxFit.cover,
-                              ),
+                              child: _replyToImagePath!.toLowerCase().endsWith('.gif')
+                                  ? GifFileImage(
+                                      diskPath: _replyToImagePath!,
+                                      width: 32,
+                                      height: 32,
+                                      fit: BoxFit.cover,
+                                    )
+                                  : Image.file(
+                                      File(_replyToImagePath!),
+                                      width: 32,
+                                      height: 32,
+                                      fit: BoxFit.cover,
+                                    ),
                             ),
                             const SizedBox(width: HollowSpacing.xs),
                           ],
@@ -1671,10 +1685,15 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                 if (_stagedFileIsImage)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(6),
-                    child: Image.file(
-                      File(_stagedFilePath!),
-                      width: 48, height: 48, fit: BoxFit.cover,
-                    ),
+                    child: _stagedFilePath!.toLowerCase().endsWith('.gif')
+                        ? GifFileImage(
+                            diskPath: _stagedFilePath!,
+                            width: 48, height: 48, fit: BoxFit.cover,
+                          )
+                        : Image.file(
+                            File(_stagedFilePath!),
+                            width: 48, height: 48, fit: BoxFit.cover,
+                          ),
                   )
                 else
                   Container(

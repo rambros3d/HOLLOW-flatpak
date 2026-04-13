@@ -1314,6 +1314,7 @@ class _OverlaySliderState extends State<_OverlaySlider>
   void didUpdateWidget(covariant _OverlaySlider oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.visible != oldWidget.visible) {
+      _controller.duration = HollowDurations.normal;
       if (widget.visible) {
         _controller.forward();
       } else {

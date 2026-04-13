@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/animations/hollow_curves.dart';
 import 'package:hollow/src/ui/animations/startup_reveal.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:window_manager/window_manager.dart';
@@ -99,7 +100,7 @@ class _WindowButtonState extends State<_WindowButton> {
       child: GestureDetector(
         onTap: widget.onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 100),
+          duration: HollowDurations.fast,
           width: 46,
           height: 32,
           color: bgColor,

@@ -139,10 +139,12 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     }
 
     if (isVisible && !_wasVisible) {
+      _controller.duration = HollowDurations.normal;
       _controller.forward(from: 0);
       _startRingtone();
       _startCountdown();
     } else if (!isVisible && _wasVisible) {
+      _controller.duration = HollowDurations.normal;
       _controller.reverse();
       _stopRingtone();
       _stopCountdown();

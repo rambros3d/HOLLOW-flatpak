@@ -509,7 +509,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
             ),
             childWhenDragging: AnimatedOpacity(
               opacity: 0.3,
-              duration: const Duration(milliseconds: 150),
+              duration: HollowDurations.fast,
               child: _BottomServerIcon(
                 backgroundColor: _colorFromId(serverId),
                 child: serverIconChild,
@@ -517,9 +517,9 @@ class _BottomBarState extends ConsumerState<BottomBar> {
             ),
             child: AnimatedScale(
               scale: isMergeTarget ? 1.08 : 1.0,
-              duration: const Duration(milliseconds: 150),
+              duration: HollowDurations.fast,
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
+                duration: HollowDurations.fast,
                 decoration: isMergeTarget
                     ? BoxDecoration(
                         borderRadius: BorderRadius.circular(12),
@@ -609,7 +609,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
           ),
           childWhenDragging: AnimatedOpacity(
             opacity: 0.3,
-            duration: const Duration(milliseconds: 150),
+            duration: HollowDurations.fast,
             child: _BottomServerIcon(
               backgroundColor: hollow.elevated,
               child: ServerFolderIcon(folder: folder, size: 38),
@@ -617,7 +617,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
           ),
           child: AnimatedScale(
             scale: isDropTarget ? 1.08 : 1.0,
-            duration: const Duration(milliseconds: 150),
+            duration: HollowDurations.fast,
             child: GestureDetector(
               onSecondaryTapUp: (_) {
                 showFolderRenameDialog(
@@ -763,7 +763,7 @@ class _BottomServerIconState extends State<_BottomServerIcon> {
               clipBehavior: Clip.none,
               children: [
                 AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
+                  duration: HollowDurations.fast,
                   curve: Curves.easeOutCubic,
                   width: 38,
                   height: 38,
@@ -869,7 +869,7 @@ class _ReorderGap extends StatelessWidget {
       builder: (context, candidateData, rejectedData) {
         final isActive = candidateData.isNotEmpty;
         return AnimatedContainer(
-          duration: const Duration(milliseconds: 100),
+          duration: HollowDurations.fast,
           width: isActive ? 8 : HollowSpacing.xs,
           height: 38,
           margin: EdgeInsets.symmetric(horizontal: isActive ? 2 : 0),
@@ -902,7 +902,7 @@ class _ScaleBounceEntryState extends State<_ScaleBounceEntry>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 400),
+      duration: HollowDurations.animationsDisabled ? Duration.zero : const Duration(milliseconds: 400),
     );
     _scale = TweenSequence<double>([
       TweenSequenceItem(
