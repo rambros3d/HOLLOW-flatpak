@@ -10,11 +10,15 @@ import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
+import 'package:hollow/src/ui/chat/audio_message_bubble.dart';
 import 'package:hollow/src/ui/chat/video_message_bubble.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// File extensions that trigger the video bubble (Phase 6.75 video preview).
 const _videoExtensions = {'mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v'};
+
+/// File extensions that trigger the audio bubble (Phase 6.75 audio preview).
+const _audioExtensions = {'mp3', 'ogg', 'wav', 'flac', 'm4a', 'aac', 'wma'};
 
 /// Renders a file attachment inline in a message bubble.
 ///
@@ -60,6 +64,11 @@ class FileAttachmentWidget extends ConsumerWidget {
       return VideoMessageBubble(attachment: attachment);
     }
 
+    // Phase 6.75: Audio preview — inline playback card.
+    if (_isAudioAttachment()) {
+      return AudioMessageBubble(attachment: attachment);
+    }
+
     if (attachment.isImage) {
       return _buildImagePreview(context, hollow, isComplete, diskPath, isDownloading, progress, bytesReceived, vaultPhase);
     }
@@ -74,6 +83,12 @@ class FileAttachmentWidget extends ConsumerWidget {
     // Don't claim images even if their ext somehow matches.
     if (attachment.isImage) return false;
     return _videoExtensions.contains(attachment.fileExt.toLowerCase());
+  }
+
+  /// True when this attachment should be rendered as an audio bubble.
+  bool _isAudioAttachment() {
+    if (attachment.isImage) return false;
+    return _audioExtensions.contains(attachment.fileExt.toLowerCase());
   }
 
   Widget _buildImagePreview(
@@ -288,7 +303,7 @@ class FileAttachmentWidget extends ConsumerWidget {
     return switch (ext) {
       'pdf' => LucideIcons.fileText,
       'zip' || 'rar' || '7z' || 'tar' || 'gz' => LucideIcons.fileArchive,
-      'mp3' || 'ogg' || 'wav' || 'flac' => LucideIcons.fileAudio,
+      'mp3' || 'ogg' || 'wav' || 'flac' || 'm4a' || 'aac' || 'wma' => LucideIcons.fileAudio,
       'mp4' || 'webm' || 'avi' || 'mkv' => LucideIcons.fileVideo,
       'txt' || 'md' || 'log' => LucideIcons.fileText,
       _ => LucideIcons.file,

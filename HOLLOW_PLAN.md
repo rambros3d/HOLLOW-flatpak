@@ -1713,7 +1713,7 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 - [X] Fix the icon outline size on the server strip (Gear is bigger than Downloads/Archive) — Settings icon padding was `HollowSpacing.sm` (8px) vs `xs` (4px) for Archive/Downloads in `bottom_bar.dart`. Fixed to `xs`.
 - [X] Count the chat messages sizes in the Server Storage inside servers — Added `total_message_storage_for_server()` (`SUM(LENGTH(text))` on `channel_messages`), wired into `get_storage_stats()` for both `total_used_bytes` and `my_used_bytes`.
 - [X] Add "disable animations" toggle in User Settings — `disableAnimationsProvider` + `HollowDurations` mutable getters + `SharedTickers.disabled` flag. Toggle in System tab LAYOUT section. Covers core Hollow components, shell transitions, popups, notifications, channel sidebar.
-- [ ] Audio file preview (listening inside the app; same as already working video previews)
+- [X] Audio file preview (listening inside the app; same as already working video previews)
 - [X] Look into the logic of GIFs in the chat/profile (comparison; fix the "speedups" bug if present)
 - [X] Add .gif for Save / Conversion of GIF to animated WebP
 - [ ] Evidence Recovery UI tool (cooperative shard gathering for ex-members) — depends on Phase 4 shard system. Feeds into the Archive tab: gathered shards → reconstruct DB slice → view in POV viewer → export as `.hollow-archive` if desired. Design together but implement later — full-replication for images/messages means most historical data is already available without shard recovery, so the Archive tab ships first.
@@ -1766,10 +1766,10 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
     - [ ] Optional E2EE on chunks — encrypt file before sharing, include decryption key in the share link (only link holders can read)
   - Note: Builds entirely on existing infrastructure — WebRTC data channels (Phase 5A), gossip overlay (Phase 5D), content-addressed storage (Phase 4), chunked transfer protocol. Estimated new code: ~1 Rust module (sharing swarm) + ~1 Dart service + UI tab
 
-- [ ] Proper roles on the server and editing of permissions
-- [ ] Discord import system (full implementation — parse GDPR export ZIP, map servers/channels/roles/messages, placeholder identities, member claiming) == reflect to the discord_migration_plan.md
-- [ ] Security of the community servers. To prevent massive spam/abuse in terms of files and such - add for example OAuth for Twitch and allow the server joining if you're a follower for 1 day or something (use Twitch API like for getting the follow: https://dev.twitch.tv/docs/api/reference#get-followed-channels)
 - [ ] Check if there is a Search bar in Incoming/Outgoing friend requests
+- [ ] Proper roles on the server and editing of permissions
+- [ ] Security of the community servers. To prevent massive spam/abuse in terms of files and such - add for example OAuth for Twitch and allow the server joining if you're a follower for 1 day or something (use Twitch API like for getting the follow: https://dev.twitch.tv/docs/api/reference#get-followed-channels)
+- [ ] Discord import system (full implementation — parse GDPR export ZIP, map servers/channels/roles/messages, placeholder identities, member claiming) == reflect to the discord_migration_plan.md
 - [ ] Device linking via QR code (multi-device identity sync) — requires MLS + CRDTs. 🎞️ Animate: QR scan success celebration, device linked confirmation
 - [ ] Mobile platform testing & platform-specific fixes (adaptive layout built in Phase 2.5)
 - [ ] Accessibility (screen reader support, high contrast)

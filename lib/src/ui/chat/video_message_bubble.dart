@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 
 import 'package:hollow/src/core/models/file_attachment.dart';
+import 'package:hollow/src/core/providers/audio_playback_provider.dart';
 import 'package:hollow/src/core/providers/file_transfer_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:hollow/src/core/providers/video_playback_provider.dart';
@@ -287,6 +288,14 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
     // Pause when another bubble takes the playback slot.
     ref.listen<String?>(currentlyPlayingVideoProvider, (prev, next) {
       if (next != _playKey && _state == _PlaybackState.playing) {
+        _disposeController();
+        if (mounted) setState(() => _state = _PlaybackState.thumbnail);
+      }
+    });
+
+    // Pause when an audio bubble starts playing.
+    ref.listen<String?>(currentlyPlayingAudioProvider, (prev, next) {
+      if (next != null && _state == _PlaybackState.playing) {
         _disposeController();
         if (mounted) setState(() => _state = _PlaybackState.thumbnail);
       }
