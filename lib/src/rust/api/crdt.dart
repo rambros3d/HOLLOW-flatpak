@@ -208,6 +208,27 @@ Future<void> setStoragePledge({
 Future<StorageStatsFfi> getStorageStats({required String serverId}) =>
     RustLib.instance.api.crateApiCrdtGetStorageStats(serverId: serverId);
 
+/// Get vault file statuses for a server — shows which erasure-coded files
+/// exist, how many shards are held locally, and whether each is reconstructable.
+/// Used by the Archive tab's shard status indicator (Evidence Recovery).
+Future<List<VaultFileStatusFfi>> getVaultFileStatuses({
+  required String serverId,
+}) => RustLib.instance.api.crateApiCrdtGetVaultFileStatuses(serverId: serverId);
+
+/// Initiate a recovery pool for a server. Generates a random token,
+/// joins the WSS relay room, and returns the invite link.
+Future<String> initiateRecoveryPool({required String serverId}) =>
+    RustLib.instance.api.crateApiCrdtInitiateRecoveryPool(serverId: serverId);
+
+/// Join an existing recovery pool via invite link.
+/// Link format: `hollow://recovery?server={server_id}&token={token}`
+Future<void> joinRecoveryPool({required String inviteLink}) =>
+    RustLib.instance.api.crateApiCrdtJoinRecoveryPool(inviteLink: inviteLink);
+
+/// Stop an active recovery pool.
+Future<void> stopRecoveryPool({required String serverId}) =>
+    RustLib.instance.api.crateApiCrdtStopRecoveryPool(serverId: serverId);
+
 /// Delete vault content from a server (admin-only, requires MANAGE_SERVER).
 /// Broadcasts ShardDelete to all connected members and removes local shards.
 Future<void> deleteVaultContent({
@@ -379,4 +400,57 @@ class StorageStatsFfi {
           myUsedBytes == other.myUsedBytes &&
           memberCount == other.memberCount &&
           minPledgeMb == other.minPledgeMb;
+}
+
+/// Status of a single vault file (erasure-coded), returned to Dart for the
+/// Archive tab's shard status indicator.
+class VaultFileStatusFfi {
+  final String contentId;
+  final String fileName;
+  final BigInt originalSize;
+  final int k;
+  final int m;
+  final int localShardCount;
+  final bool isReconstructable;
+  final String channelId;
+  final PlatformInt64 createdAt;
+
+  const VaultFileStatusFfi({
+    required this.contentId,
+    required this.fileName,
+    required this.originalSize,
+    required this.k,
+    required this.m,
+    required this.localShardCount,
+    required this.isReconstructable,
+    required this.channelId,
+    required this.createdAt,
+  });
+
+  @override
+  int get hashCode =>
+      contentId.hashCode ^
+      fileName.hashCode ^
+      originalSize.hashCode ^
+      k.hashCode ^
+      m.hashCode ^
+      localShardCount.hashCode ^
+      isReconstructable.hashCode ^
+      channelId.hashCode ^
+      createdAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is VaultFileStatusFfi &&
+          runtimeType == other.runtimeType &&
+          contentId == other.contentId &&
+          fileName == other.fileName &&
+          originalSize == other.originalSize &&
+          k == other.k &&
+          m == other.m &&
+          localShardCount == other.localShardCount &&
+          isReconstructable == other.isReconstructable &&
+          channelId == other.channelId &&
+          createdAt == other.createdAt;
 }

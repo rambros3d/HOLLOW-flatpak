@@ -66,6 +66,25 @@ Future<ArchiveVerifyResult> verifyArchive({required String archivePath}) =>
 Future<ArchiveData> loadArchive({required String archivePath}) =>
     RustLib.instance.api.crateApiArchiveLoadArchive(archivePath: archivePath);
 
+/// Export all vault shards for a server as a `.hollow-shards` ZIP bundle.
+/// Contains manifest.json + shards/{content_id}/{shard_index}.shard files.
+/// Returns the file size in bytes on success.
+Future<BigInt> exportServerShards({
+  required String serverId,
+  required String outputPath,
+}) => RustLib.instance.api.crateApiArchiveExportServerShards(
+  serverId: serverId,
+  outputPath: outputPath,
+);
+
+/// Import a `.hollow-shards` ZIP bundle. Stores new manifests and shards
+/// that are not already present locally. Returns a summary of what was imported.
+Future<ShardImportResultFfi> importServerShards({
+  required String archivePath,
+}) => RustLib.instance.api.crateApiArchiveImportServerShards(
+  archivePath: archivePath,
+);
+
 /// Channel info for multi-channel (server) archives.
 class ArchiveChannelInfoFfi {
   final String channelId;
@@ -571,4 +590,40 @@ class ArchiveVerifyResult {
           channelName == other.channelName &&
           serverName == other.serverName &&
           channels == other.channels;
+}
+
+/// Result of importing a `.hollow-shards` bundle.
+class ShardImportResultFfi {
+  final String serverId;
+  final int manifestsImported;
+  final int shardsImported;
+  final int shardsSkipped;
+  final int newReconstructable;
+
+  const ShardImportResultFfi({
+    required this.serverId,
+    required this.manifestsImported,
+    required this.shardsImported,
+    required this.shardsSkipped,
+    required this.newReconstructable,
+  });
+
+  @override
+  int get hashCode =>
+      serverId.hashCode ^
+      manifestsImported.hashCode ^
+      shardsImported.hashCode ^
+      shardsSkipped.hashCode ^
+      newReconstructable.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ShardImportResultFfi &&
+          runtimeType == other.runtimeType &&
+          serverId == other.serverId &&
+          manifestsImported == other.manifestsImported &&
+          shardsImported == other.shardsImported &&
+          shardsSkipped == other.shardsSkipped &&
+          newReconstructable == other.newReconstructable;
 }

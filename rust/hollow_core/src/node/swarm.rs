@@ -200,6 +200,16 @@ pub(crate) enum NetworkEvent {
         epoch: u64,
         sframe_key: Vec<u8>,
     },
+    // -- Recovery pool events (Evidence Recovery) --
+    RecoveryPoolCreated { server_id: String, invite_link: String },
+    RecoveryPoolJoined { server_id: String },
+    RecoveryPoolJoinFailed { server_id: String, reason: String },
+    RecoveryPoolMemberJoined { server_id: String, peer_id: String },
+    RecoveryPoolMemberLeft { server_id: String, peer_id: String },
+    RecoveryPoolStatus { server_id: String, total_files: u32, reconstructable: u32, partial: u32, no_shards: u32, progress_pct: f32 },
+    RecoveryPoolShardTransferred { server_id: String, content_id: String, shard_index: u16 },
+    RecoveryPoolFileRecovered { server_id: String, content_id: String, disk_path: String },
+    RecoveryPoolStopped { server_id: String },
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
@@ -338,6 +348,10 @@ pub(crate) enum NodeCommand {
         kind: String,
         shard_index: u16,
     },
+    // -- Recovery pool commands (Evidence Recovery) --
+    InitiateRecoveryPool { server_id: String, token: String },
+    JoinRecoveryPool { server_id: String, token: String },
+    StopRecoveryPool { server_id: String },
 }
 
 // -- Wire protocol types (v2: encrypted) --
@@ -713,6 +727,64 @@ enum HavenMessage {
         #[serde(default)]
         enabled: bool,
     },
+
+    // -- Recovery pool (Evidence Recovery) --
+    // Plaintext messages (not MLS) — no group exists for a dead server.
+
+    /// Sent when a peer joins a recovery pool room.
+    #[serde(rename = "recovery_hello")]
+    RecoveryHello {
+        server_id: String,
+        /// content_ids of vault manifests this peer has locally.
+        #[serde(default)]
+        manifest_ids: Vec<String>,
+        /// JSON: { content_id: [shard_index, ...], ... }
+        #[serde(default)]
+        shard_inventory_json: String,
+    },
+
+    /// Reply from existing pool members to a new joiner.
+    #[serde(rename = "recovery_welcome")]
+    RecoveryWelcome {
+        #[serde(default)]
+        manifest_ids: Vec<String>,
+        #[serde(default)]
+        shard_inventory_json: String,
+    },
+
+    /// Coordinator broadcasts the merged manifest set to all members.
+    #[serde(rename = "recovery_manifest_sync")]
+    RecoveryManifestSync {
+        #[serde(default)]
+        manifests_json: String,
+    },
+
+    /// Coordinator assigns shard transfers: who sends which shard to whom.
+    #[serde(rename = "recovery_transfer_plan")]
+    RecoveryTransferPlan {
+        #[serde(default)]
+        plan_json: String,
+    },
+
+    /// Broadcast when a shard arrives in the pool.
+    #[serde(rename = "recovery_shard_received")]
+    RecoveryShardReceived {
+        #[serde(default)]
+        content_id: String,
+        #[serde(default)]
+        shard_index: u16,
+    },
+
+    /// Coordinator broadcasts pool-wide status update for the dashboard.
+    #[serde(rename = "recovery_status")]
+    RecoveryStatus {
+        #[serde(default)]
+        status_json: String,
+    },
+
+    /// Initiator stops the pool.
+    #[serde(rename = "recovery_stop")]
+    RecoveryStop,
 }
 
 /// Envelope for the plaintext body inside an Encrypted message.
@@ -1921,6 +1993,9 @@ async fn run_event_loop(
 
     // -- WS stream transfer reassembly state (Phase 5.5) --
     let mut pending_ws_transfers: HashMap<String, super::ws_stream_transfer::WsTransferState> = HashMap::new();
+
+    // -- Recovery pool state (Evidence Recovery) --
+    let mut recovery_pool_state: Option<crate::node::recovery_pool::RecoveryPoolState> = None;
 
     // -- CRDT state (Phase 3) --
     // Server states keyed by server_id. Reload from DB so servers survive restarts.
@@ -5906,6 +5981,112 @@ async fn run_event_loop(
                         }
                     }
 
+                    // -- Recovery pool commands (Evidence Recovery) --
+                    NodeCommand::InitiateRecoveryPool { server_id, token } => {
+                        let room_code = format!("recovery:{}:{}", server_id, token);
+                        hollow_log!("[RECOVERY-POOL] Initiating pool for server {} — room {}", server_id, room_code);
+
+                        // Join the WSS relay room for this recovery pool.
+                        let _ = ws_cmd_tx.send(crate::node::ws_client::WsCommand::JoinRoom {
+                            room_code: room_code.clone(),
+                        });
+
+                        // Build local shard inventory.
+                        let data_dir = crate::identity::data_dir().unwrap_or_default();
+                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        let vault_dir = data_dir.join("vault");
+                        let inventory = if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+                            crate::node::recovery_pool::build_local_inventory(&cs, &server_id)
+                        } else {
+                            crate::node::recovery_pool::MemberInventory::empty()
+                        };
+                        let invite_link = format!("hollow://recovery?server={}&token={}", server_id, token);
+
+                        // Initialize pool state.
+                        let pool = crate::node::recovery_pool::RecoveryPoolState::new(
+                            server_id.clone(),
+                            token.clone(),
+                            true,
+                            local_peer_str.clone(),
+                            inventory,
+                        );
+                        recovery_pool_state = Some(pool);
+
+                        let _ = event_tx.send(NetworkEvent::RecoveryPoolCreated {
+                            server_id,
+                            invite_link,
+                        }).await;
+                    }
+                    NodeCommand::JoinRecoveryPool { server_id, token } => {
+                        let room_code = format!("recovery:{}:{}", server_id, token);
+                        hollow_log!("[RECOVERY-POOL] Joining pool for server {} — room {}", server_id, room_code);
+
+                        // Join the WSS relay room.
+                        let _ = ws_cmd_tx.send(crate::node::ws_client::WsCommand::JoinRoom {
+                            room_code: room_code.clone(),
+                        });
+
+                        // Build local inventory and send RecoveryHello.
+                        let data_dir = crate::identity::data_dir().unwrap_or_default();
+                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        let vault_dir = data_dir.join("vault");
+                        let inventory = if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+                            crate::node::recovery_pool::build_local_inventory(&cs, &server_id)
+                        } else {
+                            crate::node::recovery_pool::MemberInventory::empty()
+                        };
+
+                        let hello = HavenMessage::RecoveryHello {
+                            server_id: server_id.clone(),
+                            manifest_ids: inventory.manifest_ids.clone(),
+                            shard_inventory_json: serde_json::to_string(&inventory.shards).unwrap_or_default(),
+                        };
+                        if let Ok(hello_bytes) = serde_json::to_vec(&hello) {
+                            let _ = ws_cmd_tx.send(crate::node::ws_client::WsCommand::SendToRoom {
+                                room_code: room_code.clone(),
+                                data: hello_bytes,
+                            });
+                        }
+
+                        // Initialize pool state (not initiator).
+                        let pool = crate::node::recovery_pool::RecoveryPoolState::new(
+                            server_id.clone(),
+                            token.clone(),
+                            false,
+                            local_peer_str.clone(),
+                            inventory,
+                        );
+                        recovery_pool_state = Some(pool);
+
+                        let _ = event_tx.send(NetworkEvent::RecoveryPoolJoined {
+                            server_id,
+                        }).await;
+                    }
+                    NodeCommand::StopRecoveryPool { server_id } => {
+                        hollow_log!("[RECOVERY-POOL] Stopping pool for server {}", server_id);
+                        if let Some(pool) = recovery_pool_state.take() {
+                            let room_code = format!("recovery:{}:{}", pool.server_id, pool.token);
+                            // Broadcast stop message.
+                            if let Ok(stop_bytes) = serde_json::to_vec(&HavenMessage::RecoveryStop) {
+                                let _ = ws_cmd_tx.send(crate::node::ws_client::WsCommand::SendToRoom {
+                                    room_code: room_code.clone(),
+                                    data: stop_bytes,
+                                });
+                            }
+                            // Leave the room.
+                            let _ = ws_cmd_tx.send(crate::node::ws_client::WsCommand::LeaveRoom {
+                                room_code,
+                            });
+                        }
+                        let _ = event_tx.send(NetworkEvent::RecoveryPoolStopped {
+                            server_id,
+                        }).await;
+                    }
+
                     NodeCommand::NotifyShutdown => {
                         hollow_log!("[HOLLOW-SWARM] Notifying peers of shutdown");
 
@@ -6035,6 +6216,28 @@ async fn run_event_loop(
                     WsEvent::PeerJoined { room, peer_id } => {
                         hollow_log!("[HOLLOW-WS] Peer {peer_id} joined room {room}");
                         ws_room_peers.entry(room.clone()).or_default().insert(peer_id.clone());
+
+                        // Recovery pool: when a peer joins our recovery room, send them our inventory.
+                        if room.starts_with("recovery:") {
+                            if let Some(pool) = recovery_pool_state.as_ref() {
+                                if room == pool.room_code() && peer_id != local_peer_str {
+                                    hollow_log!("[RECOVERY-POOL] Peer {peer_id} joined — sending our inventory");
+                                    if let Some(our_inv) = pool.members.get(&local_peer_str) {
+                                        let welcome = HavenMessage::RecoveryWelcome {
+                                            manifest_ids: our_inv.manifest_ids.clone(),
+                                            shard_inventory_json: serde_json::to_string(&our_inv.shards).unwrap_or_default(),
+                                        };
+                                        if let Ok(bytes) = serde_json::to_vec(&welcome) {
+                                            let _ = ws_cmd_tx.send(crate::node::ws_client::WsCommand::SendDirect {
+                                                room_code: room.clone(),
+                                                target_peer: peer_id.clone(),
+                                                data: bytes,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
                         // Trigger event-driven vault rebalance for this server room.
                         if server_states.contains_key(&room) {
@@ -6248,6 +6451,30 @@ async fn run_event_loop(
                             peers.remove(&peer_id);
                             if peers.is_empty() {
                                 ws_room_peers.remove(&room);
+                            }
+                        }
+
+                        // Recovery pool: track member departure.
+                        if room.starts_with("recovery:") {
+                            if let Some(pool) = recovery_pool_state.as_mut() {
+                                if room == pool.room_code() && peer_id != local_peer_str {
+                                    hollow_log!("[RECOVERY-POOL] Peer {peer_id} left pool");
+                                    pool.remove_member(&peer_id);
+                                    let _ = event_tx.send(NetworkEvent::RecoveryPoolMemberLeft {
+                                        server_id: pool.server_id.clone(),
+                                        peer_id: peer_id.clone(),
+                                    }).await;
+                                    // Update status.
+                                    let status = pool.compute_status();
+                                    let _ = event_tx.send(NetworkEvent::RecoveryPoolStatus {
+                                        server_id: pool.server_id.clone(),
+                                        total_files: status.total_files,
+                                        reconstructable: status.reconstructable,
+                                        partial: status.partial,
+                                        no_shards: status.no_shards,
+                                        progress_pct: status.progress_pct,
+                                    }).await;
+                                }
                             }
                         }
 
@@ -6531,6 +6758,137 @@ async fn run_event_loop(
                                     if !rate_ok {
                                         hollow_log!("[HOLLOW-SECURITY] Rate limited WS peer {from} — dropping message");
                                         continue;
+                                    }
+
+                                    // ── Recovery pool message interception ──
+                                    // Handle recovery messages directly (plaintext, no Olm/MLS).
+                                    let is_recovery = matches!(msg,
+                                        HavenMessage::RecoveryHello { .. }
+                                        | HavenMessage::RecoveryWelcome { .. }
+                                        | HavenMessage::RecoveryManifestSync { .. }
+                                        | HavenMessage::RecoveryTransferPlan { .. }
+                                        | HavenMessage::RecoveryShardReceived { .. }
+                                        | HavenMessage::RecoveryStatus { .. }
+                                        | HavenMessage::RecoveryStop
+                                    );
+                                    if is_recovery {
+                                        if let Some(pool) = recovery_pool_state.as_mut() {
+                                            match msg {
+                                                HavenMessage::RecoveryHello { server_id, manifest_ids, shard_inventory_json } => {
+                                                    if server_id == pool.server_id {
+                                                        hollow_log!("[RECOVERY-POOL] RecoveryHello from {from} — {} manifests", manifest_ids.len());
+                                                        let shards: std::collections::HashMap<String, Vec<u16>> =
+                                                            serde_json::from_str(&shard_inventory_json).unwrap_or_default();
+                                                        let inventory = crate::node::recovery_pool::MemberInventory {
+                                                            manifest_ids: manifest_ids.clone(),
+                                                            shards,
+                                                        };
+                                                        pool.add_member(from.clone(), inventory);
+
+                                                        // Reply with our own inventory as RecoveryWelcome.
+                                                        if let Some(our_inv) = pool.members.get(&local_peer_str) {
+                                                            let welcome = HavenMessage::RecoveryWelcome {
+                                                                manifest_ids: our_inv.manifest_ids.clone(),
+                                                                shard_inventory_json: serde_json::to_string(&our_inv.shards).unwrap_or_default(),
+                                                            };
+                                                            if let Ok(bytes) = serde_json::to_vec(&welcome) {
+                                                                let _ = ws_cmd_tx.send(crate::node::ws_client::WsCommand::SendDirect {
+                                                                    room_code: pool.room_code(),
+                                                                    target_peer: from.clone(),
+                                                                    data: bytes,
+                                                                });
+                                                            }
+                                                        }
+
+                                                        let _ = event_tx.send(NetworkEvent::RecoveryPoolMemberJoined {
+                                                            server_id: pool.server_id.clone(),
+                                                            peer_id: from.clone(),
+                                                        }).await;
+
+                                                        // Broadcast updated status.
+                                                        let status = pool.compute_status();
+                                                        let _ = event_tx.send(NetworkEvent::RecoveryPoolStatus {
+                                                            server_id: pool.server_id.clone(),
+                                                            total_files: status.total_files,
+                                                            reconstructable: status.reconstructable,
+                                                            partial: status.partial,
+                                                            no_shards: status.no_shards,
+                                                            progress_pct: status.progress_pct,
+                                                        }).await;
+                                                    }
+                                                }
+                                                HavenMessage::RecoveryWelcome { manifest_ids, shard_inventory_json } => {
+                                                    hollow_log!("[RECOVERY-POOL] RecoveryWelcome from {from} — {} manifests", manifest_ids.len());
+                                                    let shards: std::collections::HashMap<String, Vec<u16>> =
+                                                        serde_json::from_str(&shard_inventory_json).unwrap_or_default();
+                                                    let inventory = crate::node::recovery_pool::MemberInventory {
+                                                        manifest_ids,
+                                                        shards,
+                                                    };
+                                                    pool.add_member(from.clone(), inventory);
+
+                                                    let _ = event_tx.send(NetworkEvent::RecoveryPoolMemberJoined {
+                                                        server_id: pool.server_id.clone(),
+                                                        peer_id: from.clone(),
+                                                    }).await;
+
+                                                    // Emit updated status with new member's data.
+                                                    let status = pool.compute_status();
+                                                    let _ = event_tx.send(NetworkEvent::RecoveryPoolStatus {
+                                                        server_id: pool.server_id.clone(),
+                                                        total_files: status.total_files,
+                                                        reconstructable: status.reconstructable,
+                                                        partial: status.partial,
+                                                        no_shards: status.no_shards,
+                                                        progress_pct: status.progress_pct,
+                                                    }).await;
+                                                }
+                                                HavenMessage::RecoveryShardReceived { content_id, shard_index } => {
+                                                    hollow_log!("[RECOVERY-POOL] ShardReceived: {content_id}:{shard_index} from {from}");
+                                                    pool.mark_shard_received(&content_id, shard_index);
+
+                                                    let _ = event_tx.send(NetworkEvent::RecoveryPoolShardTransferred {
+                                                        server_id: pool.server_id.clone(),
+                                                        content_id,
+                                                        shard_index,
+                                                    }).await;
+                                                }
+                                                HavenMessage::RecoveryStatus { status_json } => {
+                                                    if let Ok(status) = serde_json::from_str::<crate::node::recovery_pool::PoolStatus>(&status_json) {
+                                                        let _ = event_tx.send(NetworkEvent::RecoveryPoolStatus {
+                                                            server_id: pool.server_id.clone(),
+                                                            total_files: status.total_files,
+                                                            reconstructable: status.reconstructable,
+                                                            partial: status.partial,
+                                                            no_shards: status.no_shards,
+                                                            progress_pct: status.progress_pct,
+                                                        }).await;
+                                                    }
+                                                }
+                                                HavenMessage::RecoveryStop => {
+                                                    hollow_log!("[RECOVERY-POOL] Pool stopped by {from}");
+                                                    let sid = pool.server_id.clone();
+                                                    let room = pool.room_code();
+                                                    recovery_pool_state = None;
+                                                    let _ = ws_cmd_tx.send(crate::node::ws_client::WsCommand::LeaveRoom {
+                                                        room_code: room,
+                                                    });
+                                                    let _ = event_tx.send(NetworkEvent::RecoveryPoolStopped {
+                                                        server_id: sid,
+                                                    }).await;
+                                                }
+                                                // ManifestSync and TransferPlan are coordinator broadcasts —
+                                                // log for now, full shard transfer implementation follows.
+                                                HavenMessage::RecoveryManifestSync { .. } => {
+                                                    hollow_log!("[RECOVERY-POOL] ManifestSync from {from}");
+                                                }
+                                                HavenMessage::RecoveryTransferPlan { .. } => {
+                                                    hollow_log!("[RECOVERY-POOL] TransferPlan from {from}");
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                        continue; // Don't pass to handle_incoming_request.
                                     }
 
                                     handle_incoming_request(

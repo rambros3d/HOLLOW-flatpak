@@ -265,6 +265,16 @@ pub enum NetworkEvent {
         epoch: u64,
         sframe_key: Vec<u8>,
     },
+    // -- Recovery pool events (Evidence Recovery) --
+    RecoveryPoolCreated { server_id: String, invite_link: String },
+    RecoveryPoolJoined { server_id: String },
+    RecoveryPoolJoinFailed { server_id: String, reason: String },
+    RecoveryPoolMemberJoined { server_id: String, peer_id: String },
+    RecoveryPoolMemberLeft { server_id: String, peer_id: String },
+    RecoveryPoolStatus { server_id: String, total_files: u32, reconstructable: u32, partial: u32, no_shards: u32, progress_pct: f32 },
+    RecoveryPoolShardTransferred { server_id: String, content_id: String, shard_index: u16 },
+    RecoveryPoolFileRecovered { server_id: String, content_id: String, disk_path: String },
+    RecoveryPoolStopped { server_id: String },
 }
 
 /// Holds all mutable state for the running node.
@@ -689,6 +699,34 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::MlsEpochChanged { server_id, epoch, sframe_key } => {
             NetworkEvent::MlsEpochChanged { server_id, epoch, sframe_key }
+        }
+        // -- Recovery pool events --
+        node::NetworkEvent::RecoveryPoolCreated { server_id, invite_link } => {
+            NetworkEvent::RecoveryPoolCreated { server_id, invite_link }
+        }
+        node::NetworkEvent::RecoveryPoolJoined { server_id } => {
+            NetworkEvent::RecoveryPoolJoined { server_id }
+        }
+        node::NetworkEvent::RecoveryPoolJoinFailed { server_id, reason } => {
+            NetworkEvent::RecoveryPoolJoinFailed { server_id, reason }
+        }
+        node::NetworkEvent::RecoveryPoolMemberJoined { server_id, peer_id } => {
+            NetworkEvent::RecoveryPoolMemberJoined { server_id, peer_id }
+        }
+        node::NetworkEvent::RecoveryPoolMemberLeft { server_id, peer_id } => {
+            NetworkEvent::RecoveryPoolMemberLeft { server_id, peer_id }
+        }
+        node::NetworkEvent::RecoveryPoolStatus { server_id, total_files, reconstructable, partial, no_shards, progress_pct } => {
+            NetworkEvent::RecoveryPoolStatus { server_id, total_files, reconstructable, partial, no_shards, progress_pct }
+        }
+        node::NetworkEvent::RecoveryPoolShardTransferred { server_id, content_id, shard_index } => {
+            NetworkEvent::RecoveryPoolShardTransferred { server_id, content_id, shard_index }
+        }
+        node::NetworkEvent::RecoveryPoolFileRecovered { server_id, content_id, disk_path } => {
+            NetworkEvent::RecoveryPoolFileRecovered { server_id, content_id, disk_path }
+        }
+        node::NetworkEvent::RecoveryPoolStopped { server_id } => {
+            NetworkEvent::RecoveryPoolStopped { server_id }
         }
     }
 }

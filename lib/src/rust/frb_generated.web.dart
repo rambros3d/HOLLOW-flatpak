@@ -201,6 +201,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<UserProfile> dco_decode_list_user_profile(dynamic raw);
 
   @protected
+  List<VaultFileStatusFfi> dco_decode_list_vault_file_status_ffi(dynamic raw);
+
+  @protected
   MemberFfi dco_decode_member_ffi(dynamic raw);
 
   @protected
@@ -243,6 +246,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ServerFfi dco_decode_server_ffi(dynamic raw);
 
   @protected
+  ShardImportResultFfi dco_decode_shard_import_result_ffi(dynamic raw);
+
+  @protected
   StorageStatsFfi dco_decode_storage_stats_ffi(dynamic raw);
 
   @protected
@@ -280,6 +286,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BigInt dco_decode_usize(dynamic raw);
+
+  @protected
+  VaultFileStatusFfi dco_decode_vault_file_status_ffi(dynamic raw);
 
   @protected
   VideoThumbRef dco_decode_video_thumb_ref(dynamic raw);
@@ -502,6 +511,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<UserProfile> sse_decode_list_user_profile(SseDeserializer deserializer);
 
   @protected
+  List<VaultFileStatusFfi> sse_decode_list_vault_file_status_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   MemberFfi sse_decode_member_ffi(SseDeserializer deserializer);
 
   @protected
@@ -556,6 +570,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ServerFfi sse_decode_server_ffi(SseDeserializer deserializer);
 
   @protected
+  ShardImportResultFfi sse_decode_shard_import_result_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   StorageStatsFfi sse_decode_storage_stats_ffi(SseDeserializer deserializer);
 
   @protected
@@ -597,6 +616,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BigInt sse_decode_usize(SseDeserializer deserializer);
+
+  @protected
+  VaultFileStatusFfi sse_decode_vault_file_status_ffi(
+    SseDeserializer deserializer,
+  );
 
   @protected
   VideoThumbRef sse_decode_video_thumb_ref(SseDeserializer deserializer);
@@ -893,6 +917,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_vault_file_status_ffi(
+    List<VaultFileStatusFfi> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_member_ffi(MemberFfi self, SseSerializer serializer);
 
   @protected
@@ -959,6 +989,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_server_ffi(ServerFfi self, SseSerializer serializer);
 
   @protected
+  void sse_encode_shard_import_result_ffi(
+    ShardImportResultFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_storage_stats_ffi(
     StorageStatsFfi self,
     SseSerializer serializer,
@@ -1011,6 +1047,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_usize(BigInt self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_vault_file_status_ffi(
+    VaultFileStatusFfi self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_video_thumb_ref(VideoThumbRef self, SseSerializer serializer);

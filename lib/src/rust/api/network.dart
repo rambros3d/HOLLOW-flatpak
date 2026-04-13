@@ -960,6 +960,44 @@ sealed class NetworkEvent with _$NetworkEvent {
     required BigInt epoch,
     required Uint8List sframeKey,
   }) = NetworkEvent_MlsEpochChanged;
+  const factory NetworkEvent.recoveryPoolCreated({
+    required String serverId,
+    required String inviteLink,
+  }) = NetworkEvent_RecoveryPoolCreated;
+  const factory NetworkEvent.recoveryPoolJoined({required String serverId}) =
+      NetworkEvent_RecoveryPoolJoined;
+  const factory NetworkEvent.recoveryPoolJoinFailed({
+    required String serverId,
+    required String reason,
+  }) = NetworkEvent_RecoveryPoolJoinFailed;
+  const factory NetworkEvent.recoveryPoolMemberJoined({
+    required String serverId,
+    required String peerId,
+  }) = NetworkEvent_RecoveryPoolMemberJoined;
+  const factory NetworkEvent.recoveryPoolMemberLeft({
+    required String serverId,
+    required String peerId,
+  }) = NetworkEvent_RecoveryPoolMemberLeft;
+  const factory NetworkEvent.recoveryPoolStatus({
+    required String serverId,
+    required int totalFiles,
+    required int reconstructable,
+    required int partial,
+    required int noShards,
+    required double progressPct,
+  }) = NetworkEvent_RecoveryPoolStatus;
+  const factory NetworkEvent.recoveryPoolShardTransferred({
+    required String serverId,
+    required String contentId,
+    required int shardIndex,
+  }) = NetworkEvent_RecoveryPoolShardTransferred;
+  const factory NetworkEvent.recoveryPoolFileRecovered({
+    required String serverId,
+    required String contentId,
+    required String diskPath,
+  }) = NetworkEvent_RecoveryPoolFileRecovered;
+  const factory NetworkEvent.recoveryPoolStopped({required String serverId}) =
+      NetworkEvent_RecoveryPoolStopped;
 }
 
 /// FFI-facing video thumbnail back-reference.

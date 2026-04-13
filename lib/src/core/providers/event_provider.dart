@@ -31,6 +31,7 @@ import 'package:hollow/src/core/providers/system_notification_provider.dart';
 import 'package:hollow/src/core/providers/webrtc_provider.dart';
 import 'package:hollow/src/core/providers/call_provider.dart';
 import 'package:hollow/src/core/providers/voice_channel_provider.dart';
+import 'package:hollow/src/core/providers/recovery_pool_provider.dart';
 import 'package:hollow/src/ui/app.dart' show hollowNavigatorKey;
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
@@ -785,6 +786,36 @@ class EventStreamNotifier extends Notifier<bool> {
             :final serverId, :final epoch, :final sframeKey):
         ref.read(voiceChannelProvider.notifier).onEpochChanged(
               serverId, epoch.toInt(), Uint8List.fromList(sframeKey));
+
+      // -- Recovery pool events --
+      case NetworkEvent_RecoveryPoolCreated(:final serverId, :final inviteLink):
+        ref.read(recoveryPoolProvider.notifier).onPoolCreated(serverId, inviteLink);
+      case NetworkEvent_RecoveryPoolJoined(:final serverId):
+        ref.read(recoveryPoolProvider.notifier).onPoolJoined(serverId);
+      case NetworkEvent_RecoveryPoolJoinFailed(:final serverId, :final reason):
+        debugPrint('[RECOVERY-POOL] Join failed for $serverId: $reason');
+      case NetworkEvent_RecoveryPoolMemberJoined(:final serverId, :final peerId):
+        ref.read(recoveryPoolProvider.notifier).onMemberJoined(serverId, peerId);
+      case NetworkEvent_RecoveryPoolMemberLeft(:final serverId, :final peerId):
+        ref.read(recoveryPoolProvider.notifier).onMemberLeft(serverId, peerId);
+      case NetworkEvent_RecoveryPoolStatus(
+            :final serverId, :final totalFiles, :final reconstructable,
+            :final partial, :final noShards, :final progressPct):
+        ref.read(recoveryPoolProvider.notifier).onStatus(
+          serverId,
+          totalFiles: totalFiles,
+          reconstructable: reconstructable,
+          partial: partial,
+          noShards: noShards,
+          progressPct: progressPct,
+        );
+      case NetworkEvent_RecoveryPoolShardTransferred():
+        break; // Dashboard updates via status events.
+      case NetworkEvent_RecoveryPoolFileRecovered(
+            :final serverId, :final contentId, :final diskPath):
+        ref.read(recoveryPoolProvider.notifier).onFileRecovered(serverId, contentId, diskPath);
+      case NetworkEvent_RecoveryPoolStopped(:final serverId):
+        ref.read(recoveryPoolProvider.notifier).onPoolStopped(serverId);
 
     }
     } catch (e, st) {

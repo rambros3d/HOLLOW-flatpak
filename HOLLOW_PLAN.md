@@ -1716,7 +1716,12 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 - [X] Audio file preview (listening inside the app; same as already working video previews)
 - [X] Look into the logic of GIFs in the chat/profile (comparison; fix the "speedups" bug if present)
 - [X] Add .gif for Save / Conversion of GIF to animated WebP
-- [ ] Evidence Recovery UI tool (cooperative shard gathering for ex-members) — depends on Phase 4 shard system. Feeds into the Archive tab: gathered shards → reconstruct DB slice → view in POV viewer → export as `.hollow-archive` if desired. Design together but implement later — full-replication for images/messages means most historical data is already available without shard recovery, so the Archive tab ships first.
+- [ ] Evidence Recovery Pool (cooperative shard gathering for ex-members of dead servers) — server-wide invite-link-based pool via WSS relay rooms + WebRTC shard transfer. Archive tab → Vault Files tab shows shard status per file (X/k badges). `.hollow-shards` export/import for offline fallback. Recovery Pool dashboard with progress ring, member tracking, live status. Coordinator (lowest peer_id) computes transfer plans. Reed-Solomon reconstruction when k shards gathered.
+  - [X] Phase A: Vault Files tab in Archive — `get_vault_file_statuses` FFI, shard count badges (green/yellow/red), grouped by type, sorted by date
+  - [X] Phase B: Shard export/import — `.hollow-shards` ZIP bundle (manifests + packed shards), export/import dialogs with results summary
+  - [X] Phase C: Recovery Pool backend — `recovery_pool.rs` coordinator module, HavenMessage variants (Hello/Welcome/ManifestSync/TransferPlan/ShardReceived/Status/Stop), NodeCommand handlers, WSS room join/leave, inventory exchange handshake, PeerJoined/PeerLeft tracking, 9 NetworkEvent variants + FFI functions
+  - [X] Phase D: Recovery Pool UI — `recovery_pool_provider.dart`, initiate/join dialogs (with 10s join timeout validation), dashboard (progress ring, stats, members, invite link), Leave/Stop buttons, event dispatch wiring
+  - [ ] Phase E: Shard transfer execution — coordinator broadcasts transfer plan, actual shard byte transfer via WebRTC data channels, reconstruction trigger when k shards reached, `RecoveryPoolFileRecovered` event
 - [ ] **swarm.rs modularization refactor** — split the 12,600-line monolith into focused modules (like the libp2p removal session)
   - [ ] Create `SwarmContext` struct to hold the ~35 shared state variables (peer maps, pending transfers, voice participants, etc.)
   - [ ] Extract `vault_ops.rs` (~1,000 lines) — shard store/retrieve, upload/download pipeline, rebalance/retention timer
@@ -1767,6 +1772,7 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
   - Note: Builds entirely on existing infrastructure — WebRTC data channels (Phase 5A), gossip overlay (Phase 5D), content-addressed storage (Phase 4), chunked transfer protocol. Estimated new code: ~1 Rust module (sharing swarm) + ~1 Dart service + UI tab
 
 - [ ] Check if there is a Search bar in Incoming/Outgoing friend requests
+- [ ] Voice recordings in the chat
 - [ ] Proper roles on the server and editing of permissions
 - [ ] Security of the community servers. To prevent massive spam/abuse in terms of files and such - add for example OAuth for Twitch and allow the server joining if you're a follower for 1 day or something (use Twitch API like for getting the follow: https://dev.twitch.tv/docs/api/reference#get-followed-channels)
 - [ ] Discord import system (full implementation — parse GDPR export ZIP, map servers/channels/roles/messages, placeholder identities, member claiming) == reflect to the discord_migration_plan.md

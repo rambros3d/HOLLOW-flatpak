@@ -20,7 +20,7 @@ final archiveSubTabProvider =
     StateProvider<ArchiveSubTab>((ref) => ArchiveSubTab.myData);
 
 /// Which inner tab is active in "My Data".
-enum MyDataInnerTab { dms, channels }
+enum MyDataInnerTab { dms, channels, vaultFiles }
 
 final myDataInnerTabProvider =
     StateProvider<MyDataInnerTab>((ref) => MyDataInnerTab.dms);

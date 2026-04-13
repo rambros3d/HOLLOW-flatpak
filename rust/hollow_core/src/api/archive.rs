@@ -467,3 +467,273 @@ pub fn load_archive(archive_path: String) -> Result<ArchiveData, String> {
         files_dir: loaded.files_dir,
     })
 }
+
+// ── Shard export/import (Evidence Recovery Phase B) ─────────────
+
+/// Result of importing a `.hollow-shards` bundle.
+pub struct ShardImportResultFfi {
+    pub server_id: String,
+    pub manifests_imported: u32,
+    pub shards_imported: u32,
+    pub shards_skipped: u32,
+    pub new_reconstructable: u32,
+}
+
+/// Export all vault shards for a server as a `.hollow-shards` ZIP bundle.
+/// Contains manifest.json + shards/{content_id}/{shard_index}.shard files.
+/// Returns the file size in bytes on success.
+#[frb]
+pub fn export_server_shards(
+    server_id: String,
+    output_path: String,
+) -> Result<u64, String> {
+    let hollow_dir = crate::identity::data_dir()?;
+    let db_path = hollow_dir
+        .join("messages.db")
+        .to_str()
+        .ok_or("Invalid path")?
+        .to_string();
+
+    let id = crate::identity::load_or_create_identity()?;
+    let proto = id
+        .keypair
+        .to_protobuf_encoding()
+        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+
+    let vault_dir = hollow_dir.join("vault");
+    let content_store =
+        crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir)
+            .map_err(|e| format!("Failed to open content store: {e}"))?;
+
+    let manifests = content_store.list_manifests(&server_id).unwrap_or_default();
+    let shards = content_store.list_shards(&server_id).unwrap_or_default();
+
+    // Build bundle manifest JSON.
+    let manifests_json = serde_json::to_string(&manifests)
+        .map_err(|e| format!("Failed to serialize manifests: {e}"))?;
+    let bundle_manifest = serde_json::json!({
+        "format_version": 1,
+        "server_id": server_id,
+        "exporter_peer_id": id.peer_id.to_string(),
+        "timestamp": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        "shard_count": shards.len(),
+        "manifest_count": manifests.len(),
+        "manifests": serde_json::from_str::<serde_json::Value>(&manifests_json)
+            .unwrap_or(serde_json::Value::Array(vec![])),
+    });
+    let bundle_manifest_bytes = serde_json::to_vec_pretty(&bundle_manifest)
+        .map_err(|e| format!("Failed to serialize bundle manifest: {e}"))?;
+
+    // Write ZIP.
+    let mut zip_buf = std::io::Cursor::new(Vec::new());
+    {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(&mut zip_buf);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+
+        // manifest.json
+        zip.start_file("manifest.json", options)
+            .map_err(|e| format!("Zip error: {e}"))?;
+        zip.write_all(&bundle_manifest_bytes)
+            .map_err(|e| format!("Zip write error: {e}"))?;
+
+        // shards/{content_id}/{shard_index}.shard
+        for shard in &shards {
+            let data = content_store
+                .read_shard_unchecked(&server_id, &shard.shard_key);
+            if let Ok(data) = data {
+                let path = format!(
+                    "shards/{}/{}.shard",
+                    shard.content_id, shard.shard_index
+                );
+                zip.start_file(path, options)
+                    .map_err(|e| format!("Zip error: {e}"))?;
+                zip.write_all(&data)
+                    .map_err(|e| format!("Zip write error: {e}"))?;
+            }
+        }
+
+        zip.finish().map_err(|e| format!("Zip finish error: {e}"))?;
+    }
+
+    let bytes = zip_buf.into_inner();
+    let size = bytes.len() as u64;
+    std::fs::write(&output_path, &bytes)
+        .map_err(|e| format!("Failed to write shards bundle: {e}"))?;
+    Ok(size)
+}
+
+/// Import a `.hollow-shards` ZIP bundle. Stores new manifests and shards
+/// that are not already present locally. Returns a summary of what was imported.
+#[frb]
+pub fn import_server_shards(archive_path: String) -> Result<ShardImportResultFfi, String> {
+    use std::io::Read;
+
+    let zip_bytes = std::fs::read(&archive_path)
+        .map_err(|e| format!("Failed to read shards bundle: {e}"))?;
+
+    let cursor = std::io::Cursor::new(&zip_bytes);
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|e| format!("Failed to open ZIP: {e}"))?;
+
+    // Read bundle manifest.
+    let bundle_manifest: serde_json::Value = {
+        let mut entry = archive
+            .by_name("manifest.json")
+            .map_err(|e| format!("Missing manifest.json: {e}"))?;
+        let mut buf = Vec::new();
+        entry
+            .read_to_end(&mut buf)
+            .map_err(|e| format!("Failed to read manifest.json: {e}"))?;
+        serde_json::from_slice(&buf)
+            .map_err(|e| format!("Invalid manifest.json: {e}"))?
+    };
+
+    let server_id = bundle_manifest["server_id"]
+        .as_str()
+        .ok_or("manifest.json missing server_id")?
+        .to_string();
+
+    // Open content store.
+    let hollow_dir = crate::identity::data_dir()?;
+    let db_path = hollow_dir
+        .join("messages.db")
+        .to_str()
+        .ok_or("Invalid path")?
+        .to_string();
+
+    let id = crate::identity::load_or_create_identity()?;
+    let proto = id
+        .keypair
+        .to_protobuf_encoding()
+        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+
+    let vault_dir = hollow_dir.join("vault");
+    let content_store =
+        crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir)
+            .map_err(|e| format!("Failed to open content store: {e}"))?;
+
+    // Import manifests.
+    let mut manifests_imported = 0u32;
+    if let Some(manifests_arr) = bundle_manifest["manifests"].as_array() {
+        for manifest_val in manifests_arr {
+            if let Ok(manifest) =
+                serde_json::from_value::<crate::vault::pipeline::VaultManifest>(
+                    manifest_val.clone(),
+                )
+            {
+                let _ = content_store.save_manifest(
+                    &server_id,
+                    &manifest.channel_id,
+                    &manifest,
+                );
+                manifests_imported += 1;
+            }
+        }
+    }
+
+    // Import shards.
+    let mut shards_imported = 0u32;
+    let mut shards_skipped = 0u32;
+
+    // Collect shard file names first (ZipArchive needs index-based access).
+    let shard_entries: Vec<(String, usize)> = (0..archive.len())
+        .filter_map(|i| {
+            let name = archive.by_index(i).ok()?.name().to_string();
+            if name.starts_with("shards/") && name.ends_with(".shard") {
+                Some((name, i))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    for (name, idx) in &shard_entries {
+        // Parse path: shards/{content_id}/{shard_index}.shard
+        let parts: Vec<&str> = name.split('/').collect();
+        if parts.len() != 3 {
+            continue;
+        }
+        let cid = parts[1];
+        let shard_index_str = parts[2].trim_end_matches(".shard");
+        let shard_index: u16 = match shard_index_str.parse() {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        // Check if we already have this shard.
+        let shard_key = crate::vault::content_store::shard_key(cid, shard_index);
+        if content_store.has_shard(&shard_key).unwrap_or(false) {
+            shards_skipped += 1;
+            continue;
+        }
+
+        // Read shard data from ZIP.
+        let mut entry = match archive.by_index(*idx) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let mut data = Vec::new();
+        if entry.read_to_end(&mut data).is_err() {
+            continue;
+        }
+
+        // We need k, m, total_data_size from the manifest for this content_id.
+        // Try to find it in the bundle's manifests.
+        let manifest_info = bundle_manifest["manifests"]
+            .as_array()
+            .and_then(|arr| {
+                arr.iter().find(|m| m["content_id"].as_str() == Some(cid))
+            });
+
+        let (k, m, total_data_size, tier) = if let Some(m) = manifest_info {
+            (
+                m["k"].as_u64().unwrap_or(3) as u16,
+                m["m"].as_u64().unwrap_or(2) as u16,
+                m["original_size"].as_u64().unwrap_or(0),
+                crate::vault::content_store::StorageTier::from_str(
+                    m["storage_tier"].as_str().unwrap_or("standard"),
+                ),
+            )
+        } else {
+            // Fallback: skip shards without manifests.
+            continue;
+        };
+
+        if content_store
+            .store_shard(&server_id, cid, shard_index, k, m, total_data_size, tier, &data)
+            .is_ok()
+        {
+            shards_imported += 1;
+        }
+    }
+
+    // Count how many files are now newly reconstructable.
+    let manifests = content_store.list_manifests(&server_id).unwrap_or_default();
+    let mut new_reconstructable = 0u32;
+    for manifest in &manifests {
+        if manifest.k == 0 && manifest.m == 0 {
+            continue;
+        }
+        let local = content_store
+            .list_content_shards(&server_id, &manifest.content_id)
+            .unwrap_or_default();
+        if local.len() as u16 >= manifest.k {
+            new_reconstructable += 1;
+        }
+    }
+
+    Ok(ShardImportResultFfi {
+        server_id,
+        manifests_imported,
+        shards_imported,
+        shards_skipped,
+        new_reconstructable,
+    })
+}

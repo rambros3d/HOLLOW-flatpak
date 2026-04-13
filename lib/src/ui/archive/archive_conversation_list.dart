@@ -47,32 +47,44 @@ class ArchiveConversationList extends ConsumerWidget {
                       MyDataInnerTab.channels,
                 ),
               ),
+              const SizedBox(width: HollowSpacing.xs),
+              Expanded(
+                child: _TabPill(
+                  label: 'Vault Files',
+                  isSelected: innerTab == MyDataInnerTab.vaultFiles,
+                  onTap: () => ref.read(myDataInnerTabProvider.notifier).state =
+                      MyDataInnerTab.vaultFiles,
+                ),
+              ),
             ],
           ),
         ),
 
-        // ── Search field ──
-        Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: HollowSpacing.md,
-            vertical: HollowSpacing.xs,
+        // ── Search field (not shown for Vault Files tab) ──
+        if (innerTab != MyDataInnerTab.vaultFiles)
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: HollowSpacing.md,
+              vertical: HollowSpacing.xs,
+            ),
+            child: HollowTextField(
+              hintText: 'Search...',
+              isDense: true,
+              prefixIcon: Icon(LucideIcons.search, size: 14, color: hollow.textSecondary),
+              onChanged: (val) =>
+                  ref.read(archiveSearchProvider.notifier).state = val,
+            ),
           ),
-          child: HollowTextField(
-            hintText: 'Search...',
-            isDense: true,
-            prefixIcon: Icon(LucideIcons.search, size: 14, color: hollow.textSecondary),
-            onChanged: (val) =>
-                ref.read(archiveSearchProvider.notifier).state = val,
-          ),
-        ),
 
         const SizedBox(height: HollowSpacing.xs),
 
-        // ── Conversation list ──
+        // ── Content list ──
         Expanded(
-          child: innerTab == MyDataInnerTab.dms
-              ? const _DmList()
-              : const _ChannelList(),
+          child: switch (innerTab) {
+            MyDataInnerTab.dms => const _DmList(),
+            MyDataInnerTab.channels => const _ChannelList(),
+            MyDataInnerTab.vaultFiles => const _VaultFilesPlaceholder(),
+          },
         ),
       ],
     );
@@ -450,4 +462,25 @@ class _ChannelListItem {
       : isHeader = false,
         headerName = null,
         group = null;
+}
+
+// ── Vault files list (Evidence Recovery Phase A) ────────────────
+
+class _VaultFilesPlaceholder extends StatelessWidget {
+  const _VaultFilesPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+    return Padding(
+      padding: const EdgeInsets.all(HollowSpacing.lg),
+      child: Text(
+        'Vault file details are shown in the right panel.',
+        style: HollowTypography.caption.copyWith(
+          color: hollow.textSecondary,
+          fontSize: 11,
+        ),
+      ),
+    );
+  }
 }

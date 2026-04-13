@@ -37,6 +37,20 @@ pub struct StorageStatsFfi {
     pub min_pledge_mb: u64,
 }
 
+/// Status of a single vault file (erasure-coded), returned to Dart for the
+/// Archive tab's shard status indicator.
+pub struct VaultFileStatusFfi {
+    pub content_id: String,
+    pub file_name: String,
+    pub original_size: u64,
+    pub k: u16,
+    pub m: u16,
+    pub local_shard_count: u16,
+    pub is_reconstructable: bool,
+    pub channel_id: String,
+    pub created_at: i64,
+}
+
 /// Create a new server. Returns the server_id.
 #[frb]
 pub fn create_server(name: String) -> Result<String, String> {
@@ -707,6 +721,143 @@ pub fn get_storage_stats(server_id: String) -> Result<StorageStatsFfi, String> {
         member_count,
         min_pledge_mb,
     })
+}
+
+/// Get vault file statuses for a server — shows which erasure-coded files
+/// exist, how many shards are held locally, and whether each is reconstructable.
+/// Used by the Archive tab's shard status indicator (Evidence Recovery).
+#[frb]
+pub fn get_vault_file_statuses(server_id: String) -> Result<Vec<VaultFileStatusFfi>, String> {
+    let hollow_dir = crate::identity::data_dir()?;
+    let db_path = hollow_dir
+        .join("messages.db")
+        .to_str()
+        .ok_or("Invalid path")?
+        .to_string();
+
+    let id = crate::identity::load_or_create_identity()?;
+    let proto = id
+        .keypair
+        .to_protobuf_encoding()
+        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+
+    let vault_dir = hollow_dir.join("vault");
+    let content_store =
+        crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir)
+            .map_err(|e| format!("Failed to open content store: {e}"))?;
+
+    let manifests = content_store
+        .list_manifests(&server_id)
+        .unwrap_or_default();
+
+    let mut result = Vec::new();
+    for manifest in manifests {
+        // Skip full-replication files (k=0, m=0) — those are fully P2P replicated.
+        if manifest.k == 0 && manifest.m == 0 {
+            continue;
+        }
+        let local_shards = content_store
+            .list_content_shards(&server_id, &manifest.content_id)
+            .unwrap_or_default();
+        let local_count = local_shards.len() as u16;
+
+        result.push(VaultFileStatusFfi {
+            content_id: manifest.content_id,
+            file_name: manifest.file_name,
+            original_size: manifest.original_size,
+            k: manifest.k,
+            m: manifest.m,
+            local_shard_count: local_count,
+            is_reconstructable: local_count >= manifest.k,
+            channel_id: manifest.channel_id,
+            created_at: manifest.created_at,
+        });
+    }
+
+    Ok(result)
+}
+
+// ── Recovery pool commands (Evidence Recovery) ──────────────────
+
+/// Initiate a recovery pool for a server. Generates a random token,
+/// joins the WSS relay room, and returns the invite link.
+#[frb]
+pub fn initiate_recovery_pool(server_id: String) -> Result<String, String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    // Generate random 16-char hex token.
+    let mut token_bytes = [0u8; 8];
+    getrandom::fill(&mut token_bytes)
+        .map_err(|e| format!("Failed to generate token: {e}"))?;
+    let token = hex::encode(token_bytes);
+
+    let invite_link = format!("hollow://recovery?server={}&token={}", server_id, token);
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::InitiateRecoveryPool {
+            server_id,
+            token,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(invite_link)
+}
+
+/// Join an existing recovery pool via invite link.
+/// Link format: `hollow://recovery?server={server_id}&token={token}`
+#[frb]
+pub fn join_recovery_pool(invite_link: String) -> Result<(), String> {
+    // Parse the invite link.
+    let server_id = invite_link
+        .split("server=")
+        .nth(1)
+        .and_then(|s| s.split('&').next())
+        .ok_or("Invalid invite link: missing server")?
+        .to_string();
+    let token = invite_link
+        .split("token=")
+        .nth(1)
+        .and_then(|s| s.split('&').next())
+        .ok_or("Invalid invite link: missing token")?
+        .to_string();
+
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::JoinRecoveryPool {
+            server_id,
+            token,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Stop an active recovery pool.
+#[frb]
+pub fn stop_recovery_pool(server_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::StopRecoveryPool {
+            server_id,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
 }
 
 /// Delete vault content from a server (admin-only, requires MANAGE_SERVER).

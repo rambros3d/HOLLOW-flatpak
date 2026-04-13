@@ -2,6 +2,7 @@ pub(crate) mod file_transfer;
 pub(crate) mod gossip;
 pub(crate) mod image_convert;
 pub(crate) mod link_preview;
+pub(crate) mod recovery_pool;
 pub(crate) mod signaling;
 pub(crate) mod ws_stream_transfer;
 mod swarm;
