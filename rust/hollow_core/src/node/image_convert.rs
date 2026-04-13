@@ -1,7 +1,9 @@
 //! Image conversion utilities — WebP encoding for file sharing, avatars, and banners.
 
+use image::codecs::gif::GifDecoder;
 use image::imageops::FilterType;
-use image::ImageFormat;
+use image::{AnimationDecoder, ImageFormat};
+use std::io::Cursor;
 
 /// User-configurable image quality tier for the outgoing image pipeline.
 ///
@@ -235,6 +237,84 @@ pub fn strip_gif_metadata(data: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Convert an animated GIF to animated WebP at the given quality tier.
+///
+/// Decodes each GIF frame (the `image` crate handles disposal methods and
+/// compositing), then encodes into animated WebP via `webp_animation::Encoder`.
+/// Frame delays are preserved with the browser convention: delays < 20ms are
+/// treated as 100ms (matching `animated_gif_image.dart`).
+///
+/// All quality tiers convert — even lossless WebP beats GIF's LZW compression.
+///
+/// Returns `(webp_bytes, width, height)`.
+pub fn convert_gif_to_animated_webp(
+    data: &[u8],
+    quality: WebpQuality,
+) -> Result<(Vec<u8>, u32, u32), String> {
+    let decoder = GifDecoder::new(Cursor::new(data))
+        .map_err(|e| format!("Failed to decode GIF: {e}"))?;
+    let frames = decoder
+        .into_frames()
+        .collect_frames()
+        .map_err(|e| format!("Failed to collect GIF frames: {e}"))?;
+
+    if frames.is_empty() {
+        return Err("GIF has no frames".into());
+    }
+
+    let (w, h) = (frames[0].buffer().width(), frames[0].buffer().height());
+    if w == 0 || h == 0 {
+        return Err("GIF has zero dimensions".into());
+    }
+
+    let encoding_config = match quality {
+        WebpQuality::Lossless => webp_animation::EncodingConfig {
+            encoding_type: webp_animation::EncodingType::Lossless,
+            ..Default::default()
+        },
+        WebpQuality::Balanced => webp_animation::EncodingConfig {
+            quality: 50.0,
+            encoding_type: webp_animation::EncodingType::Lossy(Default::default()),
+            ..Default::default()
+        },
+        WebpQuality::Small => webp_animation::EncodingConfig {
+            quality: 30.0,
+            encoding_type: webp_animation::EncodingType::Lossy(Default::default()),
+            ..Default::default()
+        },
+    };
+
+    let mut encoder = webp_animation::Encoder::new_with_options(
+        (w, h),
+        webp_animation::EncoderOptions {
+            encoding_config: Some(encoding_config),
+            ..Default::default()
+        },
+    )
+    .map_err(|e| format!("Failed to create WebP encoder: {e}"))?;
+
+    let mut timestamp_ms: i32 = 0;
+
+    for frame in &frames {
+        let rgba = frame.buffer();
+        encoder
+            .add_frame(rgba.as_raw(), timestamp_ms)
+            .map_err(|e| format!("Failed to add WebP frame: {e}"))?;
+
+        // Extract frame delay — browser convention: < 20ms → 100ms.
+        let delay: std::time::Duration = frame.delay().into();
+        let delay_ms = delay.as_millis() as i32;
+        let effective_delay = if delay_ms < 20 { 100 } else { delay_ms };
+        timestamp_ms += effective_delay;
+    }
+
+    let webp_data = encoder
+        .finalize(timestamp_ms)
+        .map_err(|e| format!("Failed to finalize animated WebP: {e}"))?;
+
+    Ok((webp_data.to_vec(), w, h))
+}
+
 /// Convert image bytes to lossless WebP.
 /// Returns (webp_bytes, width, height).
 pub fn convert_to_webp_lossless(data: &[u8]) -> Result<(Vec<u8>, u32, u32), String> {
@@ -453,6 +533,82 @@ mod tests {
             small.len(),
             balanced.len()
         );
+    }
+
+    /// Build a minimal 2-frame animated GIF in memory for test input.
+    fn make_test_gif(w: u32, h: u32) -> Vec<u8> {
+        use image::codecs::gif::GifEncoder;
+        use image::{Delay, Frame, Rgba, RgbaImage};
+
+        let frame1 = RgbaImage::from_pixel(w, h, Rgba([255, 0, 0, 255]));
+        let frame2 = RgbaImage::from_pixel(w, h, Rgba([0, 0, 255, 255]));
+
+        let mut buf = Vec::new();
+        {
+            let mut encoder = GifEncoder::new(&mut buf);
+            encoder
+                .set_repeat(image::codecs::gif::Repeat::Infinite)
+                .unwrap();
+            encoder
+                .encode_frame(Frame::from_parts(
+                    frame1,
+                    0,
+                    0,
+                    Delay::from_numer_denom_ms(100, 1),
+                ))
+                .unwrap();
+            encoder
+                .encode_frame(Frame::from_parts(
+                    frame2,
+                    0,
+                    0,
+                    Delay::from_numer_denom_ms(100, 1),
+                ))
+                .unwrap();
+        }
+        buf
+    }
+
+    #[test]
+    fn gif_to_animated_webp_balanced() {
+        let gif = make_test_gif(64, 48);
+        let (webp_bytes, w, h) =
+            convert_gif_to_animated_webp(&gif, WebpQuality::Balanced).expect("encode");
+        assert_eq!(w, 64);
+        assert_eq!(h, 48);
+        // WebP magic bytes: starts with "RIFF" ... "WEBP".
+        assert!(webp_bytes.len() > 12);
+        assert_eq!(&webp_bytes[0..4], b"RIFF");
+        assert_eq!(&webp_bytes[8..12], b"WEBP");
+    }
+
+    #[test]
+    fn gif_to_animated_webp_small() {
+        let gif = make_test_gif(64, 48);
+        let (webp_bytes, w, h) =
+            convert_gif_to_animated_webp(&gif, WebpQuality::Small).expect("encode");
+        assert_eq!(w, 64);
+        assert_eq!(h, 48);
+        assert!(webp_bytes.len() > 12);
+        assert_eq!(&webp_bytes[0..4], b"RIFF");
+    }
+
+    #[test]
+    fn gif_to_animated_webp_lossless() {
+        let gif = make_test_gif(64, 48);
+        let (webp_bytes, w, h) =
+            convert_gif_to_animated_webp(&gif, WebpQuality::Lossless).expect("encode");
+        assert_eq!(w, 64);
+        assert_eq!(h, 48);
+        assert!(webp_bytes.len() > 12);
+        assert_eq!(&webp_bytes[0..4], b"RIFF");
+        assert_eq!(&webp_bytes[8..12], b"WEBP");
+    }
+
+    #[test]
+    fn gif_to_animated_webp_rejects_invalid() {
+        let result = convert_gif_to_animated_webp(b"not a gif", WebpQuality::Balanced);
+        assert!(result.is_err());
     }
 
 }

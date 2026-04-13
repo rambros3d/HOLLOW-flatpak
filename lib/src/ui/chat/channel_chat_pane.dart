@@ -655,8 +655,9 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     _isPicking = true;
     try {
       final isImage = attachment.isImage;
+      final isGif = attachment.fileExt.toLowerCase() == 'gif';
       final allowedExtensions = isImage
-          ? ['png', 'jpg', 'jpeg', 'webp']
+          ? ['png', 'jpg', 'jpeg', 'webp', 'gif']
           : [attachment.fileExt];
 
       final baseName = attachment.fileName.contains('.')
@@ -665,7 +666,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
 
       final savePath = await FilePicker.platform.saveFile(
         dialogTitle: 'Save file',
-        fileName: isImage ? '$baseName.png' : attachment.fileName,
+        fileName: isImage ? (isGif ? '$baseName.gif' : '$baseName.png') : attachment.fileName,
         type: FileType.custom,
         allowedExtensions: allowedExtensions,
       );
@@ -892,8 +893,9 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     _isPicking = true;
     try {
       final isImage = attachment.isImage;
+      final isGif = attachment.fileExt.toLowerCase() == 'gif';
       final allowedExtensions = isImage
-          ? ['png', 'jpg', 'jpeg', 'webp']
+          ? ['png', 'jpg', 'jpeg', 'webp', 'gif']
           : [attachment.fileExt];
 
       final baseName = attachment.fileName.contains('.')
@@ -902,7 +904,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
 
       final savePath = await FilePicker.platform.saveFile(
         dialogTitle: 'Save file',
-        fileName: isImage ? '$baseName.png' : attachment.fileName,
+        fileName: isImage ? (isGif ? '$baseName.gif' : '$baseName.png') : attachment.fileName,
         type: FileType.custom,
         allowedExtensions: allowedExtensions,
       );

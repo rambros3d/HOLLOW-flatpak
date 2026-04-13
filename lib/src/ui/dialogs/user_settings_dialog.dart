@@ -2195,7 +2195,7 @@ class _ImageQualitySelector extends ConsumerWidget {
         ),
         const SizedBox(height: HollowSpacing.sm),
         Text(
-          'All images are converted to WebP to save bandwidth and storage. '
+          'Images and GIFs are converted to WebP to save bandwidth and storage. '
           'Receivers can still save them as PNG, JPG, etc.',
           style: HollowTypography.caption.copyWith(
             color: hollow.textSecondary.withValues(alpha: 0.7),

@@ -4858,7 +4858,7 @@ async fn run_event_loop(
                         // Lossless (100%) / Balanced (50%, default) / Small (30%).
                         // We read the setting from app_settings each send — a single
                         // SQLite KV lookup so the cost is negligible. Bypass rules:
-                        //   - GIFs are never re-encoded (preserve animation)
+                        //   - GIFs → animated WebP at all tiers (even lossless beats GIF)
                         //   - WebP inputs pass through untouched (already encoded)
                         // No size-based bypass: even tiny 20 KB PNGs routinely drop
                         // to 2-3 KB at Q=50 (~90% reduction), and "tiny × millions of
@@ -4901,10 +4901,26 @@ async fn run_event_loop(
                             let dims = image_convert::get_image_dimensions(&stripped).ok();
                             (stripped, original_ext.clone(), dims.map(|d| d.0), dims.map(|d| d.1))
                         } else if is_image && original_ext == "gif" {
-                            // GIF passthrough — strip EXIF/metadata while preserving animation.
-                            let stripped = image_convert::strip_gif_metadata(&file_data);
-                            let dims = image_convert::get_image_dimensions(&stripped).ok();
-                            (stripped, original_ext.clone(), dims.map(|d| d.0), dims.map(|d| d.1))
+                            // GIF → animated WebP at all quality tiers (even lossless
+                            // WebP beats GIF's LZW compression).
+                            match image_convert::convert_gif_to_animated_webp(&file_data, webp_quality) {
+                                Ok((webp_data, w, h)) => {
+                                    hollow_log!(
+                                        "[HOLLOW-FILE] Converted GIF to animated WebP ({:?}): {}KB -> {}KB ({}x{})",
+                                        webp_quality, file_data.len() / 1024, webp_data.len() / 1024, w, h
+                                    );
+                                    (webp_data, "webp".to_string(), Some(w), Some(h))
+                                }
+                                Err(e) => {
+                                    // Fallback: strip metadata and send as GIF.
+                                    hollow_log!(
+                                        "[HOLLOW-FILE] GIF->WebP conversion failed, sending as GIF: {e}"
+                                    );
+                                    let stripped = image_convert::strip_gif_metadata(&file_data);
+                                    let dims = image_convert::get_image_dimensions(&stripped).ok();
+                                    (stripped, original_ext.clone(), dims.map(|d| d.0), dims.map(|d| d.1))
+                                }
+                            }
                         } else {
                             // Non-image files: use Dart-supplied dimensions if any (Phase 6.75
                             // video preview passes the source video's dimensions through here).
