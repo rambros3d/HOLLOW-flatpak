@@ -32,7 +32,25 @@ HOLLOW/
 ├── rust/hollow_core/      # Rust library crate (networking, crypto, storage)
 │   └── src/
 │       ├── api/          # FFI layer (flutter_rust_bridge scans these)
-│       ├── node/         # WS relay client, signaling, event loop (swarm.rs)
+│       ├── node/         # Networking modules (modularized from swarm.rs monolith)
+│       │   ├── swarm.rs         # Event loop dispatcher + handle_incoming_request (~7.2k lines)
+│       │   ├── types.rs         # NetworkEvent, NodeCommand, HavenMessage, MessageEnvelope, helper structs
+│       │   ├── crypto_handler.rs # Signing, Olm/MLS encryption, key exchange, coordinator election
+│       │   ├── sync_handler.rs  # CRDT ops, server/channel CRUD, member management, sync
+│       │   ├── message_ops.rs   # Send/edit/delete messages, emoji reactions (DMs + channels)
+│       │   ├── social.rs        # Friends, profiles, typing indicators
+│       │   ├── vault_ops.rs     # Vault shard storage, upload/download, recovery pool
+│       │   ├── file_handler.rs  # File send/receive, stream handling, WebRTC transfers
+│       │   ├── voice_handler.rs # Voice channels, 1:1 calls, WebRTC signaling
+│       │   ├── gossip_relay.rs  # Gossip broadcast, peer exchange, timer handlers
+│       │   ├── gossip.rs        # GossipOverlay, PeerScore, neighbor selection
+│       │   ├── ws_client.rs     # WebSocket relay client
+│       │   ├── ws_stream_transfer.rs # Binary stream reassembly
+│       │   ├── signaling.rs     # Bootstrap peer discovery
+│       │   ├── file_transfer.rs # File chunking utilities
+│       │   ├── recovery_pool.rs # Recovery pool state management
+│       │   ├── image_convert.rs # WebP conversion
+│       │   └── link_preview.rs  # URL link preview fetching
 │       ├── crypto/       # Olm encryption + MLS + persistence
 │       ├── identity/     # Ed25519 keypair management (native_identity.rs, keys.rs)
 │       └── storage/      # SQLCipher message store
@@ -76,6 +94,7 @@ All UI uses custom Hollow widgets — no Material defaults.
 - **StatusDot:** Optional `pulse` for breathing glow (3s cycle).
 
 ## Key Architecture Notes
+- **Node module structure:** `swarm.rs` is the event loop dispatcher; domain logic lives in focused modules (`crypto_handler`, `sync_handler`, `message_ops`, `social`, `vault_ops`, `file_handler`, `voice_handler`, `gossip_relay`). Types/enums are in `types.rs`. Each module exports `pub(crate) async fn handle_*()` functions called from swarm.rs match arms. Functions take individual state variables as parameters (no SwarmContext struct — deferred due to borrow checker constraints with crypto helpers).
 - **Peer state tracking in swarm.rs:** `ws_room_peers` (room → peer set), `synced_peers` (HashSet<String>). WS PeerJoined triggers key exchange + sync. 30s keepalive ping in ws_client.rs.
 - **Event streaming:** Rust→Dart via `StreamSink` (flutter_rust_bridge). `watch_network_events()` in `api/network.rs`, `EventStreamNotifier` in `event_provider.dart`.
 - **Navigation shell:** Two layout modes (persisted via `layoutModeProvider`):

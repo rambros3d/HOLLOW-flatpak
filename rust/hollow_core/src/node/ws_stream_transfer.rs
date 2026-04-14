@@ -60,37 +60,6 @@ pub fn stream_progress() -> &'static std::sync::Mutex<HashMap<String, StreamProg
     INSTANCE.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
-/// Create an outbound file stream request (reads encrypted file from disk).
-pub fn file_stream_request(file_id: &str, encrypted_path: PathBuf, size: u64) -> StreamRequest {
-    StreamRequest {
-        kind: StreamKind::File,
-        id: file_id.to_string(),
-        size,
-        temp_path: encrypted_path,
-    }
-}
-
-/// Create an outbound shard stream request (writes shard bytes to temp file first).
-pub fn shard_stream_request(
-    content_id: &str,
-    shard_index: u16,
-    shard_data: &[u8],
-) -> Result<StreamRequest, String> {
-    let temp_dir = files_dir();
-    let safe_prefix = &content_id[..16.min(content_id.len())];
-    let temp_name = format!(".stream_shard_{}_{}.tmp", safe_prefix, shard_index);
-    let temp_path = temp_dir.join(&temp_name);
-    std::fs::write(&temp_path, shard_data)
-        .map_err(|e| format!("Write shard temp file: {e}"))?;
-
-    Ok(StreamRequest {
-        kind: StreamKind::Shard { shard_index },
-        id: content_id.to_string(),
-        size: shard_data.len() as u64,
-        temp_path,
-    })
-}
-
 // ─────────────────────────────────────────────────────────────
 
 /// 256 KB per WS binary frame payload.

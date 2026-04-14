@@ -1,0 +1,1007 @@
+use std::collections::{HashMap, HashSet};
+
+use tokio::sync::mpsc;
+
+use crate::crypto::{CryptoStore, MlsManager, OlmManager};
+use crate::crdt::server_state::ServerState;
+use super::crypto_handler::{
+    message_signing_payload, sign_message,
+    peer_is_reachable, send_mls_broadcast, send_encrypted_message,
+    send_message_to_peer,
+};
+use super::types::*;
+
+// ── 1. SendMessage (DM) ──────────────────────────────────────────────
+
+pub(crate) async fn handle_send_message(
+    olm: &mut OlmManager,
+    crypto_store: &CryptoStore,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, HashSet<String>>,
+    pending_messages: &mut HashMap<String, Vec<String>>,
+    key_request_in_flight: &mut HashSet<String>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    pub_key_b64: &str,
+    local_peer_str: &str,
+    peer_id_str: String,
+    text: String,
+    message_id: String,
+    reply_to_mid: Option<String>,
+    link_preview: Option<LinkPreviewRef>,
+) {
+    hollow_log!("[HOLLOW-SWARM] SendMessage received for {peer_id_str} mid={message_id}");
+
+    // Wrap DM in signed envelope.
+    let local_peer = local_peer_str.to_string();
+    let dm_timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    let signing_payload = message_signing_payload(
+        "dm", &peer_id_str, &local_peer, dm_timestamp, &text,
+    );
+    let (sig, pk) = sign_message(bundle_keypair, pub_key_b64, &signing_payload);
+    let envelope = MessageEnvelope::DirectMessage {
+        text: text.clone(),
+        ts: dm_timestamp,
+        sig: sig.clone(),
+        pk: pk.clone(),
+        mid: Some(message_id.clone()),
+        reply_to: reply_to_mid.clone(),
+        file_id: None,
+        link_preview: link_preview.clone(),
+    };
+    let envelope_json = serde_json::to_string(&envelope)
+        .unwrap_or_else(|_| text.clone());
+
+    // Persist sent DM locally with the same Rust-generated timestamp.
+    // This ensures DM sync timestamps are consistent (no Dart DateTime.now() mismatch).
+    {
+        let data_dir = crate::identity::data_dir().unwrap_or_default();
+        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+            let _ = store.insert(
+                &peer_id_str, &text, true, dm_timestamp,
+                sig.as_deref(), pk.as_deref(), Some(&message_id),
+                reply_to_mid.as_deref(), None,
+            );
+            if let Some(lp) = &link_preview {
+                if let Ok(lp_json) = serde_json::to_string(lp) {
+                    let _ = store.update_link_preview(&message_id, &lp_json);
+                }
+            }
+        }
+    }
+
+    if olm.has_session(&peer_id_str) && peer_is_reachable(ws_room_peers, &peer_id_str) {
+        // Session exists and peer is online — encrypt and send.
+        send_encrypted_message(
+            olm,
+            crypto_store,
+            &peer_id_str,
+            &envelope_json,
+            event_tx,
+            ws_cmd_tx, ws_room_peers,
+        ).await;
+    } else {
+        // No session or peer offline — queue the signed envelope.
+        // Messages will be drained when the peer reconnects (PeerJoined/RoomMembers).
+        pending_messages
+            .entry(peer_id_str.clone())
+            .or_default()
+            .push(envelope_json);
+
+        if !olm.has_session(&peer_id_str) && !key_request_in_flight.contains(&peer_id_str) {
+            hollow_log!("[HOLLOW-SWARM] No session for {peer_id_str}, sending KeyRequest");
+            if peer_is_reachable(ws_room_peers, &peer_id_str) {
+                send_message_to_peer(
+                    ws_cmd_tx, ws_room_peers,
+                    &peer_id_str, HavenMessage::KeyRequest,
+                );
+                key_request_in_flight.insert(peer_id_str.clone());
+            }
+        }
+    }
+
+    // Hydrate the optimistic Dart entry with sig/pk so the
+    // Message Proof dialog shows VERIFIED without a restart.
+    let _ = event_tx.send(NetworkEvent::MessageSent {
+        to_peer: peer_id_str.clone(),
+        message_id: message_id.clone(),
+        timestamp: dm_timestamp,
+        signature: sig.clone(),
+        public_key: pk.clone(),
+    }).await;
+}
+
+// ── 2. SendChannelMessage ────────────────────────────────────────────
+
+pub(crate) async fn handle_send_channel_message(
+    olm: &mut OlmManager,
+    crypto_store: &CryptoStore,
+    mls: &mut Option<MlsManager>,
+    server_states: &HashMap<String, ServerState>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    pub_key_b64: &str,
+    local_peer_str: &str,
+    server_id: String,
+    channel_id: String,
+    text: String,
+    message_id: String,
+    reply_to_mid: Option<String>,
+    link_preview: Option<LinkPreviewRef>,
+) {
+    hollow_log!("[HOLLOW-SWARM] SendChannelMessage for channel {channel_id} in server {server_id} mid={message_id}");
+
+    let server = match server_states.get(&server_id) {
+        Some(s) => s,
+        None => {
+            let _ = event_tx.send(NetworkEvent::Error {
+                message: format!("Unknown server {server_id}"),
+            }).await;
+            return;
+        }
+    };
+
+    let local_peer = local_peer_str.to_string();
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    // Sign the message before encryption.
+    let signing_payload = message_signing_payload(
+        "ch", &format!("{}:{}", server_id, channel_id),
+        &local_peer, timestamp, &text,
+    );
+    let (sig, pk) = sign_message(bundle_keypair, pub_key_b64, &signing_payload);
+
+    let envelope = MessageEnvelope::ChannelMessage {
+        sid: server_id.clone(),
+        cid: channel_id.clone(),
+        text: text.clone(),
+        ts: timestamp,
+        sig: sig.clone(),
+        pk: pk.clone(),
+        mid: Some(message_id.clone()),
+        reply_to: reply_to_mid.clone(),
+        file_id: None,
+        link_preview: link_preview.clone(),
+    };
+    let envelope_json = serde_json::to_string(&envelope)
+        .unwrap_or_else(|_| text.clone());
+
+    // MLS path: encrypt once → single WS broadcast to room.
+    let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+    if use_mls {
+        match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+            Ok(()) => {}
+            Err(e) => {
+                hollow_log!("[HOLLOW-MLS] Encrypt failed, falling back to Olm: {e}");
+                for member_peer_str in server.members.keys() {
+                    if member_peer_str == &local_peer { continue; }
+                        if peer_is_reachable(ws_room_peers, member_peer_str) {
+                            send_encrypted_message(
+                                olm, crypto_store,
+                                member_peer_str, &envelope_json,
+                                event_tx,
+                                ws_cmd_tx, ws_room_peers,
+                            ).await;
+                        }
+                }
+            }
+        }
+    } else {
+        // Legacy Olm fan-out path.
+        for member_peer_str in server.members.keys() {
+            if member_peer_str == &local_peer { continue; }
+                if peer_is_reachable(ws_room_peers, member_peer_str) {
+                    send_encrypted_message(
+                                olm, crypto_store,
+                                member_peer_str, &envelope_json,
+                        event_tx,
+                                                            ws_cmd_tx, ws_room_peers,
+                    ).await;
+                }
+        }
+    }
+
+    // Persist locally with same timestamp as sent.
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+        let _ = store.insert_channel_message(
+            &server_id, &channel_id, &local_peer, &text, true, timestamp,
+            sig.as_deref(), pk.as_deref(), Some(&message_id),
+            reply_to_mid.as_deref(), None,
+        );
+        if let Some(lp) = &link_preview {
+            if let Ok(lp_json) = serde_json::to_string(lp) {
+                let _ = store.update_channel_link_preview(&message_id, &lp_json);
+            }
+        }
+    }
+
+    // Hydrate the optimistic Dart entry with sig/pk so the
+    // Message Proof dialog shows VERIFIED without a restart.
+    let _ = event_tx.send(NetworkEvent::ChannelMessageSent {
+        server_id: server_id.clone(),
+        channel_id: channel_id.clone(),
+        message_id: message_id.clone(),
+        timestamp,
+        signature: sig.clone(),
+        public_key: pk.clone(),
+    }).await;
+}
+
+// ── 3. EditChannelMessage ────────────────────────────────────────────
+
+pub(crate) async fn handle_edit_channel_message(
+    olm: &mut OlmManager,
+    crypto_store: &CryptoStore,
+    mls: &mut Option<MlsManager>,
+    server_states: &HashMap<String, ServerState>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    pub_key_b64: &str,
+    local_peer_str: &str,
+    server_id: String,
+    channel_id: String,
+    message_id: String,
+    new_text: String,
+) {
+    hollow_log!("[HOLLOW-SWARM] EditChannelMessage {message_id} in {server_id}/{channel_id}");
+
+    let server = match server_states.get(&server_id) {
+        Some(s) => s,
+        None => {
+            let _ = event_tx.send(NetworkEvent::Error {
+                message: format!("Unknown server {server_id}"),
+            }).await;
+            return;
+        }
+    };
+
+    let local_peer = local_peer_str.to_string();
+    let edit_timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    // Sign the edit using the canonical payload format so
+    // the Dart verifier (which reconstructs from the current
+    // message state) can verify edited messages.
+    let signing_payload = message_signing_payload(
+        "ch",
+        &format!("{}:{}", server_id, channel_id),
+        &local_peer,
+        edit_timestamp,
+        &new_text,
+    );
+    let (sig, pk) = sign_message(bundle_keypair, pub_key_b64, &signing_payload);
+
+    // Update local DB (preserves old text in message_edits table).
+    {
+        let data_dir = crate::identity::data_dir().unwrap_or_default();
+        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+            let _ = store.edit_channel_message(
+                &message_id, &new_text, edit_timestamp,
+                sig.as_deref(), pk.as_deref(),
+            );
+        }
+    }
+
+    // Broadcast edit to all server members.
+    let envelope = MessageEnvelope::EditMessage {
+        mid: message_id.clone(),
+        text: new_text.clone(),
+        ts: edit_timestamp,
+        sig: sig.clone(),
+        pk: pk.clone(),
+        sid: Some(server_id.clone()),
+        cid: Some(channel_id.clone()),
+    };
+    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+
+    let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+    if use_mls {
+        match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+            Ok(()) => {}
+            Err(e) => {
+                hollow_log!("[HOLLOW-MLS] Edit encrypt failed, falling back to Olm: {e}");
+                for member_peer_str in server.members.keys() {
+                    if member_peer_str == &local_peer { continue; }
+                        if peer_is_reachable(ws_room_peers, member_peer_str) {
+                            send_encrypted_message(
+                                olm, crypto_store,
+                                member_peer_str, &envelope_json,
+                                event_tx,
+                                                                            ws_cmd_tx, ws_room_peers,
+                            ).await;
+                        }
+                }
+            }
+        }
+    } else {
+        // Olm fan-out fallback.
+        for member_peer_str in server.members.keys() {
+            if member_peer_str == &local_peer { continue; }
+                if peer_is_reachable(ws_room_peers, member_peer_str) {
+                    send_encrypted_message(
+                                olm, crypto_store,
+                                member_peer_str, &envelope_json,
+                        event_tx,
+                                                            ws_cmd_tx, ws_room_peers,
+                    ).await;
+                }
+        }
+    }
+
+    // Emit event so Dart updates UI — include sig/pk so the
+    // in-memory message's fields match the canonical payload
+    // reconstructed by the Message Proof dialog.
+    let _ = event_tx.send(NetworkEvent::ChannelMessageEdited {
+        server_id,
+        channel_id,
+        message_id,
+        new_text,
+        edited_at: edit_timestamp,
+        signature: sig,
+        public_key: pk,
+    }).await;
+}
+
+// ── 4. EditDmMessage ─────────────────────────────────────────────────
+
+pub(crate) async fn handle_edit_dm_message(
+    olm: &mut OlmManager,
+    crypto_store: &CryptoStore,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    pub_key_b64: &str,
+    local_peer_str: &str,
+    peer_id_str: String,
+    message_id: String,
+    new_text: String,
+) {
+    hollow_log!("[HOLLOW-SWARM] EditDmMessage {message_id} for {peer_id_str}");
+
+    let local_peer = local_peer_str.to_string();
+    let edit_timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    // Sign the edit using the canonical payload format so
+    // the Dart verifier (which reconstructs from the current
+    // message state) can verify edited messages.
+    let signing_payload = message_signing_payload(
+        "dm",
+        &peer_id_str,
+        &local_peer,
+        edit_timestamp,
+        &new_text,
+    );
+    let (sig, pk) = sign_message(bundle_keypair, pub_key_b64, &signing_payload);
+
+    // Update local DB.
+    {
+        let data_dir = crate::identity::data_dir().unwrap_or_default();
+        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+            let _ = store.edit_dm_message(
+                &message_id, &new_text, edit_timestamp,
+                sig.as_deref(), pk.as_deref(),
+            );
+        }
+    }
+
+    // Send edit to the DM peer.
+    let envelope = MessageEnvelope::EditMessage {
+        mid: message_id.clone(),
+        text: new_text.clone(),
+        ts: edit_timestamp,
+        sig: sig.clone(),
+        pk: pk.clone(),
+        sid: None,
+        cid: None,
+    };
+    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+
+    if olm.has_session(&peer_id_str) {
+        send_encrypted_message(
+                                olm, crypto_store,
+                                &peer_id_str, &envelope_json,
+            event_tx,
+                                    ws_cmd_tx, ws_room_peers,
+        ).await;
+    }
+
+    // Emit event so Dart updates UI — include sig/pk so the
+    // in-memory message's fields match the canonical payload.
+    let _ = event_tx.send(NetworkEvent::DmMessageEdited {
+        peer_id: peer_id_str,
+        message_id,
+        new_text,
+        edited_at: edit_timestamp,
+        signature: sig,
+        public_key: pk,
+    }).await;
+}
+
+// ── 5. DeleteChannelMessage ──────────────────────────────────────────
+
+pub(crate) async fn handle_delete_channel_message(
+    olm: &mut OlmManager,
+    crypto_store: &CryptoStore,
+    mls: &mut Option<MlsManager>,
+    server_states: &HashMap<String, ServerState>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    pub_key_b64: &str,
+    local_peer_str: &str,
+    server_id: String,
+    channel_id: String,
+    message_id: String,
+) {
+    hollow_log!("[HOLLOW-SWARM] DeleteChannelMessage {message_id} in {server_id}/{channel_id}");
+
+    let server = match server_states.get(&server_id) {
+        Some(s) => s,
+        None => {
+            let _ = event_tx.send(NetworkEvent::Error {
+                message: format!("Unknown server {server_id}"),
+            }).await;
+            return;
+        }
+    };
+
+    let local_peer = local_peer_str.to_string();
+    let delete_timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    // Sign the deletion using the canonical payload format
+    // with the text at deletion time. Uses "ch-delete" msg
+    // type so a delete signature cannot be confused with or
+    // replayed as a send signature. Fetches current text
+    // from DB so the archive viewer (later) can verify the
+    // delete against the same state the exporter saw.
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    let current_text = crate::storage::MessageStore::open(&db_path, &passphrase)
+        .ok()
+        .and_then(|store| store.get_channel_message_text(&message_id))
+        .unwrap_or_default();
+
+    let signing_payload = message_signing_payload(
+        "ch-delete",
+        &format!("{}:{}", server_id, channel_id),
+        &local_peer,
+        delete_timestamp,
+        &current_text,
+    );
+    let (sig, pk) = sign_message(bundle_keypair, pub_key_b64, &signing_payload);
+
+    // Hide in local DB (preserves text in message_deletions table).
+    {
+        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+            let _ = store.hide_channel_message(
+                &message_id, delete_timestamp,
+                sig.as_deref(), pk.as_deref(),
+            );
+        }
+    }
+
+    // Broadcast deletion to all server members.
+    let envelope = MessageEnvelope::DeleteMessage {
+        mid: message_id.clone(),
+        ts: delete_timestamp,
+        sig: sig.clone(),
+        pk: pk.clone(),
+        sid: Some(server_id.clone()),
+        cid: Some(channel_id.clone()),
+    };
+    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+
+    let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+    if use_mls {
+        match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+            Ok(()) => {}
+            Err(e) => {
+                hollow_log!("[HOLLOW-MLS] Delete encrypt failed, falling back to Olm: {e}");
+                for member_peer_str in server.members.keys() {
+                    if member_peer_str == &local_peer { continue; }
+                        if peer_is_reachable(ws_room_peers, member_peer_str) {
+                            send_encrypted_message(
+                                olm, crypto_store,
+                                member_peer_str, &envelope_json,
+                                event_tx,
+                                                                            ws_cmd_tx, ws_room_peers,
+                            ).await;
+                        }
+                }
+            }
+        }
+    } else {
+        // Olm fan-out fallback.
+        for member_peer_str in server.members.keys() {
+            if member_peer_str == &local_peer { continue; }
+                if peer_is_reachable(ws_room_peers, member_peer_str) {
+                    send_encrypted_message(
+                                olm, crypto_store,
+                                member_peer_str, &envelope_json,
+                        event_tx,
+                                                            ws_cmd_tx, ws_room_peers,
+                    ).await;
+                }
+        }
+    }
+
+    // Emit event so Dart updates UI.
+    let _ = event_tx.send(NetworkEvent::ChannelMessageDeleted {
+        server_id,
+        channel_id,
+        message_id,
+        deleted_at: delete_timestamp,
+    }).await;
+}
+
+// ── 6. DeleteDmMessage ───────────────────────────────────────────────
+
+pub(crate) async fn handle_delete_dm_message(
+    olm: &mut OlmManager,
+    crypto_store: &CryptoStore,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    pub_key_b64: &str,
+    local_peer_str: &str,
+    peer_id_str: String,
+    message_id: String,
+) {
+    hollow_log!("[HOLLOW-SWARM] DeleteDmMessage {message_id} for {peer_id_str}");
+
+    let local_peer = local_peer_str.to_string();
+    let delete_timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    // Sign the deletion using the canonical payload format
+    // with the text at deletion time. Uses "dm-delete" msg
+    // type — distinct from "dm" to prevent replay.
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    let current_text = crate::storage::MessageStore::open(&db_path, &passphrase)
+        .ok()
+        .and_then(|store| store.get_dm_message_text(&message_id))
+        .unwrap_or_default();
+
+    let signing_payload = message_signing_payload(
+        "dm-delete",
+        &peer_id_str,
+        &local_peer,
+        delete_timestamp,
+        &current_text,
+    );
+    let (sig, pk) = sign_message(bundle_keypair, pub_key_b64, &signing_payload);
+
+    // Hide in local DB.
+    {
+        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+            let _ = store.hide_dm_message(
+                &message_id, delete_timestamp,
+                sig.as_deref(), pk.as_deref(),
+            );
+        }
+    }
+
+    // Send deletion to the DM peer.
+    let envelope = MessageEnvelope::DeleteMessage {
+        mid: message_id.clone(),
+        ts: delete_timestamp,
+        sig: sig.clone(),
+        pk: pk.clone(),
+        sid: None,
+        cid: None,
+    };
+    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+
+    if olm.has_session(&peer_id_str) {
+        send_encrypted_message(
+                                olm, crypto_store,
+                                &peer_id_str, &envelope_json,
+            event_tx,
+                                    ws_cmd_tx, ws_room_peers,
+        ).await;
+    }
+
+    // Emit event so Dart updates UI.
+    let _ = event_tx.send(NetworkEvent::DmMessageDeleted {
+        peer_id: peer_id_str,
+        message_id,
+        deleted_at: delete_timestamp,
+    }).await;
+}
+
+// ── 7. AddChannelReaction ────────────────────────────────────────────
+
+pub(crate) async fn handle_add_channel_reaction(
+    olm: &mut OlmManager,
+    crypto_store: &CryptoStore,
+    mls: &mut Option<MlsManager>,
+    server_states: &HashMap<String, ServerState>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    pub_key_b64: &str,
+    local_peer_str: &str,
+    server_id: String,
+    channel_id: String,
+    message_id: String,
+    emoji: String,
+) {
+    hollow_log!("[HOLLOW-SWARM] AddChannelReaction {emoji} on {message_id} in {server_id}/{channel_id}");
+
+    let server = match server_states.get(&server_id) {
+        Some(s) => s,
+        None => {
+            let _ = event_tx.send(NetworkEvent::Error {
+                message: format!("Unknown server {server_id}"),
+            }).await;
+            return;
+        }
+    };
+
+    let local_peer = local_peer_str.to_string();
+    let reaction_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    let signing_payload = format!("reaction:{}:{}:{}", message_id, emoji, reaction_ts);
+    let (sig, pk) = sign_message(bundle_keypair, pub_key_b64, &signing_payload);
+
+    // Save to local DB.
+    {
+        let data_dir = crate::identity::data_dir().unwrap_or_default();
+        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+            let _ = store.add_reaction(
+                &message_id, &emoji, &local_peer, reaction_ts,
+                sig.as_deref(), pk.as_deref(),
+            );
+        }
+    }
+
+    // Broadcast to all server members.
+    let envelope = MessageEnvelope::AddReaction {
+        mid: message_id.clone(),
+        emoji: emoji.clone(),
+        ts: reaction_ts,
+        sig: sig.clone(),
+        pk: pk.clone(),
+        sid: Some(server_id.clone()),
+        cid: Some(channel_id.clone()),
+    };
+    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+
+    let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+    if use_mls {
+        match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+            Ok(()) => {}
+            Err(e) => {
+                hollow_log!("[HOLLOW-MLS] Reaction encrypt failed, falling back to Olm: {e}");
+                for member_peer_str in server.members.keys() {
+                    if member_peer_str == &local_peer { continue; }
+                        if peer_is_reachable(ws_room_peers, member_peer_str) {
+                            send_encrypted_message(
+                                olm, crypto_store,
+                                member_peer_str, &envelope_json,
+                                event_tx,
+                                                                            ws_cmd_tx, ws_room_peers,
+                            ).await;
+                        }
+                }
+            }
+        }
+    } else {
+        for member_peer_str in server.members.keys() {
+            if member_peer_str == &local_peer { continue; }
+                if peer_is_reachable(ws_room_peers, member_peer_str) {
+                    send_encrypted_message(
+                                olm, crypto_store,
+                                member_peer_str, &envelope_json,
+                        event_tx,
+                                                            ws_cmd_tx, ws_room_peers,
+                    ).await;
+                }
+        }
+    }
+
+    let _ = event_tx.send(NetworkEvent::ChannelReactionAdded {
+        server_id,
+        channel_id,
+        message_id,
+        emoji,
+        reactor: local_peer,
+        added_at: reaction_ts,
+    }).await;
+}
+
+// ── 8. AddDmReaction ─────────────────────────────────────────────────
+
+pub(crate) async fn handle_add_dm_reaction(
+    olm: &mut OlmManager,
+    crypto_store: &CryptoStore,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    pub_key_b64: &str,
+    local_peer_str: &str,
+    peer_id_str: String,
+    message_id: String,
+    emoji: String,
+) {
+    hollow_log!("[HOLLOW-SWARM] AddDmReaction {emoji} on {message_id} for {peer_id_str}");
+
+    let local_peer = local_peer_str.to_string();
+    let reaction_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    let signing_payload = format!("reaction:{}:{}:{}", message_id, emoji, reaction_ts);
+    let (sig, pk) = sign_message(bundle_keypair, pub_key_b64, &signing_payload);
+
+    // Save to local DB.
+    {
+        let data_dir = crate::identity::data_dir().unwrap_or_default();
+        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+            let _ = store.add_reaction(
+                &message_id, &emoji, &local_peer, reaction_ts,
+                sig.as_deref(), pk.as_deref(),
+            );
+        }
+    }
+
+    // Send to DM peer.
+    let envelope = MessageEnvelope::AddReaction {
+        mid: message_id.clone(),
+        emoji: emoji.clone(),
+        ts: reaction_ts,
+        sig: sig.clone(),
+        pk: pk.clone(),
+        sid: None,
+        cid: None,
+    };
+    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+
+    if olm.has_session(&peer_id_str) {
+        send_encrypted_message(
+                                olm, crypto_store,
+                                &peer_id_str, &envelope_json,
+            event_tx,
+                                    ws_cmd_tx, ws_room_peers,
+        ).await;
+    }
+
+    let _ = event_tx.send(NetworkEvent::DmReactionAdded {
+        peer_id: peer_id_str,
+        message_id,
+        emoji,
+        reactor: local_peer,
+        added_at: reaction_ts,
+    }).await;
+}
+
+// ── 9. RemoveChannelReaction ─────────────────────────────────────────
+
+pub(crate) async fn handle_remove_channel_reaction(
+    olm: &mut OlmManager,
+    crypto_store: &CryptoStore,
+    mls: &mut Option<MlsManager>,
+    server_states: &HashMap<String, ServerState>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    pub_key_b64: &str,
+    local_peer_str: &str,
+    server_id: String,
+    channel_id: String,
+    message_id: String,
+    emoji: String,
+) {
+    hollow_log!("[HOLLOW-SWARM] RemoveChannelReaction {emoji} on {message_id} in {server_id}/{channel_id}");
+
+    let server = match server_states.get(&server_id) {
+        Some(s) => s,
+        None => {
+            let _ = event_tx.send(NetworkEvent::Error {
+                message: format!("Unknown server {server_id}"),
+            }).await;
+            return;
+        }
+    };
+
+    let local_peer = local_peer_str.to_string();
+    let remove_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    let signing_payload = format!("unreaction:{}:{}:{}", message_id, emoji, remove_ts);
+    let (sig, pk) = sign_message(bundle_keypair, pub_key_b64, &signing_payload);
+
+    // Remove from local DB.
+    {
+        let data_dir = crate::identity::data_dir().unwrap_or_default();
+        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+            let _ = store.remove_reaction(
+                &message_id, &emoji, &local_peer, remove_ts,
+                sig.as_deref(), pk.as_deref(),
+            );
+        }
+    }
+
+    // Broadcast to all server members.
+    let envelope = MessageEnvelope::RemoveReaction {
+        mid: message_id.clone(),
+        emoji: emoji.clone(),
+        ts: remove_ts,
+        sig: sig.clone(),
+        pk: pk.clone(),
+        sid: Some(server_id.clone()),
+        cid: Some(channel_id.clone()),
+    };
+    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+
+    let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+    if use_mls {
+        match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+            Ok(()) => {}
+            Err(e) => {
+                hollow_log!("[HOLLOW-MLS] Remove reaction encrypt failed, Olm fallback: {e}");
+                for member_peer_str in server.members.keys() {
+                    if member_peer_str == &local_peer { continue; }
+                        if peer_is_reachable(ws_room_peers, member_peer_str) {
+                            send_encrypted_message(
+                                olm, crypto_store,
+                                member_peer_str, &envelope_json,
+                                event_tx,
+                                                                            ws_cmd_tx, ws_room_peers,
+                            ).await;
+                        }
+                }
+            }
+        }
+    } else {
+        for member_peer_str in server.members.keys() {
+            if member_peer_str == &local_peer { continue; }
+                if peer_is_reachable(ws_room_peers, member_peer_str) {
+                    send_encrypted_message(
+                                olm, crypto_store,
+                                member_peer_str, &envelope_json,
+                        event_tx,
+                                                            ws_cmd_tx, ws_room_peers,
+                    ).await;
+                }
+        }
+    }
+
+    let _ = event_tx.send(NetworkEvent::ChannelReactionRemoved {
+        server_id,
+        channel_id,
+        message_id,
+        emoji,
+        reactor: local_peer,
+        removed_at: remove_ts,
+    }).await;
+}
+
+// ── 10. RemoveDmReaction ─────────────────────────────────────────────
+
+pub(crate) async fn handle_remove_dm_reaction(
+    olm: &mut OlmManager,
+    crypto_store: &CryptoStore,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    pub_key_b64: &str,
+    local_peer_str: &str,
+    peer_id_str: String,
+    message_id: String,
+    emoji: String,
+) {
+    hollow_log!("[HOLLOW-SWARM] RemoveDmReaction {emoji} on {message_id} for {peer_id_str}");
+
+    let local_peer = local_peer_str.to_string();
+    let remove_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    let signing_payload = format!("unreaction:{}:{}:{}", message_id, emoji, remove_ts);
+    let (sig, pk) = sign_message(bundle_keypair, pub_key_b64, &signing_payload);
+
+    // Remove from local DB.
+    {
+        let data_dir = crate::identity::data_dir().unwrap_or_default();
+        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+            let _ = store.remove_reaction(
+                &message_id, &emoji, &local_peer, remove_ts,
+                sig.as_deref(), pk.as_deref(),
+            );
+        }
+    }
+
+    // Send to DM peer.
+    let envelope = MessageEnvelope::RemoveReaction {
+        mid: message_id.clone(),
+        emoji: emoji.clone(),
+        ts: remove_ts,
+        sig: sig.clone(),
+        pk: pk.clone(),
+        sid: None,
+        cid: None,
+    };
+    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+
+    if olm.has_session(&peer_id_str) {
+        send_encrypted_message(
+                                olm, crypto_store,
+                                &peer_id_str, &envelope_json,
+            event_tx,
+                                    ws_cmd_tx, ws_room_peers,
+        ).await;
+    }
+
+    let _ = event_tx.send(NetworkEvent::DmReactionRemoved {
+        peer_id: peer_id_str,
+        message_id,
+        emoji,
+        reactor: local_peer,
+        removed_at: remove_ts,
+    }).await;
+}

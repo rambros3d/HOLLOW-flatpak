@@ -73,16 +73,6 @@ impl OlmManager {
         otk_b64
     }
 
-    /// Generate a batch of one-time keys and return them as unpadded base64.
-    /// Marks all as published so they won't be returned again.
-    pub fn generate_one_time_keys_batch(&mut self, count: usize) -> Vec<String> {
-        self.account.generate_one_time_keys(count);
-        let keys = self.account.one_time_keys();
-        let otks: Vec<String> = keys.values().map(|k| k.to_base64()).collect();
-        self.account.mark_keys_as_published();
-        otks
-    }
-
     /// Create an outbound session using the peer's identity key + one-time key.
     pub fn create_outbound_session(
         &mut self,
@@ -193,13 +183,6 @@ impl OlmManager {
     pub fn remove_session(&mut self, peer_id: &str) {
         self.sessions.remove(peer_id);
         self.outbound_only.remove(peer_id);
-    }
-
-    /// Check if the session is outbound-only (created via `create_outbound_session`
-    /// from DHT prekey or KeyBundle, never replaced by `create_inbound_session`).
-    /// Outbound-only sessions produce PreKey (type 0) for ALL messages.
-    pub fn is_outbound_only(&self, peer_id: &str) -> bool {
-        self.outbound_only.contains(peer_id)
     }
 
     /// Mark a session as bidirectional (no longer outbound-only).
@@ -406,15 +389,12 @@ mod tests {
 
         // Bob creates outbound session and sends PreKey to Alice.
         bob.create_outbound_session("alice", &alice_id, &alice_otk).unwrap();
-        assert!(bob.is_outbound_only("alice"));
         let (msg_type, ct) = bob.encrypt("alice", b"Hello Alice").unwrap();
         assert_eq!(msg_type, 0, "Outbound session produces PreKey");
 
         // Alice receives Bob's PreKey → creates inbound session.
         let pt = alice.create_inbound_session("bob", &bob_id, &ct).unwrap();
         assert_eq!(pt, b"Hello Alice");
-        assert!(!alice.is_outbound_only("bob")); // inbound session — not outbound
-
         // Alice now has an inbound-derived session. All encrypts produce Normal (type 1).
         assert!(alice.has_session("bob"));
         for i in 0..100 {
@@ -436,7 +416,6 @@ mod tests {
 
         // Alice creates outbound session.
         alice.create_outbound_session("bob", &bob_id, &bob_otk).unwrap();
-        assert!(alice.is_outbound_only("bob"));
 
         // Alice sends PreKey.
         let (mt1, ct1) = alice.encrypt("bob", b"Hello").unwrap();

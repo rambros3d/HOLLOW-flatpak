@@ -38,23 +38,6 @@ pub struct ShardMigration {
     pub shard_key: String,
 }
 
-/// Detect peers that have been offline longer than the threshold.
-///
-/// `member_statuses` is a list of (peer_id, last_seen_timestamp).
-/// Returns peer_ids that are considered departed.
-pub fn detect_departures(
-    member_statuses: &[(String, i64)],
-    threshold_days: u64,
-    now: i64,
-) -> Vec<String> {
-    let threshold_secs = threshold_days as i64 * 86400;
-    member_statuses
-        .iter()
-        .filter(|(_, last_seen)| now - last_seen > threshold_secs)
-        .map(|(peer_id, _)| peer_id.clone())
-        .collect()
-}
-
 /// Scan manifests for under-replicated content.
 ///
 /// For each manifest with erasure coding (k > 0), check how many placements
@@ -263,33 +246,6 @@ mod tests {
             channel_id: "ch1".into(),
             message_id: String::new(),
         }
-    }
-
-    // ── detect_departures ────────────────────────────────────
-
-    #[test]
-    fn detect_departures_none() {
-        let now = 1000000;
-        let statuses = vec![
-            ("peer_a".to_string(), now - 3600),   // 1 hour ago
-            ("peer_b".to_string(), now - 86400),  // 1 day ago
-        ];
-        let departed = detect_departures(&statuses, 7, now);
-        assert!(departed.is_empty());
-    }
-
-    #[test]
-    fn detect_departures_some() {
-        let now = 1000000;
-        let statuses = vec![
-            ("peer_a".to_string(), now - 3600),          // 1 hour ago
-            ("peer_b".to_string(), now - 8 * 86400),     // 8 days ago
-            ("peer_c".to_string(), now - 10 * 86400),    // 10 days ago
-        ];
-        let departed = detect_departures(&statuses, 7, now);
-        assert_eq!(departed.len(), 2);
-        assert!(departed.contains(&"peer_b".to_string()));
-        assert!(departed.contains(&"peer_c".to_string()));
     }
 
     // ── scan_under_replicated ────────────────────────────────

@@ -9,15 +9,8 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(120); // 2 minutes (mus
 // -- Commands & Events --
 
 pub(crate) enum SignalingCmd {
-    Register {
-        room_code: String,
-        addresses: Vec<String>,
-    },
     Bootstrap {
         room_code: String,
-    },
-    UpdateAddresses {
-        addresses: Vec<String>,
     },
     SetRoom {
         room_code: String,
@@ -105,7 +98,7 @@ async fn signaling_loop(
 
     // Track active room for heartbeat.
     let mut active_room: Option<String> = None;
-    let mut active_addrs: Vec<String> = Vec::new();
+    let active_addrs: Vec<String> = Vec::new();
     let mut heartbeat = time::interval(HEARTBEAT_INTERVAL);
     heartbeat.tick().await; // consume the immediate first tick
 
@@ -113,18 +106,6 @@ async fn signaling_loop(
         tokio::select! {
             Some(cmd) = cmd_rx.recv() => {
                 match cmd {
-                    SignalingCmd::Register { room_code, addresses } => {
-                        active_room = Some(room_code.clone());
-                        active_addrs = addresses.clone();
-                        if let Err(e) = do_register(
-                            &client, signaling_url, &keypair, &peer_id_str, &pub_key_b64,
-                            &room_code, &addresses,
-                        ).await {
-                            let _ = event_tx.send(SignalingEvent::Error {
-                                message: format!("Register failed: {e}"),
-                            }).await;
-                        }
-                    }
                     SignalingCmd::Bootstrap { room_code } => {
                         match do_bootstrap(&client, signaling_url, &room_code).await {
                             Ok(peers) => {
@@ -134,23 +115,6 @@ async fn signaling_loop(
                                 let _ = event_tx.send(SignalingEvent::Error {
                                     message: format!("Bootstrap failed: {e}"),
                                 }).await;
-                            }
-                        }
-                    }
-                    SignalingCmd::UpdateAddresses { addresses } => {
-                        active_addrs = addresses;
-                        // Re-register immediately if we're in a room and have
-                        // addresses so new relay circuit addrs get published.
-                        if let Some(room) = &active_room {
-                            if !active_addrs.is_empty() {
-                                if let Err(e) = do_register(
-                                    &client, signaling_url, &keypair, &peer_id_str, &pub_key_b64,
-                                    room, &active_addrs,
-                                ).await {
-                                    let _ = event_tx.send(SignalingEvent::Error {
-                                        message: format!("Re-register failed: {e}"),
-                                    }).await;
-                                }
                             }
                         }
                     }

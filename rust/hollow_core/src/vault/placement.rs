@@ -12,28 +12,6 @@ pub struct ShardPlacement {
     pub shard_key: String,
 }
 
-/// Compute XOR distance between a shard_key (hex) and a peer ID (string).
-///
-/// 1. Decode shard_key from hex → 32 bytes
-/// 2. SHA-256(peer_id) → 32 bytes (normalizes into same 256-bit keyspace)
-/// 3. XOR element-wise → 32 bytes
-///
-/// Smaller (lexicographic = big-endian 256-bit) = closer.
-fn xor_distance(shard_key_hex: &str, peer_id: &str) -> [u8; 32] {
-    let shard_bytes: [u8; 32] = hex::decode(shard_key_hex)
-        .expect("shard_key must be valid hex")
-        .try_into()
-        .expect("shard_key must be 32 bytes");
-
-    let peer_hash: [u8; 32] = Sha256::digest(peer_id.as_bytes()).into();
-
-    let mut result = [0u8; 32];
-    for i in 0..32 {
-        result[i] = shard_bytes[i] ^ peer_hash[i];
-    }
-    result
-}
-
 /// Compute deterministic shard placements for erasure-coded content.
 ///
 /// For each shard 0..n, computes XOR distance to each eligible member and assigns
@@ -189,28 +167,6 @@ pub fn place(
     }
 }
 
-/// Filter placements to shards targeting our own peer (store locally, no network).
-pub fn local_placements<'a>(
-    placements: &'a [ShardPlacement],
-    our_peer_id: &str,
-) -> Vec<&'a ShardPlacement> {
-    placements
-        .iter()
-        .filter(|p| p.target_peer == our_peer_id)
-        .collect()
-}
-
-/// Filter placements to shards targeting remote peers (need network transfer).
-pub fn remote_placements<'a>(
-    placements: &'a [ShardPlacement],
-    our_peer_id: &str,
-) -> Vec<&'a ShardPlacement> {
-    placements
-        .iter()
-        .filter(|p| p.target_peer != our_peer_id)
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,34 +181,6 @@ mod tests {
 
     fn pledges_map(pairs: &[(&str, u64)]) -> HashMap<String, u64> {
         pairs.iter().map(|(s, a)| (s.to_string(), *a)).collect()
-    }
-
-    // ── XOR distance ─────────────────────────────────────────
-
-    #[test]
-    fn xor_distance_same_is_zero() {
-        let peer_id = "test_peer";
-        let peer_hash_hex = hex::encode(Sha256::digest(peer_id.as_bytes()));
-        let dist = xor_distance(&peer_hash_hex, peer_id);
-        assert_eq!(dist, [0u8; 32]);
-    }
-
-    #[test]
-    fn xor_distance_deterministic() {
-        let sk = shard_key("content1", 0);
-        let d1 = xor_distance(&sk, "peerA");
-        let d2 = xor_distance(&sk, "peerA");
-        assert_eq!(d1, d2);
-    }
-
-    #[test]
-    fn xor_distance_ordering() {
-        let sk = shard_key("content123", 0);
-        let d_a = xor_distance(&sk, "peerA");
-        let d_b = xor_distance(&sk, "peerB");
-        let d_c = xor_distance(&sk, "peerC");
-        // At least two should differ
-        assert!(d_a != d_b || d_a != d_c);
     }
 
     // ── Full replication ─────────────────────────────────────
@@ -398,23 +326,4 @@ mod tests {
         assert_eq!(placements.len(), 5);
     }
 
-    // ── local/remote helpers ─────────────────────────────────
-
-    #[test]
-    fn local_and_remote_partition() {
-        let m: Vec<String> = (0..10).map(|i| format!("peer_{i}")).collect();
-        let p: HashMap<String, u64> = m.iter().map(|s| (s.clone(), 1000)).collect();
-        let placements = compute_shard_placements("cid1", 5, &m, &p);
-
-        let our_peer = &placements[0].target_peer;
-        let local = local_placements(&placements, our_peer);
-        let remote = remote_placements(&placements, our_peer);
-        assert_eq!(local.len() + remote.len(), placements.len());
-        for l in &local {
-            assert_eq!(l.target_peer, *our_peer);
-        }
-        for r in &remote {
-            assert_ne!(r.target_peer, *our_peer);
-        }
-    }
 }

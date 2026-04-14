@@ -2,10 +2,6 @@
 
 use std::path::PathBuf;
 
-/// Chunk size: 2 MB. Larger chunks mean fewer Olm messages per file,
-/// reducing risk of ratchet desync from out-of-order delivery.
-pub const CHUNK_SIZE: usize = 2 * 1024 * 1024;
-
 /// Default max file size: 34 MB (sussy easter egg default).
 pub const DEFAULT_MAX_FILE_SIZE: u64 = 34 * 1024 * 1024;
 
@@ -24,18 +20,6 @@ pub fn files_dir() -> PathBuf {
         .join("files");
     let _ = std::fs::create_dir_all(&dir);
     dir
-}
-
-/// Split file data into chunks of CHUNK_SIZE bytes.
-pub fn chunk_file(data: &[u8]) -> Vec<Vec<u8>> {
-    data.chunks(CHUNK_SIZE)
-        .map(|c| c.to_vec())
-        .collect()
-}
-
-/// Calculate how many chunks a file of the given size will need.
-pub fn chunk_count(size: u64) -> u32 {
-    ((size as f64) / (CHUNK_SIZE as f64)).ceil() as u32
 }
 
 /// Write a single chunk to disk as a temporary file.

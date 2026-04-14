@@ -1722,18 +1722,29 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
   - [X] Phase C: Recovery Pool backend — `recovery_pool.rs` coordinator module, HavenMessage variants (Hello/Welcome/ManifestSync/TransferPlan/ShardReceived/Status/Stop), NodeCommand handlers, WSS room join/leave, inventory exchange handshake, PeerJoined/PeerLeft tracking, 9 NetworkEvent variants + FFI functions
   - [X] Phase D: Recovery Pool UI — `recovery_pool_provider.dart`, initiate/join dialogs (with 10s join timeout validation + pending state), dashboard (progress ring, stats, members, invite link), Leave/Stop buttons, event dispatch wiring
   - [X] Phase E: Shard transfer execution — coordinator election (lowest peer_id) after handshake, transfer plan broadcast, `ws_stream_send` for shard bytes via WSS binary frames, `pending_shard_streams` + `pending_vault_downloads` registration for auto-reconstruction, `reconstruct_file()` + `write_to_cache()` via existing `handle_completed_stream`, `VaultDownloadComplete` → `RecoveryPoolFileRecovered` bridge in Dart
-- [ ] **swarm.rs modularization refactor** — split the 12,600-line monolith into focused modules (like the libp2p removal session)
-  - [ ] Create `SwarmContext` struct to hold the ~35 shared state variables (peer maps, pending transfers, voice participants, etc.)
-  - [ ] Extract `vault_ops.rs` (~1,000 lines) — shard store/retrieve, upload/download pipeline, rebalance/retention timer
-  - [ ] Extract `voice_handler.rs` (~800 lines) — voice channels, 1:1 calls, screen/camera state, mesh↔gossip transition
-  - [ ] Extract `crdt_sync.rs` (~1,500 lines) — SyncRequest/Response, CRDT op broadcast, multi-peer fan-out, channel/DM sync
-  - [ ] Extract `crypto_handler.rs` (~1,200 lines) — Olm key exchange (KeyRequest/KeyBundle/Encrypted), MLS group ops, message signing/verification
-  - [ ] Extract `file_transfer.rs` (~1,000 lines) — SendFile, FileHeader/Chunk handling, WebRTC streaming, completed stream handler
-  - [ ] Extract `gossip_relay.rs` (~600 lines) — overlay management, broadcast, peer exchange, rotation/eviction timers
-  - [ ] Extract `message_ops.rs` (~500 lines) — edit/delete/reactions/pins for both DMs and channels
-  - [ ] Extract `social.rs` (~450 lines) — friends, profiles, typing indicators
-  - [ ] Clean up dead code: remove superseded chunk-based transfer functions (`chunk_file`, `chunk_count`, `CHUNK_SIZE`, `file_stream_request`, `shard_stream_request`, `get_missing_chunks`), unused `CrdtStore` actor, unused vault placement helpers (`xor_distance`, `local_placements`, `remote_placements`, `detect_departures`), unused Olm utilities (`generate_one_time_keys_batch`, `is_outbound_only`), stale signaling variants (`Register`, `UpdateAddresses`)
-  - [ ] Update `mod.rs` to re-export, verify `cargo check` + `cargo test` pass, run full app smoke test
+- [ ] **swarm.rs modularization refactor** — split the 13,259-line monolith into focused modules (currently 7,212 lines; final target ~2,500-3,000)
+  - [~] ~~Create `SwarmContext` struct to hold the ~40 shared state variables~~ — **won't do**. Rust's borrow checker rejects this pattern: `ctx.server_states.get(...)` borrows ctx immutably while crypto helpers need `&mut ctx.olm` / `&mut ctx.mls` simultaneously (~16-18 call sites). Working around it would require restructuring control flow, risking logic drift bugs in the CRDT/MLS/WebRTC state machines. Individual field params are fine — the slight parameter verbosity is the correct trade-off for this codebase.
+  - [X] Extract `types.rs` (1,797 lines) — `NetworkEvent`, `NodeCommand`, `HavenMessage`, `MessageEnvelope`, all helper structs, constants, `dm_room_code()`
+  - [X] Extract `crypto_handler.rs` (345 lines) — signing helpers, Olm/MLS encryption, key exchange, coordinator election, `peer_is_reachable`, `ws_room_for_peer`, `send_message_to_peer`
+  - [X] Extract `sync_handler.rs` (1,357 lines) — CRDT ops, server/channel CRUD, member management, sync request/response, `flush_pending_sync_requests`
+    - Named `sync_handler.rs` instead of `crdt_sync.rs` to avoid collision with `use crate::crdt::sync::{self as crdt_sync, ...}` import alias
+  - [X] Extract `message_ops.rs` (1,007 lines) — send/edit/delete messages, emoji reactions for both DMs and channels
+  - [X] Extract `social.rs` (390 lines) — friends, profiles, typing indicators, `send_own_profile_to_peer`
+  - [X] Extract `vault_ops.rs` (791 lines) — shard store/retrieve, upload/download pipeline, recovery pool commands
+  - [X] Extract `file_handler.rs` (919 lines) — SendFile, WebRTC transfer handling, `handle_completed_stream`, `stream_to_peer`, `broadcast_to_gossip_neighbors`
+    - Named `file_handler.rs` instead of merging into existing `file_transfer.rs` (125-line utility module unchanged)
+  - [X] Extract `voice_handler.rs` (616 lines) — voice channels, 1:1 calls, WebRTC signaling, `check_voice_mode_transition`
+  - [X] Extract `gossip_relay.rs` (129 lines) — broadcast relay, peer exchange, rotation/eviction/exchange timer handlers
+  - [X] Clean up dead code: removed `chunk_file`/`chunk_count`/`CHUNK_SIZE`, `file_stream_request`/`shard_stream_request`, `CrdtStore` actor, `xor_distance`/`local_placements`/`remote_placements`/`detect_departures`, `generate_one_time_keys_batch`/`is_outbound_only`, signaling `Register`/`UpdateAddresses` variants
+  - [X] Updated `mod.rs` re-exports, `cargo check` + `cargo clippy` + `cargo test` all pass (232 tests, 0 failures)
+  - [ ] **Final pass: extract `handle_incoming_request` inner envelope dispatch (~4,700 lines → target swarm.rs at ~2,500-3,000 lines)** — the 5,000-line `handle_incoming_request` function in swarm.rs still contains a massive inner `MessageEnvelope` match that dispatches domain-specific logic (channel messages, sync batches, file headers, vault shards, voice signals). Same extraction pattern as the NodeCommand arms: each `MessageEnvelope` branch body moves into its respective module as `pub(crate) async fn handle_envelope_*()`, and the inner match arm becomes a one-line delegation call. Pure mechanical refactor, same borrow-checker-safe approach (individual field params). This is the LAST planned swarm.rs extraction — after this, swarm.rs becomes a pure dispatcher and further consolidation isn't worth the complexity.
+    - `MessageEnvelope::DirectMessage` / `ChannelMessage` → `message_ops.rs`
+    - `MessageEnvelope::ChannelSyncBatch` / `DmSyncBatch` / `SyncReq` / `SyncResp` / `CrdtOp` / `ServerDelete` / `MemberKick` / `ChannelSyncReq` / `ChannelProbe` / `ChannelProbeResp` → `sync_handler.rs`
+    - `MessageEnvelope::EditMessage` / `DeleteMessage` / `AddReaction` / `RemoveReaction` → `message_ops.rs`
+    - `MessageEnvelope::FileHeader` / `FileChunk` / `BroadcastMeta` → `file_handler.rs`
+    - `MessageEnvelope::ShardStore` / `ShardChunk` / `ShardStoreAck` / `ShardDelete` / `ShardRequest` / `ShardResponse` / `ShardResponseChunk` / `ShardProbe` / `ShardProbeResponse` / `VaultManifestBroadcast` / `ShardMigrate` → `vault_ops.rs`
+    - `MessageEnvelope::Typing` / `ProfileUpdate` → `social.rs`
+    - `MessageEnvelope::VoiceChannel*` (all ~11 variants) → `voice_handler.rs`
 - [ ] **System audio capture plugin (screen share audio)**
   - [ ] Flutter plugin package (`system_audio_capture`) — single Dart API, platform-specific native implementations
   - [ ] Windows: WASAPI loopback capture (C++ via FFI)
@@ -1771,6 +1782,7 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
     - [ ] Optional E2EE on chunks — encrypt file before sharing, include decryption key in the share link (only link holders can read)
   - Note: Builds entirely on existing infrastructure — WebRTC data channels (Phase 5A), gossip overlay (Phase 5D), content-addressed storage (Phase 4), chunked transfer protocol. Estimated new code: ~1 Rust module (sharing swarm) + ~1 Dart service + UI tab
 
+- [ ] Fix audio card preview update on download
 - [ ] Check if there is a Search bar in Incoming/Outgoing friend requests
 - [ ] Voice recordings in the chat
 - [ ] Proper roles on the server and editing of permissions
