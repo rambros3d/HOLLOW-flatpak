@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/models/archive_conversation.dart';
 import 'package:hollow/src/core/providers/archive_provider.dart';
+import 'package:hollow/src/core/providers/hidden_archive_dm_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
+import 'package:hollow/src/ui/animations/hollow_curves.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
@@ -137,16 +139,24 @@ class _TabPill extends StatelessWidget {
 
 // ── DM list ─────────────────────────────────────────────────────
 
-class _DmList extends ConsumerWidget {
+class _DmList extends ConsumerStatefulWidget {
   const _DmList();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_DmList> createState() => _DmListState();
+}
+
+class _DmListState extends ConsumerState<_DmList> {
+  bool _hiddenExpanded = false;
+
+  @override
+  Widget build(BuildContext context) {
     final hollow = HollowTheme.of(context);
     final dmListAsync = ref.watch(archiveDmListProvider);
     final search = ref.watch(archiveSearchProvider).toLowerCase();
     final selectedDm = ref.watch(archiveSelectedDmProvider);
     final profiles = ref.watch(profileProvider);
+    final hiddenSet = ref.watch(hiddenArchiveDmsProvider);
 
     return dmListAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -162,7 +172,12 @@ class _DmList extends ConsumerWidget {
                 return name.contains(search);
               }).toList();
 
-        if (filtered.isEmpty) {
+        final visible =
+            filtered.where((e) => !hiddenSet.contains(e.peerId)).toList();
+        final hidden =
+            filtered.where((e) => hiddenSet.contains(e.peerId)).toList();
+
+        if (visible.isEmpty && hidden.isEmpty) {
           return Center(
             child: Text(
               search.isEmpty ? 'No DM conversations' : 'No matches',
@@ -172,86 +187,228 @@ class _DmList extends ConsumerWidget {
           );
         }
 
-        return ListView.builder(
+        return ListView(
           padding: const EdgeInsets.symmetric(horizontal: HollowSpacing.sm),
-          itemCount: filtered.length,
-          itemBuilder: (context, index) {
-            final entry = filtered[index];
-            final isSelected = selectedDm == entry.peerId;
-            final name = displayNameFor(profiles, entry.peerId);
-
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 2),
-              child: HollowPressable(
+          children: [
+            for (final entry in visible)
+              _DmRow(
+                entry: entry,
+                isSelected: selectedDm == entry.peerId,
+                isHidden: false,
                 onTap: () {
                   ref.read(archiveSelectedDmProvider.notifier).state =
                       entry.peerId;
                   ref.read(archiveSelectedChannelProvider.notifier).state =
                       null;
                 },
-                borderRadius: BorderRadius.circular(hollow.radiusSm),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: HollowSpacing.sm,
-                  vertical: HollowSpacing.sm,
-                ),
-                child: Container(
-                  decoration: BoxDecoration(
+                onToggleHidden: () => ref
+                    .read(hiddenArchiveDmsProvider.notifier)
+                    .hide(entry.peerId),
+              ),
+            if (hidden.isNotEmpty) ...[
+              const SizedBox(height: HollowSpacing.sm),
+              _HiddenHeader(
+                count: hidden.length,
+                expanded: _hiddenExpanded,
+                onTap: () =>
+                    setState(() => _hiddenExpanded = !_hiddenExpanded),
+              ),
+              AnimatedSize(
+                duration: HollowDurations.fast,
+                curve: HollowCurves.subtle,
+                alignment: Alignment.topCenter,
+                child: _hiddenExpanded
+                    ? Column(
+                        children: [
+                          const SizedBox(height: HollowSpacing.xs),
+                          for (final entry in hidden)
+                            _DmRow(
+                              entry: entry,
+                              isSelected: selectedDm == entry.peerId,
+                              isHidden: true,
+                              onTap: () {
+                                ref
+                                    .read(archiveSelectedDmProvider.notifier)
+                                    .state = entry.peerId;
+                                ref
+                                    .read(
+                                        archiveSelectedChannelProvider.notifier)
+                                    .state = null;
+                              },
+                              onToggleHidden: () => ref
+                                  .read(hiddenArchiveDmsProvider.notifier)
+                                  .unhide(entry.peerId),
+                            ),
+                        ],
+                      )
+                    : const SizedBox(width: double.infinity, height: 0),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _DmRow extends ConsumerWidget {
+  final ArchiveDmEntry entry;
+  final bool isSelected;
+  final bool isHidden;
+  final VoidCallback onTap;
+  final VoidCallback onToggleHidden;
+
+  const _DmRow({
+    required this.entry,
+    required this.isSelected,
+    required this.isHidden,
+    required this.onTap,
+    required this.onToggleHidden,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hollow = HollowTheme.of(context);
+    final profiles = ref.watch(profileProvider);
+    final name = displayNameFor(profiles, entry.peerId);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: HollowPressable(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(hollow.radiusSm),
+        padding: const EdgeInsets.symmetric(
+          horizontal: HollowSpacing.sm,
+          vertical: HollowSpacing.sm,
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: isSelected
+                ? hollow.accent.withValues(alpha: 0.12)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(hollow.radiusSm),
+          ),
+          padding: const EdgeInsets.symmetric(
+            horizontal: HollowSpacing.sm,
+            vertical: HollowSpacing.xs,
+          ),
+          child: Row(
+            children: [
+              HollowAvatar(
+                peerId: entry.peerId,
+                size: 28,
+                imageBytes: profiles[entry.peerId]?.avatarBytes,
+              ),
+              const SizedBox(width: HollowSpacing.sm),
+              Expanded(
+                child: Text(
+                  name,
+                  style: HollowTypography.body.copyWith(
                     color: isSelected
-                        ? hollow.accent.withValues(alpha: 0.12)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(hollow.radiusSm),
+                        ? hollow.accent
+                        : hollow.textPrimary,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                    fontSize: 13,
                   ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: HollowSpacing.sm,
-                    vertical: HollowSpacing.xs,
-                  ),
-                  child: Row(
-                    children: [
-                      HollowAvatar(
-                        peerId: entry.peerId,
-                        size: 28,
-                        imageBytes: profiles[entry.peerId]?.avatarBytes,
-                      ),
-                      const SizedBox(width: HollowSpacing.sm),
-                      Expanded(
-                        child: Text(
-                          name,
-                          style: HollowTypography.body.copyWith(
-                            color: isSelected
-                                ? hollow.accent
-                                : hollow.textPrimary,
-                            fontWeight: isSelected
-                                ? FontWeight.w600
-                                : FontWeight.normal,
-                            fontSize: 13,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: hollow.elevated,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '${entry.messageCount}',
-                          style: HollowTypography.caption.copyWith(
-                            color: hollow.textSecondary,
-                            fontSize: 10,
-                          ),
-                        ),
-                      ),
-                    ],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              HollowPressable(
+                onTap: onToggleHidden,
+                borderRadius: BorderRadius.circular(hollow.radiusSm),
+                padding: const EdgeInsets.all(4),
+                child: Icon(
+                  isHidden ? LucideIcons.eye : LucideIcons.eyeOff,
+                  size: 13,
+                  color: hollow.textSecondary,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: hollow.elevated,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '${entry.messageCount}',
+                  style: HollowTypography.caption.copyWith(
+                    color: hollow.textSecondary,
+                    fontSize: 10,
                   ),
                 ),
               ),
-            );
-          },
-        );
-      },
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HiddenHeader extends StatelessWidget {
+  final int count;
+  final bool expanded;
+  final VoidCallback onTap;
+
+  const _HiddenHeader({
+    required this.count,
+    required this.expanded,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+    return HollowPressable(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(hollow.radiusSm),
+      padding: const EdgeInsets.symmetric(
+        horizontal: HollowSpacing.sm,
+        vertical: HollowSpacing.xs,
+      ),
+      child: Row(
+        children: [
+          AnimatedRotation(
+            turns: expanded ? 0.25 : 0,
+            duration: HollowDurations.fast,
+            curve: HollowCurves.subtle,
+            child: Icon(
+              LucideIcons.chevronRight,
+              size: 12,
+              color: hollow.textSecondary,
+            ),
+          ),
+          const SizedBox(width: HollowSpacing.xs),
+          Text(
+            'Hidden',
+            style: HollowTypography.caption.copyWith(
+              color: hollow.textSecondary,
+              fontWeight: FontWeight.w700,
+              fontSize: 10,
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: hollow.elevated,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              '$count',
+              style: HollowTypography.caption.copyWith(
+                color: hollow.textSecondary,
+                fontSize: 10,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

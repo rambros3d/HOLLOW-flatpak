@@ -7,6 +7,10 @@ edition = "2021"
 name = "hollow-loadtest"
 path = "src/main.rs"
 
+[[bin]]
+name = "hollow-churntest"
+path = "src/churn.rs"
+
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal", "sync", "net"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }

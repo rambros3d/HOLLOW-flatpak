@@ -173,11 +173,6 @@ class ScreenShareService {
     // Apply resolution cap on the encoder (getDisplayMedia captures at native res).
     await _applyResolutionCap(width, height);
 
-    // Add audio tracks if getDisplayMedia returned any.
-    // Note: native flutter_webrtc on Windows does not support audio capture
-    // in getDisplayMedia (returns 0 audio tracks). System audio loopback
-    // requires a native WASAPI plugin which is not yet implemented.
-    // The toggle is kept for future support / other platforms.
     final audioTracks = _screenStream!.getAudioTracks();
     _log('[HOLLOW-SCREEN] getDisplayMedia audio tracks: ${audioTracks.length}');
     if (audioTracks.isNotEmpty) {

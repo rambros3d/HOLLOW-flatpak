@@ -82,7 +82,7 @@ class _ScreenShareDialogState extends State<_ScreenShareDialog> {
   String? _selectedSourceId;
   ScreenShareResolution _resolution = ScreenShareResolution.p1080;
   ScreenShareFps _fps = ScreenShareFps.fps60;
-  final bool _shareAudio = false;
+  bool _shareAudio = false;
   bool _loading = true;
   bool _showScreens = true; // true = screens tab, false = windows tab
   Timer? _refreshTimer;
@@ -276,32 +276,18 @@ class _ScreenShareDialogState extends State<_ScreenShareDialog> {
                   ),
                   const SizedBox(height: HollowSpacing.md),
 
-                  // Share audio toggle (locked — not supported on native desktop)
                   Row(
                     children: [
-                      AnimatedOpacity(
-                        opacity: 0.4,
-                        duration: Duration.zero,
-                        child: HollowToggle(
-                          value: false,
-                          onChanged: null,
-                        ),
+                      HollowToggle(
+                        value: _shareAudio,
+                        onChanged: (v) => setState(() => _shareAudio = v),
                       ),
                       const SizedBox(width: HollowSpacing.sm),
                       Text(
                         'Share audio',
                         style: HollowTypography.caption.copyWith(
-                          color: hollow.textSecondary.withValues(alpha: 0.4),
+                          color: hollow.textSecondary,
                           fontSize: 12,
-                        ),
-                      ),
-                      const SizedBox(width: HollowSpacing.sm),
-                      Text(
-                        'Not supported on desktop yet',
-                        style: HollowTypography.caption.copyWith(
-                          color: hollow.textSecondary.withValues(alpha: 0.3),
-                          fontSize: 10,
-                          fontStyle: FontStyle.italic,
                         ),
                       ),
                     ],

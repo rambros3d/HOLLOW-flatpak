@@ -15,6 +15,7 @@ import 'package:hollow/src/core/providers/member_panel_provider.dart';
 import 'package:hollow/src/core/providers/node_provider.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
 import 'package:hollow/src/core/providers/favourite_friends_provider.dart';
+import 'package:hollow/src/core/providers/hidden_archive_dm_provider.dart';
 import 'package:hollow/src/core/providers/friends_provider.dart';
 import 'package:hollow/src/core/providers/verified_peers_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
@@ -228,6 +229,9 @@ class _HollowShellState extends ConsumerState<HollowShell>
 
     // Load favourite friends order from local DB.
     await ref.read(favouriteFriendsProvider.notifier).load();
+
+    // Load hidden Archive DMs from local DB.
+    await ref.read(hiddenArchiveDmsProvider.notifier).load();
 
     // Load verified peers from local DB.
     await ref.read(verifiedPeersProvider.notifier).load();

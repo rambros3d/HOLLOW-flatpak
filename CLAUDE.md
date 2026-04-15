@@ -134,6 +134,7 @@ All UI uses custom Hollow widgets — no Material defaults.
 - **HollowTooltip: always use `_dismiss()` pattern** — immediate overlay removal, no reverse animation.
 - **`scrollable_positioned_list: ^0.3.8`** — sentinel pattern with `itemCount: messages.length + 1`. Do not remove this package.
 - **`showHollowDialog` overlays need a `Material` ancestor** for `Text` widgets, otherwise yellow debug underline.
+- **Forked `flutter_webrtc` at `../flutter-webrtc-1.4.1/`** — pubspec points at the sibling folder via `path:`. The fork adds WASAPI loopback capture inside `getDisplayMedia({audio: true})` on Windows. The captured audio track must NOT be attached to the returned MediaStream (`stream->AddTrack` crashes libwebrtc's sender iteration); Dart calls `pc.addTrack(audioTrack, stream)` on the screen-share PC instead. When iterating on the fork's native C++, delete `build/windows/x64/plugins/flutter_webrtc/` before rebuilding, and **always build `--release` if testing from the Release folder** (Vitalik does).
 
 ## Rules
 - Never commit secrets, keys, or credentials.
