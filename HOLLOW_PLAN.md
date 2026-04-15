@@ -1780,11 +1780,10 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
     - [ ] Optional E2EE on chunks — encrypt file before sharing, include decryption key in the share link (only link holders can read)
   - Note: Builds entirely on existing infrastructure — WebRTC data channels (Phase 5A), gossip overlay (Phase 5D), content-addressed storage (Phase 4), chunked transfer protocol. Estimated new code: ~1 Rust module (sharing swarm) + ~1 Dart service + UI tab
 
-- [ ] Fix
-- [X] Fix channel history race on first open after receiving a message; auto-scroll to bottom when in capture zone, pill otherwise
-- [ ] Fix audio card preview update on download
-- [ ] Check if there is a Search bar in Incoming/Outgoing friend requests
-- [ ] Voice recordings in the chat
+- [X] Fix channel + DM history race on first open after receiving a message; auto-scroll to bottom when in capture zone, pill otherwise
+- [X] Fix audio card preview update on download
+- [X] Check if there is a Search bar in Incoming/Outgoing friend requests
+- [X] Voice recordings in the chat — tap-to-record mic button beside the file picker in DM + channel inputs. Opus-in-Ogg @ 16 kHz mono 24 kbps (~90 KB per 30s, ~8-10× smaller than MP3 at equivalent voice quality). Live waveform + pulsing rec dot + timer. Reuses existing `sendFile()` pipeline so voice messages are E2EE + signed like any attachment. 34-hour hard cap to mirror the 34 MB DM vibe.
 - [ ] Proper roles on the server and editing of permissions
 - [ ] Security of the community servers. To prevent massive spam/abuse in terms of files and such - add for example OAuth for Twitch and allow the server joining if you're a follower for 1 day or something (use Twitch API like for getting the follow: https://dev.twitch.tv/docs/api/reference#get-followed-channels)
 - [ ] Discord import system (full implementation — parse GDPR export ZIP, map servers/channels/roles/messages, placeholder identities, member claiming) == reflect to the discord_migration_plan.md

@@ -7,6 +7,7 @@ import 'package:hollow/src/core/shared_tickers.dart';
 import 'package:hollow/src/ui/chat/chat_drop_zone.dart';
 import 'package:hollow/src/ui/chat/chat_input_shortcuts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/models/chat_message.dart';
 import 'package:hollow/src/core/providers/chat_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/models/file_attachment.dart';
@@ -35,6 +36,8 @@ import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/components/hollow_avatar.dart';
 import 'package:hollow/src/ui/components/hollow_button.dart';
 import 'package:hollow/src/ui/chat/staged_link_preview_card.dart';
+import 'package:hollow/src/ui/chat/voice_recorder_bar.dart';
+import 'package:hollow/src/core/services/voice_message_recorder.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/ui/components/profile_card_popup.dart';
 import 'package:hollow/src/ui/components/hollow_text_field.dart';
@@ -188,6 +191,9 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
   String? _stagedFilePath;
   String? _stagedFileName;
   bool _stagedFileIsImage = false;
+  /// True while the user is recording a voice message — swaps the text
+  /// input row for the [VoiceRecorderBar].
+  bool _isRecordingVoice = false;
   /// Staged link preview (Phase 6.75). Set while the user is typing a URL
   /// and Hollow is fetching its OG metadata in the background.
   String? _stagedPreviewUrl;
@@ -228,7 +234,12 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     if (_historyLoaded) return;
     _historyLoaded = true;
     await ref.read(chatProvider.notifier).loadHistory(widget.peerId);
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    // Pin to the latest message. ScrollablePositionedList only honors
+    // `initialScrollIndex` at first build; when loadHistory grows the list
+    // from its initial (possibly 1-message) state, we need an explicit jump.
+    _jumpToBottom();
     // Mark DM as read now that messages are loaded.
     final msgs = ref.read(chatProvider)[widget.peerId];
     final latestId = msgs != null && msgs.isNotEmpty
@@ -385,7 +396,21 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     if (positions.isEmpty) return true;
     final messages = ref.read(chatProvider)[widget.peerId] ?? [];
     if (messages.isEmpty) return true;
+    // Strictly at bottom: sentinel (one past last message) visible.
     return positions.any((p) => p.index >= messages.length - 1);
+  }
+
+  /// Auto-scroll capture zone: a bit more forgiving than `_isNearBottom`.
+  /// If any of the last ~3 messages are visible we treat the user as
+  /// "following along" and auto-scroll on new messages. Outside this
+  /// zone the unread pill takes over.
+  bool get _isInAutoScrollZone {
+    final positions = _itemPositionsListener.itemPositions.value;
+    if (positions.isEmpty) return true;
+    final messages = ref.read(chatProvider)[widget.peerId] ?? [];
+    if (messages.isEmpty) return true;
+    final threshold = messages.length - 3;
+    return positions.any((p) => p.index >= threshold);
   }
 
   void _jumpToBottom() {
@@ -594,6 +619,41 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     } finally { _isPicking = false; }
   }
 
+  /// Called by [VoiceRecorderBar] when the user taps send. Stages the
+  /// `.ogg` file produced by the recorder and kicks off send immediately —
+  /// voice messages shouldn't need a confirmation click.
+  Future<void> _stageVoiceMessage(VoiceRecordingResult result) async {
+    if (!mounted) return;
+    final file = File(result.filePath);
+    if (!await file.exists()) {
+      setState(() => _isRecordingVoice = false);
+      return;
+    }
+    const maxDmBytes = 34 * 1024 * 1024;
+    final size = await file.length();
+    if (size > maxDmBytes) {
+      final fileMb = (size / (1024 * 1024)).toStringAsFixed(1);
+      if (mounted) {
+        HollowToast.show(
+          context,
+          'Voice message too large (${fileMb}MB). DM limit is 34 MB.',
+          type: HollowToastType.error,
+          duration: const Duration(seconds: 4),
+        );
+      }
+      try { await file.delete(); } catch (_) {}
+      setState(() => _isRecordingVoice = false);
+      return;
+    }
+    setState(() {
+      _isRecordingVoice = false;
+      _stagedFilePath = result.filePath;
+      _stagedFileName = 'Voice message.ogg';
+      _stagedFileIsImage = false;
+    });
+    await _sendStagedFile();
+  }
+
   Future<void> _sendStagedFile() async {
     final filePath = _stagedFilePath;
     final fileName = _stagedFileName;
@@ -721,8 +781,15 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     final chatHistory = ref.watch(chatProvider);
     final messages = chatHistory[widget.peerId] ?? [];
 
-    // Reversed ListView stays at bottom naturally when new messages arrive.
-    // No manual auto-scroll needed.
+    // Auto-scroll on new messages if the user is in the bottom capture zone.
+    // Outside the zone (scrolled up meaningfully), the unread pill takes over.
+    ref.listen<Map<String, List<ChatMessage>>>(chatProvider, (prev, next) {
+      final prevLen = (prev?[widget.peerId] ?? const []).length;
+      final nextLen = (next[widget.peerId] ?? const []).length;
+      if (nextLen > prevLen && _isInAutoScrollZone) {
+        _scrollToBottom();
+      }
+    });
 
     final typingPeers = ref.watch(typingProvider)[widget.peerId] ?? {};
     final showProfilePanel = ref.watch(dmProfilePanelProvider);
@@ -1620,56 +1687,77 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                 : BorderSide(color: hollow.border),
           ),
         ),
-        child: Row(
-          children: [
-            HollowPressable(
-              onTap: _pickAndStageFile,
-              borderRadius: BorderRadius.circular(hollow.radiusMd),
-              padding: const EdgeInsets.all(HollowSpacing.sm),
-              child: Icon(
-                LucideIcons.paperclip,
-                color: hollow.textSecondary,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: HollowSpacing.xs),
-            Expanded(
-              child: Focus(
-                onKeyEvent: (_, event) => handleChatInputKey(
-                  event, _controller, _focusNode, _handleSend,
-                  onPasteImage: _stageClipboardImage,
-                ),
-                child: HollowTextField(
-                  controller: _controller,
-                  focusNode: _focusNode,
-                  hintText: 'Type a message...',
-                  autofocus: true,
-                  maxLines: 5,
-                  minLines: 1,
-                  maxLength: 4000,
-                  showCounter: false,
-                  style: HollowTypography.body.copyWith(
-                    color: hollow.textPrimary,
+        child: _isRecordingVoice
+            ? VoiceRecorderBar(
+                onFinished: _stageVoiceMessage,
+                onCancelled: () =>
+                    setState(() => _isRecordingVoice = false),
+              )
+            : Row(
+                children: [
+                  HollowPressable(
+                    onTap: _pickAndStageFile,
+                    borderRadius: BorderRadius.circular(hollow.radiusMd),
+                    padding: const EdgeInsets.all(HollowSpacing.sm),
+                    child: Icon(
+                      LucideIcons.paperclip,
+                      color: hollow.textSecondary,
+                      size: 20,
+                    ),
                   ),
-                  borderRadius: hollow.radiusLg,
-                  onChanged: _onTextChanged,
-                ),
+                  const SizedBox(width: HollowSpacing.xs),
+                  HollowPressable(
+                    onTap: _stagedFilePath != null
+                        ? null
+                        : () => setState(() => _isRecordingVoice = true),
+                    borderRadius: BorderRadius.circular(hollow.radiusMd),
+                    padding: const EdgeInsets.all(HollowSpacing.sm),
+                    child: Icon(
+                      LucideIcons.mic,
+                      color: _stagedFilePath != null
+                          ? hollow.textSecondary.withValues(alpha: 0.4)
+                          : hollow.textSecondary,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: HollowSpacing.xs),
+                  Expanded(
+                    child: Focus(
+                      onKeyEvent: (_, event) => handleChatInputKey(
+                        event, _controller, _focusNode, _handleSend,
+                        onPasteImage: _stageClipboardImage,
+                      ),
+                      child: HollowTextField(
+                        controller: _controller,
+                        focusNode: _focusNode,
+                        hintText: 'Type a message...',
+                        autofocus: true,
+                        maxLines: 5,
+                        minLines: 1,
+                        maxLength: 4000,
+                        showCounter: false,
+                        style: HollowTypography.body.copyWith(
+                          color: hollow.textPrimary,
+                        ),
+                        borderRadius: hollow.radiusLg,
+                        onChanged: _onTextChanged,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: HollowSpacing.sm),
+                  HollowPressable(
+                    onTap: _handleSend,
+                    borderRadius: BorderRadius.circular(hollow.radiusMd),
+                    backgroundColor: hollow.accent,
+                    padding: const EdgeInsets.all(HollowSpacing.sm),
+                    child: Icon(
+                      LucideIcons.send,
+                      color: hollow.textOnAccent,
+                      size: 20,
+                    ),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(width: HollowSpacing.sm),
-            HollowPressable(
-              onTap: _handleSend,
-              borderRadius: BorderRadius.circular(hollow.radiusMd),
-              backgroundColor: hollow.accent,
-              padding: const EdgeInsets.all(HollowSpacing.sm),
-              child: Icon(
-                LucideIcons.send,
-                color: hollow.textOnAccent,
-                size: 20,
-              ),
-            ),
-          ],
-        ),
       ),
     ];
   }

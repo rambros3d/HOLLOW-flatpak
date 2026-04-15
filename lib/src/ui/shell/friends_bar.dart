@@ -7,6 +7,7 @@ import 'package:hollow/src/core/providers/favourite_friends_provider.dart';
 import 'package:hollow/src/core/providers/friends_provider.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
+import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 import 'package:hollow/src/core/providers/selected_peer_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:hollow/src/core/providers/split_view_provider.dart';
@@ -799,7 +800,7 @@ class _FavouritesReorderTab extends ConsumerWidget {
 }
 
 /// Incoming/Outgoing requests tab.
-class _RequestsTab extends ConsumerWidget {
+class _RequestsTab extends ConsumerStatefulWidget {
   final List<FriendInfo> requests;
   final String direction;
   const _RequestsTab({
@@ -809,17 +810,31 @@ class _RequestsTab extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_RequestsTab> createState() => _RequestsTabState();
+}
+
+class _RequestsTabState extends ConsumerState<_RequestsTab> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final hollow = HollowTheme.of(context);
     final profiles = ref.watch(profileProvider);
 
-    if (requests.isEmpty) {
+    if (widget.requests.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              direction == 'incoming'
+              widget.direction == 'incoming'
                   ? LucideIcons.inbox
                   : LucideIcons.send,
               size: 40,
@@ -827,7 +842,7 @@ class _RequestsTab extends ConsumerWidget {
             ),
             const SizedBox(height: HollowSpacing.md),
             Text(
-              direction == 'incoming'
+              widget.direction == 'incoming'
                   ? 'No incoming requests'
                   : 'No outgoing requests',
               style: HollowTypography.body
@@ -838,12 +853,69 @@ class _RequestsTab extends ConsumerWidget {
       );
     }
 
+    final q = _query.trim().toLowerCase();
+    final filtered = q.isEmpty
+        ? widget.requests
+        : widget.requests.where((r) {
+            final name = displayNameFor(profiles, r.peerId).toLowerCase();
+            return name.contains(q) || r.peerId.toLowerCase().contains(q);
+          }).toList();
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            HollowSpacing.md,
+            HollowSpacing.md,
+            HollowSpacing.md,
+            HollowSpacing.sm,
+          ),
+          child: HollowTextField(
+            controller: _searchController,
+            hintText: widget.direction == 'incoming'
+                ? 'Search incoming requests...'
+                : 'Search outgoing requests...',
+            prefixIcon: Icon(
+              LucideIcons.search,
+              size: 16,
+              color: hollow.textSecondary,
+            ),
+            isDense: true,
+            onChanged: (v) => setState(() => _query = v),
+          ),
+        ),
+        Expanded(
+          child: filtered.isEmpty
+              ? Center(
+                  child: Text(
+                    'No matches',
+                    style: HollowTypography.body
+                        .copyWith(color: hollow.textSecondary),
+                  ),
+                )
+              : _buildList(hollow, profiles, filtered),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildList(
+    HollowTheme hollow,
+    Map<String, storage_api.UserProfile> profiles,
+    List<FriendInfo> requests,
+  ) {
     return ListView.builder(
       itemCount: requests.length,
-      padding: const EdgeInsets.all(HollowSpacing.md),
+      padding: const EdgeInsets.fromLTRB(
+        HollowSpacing.md,
+        0,
+        HollowSpacing.md,
+        HollowSpacing.md,
+      ),
       itemBuilder: (context, index) {
         final req = requests[index];
         final name = displayNameFor(profiles, req.peerId);
+        final direction = widget.direction;
 
         return Padding(
           padding: const EdgeInsets.only(bottom: HollowSpacing.xs),

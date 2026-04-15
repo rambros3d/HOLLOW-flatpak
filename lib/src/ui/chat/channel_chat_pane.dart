@@ -36,6 +36,8 @@ import 'package:hollow/src/ui/dialogs/message_proof_dialog.dart';
 import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/components/connection_progress.dart';
 import 'package:hollow/src/ui/chat/staged_link_preview_card.dart';
+import 'package:hollow/src/ui/chat/voice_recorder_bar.dart';
+import 'package:hollow/src/core/services/voice_message_recorder.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
@@ -99,6 +101,9 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   String? _stagedFilePath;
   String? _stagedFileName;
   bool _stagedFileIsImage = false;
+  /// True while the user is recording a voice message — swaps the text
+  /// input row for the [VoiceRecorderBar].
+  bool _isRecordingVoice = false;
   /// Staged link preview (Phase 6.75).
   String? _stagedPreviewUrl;
   network_api.LinkPreviewRef? _stagedPreview;
@@ -618,6 +623,49 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
       });
       _focusNode.requestFocus();
     } finally { _isPicking = false; }
+  }
+
+  /// Called by [VoiceRecorderBar] when the user taps send. Stages the
+  /// `.ogg` voice file and sends it immediately.
+  Future<void> _stageVoiceMessage(VoiceRecordingResult result) async {
+    if (!mounted) return;
+    final file = File(result.filePath);
+    if (!await file.exists()) {
+      setState(() => _isRecordingVoice = false);
+      return;
+    }
+    final size = await file.length();
+    // Enforce per-server file size limit.
+    try {
+      final maxMbStr = await crdt_api.getServerSetting(
+        serverId: widget.serverId,
+        key: 'max_file_size_mb',
+      );
+      final maxMb = int.tryParse(maxMbStr) ?? 34;
+      final maxBytes = maxMb * 1024 * 1024;
+      if (size > maxBytes) {
+        if (mounted) {
+          final fileMb = (size / (1024 * 1024)).toStringAsFixed(1);
+          HollowToast.show(
+            context,
+            'Voice message too large (${fileMb}MB). Server limit is ${maxMb}MB.',
+            type: HollowToastType.error,
+            duration: const Duration(seconds: 4),
+          );
+        }
+        try { await file.delete(); } catch (_) {}
+        setState(() => _isRecordingVoice = false);
+        return;
+      }
+    } catch (_) {}
+
+    setState(() {
+      _isRecordingVoice = false;
+      _stagedFilePath = result.filePath;
+      _stagedFileName = 'Voice message.ogg';
+      _stagedFileIsImage = false;
+    });
+    await _sendStagedFile();
   }
 
   Future<void> _sendStagedFile() async {
@@ -1781,56 +1829,77 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
                   : BorderSide(color: hollow.border),
             ),
           ),
-          child: Row(
-            children: [
-              // File attachment button
-              HollowPressable(
-                onTap: _pickAndStageFile,
-                borderRadius: BorderRadius.circular(hollow.radiusMd),
-                padding: const EdgeInsets.all(HollowSpacing.sm),
-                child: Icon(
-                  LucideIcons.paperclip,
-                  color: hollow.textSecondary,
-                  size: 20,
+          child: _isRecordingVoice
+              ? VoiceRecorderBar(
+                  onFinished: _stageVoiceMessage,
+                  onCancelled: () =>
+                      setState(() => _isRecordingVoice = false),
+                )
+              : Row(
+                  children: [
+                    // File attachment button
+                    HollowPressable(
+                      onTap: _pickAndStageFile,
+                      borderRadius: BorderRadius.circular(hollow.radiusMd),
+                      padding: const EdgeInsets.all(HollowSpacing.sm),
+                      child: Icon(
+                        LucideIcons.paperclip,
+                        color: hollow.textSecondary,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: HollowSpacing.xs),
+                    HollowPressable(
+                      onTap: _stagedFilePath != null
+                          ? null
+                          : () => setState(() => _isRecordingVoice = true),
+                      borderRadius: BorderRadius.circular(hollow.radiusMd),
+                      padding: const EdgeInsets.all(HollowSpacing.sm),
+                      child: Icon(
+                        LucideIcons.mic,
+                        color: _stagedFilePath != null
+                            ? hollow.textSecondary.withValues(alpha: 0.4)
+                            : hollow.textSecondary,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: HollowSpacing.xs),
+                    Expanded(
+                      child: Focus(
+                        onKeyEvent: (_, event) => handleChatInputKey(
+                          event, _controller, _focusNode, _handleSend,
+                          onPasteImage: _stageClipboardImage,
+                        ),
+                        child: HollowTextField(
+                          controller: _controller,
+                          focusNode: _focusNode,
+                          hintText: 'Message #${widget.channelName}',
+                          autofocus: true,
+                          maxLines: 5,
+                          minLines: 1,
+                          maxLength: 4000,
+                          showCounter: false,
+                          style: HollowTypography.body
+                              .copyWith(color: hollow.textPrimary),
+                          borderRadius: hollow.radiusLg,
+                          onChanged: _onTextChanged,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: HollowSpacing.sm),
+                    HollowPressable(
+                      onTap: _handleSend,
+                      borderRadius: BorderRadius.circular(hollow.radiusMd),
+                      backgroundColor: hollow.accent,
+                      padding: const EdgeInsets.all(HollowSpacing.sm),
+                      child: Icon(
+                        LucideIcons.send,
+                        color: hollow.textOnAccent,
+                        size: 20,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(width: HollowSpacing.xs),
-              Expanded(
-                child: Focus(
-                  onKeyEvent: (_, event) => handleChatInputKey(
-                    event, _controller, _focusNode, _handleSend,
-                    onPasteImage: _stageClipboardImage,
-                  ),
-                  child: HollowTextField(
-                    controller: _controller,
-                    focusNode: _focusNode,
-                    hintText: 'Message #${widget.channelName}',
-                    autofocus: true,
-                    maxLines: 5,
-                    minLines: 1,
-                    maxLength: 4000,
-                    showCounter: false,
-                    style: HollowTypography.body
-                        .copyWith(color: hollow.textPrimary),
-                    borderRadius: hollow.radiusLg,
-                    onChanged: _onTextChanged,
-                  ),
-                ),
-              ),
-              const SizedBox(width: HollowSpacing.sm),
-              HollowPressable(
-                onTap: _handleSend,
-                borderRadius: BorderRadius.circular(hollow.radiusMd),
-                backgroundColor: hollow.accent,
-                padding: const EdgeInsets.all(HollowSpacing.sm),
-                child: Icon(
-                  LucideIcons.send,
-                  color: hollow.textOnAccent,
-                  size: 20,
-                ),
-              ),
-            ],
-          ),
         ),
       ],
       ),

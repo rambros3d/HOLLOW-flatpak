@@ -12,6 +12,7 @@ import 'package:hollow/src/core/providers/audio_playback_provider.dart';
 import 'package:hollow/src/core/providers/file_transfer_provider.dart';
 import 'package:hollow/src/core/providers/video_playback_provider.dart';
 import 'package:hollow/src/core/services/audio_probe_service.dart';
+import 'package:hollow/src/core/services/audio_transcode_service.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
@@ -51,6 +52,7 @@ class _AudioMessageBubbleState extends ConsumerState<AudioMessageBubble> {
   Duration _duration = Duration.zero;
   bool _isPlaying = false;
   bool _isVisible = true;
+  bool _preparing = false;
 
   /// Pre-play duration from ffmpeg probe (milliseconds), or null if not yet
   /// probed / probe failed.
@@ -90,12 +92,22 @@ class _AudioMessageBubbleState extends ConsumerState<AudioMessageBubble> {
     if (ms != null && mounted) {
       setState(() => _probedDurationMs = ms);
     }
+    // Prewarm the Windows Opus→WAV transcode cache so the first play tap is
+    // instant. No-op on non-Windows or non-ogg. Fire-and-forget.
+    AudioTranscodeService.ensurePlayable(path);
   }
 
   // ─── Playback control ────────────────────────────────────────────
 
+  /// Resolve the on-disk path for this attachment. Prefers the attachment's
+  /// persisted [diskPath] (set on DB hydrate) but falls back to the live
+  /// transfer state so the play button flips to enabled the moment an
+  /// auto-download finishes, before the chat has reloaded from DB.
   String? _resolveDiskPath() {
-    return widget.attachment.diskPath;
+    final fromAttachment = widget.attachment.diskPath;
+    if (fromAttachment != null) return fromAttachment;
+    final transfer = ref.read(fileTransferProvider)[widget.attachment.fileId];
+    return transfer?.diskPath;
   }
 
   bool _canPlay() {
@@ -104,7 +116,7 @@ class _AudioMessageBubbleState extends ConsumerState<AudioMessageBubble> {
   }
 
   Future<void> _onPlayTapped() async {
-    if (!_canPlay()) return;
+    if (!_canPlay() || _preparing) return;
     final path = _resolveDiskPath()!;
 
     // Take the audio playback slot.
@@ -112,7 +124,19 @@ class _AudioMessageBubbleState extends ConsumerState<AudioMessageBubble> {
     // Clear the video slot so any playing video stops.
     ref.read(currentlyPlayingVideoProvider.notifier).state = null;
 
-    await _initPlayer(path);
+    // Windows' Media Foundation can't decode Opus-in-Ogg. For .ogg inputs we
+    // transcode to a cached PCM WAV via bundled ffmpeg (no-op on other
+    // platforms and for non-ogg formats). Cache hit is instant.
+    setState(() => _preparing = true);
+    final playable = await AudioTranscodeService.ensurePlayable(path);
+    if (!mounted) return;
+    setState(() => _preparing = false);
+    if (playable == null) {
+      debugPrint('[AudioBubble] transcode failed for $path');
+      return;
+    }
+
+    await _initPlayer(playable);
   }
 
   Future<void> _initPlayer(String audioPath) async {
@@ -234,6 +258,11 @@ class _AudioMessageBubbleState extends ConsumerState<AudioMessageBubble> {
     );
     final isComplete =
         widget.attachment.isComplete || (transfer?.isComplete ?? false);
+    // Kick off the duration probe the first build after the file becomes
+    // available on disk (auto-download completion or late DB hydrate).
+    if (isComplete && !_probeStarted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _maybeProbe());
+    }
     final isDownloading = !isComplete && (transfer?.isDownloading ?? false);
     final vaultPhase = transfer?.vaultPhase;
     final progress = (transfer != null && transfer.progress > 0)
@@ -294,7 +323,7 @@ class _AudioMessageBubbleState extends ConsumerState<AudioMessageBubble> {
       children: [
         // Play button.
         _PlayButton(
-          icon: LucideIcons.play,
+          icon: _preparing ? LucideIcons.loader2 : LucideIcons.play,
           color: canPlay
               ? hollow.accent
               : hollow.accent.withValues(alpha: 0.4),
