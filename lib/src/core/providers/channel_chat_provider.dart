@@ -348,10 +348,23 @@ class ChannelChatNotifier
                 ))
             .toList();
 
-        // Replace state entirely — DB is the source of truth.
+        // DB is the source of truth, but preserve any in-memory messages
+        // (by messageId) that aren't in the DB snapshot yet — covers the
+        // tiny race where a message arrives mid-load, and keeps optimistic
+        // in-flight sends that haven't round-tripped through Rust.
         final key = _key(serverId, channelId);
+        final existing = state[key] ?? const <ChannelChatMessage>[];
+        final loadedIds = messages
+            .where((m) => m.messageId != null)
+            .map((m) => m.messageId!)
+            .toSet();
+        final carryOver = existing
+            .where((m) => m.messageId != null && !loadedIds.contains(m.messageId))
+            .toList();
+        final merged = [...messages, ...carryOver]
+          ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
         final updated = Map.of(state);
-        updated[key] = messages;
+        updated[key] = merged;
         state = updated;
       }
     } catch (e) {

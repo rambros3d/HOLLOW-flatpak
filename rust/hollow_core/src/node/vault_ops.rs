@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 
+use base64::Engine;
 use tokio::sync::mpsc;
 
+use crate::crdt::server_state::ServerState;
 use crate::crypto::{CryptoStore, MlsManager, OlmManager};
 use super::crypto_handler::{
     peer_is_reachable, send_mls_broadcast, send_mls_to_peer, send_encrypted_message,
 };
+use super::file_handler;
 use super::types::*;
 
 // ── 1. VaultDownloadFile ─────────────────────────────────────────────
@@ -788,4 +791,322 @@ pub(crate) async fn handle_stop_recovery_pool(
     let _ = event_tx.send(NetworkEvent::RecoveryPoolStopped {
         server_id,
     }).await;
+}
+
+/// Handle `MessageEnvelope::ShardStore` (MLS path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_shard_store(
+    server_states: &HashMap<String, ServerState>,
+    pending_shard_streams: &mut HashMap<String, PendingShardStream>,
+    mls: &mut Option<MlsManager>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    server_id: &str,
+    sender_peer_id: String,
+    sid: String,
+    cid: String,
+    si: u16,
+    sk: String,
+    k: u16,
+    m: u16,
+    total_size: u64,
+    tier: String,
+    data: String,
+    chunks: u32,
+) {
+    hollow_log!("[HOLLOW-MLS-VAULT] ShardStore: cid={cid} si={si} from {sender_peer_id}");
+    let is_member = server_states.get(&sid).map(|s| s.members.contains_key(&sender_peer_id)).unwrap_or(false);
+    if !is_member { return; }
+    if chunks == 0 && data.is_empty() {
+        // Streamed shard — data arrives via binary WS stream.
+        let key = format!("{cid}:{si}");
+        pending_shard_streams.insert(key, PendingShardStream {
+            server_id: sid, content_id: cid, shard_index: si,
+            shard_key: sk, k, m, total_size, tier,
+        });
+    } else if chunks == 0 {
+        // Inline shard — store directly.
+        if let Ok(shard_bytes) = base64::engine::general_purpose::STANDARD.decode(&data) {
+            let data_dir = crate::identity::data_dir().unwrap_or_default();
+            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+            let vault_dir = data_dir.join("vault");
+            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+            if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+                let tier_enum = crate::vault::content_store::StorageTier::from_str(&tier);
+                let _ = cs.store_shard(&sid, &cid, si, k, m, total_size, tier_enum, &shard_bytes);
+            }
+            let _ = event_tx.send(NetworkEvent::ShardStored {
+                server_id: sid.clone(), content_id: cid.clone(),
+                shard_index: si, from_peer: sender_peer_id.clone(),
+            }).await;
+            // Send ack via MLS.
+            let ack = MessageEnvelope::ShardStoreAck {
+                sid, cid, si, ok: true, err: None, target: None,
+            };
+            if let Some(mls_mgr_ref) = mls {
+                let _ = send_mls_to_peer(mls_mgr_ref, ws_cmd_tx, server_id, &sender_peer_id, &ack, bundle_keypair);
+            }
+        }
+    }
+}
+
+/// Handle `MessageEnvelope::ShardChunk` (MLS path) — legacy no-op.
+pub(crate) async fn handle_envelope_shard_chunk(sender_peer_id: &str) {
+    hollow_log!("[HOLLOW-MLS-VAULT] ShardChunk via MLS from {sender_peer_id} — legacy, ignoring");
+}
+
+/// Handle `MessageEnvelope::ShardStoreAck` (MLS path).
+pub(crate) async fn handle_envelope_shard_store_ack(
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sid: String,
+    cid: String,
+    si: u16,
+    ok: bool,
+    err: Option<String>,
+) {
+    if ok {
+        hollow_log!("[HOLLOW-MLS-VAULT] ShardStoreAck OK: cid={cid} si={si}");
+        let _ = event_tx.send(NetworkEvent::ShardStoreAckReceived {
+            server_id: sid, content_id: cid, shard_index: si, success: true, error: String::new(),
+        }).await;
+    } else {
+        hollow_log!("[HOLLOW-MLS-VAULT] ShardStoreAck FAILED: cid={cid} si={si} err={err:?}");
+        let _ = event_tx.send(NetworkEvent::ShardStoreAckReceived {
+            server_id: sid, content_id: cid, shard_index: si, success: false,
+            error: err.unwrap_or_default(),
+        }).await;
+    }
+}
+
+/// Handle `MessageEnvelope::ShardDelete` (MLS path) — requires MANAGE_SERVER permission.
+pub(crate) async fn handle_envelope_shard_delete(
+    server_states: &HashMap<String, ServerState>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sender_peer_id: &str,
+    sid: String,
+    cid: String,
+) {
+    let has_perm = server_states.get(&sid).map(|s| {
+        let role = s.get_role(sender_peer_id);
+        let perms = role.default_permissions();
+        (perms & crate::crdt::operations::Permission::MANAGE_SERVER) != 0
+    }).unwrap_or(false);
+    if !has_perm { return; }
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let vault_dir = data_dir.join("vault");
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+        let _ = cs.delete_content(&sid, &cid);
+    }
+    let _ = event_tx.send(NetworkEvent::ShardDeleted {
+        server_id: sid, content_id: cid,
+    }).await;
+}
+
+/// Handle `MessageEnvelope::ShardRequest` (MLS path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_shard_request(
+    server_states: &HashMap<String, ServerState>,
+    olm: &mut OlmManager,
+    crypto_store: &CryptoStore,
+    mls_mgr: &mut MlsManager,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    webrtc_peers: &std::collections::HashSet<String>,
+    pending_webrtc_sends: &mut HashMap<String, (String, super::ws_stream_transfer::StreamKind, String, std::path::PathBuf, u64)>,
+    server_id: &str,
+    sender_peer_id: String,
+    sid: String,
+    cid: String,
+    si: u16,
+    sk: String,
+) {
+    hollow_log!("[HOLLOW-MLS-VAULT] ShardRequest: cid={cid} si={si} from {sender_peer_id}");
+    let is_member = server_states.get(&sid).map(|s| s.members.contains_key(&sender_peer_id)).unwrap_or(false);
+    if !is_member { return; }
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let vault_dir = data_dir.join("vault");
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+        match cs.read_shard_unchecked(&sid, &sk) {
+            Ok(shard_data) => {
+                let resp = MessageEnvelope::ShardResponse {
+                    sid: sid.clone(), cid: cid.clone(), si,
+                    data: String::new(), chunks: 0, found: true, target: None,
+                };
+                let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, bundle_keypair).is_ok();
+                if !mls_sent {
+                    let resp_json = serde_json::to_string(&resp).unwrap_or_default();
+                    send_encrypted_message(olm, crypto_store, &sender_peer_id, &resp_json, event_tx, ws_cmd_tx, ws_room_peers).await;
+                }
+                let shard_temp_dir = crate::node::file_transfer::files_dir();
+                let shard_safe = &cid[..16.min(cid.len())];
+                let shard_temp = shard_temp_dir.join(format!(".stream_shard_{}_{}.tmp", shard_safe, si));
+                if std::fs::write(&shard_temp, &shard_data).is_ok() {
+                    let shard_kind = super::ws_stream_transfer::StreamKind::Shard { shard_index: si };
+                    file_handler::stream_to_peer(
+                        ws_cmd_tx, ws_room_peers,
+                        webrtc_peers, pending_webrtc_sends, event_tx,
+                        &sender_peer_id, &shard_kind,
+                        &cid, &shard_temp, shard_data.len() as u64,
+                    ).await;
+                }
+            }
+            Err(_) => {
+                let resp = MessageEnvelope::ShardResponse {
+                    sid, cid, si, data: String::new(), chunks: 0, found: false, target: None,
+                };
+                let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, server_id, &sender_peer_id, &resp, bundle_keypair).is_ok();
+                if !mls_sent {
+                    let resp_json = serde_json::to_string(&resp).unwrap_or_default();
+                    send_encrypted_message(olm, crypto_store, &sender_peer_id, &resp_json, event_tx, ws_cmd_tx, ws_room_peers).await;
+                }
+            }
+        }
+    }
+}
+
+/// Handle `MessageEnvelope::ShardResponse` (MLS path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_shard_response(
+    pending_shard_streams: &mut HashMap<String, PendingShardStream>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sender_peer_id: String,
+    sid: String,
+    cid: String,
+    si: u16,
+    data: String,
+    _chunks: u32,
+    found: bool,
+) {
+    hollow_log!("[HOLLOW-MLS-VAULT] ShardResponse: cid={cid} si={si} found={found}");
+    if found && data.is_empty() {
+        let key = format!("{cid}:{si}");
+        pending_shard_streams.insert(key, PendingShardStream {
+            server_id: sid, content_id: cid, shard_index: si,
+            shard_key: String::new(), k: 0, m: 0, total_size: 0, tier: String::new(),
+        });
+    } else if found {
+        if let Ok(_shard_bytes) = base64::engine::general_purpose::STANDARD.decode(&data) {
+            let _ = event_tx.send(NetworkEvent::ShardReceived {
+                server_id: sid, content_id: cid, shard_index: si,
+                from_peer: sender_peer_id,
+            }).await;
+        }
+    }
+}
+
+/// Handle `MessageEnvelope::ShardResponseChunk` (MLS path) — legacy no-op.
+pub(crate) async fn handle_envelope_shard_response_chunk() {
+    hollow_log!("[HOLLOW-MLS-VAULT] ShardResponseChunk via MLS — legacy, ignoring");
+}
+
+/// Handle `MessageEnvelope::ShardProbe` (MLS path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_shard_probe(
+    server_states: &HashMap<String, ServerState>,
+    olm: &mut OlmManager,
+    crypto_store: &CryptoStore,
+    mls_mgr: &mut MlsManager,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    sender_peer_id: String,
+    sid: String,
+    cid: String,
+) {
+    let is_member = server_states.get(&sid).map(|s| s.members.contains_key(&sender_peer_id)).unwrap_or(false);
+    if !is_member { return; }
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let vault_dir = data_dir.join("vault");
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    let mut indices = Vec::new();
+    if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+        if let Ok(records) = cs.list_content_shards(&sid, &cid) {
+            indices = records.iter().map(|r| r.shard_index).collect();
+        }
+    }
+    let resp = MessageEnvelope::ShardProbeResponse {
+        sid: sid.clone(), cid, shards: indices, target: None,
+    };
+    let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, bundle_keypair).is_ok();
+    if !mls_sent {
+        let resp_json = serde_json::to_string(&resp).unwrap_or_default();
+        send_encrypted_message(olm, crypto_store, &sender_peer_id, &resp_json, event_tx, ws_cmd_tx, ws_room_peers).await;
+    }
+}
+
+/// Handle `MessageEnvelope::ShardProbeResponse` (MLS path) — informational log only.
+pub(crate) async fn handle_envelope_shard_probe_response(
+    sender_peer_id: &str,
+    _sid: String,
+    cid: String,
+    shards: Vec<u16>,
+) {
+    hollow_log!("[HOLLOW-MLS-VAULT] ShardProbeResponse: cid={cid} shards={shards:?} from {sender_peer_id}");
+}
+
+/// Handle `MessageEnvelope::VaultManifestBroadcast` (MLS path).
+pub(crate) async fn handle_envelope_vault_manifest_broadcast(
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    sid: String,
+    _cid: String,
+    chid: String,
+    manifest: String,
+) {
+    hollow_log!("[HOLLOW-MLS-VAULT] VaultManifestBroadcast: cid={_cid} in {chid}");
+    if let Ok(manifest_obj) = serde_json::from_str::<crate::vault::pipeline::VaultManifest>(&manifest) {
+        let data_dir = crate::identity::data_dir().unwrap_or_default();
+        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+        let vault_dir = data_dir.join("vault");
+        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+        if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+            let _ = cs.save_manifest(&sid, &chid, &manifest_obj);
+        }
+        if !manifest_obj.message_id.is_empty() {
+            if let Ok(ms) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                let _ = ms.set_file_content_id(&manifest_obj.message_id, &manifest_obj.content_id);
+            }
+        }
+    }
+}
+
+/// Handle `MessageEnvelope::ShardMigrate` (MLS path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_shard_migrate(
+    server_states: &HashMap<String, ServerState>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    sender_peer_id: &str,
+    sid: String,
+    cid: String,
+    si: u16,
+    _sk: String,
+    data: String,
+) {
+    let is_member = server_states.get(&sid).map(|s| s.members.contains_key(sender_peer_id)).unwrap_or(false);
+    if !is_member { return; }
+    if let Ok(shard_bytes) = base64::engine::general_purpose::STANDARD.decode(&data) {
+        let data_dir = crate::identity::data_dir().unwrap_or_default();
+        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+        let vault_dir = data_dir.join("vault");
+        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+        if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
+            let tier = crate::vault::content_store::StorageTier::Standard;
+            let _ = cs.store_shard(&sid, &cid, si, 0, 0, 0, tier, &shard_bytes);
+        }
+    }
 }

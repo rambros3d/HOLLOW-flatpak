@@ -33,7 +33,7 @@ HOLLOW/
 │   └── src/
 │       ├── api/          # FFI layer (flutter_rust_bridge scans these)
 │       ├── node/         # Networking modules (modularized from swarm.rs monolith)
-│       │   ├── swarm.rs         # Event loop dispatcher + handle_incoming_request (~7.2k lines)
+│       │   ├── swarm.rs         # Event loop dispatcher + handle_incoming_request (~6.2k lines, envelope dispatch fully extracted)
 │       │   ├── types.rs         # NetworkEvent, NodeCommand, HavenMessage, MessageEnvelope, helper structs
 │       │   ├── crypto_handler.rs # Signing, Olm/MLS encryption, key exchange, coordinator election
 │       │   ├── sync_handler.rs  # CRDT ops, server/channel CRUD, member management, sync

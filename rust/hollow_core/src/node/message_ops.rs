@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 use crate::crypto::{CryptoStore, MlsManager, OlmManager};
 use crate::crdt::server_state::ServerState;
 use super::crypto_handler::{
-    message_signing_payload, sign_message,
+    message_signing_payload, sign_message, verify_message_signature,
     peer_is_reachable, send_mls_broadcast, send_encrypted_message,
     send_message_to_peer,
 };
@@ -1004,4 +1004,224 @@ pub(crate) async fn handle_remove_dm_reaction(
         reactor: local_peer,
         removed_at: remove_ts,
     }).await;
+}
+
+/// Handle `MessageEnvelope::ChannelMessage` (MLS-decrypted path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_channel_message(
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    local_peer: &str,
+    sender_peer_id: String,
+    sid: String,
+    cid: String,
+    text: String,
+    ts: i64,
+    sig: Option<String>,
+    pk: Option<String>,
+    mid: Option<String>,
+    reply_to: Option<String>,
+    file_id: Option<String>,
+    link_preview: Option<LinkPreviewRef>,
+) {
+    let signing_payload = message_signing_payload(
+        "ch", &format!("{}:{}", sid, cid),
+        &sender_peer_id, ts, &text,
+    );
+    verify_message_signature(
+        &sender_peer_id,
+        sig.as_deref(),
+        pk.as_deref(),
+        &signing_payload,
+    );
+
+    let is_mine = sender_peer_id == local_peer;
+
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+        let rows = store.insert_channel_message(
+            &sid, &cid, &sender_peer_id, &text, is_mine, ts,
+            sig.as_deref(), pk.as_deref(), mid.as_deref(),
+            reply_to.as_deref(), file_id.as_deref(),
+        );
+        let is_new = rows.as_ref().map(|&r| r > 0).unwrap_or(false);
+        if is_new {
+            if let (Some(lp), Some(message_id)) = (link_preview.as_ref(), mid.as_ref()) {
+                if let Ok(lp_json) = serde_json::to_string(lp) {
+                    let _ = store.update_channel_link_preview(message_id, &lp_json);
+                }
+            }
+            let _ = event_tx.send(NetworkEvent::ChannelMessageReceived {
+                server_id: sid,
+                channel_id: cid,
+                from_peer: sender_peer_id,
+                text,
+                timestamp: ts,
+                message_id: mid.unwrap_or_default(),
+                reply_to_mid: reply_to.unwrap_or_default(),
+                link_preview,
+                signature: sig,
+                public_key: pk,
+            }).await;
+        }
+    }
+}
+
+/// Handle `MessageEnvelope::EditMessage` (MLS-decrypted path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_edit_message(
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    peer_str: &str,
+    mid: String,
+    new_text: String,
+    ts: i64,
+    sig: Option<String>,
+    pk: Option<String>,
+    sid: Option<String>,
+    cid: Option<String>,
+) {
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    let mut edit_applied = false;
+    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+        let sender = store.get_channel_message_sender(&mid);
+        if sender.as_deref() == Some(peer_str) {
+            let _ = store.edit_channel_message(
+                &mid, &new_text, ts,
+                sig.as_deref(), pk.as_deref(),
+            );
+            edit_applied = true;
+        } else {
+            hollow_log!("[HOLLOW-EDIT] MLS rejected: {peer_str} tried to edit message {mid} owned by {sender:?}");
+        }
+    }
+    if edit_applied {
+        if let (Some(s_id), Some(c_id)) = (sid, cid) {
+            let _ = event_tx.send(NetworkEvent::ChannelMessageEdited {
+                server_id: s_id,
+                channel_id: c_id,
+                message_id: mid,
+                new_text,
+                edited_at: ts,
+                signature: sig,
+                public_key: pk,
+            }).await;
+        }
+    }
+}
+
+/// Handle `MessageEnvelope::DeleteMessage` (MLS-decrypted path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_delete_message(
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    sender_peer_id: &str,
+    mid: String,
+    ts: i64,
+    sig: Option<String>,
+    pk: Option<String>,
+    sid: Option<String>,
+    cid: Option<String>,
+) {
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+        let sender = store.get_channel_message_sender(&mid);
+        if sender.as_deref() != Some(sender_peer_id) {
+            hollow_log!("[HOLLOW-SECURITY] REJECTED MLS DeleteMessage from {sender_peer_id} — not the sender of {mid}");
+            return;
+        }
+        let _ = store.hide_channel_message(
+            &mid, ts,
+            sig.as_deref(), pk.as_deref(),
+        );
+    }
+    if let (Some(s_id), Some(c_id)) = (sid, cid) {
+        let _ = event_tx.send(NetworkEvent::ChannelMessageDeleted {
+            server_id: s_id,
+            channel_id: c_id,
+            message_id: mid,
+            deleted_at: ts,
+        }).await;
+    }
+}
+
+/// Handle `MessageEnvelope::AddReaction` (MLS-decrypted path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_add_reaction(
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    peer_str: &str,
+    mid: String,
+    emoji: String,
+    ts: i64,
+    sig: Option<String>,
+    pk: Option<String>,
+    sid: Option<String>,
+    cid: Option<String>,
+) {
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+        let _ = store.add_reaction(
+            &mid, &emoji, peer_str, ts,
+            sig.as_deref(), pk.as_deref(),
+        );
+    }
+    if let (Some(s_id), Some(c_id)) = (sid, cid) {
+        let _ = event_tx.send(NetworkEvent::ChannelReactionAdded {
+            server_id: s_id,
+            channel_id: c_id,
+            message_id: mid,
+            emoji,
+            reactor: peer_str.to_string(),
+            added_at: ts,
+        }).await;
+    }
+}
+
+/// Handle `MessageEnvelope::RemoveReaction` (MLS-decrypted path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_remove_reaction(
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    peer_str: &str,
+    mid: String,
+    emoji: String,
+    ts: i64,
+    sig: Option<String>,
+    pk: Option<String>,
+    sid: Option<String>,
+    cid: Option<String>,
+) {
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+        let _ = store.remove_reaction(
+            &mid, &emoji, peer_str, ts,
+            sig.as_deref(), pk.as_deref(),
+        );
+    }
+    if let (Some(s_id), Some(c_id)) = (sid, cid) {
+        let _ = event_tx.send(NetworkEvent::ChannelReactionRemoved {
+            server_id: s_id,
+            channel_id: c_id,
+            message_id: mid,
+            emoji,
+            reactor: peer_str.to_string(),
+            removed_at: ts,
+        }).await;
+    }
 }

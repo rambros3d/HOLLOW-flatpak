@@ -4960,997 +4960,211 @@ async fn handle_incoming_request(
 
                         match envelope {
                             MessageEnvelope::ChannelMessage { sid, cid, text, ts, sig, pk, mid, reply_to, file_id, link_preview } => {
-                                let signing_payload = message_signing_payload(
-                                    "ch", &format!("{}:{}", sid, cid),
-                                    &sender_peer_id, ts, &text,
-                                );
-                                verify_message_signature(
-                                    &sender_peer_id,
-                                    sig.as_deref(),
-                                    pk.as_deref(),
-                                    &signing_payload,
-                                );
-
-                                let is_mine = sender_peer_id == local_peer;
-
-                                let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                    let rows = store.insert_channel_message(
-                                        &sid, &cid, &sender_peer_id, &text, is_mine, ts,
-                                        sig.as_deref(), pk.as_deref(), mid.as_deref(),
-                                        reply_to.as_deref(), file_id.as_deref(),
-                                    );
-                                    let is_new = rows.as_ref().map(|&r| r > 0).unwrap_or(false);
-                                    if is_new {
-                                        // Persist link preview for this message if present (Phase 6.75).
-                                        if let (Some(lp), Some(message_id)) = (link_preview.as_ref(), mid.as_ref()) {
-                                            if let Ok(lp_json) = serde_json::to_string(lp) {
-                                                let _ = store.update_channel_link_preview(message_id, &lp_json);
-                                            }
-                                        }
-                                        let _ = event_tx.send(NetworkEvent::ChannelMessageReceived {
-                                            server_id: sid,
-                                            channel_id: cid,
-                                            from_peer: sender_peer_id,
-                                            text,
-                                            timestamp: ts,
-                                            message_id: mid.unwrap_or_default(),
-                                            reply_to_mid: reply_to.unwrap_or_default(),
-                                            link_preview,
-                                            signature: sig,
-                                            public_key: pk,
-                                        }).await;
-                                    }
-                                }
+                                message_ops::handle_envelope_channel_message(
+                                    event_tx, bundle_keypair, &local_peer,
+                                    sender_peer_id, sid, cid, text, ts,
+                                    sig, pk, mid, reply_to, file_id, link_preview,
+                                ).await;
                             }
                             MessageEnvelope::EditMessage { mid, text: new_text, ts, sig, pk, sid, cid } => {
-                                let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                let mut edit_applied = false;
-                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                    let sender = store.get_channel_message_sender(&mid);
-                                    if sender.as_deref() == Some(&peer_str) {
-                                        let _ = store.edit_channel_message(
-                                            &mid, &new_text, ts,
-                                            sig.as_deref(), pk.as_deref(),
-                                        );
-                                        edit_applied = true;
-                                    } else {
-                                        hollow_log!("[HOLLOW-EDIT] MLS rejected: {peer_str} tried to edit message {mid} owned by {sender:?}");
-                                    }
-                                }
-                                if edit_applied {
-                                    if let (Some(s_id), Some(c_id)) = (sid, cid) {
-                                        let _ = event_tx.send(NetworkEvent::ChannelMessageEdited {
-                                            server_id: s_id,
-                                            channel_id: c_id,
-                                            message_id: mid,
-                                            new_text,
-                                            edited_at: ts,
-                                            signature: sig,
-                                            public_key: pk,
-                                        }).await;
-                                    }
-                                }
+                                message_ops::handle_envelope_edit_message(
+                                    event_tx, bundle_keypair, peer_str,
+                                    mid, new_text, ts, sig, pk, sid, cid,
+                                ).await;
                             }
                             MessageEnvelope::DeleteMessage { mid, ts, sig, pk, sid, cid } => {
-                                let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                    let sender = store.get_channel_message_sender(&mid);
-                                    if sender.as_deref() != Some(&sender_peer_id) {
-                                        hollow_log!("[HOLLOW-SECURITY] REJECTED MLS DeleteMessage from {sender_peer_id} — not the sender of {mid}");
-                                        return;
-                                    }
-                                    let _ = store.hide_channel_message(
-                                        &mid, ts,
-                                        sig.as_deref(), pk.as_deref(),
-                                    );
-                                }
-                                if let (Some(s_id), Some(c_id)) = (sid, cid) {
-                                    let _ = event_tx.send(NetworkEvent::ChannelMessageDeleted {
-                                        server_id: s_id,
-                                        channel_id: c_id,
-                                        message_id: mid,
-                                        deleted_at: ts,
-                                    }).await;
-                                }
+                                message_ops::handle_envelope_delete_message(
+                                    event_tx, bundle_keypair, &sender_peer_id,
+                                    mid, ts, sig, pk, sid, cid,
+                                ).await;
                             }
                             MessageEnvelope::AddReaction { mid, emoji, ts, sig, pk, sid, cid } => {
-                                let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                    let _ = store.add_reaction(
-                                        &mid, &emoji, &peer_str, ts,
-                                        sig.as_deref(), pk.as_deref(),
-                                    );
-                                }
-                                if let (Some(s_id), Some(c_id)) = (sid, cid) {
-                                    let _ = event_tx.send(NetworkEvent::ChannelReactionAdded {
-                                        server_id: s_id,
-                                        channel_id: c_id,
-                                        message_id: mid,
-                                        emoji,
-                                        reactor: peer_str.to_string(),
-                                        added_at: ts,
-                                    }).await;
-                                }
+                                message_ops::handle_envelope_add_reaction(
+                                    event_tx, bundle_keypair, peer_str,
+                                    mid, emoji, ts, sig, pk, sid, cid,
+                                ).await;
                             }
                             MessageEnvelope::RemoveReaction { mid, emoji, ts, sig, pk, sid, cid } => {
-                                let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                    let _ = store.remove_reaction(
-                                        &mid, &emoji, &peer_str, ts,
-                                        sig.as_deref(), pk.as_deref(),
-                                    );
-                                }
-                                if let (Some(s_id), Some(c_id)) = (sid, cid) {
-                                    let _ = event_tx.send(NetworkEvent::ChannelReactionRemoved {
-                                        server_id: s_id,
-                                        channel_id: c_id,
-                                        message_id: mid,
-                                        emoji,
-                                        reactor: peer_str.to_string(),
-                                        removed_at: ts,
-                                    }).await;
-                                }
+                                message_ops::handle_envelope_remove_reaction(
+                                    event_tx, bundle_keypair, peer_str,
+                                    mid, emoji, ts, sig, pk, sid, cid,
+                                ).await;
                             }
                             MessageEnvelope::FileHeader { fid, name, ext, mime, size, chunks, img, w, h, mid, sid, cid, ts, aes_key, aes_nonce, vthumb, .. } => {
-                                use crate::node::file_transfer;
-                                hollow_log!("[HOLLOW-FILE] MLS FileHeader: {fid} ({name}, {size} bytes, {chunks} chunks)");
-
-                                let max_mb_str = if let Some(state) = server_states.get(&server_id) {
-                                    state.settings.get("max_file_size_mb")
-                                        .map(|r| r.read().clone())
-                                        .unwrap_or_else(|| "34".to_string())
-                                } else { "34".to_string() };
-                                let max_bytes = max_mb_str.parse::<u64>().unwrap_or(34) * 1024 * 1024;
-                                if size > max_bytes {
-                                    hollow_log!("[HOLLOW-SECURITY] REJECTED MLS FileHeader from {sender_peer_id} — size {size} exceeds max {max_bytes}");
-                                    return;
-                                }
-
-                                let ctx_type = "channel";
-                                let ctx_id = match (&sid, &cid) {
-                                    (Some(s), Some(c)) => format!("{s}:{c}"),
-                                    _ => server_id.clone(),
-                                };
-
-                                let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                    let _ = store.insert_file_metadata(
-                                        &fid, &name, &ext, &mime,
-                                        size, chunks, img,
-                                        w, h,
-                                        mid.as_deref(), ctx_type, &ctx_id,
-                                        &sender_peer_id, false, ts,
-                                        vthumb.as_ref(),
-                                    );
-                                }
-
-                                // Register pending stream so binary file bytes can be decrypted on arrival.
-                                if let (Some(ak), Some(an)) = (aes_key, aes_nonce) {
-                                    pending_file_streams.insert(fid.clone(), PendingFileStream {
-                                        aes_key: ak,
-                                        aes_nonce: an,
-                                        file_name: name.clone(),
-                                        ext: ext.clone(),
-                                        sender: sender_peer_id.clone(),
-                                        server_id: sid.clone().unwrap_or(server_id.clone()),
-                                        channel_id: cid.clone().unwrap_or_default(),
-                                        message_id: mid.clone().unwrap_or_default(),
-                                        is_image: img,
-                                        width: w,
-                                        height: h,
-                                    });
-                                    hollow_log!("[HOLLOW-FILE] Registered pending stream for {fid} (MLS streamed transfer)");
-
-                                    // Check if WebRTC bytes already arrived before this FileHeader.
-                                    if let Some((temp_path, file_size, sender)) = early_file_streams.remove(&fid) {
-                                        hollow_log!("[HOLLOW-FILE] Early arrival found for {fid} (MLS path) — processing now");
-                                        let request = super::ws_stream_transfer::StreamRequest {
-                                            kind: super::ws_stream_transfer::StreamKind::File,
-                                            id: fid.clone(),
-                                            size: file_size,
-                                            temp_path,
-                                        };
-                                        let mut empty_vault_dl = HashMap::new();
-                                        file_handler::handle_completed_stream(
-                                            request, &sender,
-                                            pending_file_streams, pending_shard_streams,
-                                            &mut empty_vault_dl, early_file_streams,
-                                            bundle_keypair, event_tx,
-                                        ).await;
-                                    }
-                                }
-
-                                let _ = event_tx.send(NetworkEvent::FileHeaderReceived {
-                                    file_id: fid,
-                                    file_name: name,
-                                    size_bytes: size,
-                                    is_image: img,
-                                    width: w,
-                                    height: h,
-                                    message_id: mid.unwrap_or_default(),
-                                    sender_id: sender_peer_id.clone(),
-                                    server_id: sid.unwrap_or(server_id.clone()),
-                                    channel_id: cid.unwrap_or_default(),
-                                    video_thumb: vthumb,
-                                }).await;
+                                file_handler::handle_envelope_file_header(
+                                    server_states, pending_file_streams, pending_shard_streams,
+                                    early_file_streams, bundle_keypair, event_tx,
+                                    &server_id, sender_peer_id,
+                                    fid, name, ext, mime, size, chunks, img, w, h,
+                                    mid, sid, cid, ts, aes_key, aes_nonce, vthumb,
+                                ).await;
                             }
                             MessageEnvelope::FileChunk { fid, idx, data } => {
-                                use crate::node::file_transfer;
-
-                                let chunk_bytes = match base64::engine::general_purpose::STANDARD.decode(&data) {
-                                    Ok(b) => b,
-                                    Err(e) => {
-                                        hollow_log!("[HOLLOW-FILE] MLS chunk decode failed: {e}");
-                                        return;
-                                    }
-                                };
-
-                                if let Err(e) = file_transfer::write_chunk(&fid, idx, &chunk_bytes) {
-                                    hollow_log!("[HOLLOW-FILE] {e}");
-                                } else {
-                                    let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                        if let Ok(received) = store.mark_chunk_received(&fid, idx) {
-                                            if let Ok(Some(file_meta)) = store.get_file_metadata(&fid) {
-                                                let _ = event_tx.send(NetworkEvent::FileProgress {
-                                                    file_id: fid.clone(),
-                                                    chunks_received: received,
-                                                    total_chunks: file_meta.chunk_count,
-                                                }).await;
-
-                                                if received >= file_meta.chunk_count {
-                                                    let final_path = file_transfer::final_file_path(&fid, &file_meta.file_ext);
-                                                    match file_transfer::assemble_file(&fid, file_meta.chunk_count, &final_path) {
-                                                        Ok(()) => {
-                                                            let disk_path = final_path.to_string_lossy().to_string();
-                                                            let _ = store.mark_file_complete(&fid, &disk_path);
-                                                            hollow_log!("[HOLLOW-FILE] MLS file {fid} complete: {disk_path}");
-                                                            let _ = event_tx.send(NetworkEvent::FileCompleted {
-                                                                file_id: fid,
-                                                                disk_path,
-                                                            }).await;
-                                                        }
-                                                        Err(e) => {
-                                                            hollow_log!("[HOLLOW-FILE] MLS assembly failed: {e}");
-                                                            let _ = event_tx.send(NetworkEvent::FileFailed {
-                                                                file_id: fid,
-                                                                error: e,
-                                                            }).await;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                file_handler::handle_envelope_file_chunk(
+                                    bundle_keypair, event_tx, fid, idx, data,
+                                ).await;
                             }
 
                             // -- Phase 6 new MLS dispatch branches --
 
                             MessageEnvelope::CrdtOp { sid, op_json } => {
-                                // Same permission checks as HavenMessage::CrdtOpBroadcast handler.
-                                if !server_states.contains_key(&sid) { return; }
-                                if let Ok(op) = serde_json::from_str::<crate::crdt::operations::CrdtOp>(&op_json) {
-                                    // SECURITY: Validate author's role permission.
-                                    {
-                                        let state = server_states.get(&sid).unwrap();
-                                        let sender_role = state.get_role(&op.author);
-                                        let sender_perms = sender_role.default_permissions();
-                                        use crate::crdt::operations::{CrdtPayload, Permission, MemberRole};
-                                        let allowed = match &op.payload {
-                                            CrdtPayload::ChannelAdded { .. }
-                                            | CrdtPayload::ChannelRemoved { .. }
-                                            | CrdtPayload::ChannelRenamed { .. }
-                                            | CrdtPayload::ChannelLayoutUpdated { .. } => {
-                                                (sender_perms & Permission::MANAGE_CHANNELS) != 0
-                                            }
-                                            CrdtPayload::RoleChanged { peer_id, role, .. } => {
-                                                state.can_change_role(&op.author, peer_id, role)
-                                            }
-                                            CrdtPayload::ServerRenamed { .. }
-                                            | CrdtPayload::ServerSettingChanged { .. } => {
-                                                sender_role == MemberRole::Owner || sender_role == MemberRole::Admin
-                                            }
-                                            CrdtPayload::MemberRemoved { peer_id } => {
-                                                let target_role = state.get_role(peer_id);
-                                                (sender_perms & Permission::KICK_MEMBERS) != 0
-                                                    && sender_role.outranks(&target_role)
-                                            }
-                                            CrdtPayload::MemberAdded { .. } => {
-                                                state.members.contains_key(&op.author)
-                                            }
-                                            CrdtPayload::NicknameChanged { peer_id, .. } => {
-                                                peer_id == &op.author || sender_role == MemberRole::Owner || sender_role == MemberRole::Admin
-                                            }
-                                            CrdtPayload::MessagePinned { .. }
-                                            | CrdtPayload::MessageUnpinned { .. } => {
-                                                (sender_perms & Permission::MANAGE_CHANNELS) != 0
-                                            }
-                                            CrdtPayload::StoragePledgeChanged { peer_id, .. } => {
-                                                peer_id == &op.author || sender_role == MemberRole::Owner || sender_role == MemberRole::Admin
-                                            }
-                                            CrdtPayload::ServerCreated { .. } => true,
-                                        };
-                                        if !allowed {
-                                            hollow_log!("[HOLLOW-SECURITY] REJECTED MLS CrdtOp from {} — insufficient permission", op.author);
-                                            return;
-                                        }
-                                    }
-                                    let state = server_states.get_mut(&sid).unwrap();
-                                    let was_len = state.op_log.len();
-                                    let _ = state.apply_op(&op);
-                                    if state.op_log.len() > was_len {
-                                        if let Ok(json) = serde_json::to_string(&*state) {
-                                            let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                                let _ = store.save_server_state(&sid, &json);
-                                                let _ = store.insert_crdt_op(&op);
-                                            }
-                                        }
-                                        // Emit per-payload events (same as CrdtOpBroadcast handler).
-                                        use crate::crdt::operations::CrdtPayload;
-                                        match &op.payload {
-                                            CrdtPayload::ChannelAdded { channel_id, name, channel_type, .. } => {
-                                                let _ = event_tx.send(NetworkEvent::ChannelAdded {
-                                                    server_id: sid.clone(), channel_id: channel_id.clone(), name: name.clone(), channel_type: channel_type.clone(),
-                                                }).await;
-                                            }
-                                            CrdtPayload::ChannelRemoved { channel_id } => {
-                                                let _ = event_tx.send(NetworkEvent::ChannelRemoved {
-                                                    server_id: sid.clone(), channel_id: channel_id.clone(),
-                                                }).await;
-                                            }
-                                            CrdtPayload::MemberAdded { peer_id, .. } => {
-                                                let _ = event_tx.send(NetworkEvent::MemberJoined {
-                                                    server_id: sid.clone(), peer_id: peer_id.clone(),
-                                                }).await;
-                                            }
-                                            CrdtPayload::MemberRemoved { peer_id } => {
-                                                let _ = event_tx.send(NetworkEvent::MemberLeft {
-                                                    server_id: sid.clone(), peer_id: peer_id.clone(),
-                                                }).await;
-                                            }
-                                            CrdtPayload::RoleChanged { peer_id, role, .. } => {
-                                                let _ = event_tx.send(NetworkEvent::RoleChanged {
-                                                    server_id: sid.clone(), peer_id: peer_id.clone(), new_role: role.as_str().to_string(),
-                                                }).await;
-                                            }
-                                            CrdtPayload::ServerSettingChanged { .. }
-                                            | CrdtPayload::ServerRenamed { .. } => {
-                                                // Server settings/name changed — emit ServerUpdated for UI refresh.
-                                                let _ = event_tx.send(NetworkEvent::ServerUpdated {
-                                                    server_id: sid.clone(),
-                                                }).await;
-                                            }
-                                            _ => {
-                                                // Other ops: trigger a generic sync event.
-                                                let _ = event_tx.send(NetworkEvent::SyncCompleted {
-                                                    server_id: sid.clone(), ops_applied: 1,
-                                                }).await;
-                                            }
-                                        }
-                                    }
-                                }
+                                sync_handler::handle_envelope_crdt_op(
+                                    server_states, bundle_keypair, event_tx,
+                                    sid, op_json,
+                                ).await;
                             }
 
                             MessageEnvelope::ServerDelete { sid } => {
-                                // SECURITY: Verify sender is Owner.
-                                let sender_role = server_states.get(&sid)
-                                    .map(|s| s.get_role(&sender_peer_id))
-                                    .unwrap_or(crate::crdt::operations::MemberRole::Member);
-                                if sender_role != crate::crdt::operations::MemberRole::Owner {
-                                    hollow_log!("[HOLLOW-SECURITY] REJECTED MLS ServerDelete from {sender_peer_id} — not owner");
-                                    return;
-                                }
-                                if server_states.remove(&sid).is_some() {
-                                    let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                        let _ = store.delete_server_state(&sid);
-                                    }
-                                    if let Some(mls_mgr_ref) = mls {
-                                        mls_mgr_ref.remove_group(&sid);
-                                        persist_mls_state(mls_mgr_ref, bundle_keypair);
-                                    }
-                                    let _ = event_tx.send(NetworkEvent::ServerDeleted {
-                                        server_id: sid,
-                                    }).await;
-                                }
+                                sync_handler::handle_envelope_server_delete(
+                                    server_states, mls, bundle_keypair, event_tx,
+                                    &sender_peer_id, sid,
+                                ).await;
                             }
 
                             MessageEnvelope::MemberKick { sid } => {
-                                // We got kicked from a server via MLS.
-                                let can_kick = if let Some(state) = server_states.get(&sid) {
-                                    let sender_role = state.get_role(&sender_peer_id);
-                                    let our_role = state.get_role(&local_peer);
-                                    let sender_perms = sender_role.default_permissions();
-                                    (sender_perms & crate::crdt::operations::Permission::KICK_MEMBERS) != 0
-                                        && sender_role.outranks(&our_role)
-                                } else { false };
-                                if !can_kick {
-                                    hollow_log!("[HOLLOW-SECURITY] REJECTED MLS MemberKick from {sender_peer_id} — insufficient permissions");
-                                    return;
-                                }
-                                if server_states.remove(&sid).is_some() {
-                                    let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                        let _ = store.delete_server_state(&sid);
-                                    }
-                                    if let Some(mls_mgr_ref) = mls {
-                                        mls_mgr_ref.remove_group(&sid);
-                                        persist_mls_state(mls_mgr_ref, bundle_keypair);
-                                    }
-                                    let _ = event_tx.send(NetworkEvent::ServerDeleted {
-                                        server_id: sid,
-                                    }).await;
-                                }
+                                sync_handler::handle_envelope_member_kick(
+                                    server_states, mls, bundle_keypair, event_tx,
+                                    &local_peer, &sender_peer_id, sid,
+                                ).await;
                             }
 
                             MessageEnvelope::Typing { sid, cid } => {
-                                let _ = event_tx.send(NetworkEvent::TypingStarted {
-                                    peer_id: sender_peer_id,
-                                    server_id: sid,
-                                    channel_id: cid,
-                                }).await;
+                                super::social::handle_envelope_typing(
+                                    event_tx, sender_peer_id, sid, cid,
+                                ).await;
                             }
 
                             MessageEnvelope::ProfileUpdate { display_name, status, about_me, updated_at, avatar_b64, banner_b64 } => {
-                                // Decode avatar/banner base64 (same logic as HavenMessage::ProfileUpdate handler).
-                                let avatar_bytes: Option<Vec<u8>> = if avatar_b64.is_empty() {
-                                    None
-                                } else if avatar_b64 == "CLEAR" {
-                                    Some(vec![])
-                                } else {
-                                    base64::engine::general_purpose::STANDARD.decode(&avatar_b64).ok()
-                                        .filter(|b| b.len() <= 2_000_000)
-                                };
-                                let banner_bytes: Option<Vec<u8>> = if banner_b64.is_empty() {
-                                    None
-                                } else if banner_b64 == "CLEAR" {
-                                    Some(vec![])
-                                } else {
-                                    base64::engine::general_purpose::STANDARD.decode(&banner_b64).ok()
-                                        .filter(|b| b.len() <= 2_000_000)
-                                };
-                                let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                    let _ = store.save_profile(
-                                        &sender_peer_id, &display_name, &status, &about_me, updated_at,
-                                        avatar_bytes.as_deref(), banner_bytes.as_deref(),
-                                    );
-                                }
-                                // Update display_name in server member lists (local-only, not a CRDT op).
-                                for (_, state) in server_states.iter_mut() {
-                                    if let Some(member) = state.members.get_mut(&sender_peer_id) {
-                                        if !display_name.is_empty() {
-                                            member.display_name = display_name.clone();
-                                        }
-                                    }
-                                }
-                                let _ = event_tx.send(NetworkEvent::ProfileUpdated {
-                                    peer_id: sender_peer_id,
-                                }).await;
+                                super::social::handle_envelope_profile_update(
+                                    event_tx, server_states, bundle_keypair,
+                                    sender_peer_id, display_name, status, about_me,
+                                    updated_at, avatar_b64, banner_b64,
+                                ).await;
                             }
 
                             MessageEnvelope::SyncReq { sid, state_vector_json, .. } => {
-                                // Handle CRDT sync request via MLS.
-                                hollow_log!("[HOLLOW-CRDT] MLS SyncReq from {sender_peer_id} for {sid}, our op_log has {} ops", server_states.get(&sid).map(|s| s.op_log.len()).unwrap_or(0));
-                                if let Some(state) = server_states.get(&sid) {
-                                    if let Ok(their_vector) = serde_json::from_str::<crate::crdt::sync::StateVector>(&state_vector_json) {
-                                        let delta = crate::crdt::sync::compute_delta(&state.op_log, &their_vector);
-                                        hollow_log!("[HOLLOW-CRDT] Delta for {sid}: {} ops to send (their vector has {} entries)", delta.len(), their_vector.entries.len());
-                                        if !delta.is_empty() {
-                                            let ops_json = serde_json::to_string(&delta).unwrap_or_default();
-                                            let resp = MessageEnvelope::SyncResp {
-                                                sid: sid.clone(),
-                                                ops_json,
-                                                target: None,
-                                            };
-                                            // Try MLS first, fall back to Olm if encrypt fails
-                                            // (peer's epoch may be stale after reconnection).
-                                            let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, bundle_keypair).is_ok();
-                                            if !mls_sent {
-                                                let resp_json = serde_json::to_string(&resp).unwrap_or_default();
-                                                send_encrypted_message(
-                                                    olm, crypto_store,
-                                                    &sender_peer_id, &resp_json, event_tx,
-                                                    ws_cmd_tx, ws_room_peers,
-                                                ).await;
-                                            }
-                                        }
-                                    }
-                                }
+                                sync_handler::handle_envelope_sync_req(
+                                    server_states, olm, crypto_store, mls_mgr,
+                                    bundle_keypair, event_tx, ws_cmd_tx, ws_room_peers,
+                                    sender_peer_id, sid, state_vector_json,
+                                ).await;
                             }
 
                             MessageEnvelope::SyncResp { sid, ops_json, .. } => {
-                                // Handle CRDT sync response via MLS (same as HavenMessage::SyncResponse).
-                                if let Some(state) = server_states.get_mut(&sid) {
-                                    if let Ok(incoming_ops) = serde_json::from_str::<Vec<crate::crdt::operations::CrdtOp>>(&ops_json) {
-                                        match crate::crdt::sync::merge_ops(state, incoming_ops) {
-                                            Ok(applied) if applied > 0 => {
-                                                if let Ok(json) = serde_json::to_string(&*state) {
-                                                    let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                                    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                                    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                                    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                                        let _ = store.save_server_state(&sid, &json);
-                                                    }
-                                                }
-                                                let _ = event_tx.send(NetworkEvent::SyncCompleted {
-                                                    server_id: sid.clone(),
-                                                    ops_applied: applied as u32,
-                                                }).await;
-                                            }
-                                            _ => {}
-                                        }
-                                    }
-                                }
+                                sync_handler::handle_envelope_sync_resp(
+                                    server_states, bundle_keypair, event_tx,
+                                    sid, ops_json,
+                                ).await;
                             }
 
                             MessageEnvelope::ChannelSyncReq { sid, cid, since_timestamp, sender_timestamps, .. } => {
-                                // Handle channel sync request via MLS (same as HavenMessage::ChannelSyncRequest).
-                                if !server_states.contains_key(&sid) { return; }
-                                let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                    let msgs_result = if !sender_timestamps.is_empty() {
-                                        store.get_channel_messages_since_per_sender(&sid, &cid, &sender_timestamps, 200)
-                                    } else {
-                                        store.get_channel_messages_since(&sid, &cid, since_timestamp, 200)
-                                    };
-                                    if let Ok(messages) = msgs_result {
-                                        let msg_ids: Vec<String> = messages.iter().filter_map(|m| m.message_id.clone()).collect();
-                                        let reactions_map = store.load_reactions_for_sync(&msg_ids).unwrap_or_default();
-                                        let items: Vec<SyncMessageItem> = messages.iter().map(|m| {
-                                            let reactions = m.message_id.as_ref()
-                                                .and_then(|mid| reactions_map.get(mid))
-                                                .map(|rs| rs.iter().map(|(e, p, ts, sig, pk)| SyncReactionItem {
-                                                    e: e.clone(), p: p.clone(), ts: *ts, sig: sig.clone(), pk: pk.clone(),
-                                                }).collect())
-                                                .unwrap_or_default();
-                                            let file_meta = m.file_id.as_ref().and_then(|fid| {
-                                                store.get_file_metadata(fid).ok().flatten().map(|f| SyncFileMetaItem {
-                                                    fid: f.file_id, name: f.file_name, ext: f.file_ext, mime: f.mime_type,
-                                                    size: f.size_bytes, img: f.is_image, w: f.width, h: f.height,
-                                                    mid: f.message_id, ts: f.created_at, sender: f.sender_id,
-                                                    vthumb: f.video_thumb,
-                                                })
-                                            });
-                                            SyncMessageItem {
-                                                s: m.sender_id.clone(), t: m.text.clone(), ts: m.timestamp,
-                                                sig: m.signature.clone(), pk: m.public_key.clone(),
-                                                mid: m.message_id.clone(), edited_at: m.edited_at,
-                                                reply_to: m.reply_to_mid.clone(), file_id: m.file_id.clone(),
-                                                file_meta, hidden_at: m.hidden_at, reactions,
-                                            }
-                                        }).collect();
-                                        if !items.is_empty() {
-                                            let total = if !sender_timestamps.is_empty() {
-                                                store.count_channel_messages_since_per_sender(&sid, &cid, &sender_timestamps).unwrap_or(items.len() as u32)
-                                            } else {
-                                                store.count_channel_messages_since(&sid, &cid, since_timestamp).unwrap_or(items.len() as u32)
-                                            };
-                                            let has_more = if items.len() >= 200 && total > 200 { Some(true) } else { None };
-                                            let batch = MessageEnvelope::ChannelSyncBatch {
-                                                sid: sid.clone(), cid: cid.clone(), messages: items,
-                                                total, has_more, target: None,
-                                            };
-                                            if let Some(mls_mgr_ref) = mls {
-                                                if let Err(e) = send_mls_to_peer(mls_mgr_ref, ws_cmd_tx, &sid, &sender_peer_id, &batch, bundle_keypair) {
-                                                    hollow_log!("[HOLLOW-MLS] Failed to send MLS ChannelSyncBatch: {e}");
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                sync_handler::handle_envelope_channel_sync_req(
+                                    server_states, mls, bundle_keypair, ws_cmd_tx,
+                                    &sender_peer_id, sid, cid, since_timestamp, sender_timestamps,
+                                ).await;
                             }
 
                             MessageEnvelope::ChannelProbe { sid, cid, our_latest: _their_latest, msg_count: _their_count, .. } => {
-                                // Respond with our latest timestamp for the channel.
-                                if !server_states.contains_key(&sid) { return; }
-                                let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                    let our_latest = store.get_latest_channel_timestamp(&sid, &cid)
-                                        .unwrap_or(None).unwrap_or(0);
-                                    let our_count = store.count_channel_messages(&sid, &cid);
-                                    let resp = MessageEnvelope::ChannelProbeResp {
-                                        sid: sid.clone(),
-                                        cid,
-                                        their_latest: our_latest,
-                                        msg_count: our_count,
-                                        target: None,
-                                    };
-                                    // Try MLS first, fall back to Olm if encrypt fails
-                                    // (peer's epoch may be stale after reconnection).
-                                    let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, bundle_keypair).is_ok();
-                                    if !mls_sent {
-                                        let resp_json = serde_json::to_string(&resp).unwrap_or_default();
-                                        send_encrypted_message(
-                                            olm, crypto_store,
-                                            &sender_peer_id, &resp_json, event_tx,
-                                            ws_cmd_tx, ws_room_peers,
-                                        ).await;
-                                    }
-                                }
+                                sync_handler::handle_envelope_channel_probe(
+                                    server_states, olm, crypto_store, mls_mgr,
+                                    bundle_keypair, event_tx, ws_cmd_tx, ws_room_peers,
+                                    sender_peer_id, sid, cid,
+                                ).await;
                             }
 
                             MessageEnvelope::ChannelProbeResp { sid, cid, their_latest, msg_count, .. } => {
-                                // Same as HavenMessage::ChannelSyncProbeResponse handler.
-                                // Dedup: skip if already syncing this channel recently.
-                                let dedup_key = format!("{sid}:{cid}");
-                                if channel_sync_sent.get(&dedup_key).is_some_and(|t| t.elapsed() < Duration::from_secs(5)) {
-                                    return;
-                                }
-                                let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                    let our_latest = store.get_latest_channel_timestamp(&sid, &cid)
-                                        .unwrap_or(None).unwrap_or(0);
-                                    let our_count = store.count_channel_messages(&sid, &cid);
-                                    if their_latest > our_latest {
-                                        channel_sync_sent.insert(dedup_key, std::time::Instant::now());
-                                        let per_sender = store.get_per_sender_timestamps(&sid, &cid)
-                                            .unwrap_or_default();
-                                        // Use plaintext ChannelSyncRequest — MLS epoch may be
-                                        // stale after reconnection, causing silent decrypt failure.
-                                        send_message_to_peer(
-                                            ws_cmd_tx, ws_room_peers,
-                                            &sender_peer_id, HavenMessage::ChannelSyncRequest {
-                                                server_id: sid.clone(),
-                                                channel_id: cid.clone(),
-                                                since_timestamp: our_latest,
-                                                sender_timestamps: per_sender,
-                                            },
-                                        );
-                                    }
-                                }
+                                sync_handler::handle_envelope_channel_probe_resp(
+                                    bundle_keypair, ws_cmd_tx, ws_room_peers,
+                                    channel_sync_sent, sender_peer_id,
+                                    sid, cid, their_latest, msg_count,
+                                ).await;
                             }
 
                             MessageEnvelope::ChannelSyncBatch { sid, cid, messages, total, has_more, .. } => {
-                                // Handle channel sync batch received via MLS (same as Olm handler).
-                                let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                    let mut new_count = 0u32;
-                                    for msg in &messages {
-                                        let is_mine = msg.s == local_peer;
-                                        match store.insert_channel_message(
-                                            &sid, &cid, &msg.s, &msg.t, is_mine, msg.ts,
-                                            msg.sig.as_deref(), msg.pk.as_deref(), msg.mid.as_deref(),
-                                            msg.reply_to.as_deref(), msg.file_id.as_deref(),
-                                        ) {
-                                            Ok(1) => { new_count += 1; }
-                                            _ => {}
-                                        }
-                                        // Apply hidden_at.
-                                        if let (Some(hidden_ts), Some(mid)) = (msg.hidden_at, &msg.mid) {
-                                            let _ = store.set_channel_message_hidden(mid, hidden_ts);
-                                        }
-                                        // Insert file metadata for late joiners.
-                                        if let Some(ref fm) = msg.file_meta {
-                                            let ctx_id = format!("{sid}:{cid}");
-                                            let _ = store.insert_file_metadata(
-                                                &fm.fid, &fm.name, &fm.ext, &fm.mime,
-                                                fm.size, 0, fm.img, fm.w, fm.h,
-                                                fm.mid.as_deref(), "channel", &ctx_id,
-                                                &fm.sender, msg.s == local_peer, fm.ts,
-                                                fm.vthumb.as_ref(),
-                                            );
-                                            let _ = event_tx.send(NetworkEvent::FileHeaderReceived {
-                                                file_id: fm.fid.clone(), file_name: fm.name.clone(),
-                                                size_bytes: fm.size, is_image: fm.img,
-                                                width: fm.w, height: fm.h,
-                                                message_id: fm.mid.clone().unwrap_or_default(),
-                                                sender_id: fm.sender.clone(),
-                                                server_id: sid.clone(), channel_id: cid.clone(),
-                                                video_thumb: fm.vthumb.clone(),
-                                            }).await;
-                                        }
-                                        // Sync reactions.
-                                        if let Some(mid) = &msg.mid {
-                                            for r in &msg.reactions {
-                                                let _ = store.add_reaction(
-                                                    mid, &r.e, &r.p, r.ts,
-                                                    r.sig.as_deref(), r.pk.as_deref(),
-                                                );
-                                            }
-                                        }
-                                    }
-                                    // Request more if needed.
-                                    if has_more == Some(true) {
-                                        let sender_ts = store.get_per_sender_timestamps(&sid, &cid)
-                                            .unwrap_or_default();
-                                        let since = store.get_latest_channel_timestamp(&sid, &cid)
-                                            .unwrap_or(None).unwrap_or(0);
-                                        let req = MessageEnvelope::ChannelSyncReq {
-                                            sid: sid.clone(), cid: cid.clone(),
-                                            since_timestamp: since, sender_timestamps: sender_ts,
-                                            target: None,
-                                        };
-                                        if let Some(mls_mgr_ref) = mls {
-                                            if let Err(e) = send_mls_to_peer(mls_mgr_ref, ws_cmd_tx, &sid, &sender_peer_id, &req, bundle_keypair) {
-                                                hollow_log!("[HOLLOW-MLS] Failed to send follow-up ChannelSyncReq: {e}");
-                                            }
-                                        }
-                                    }
-                                    // Always emit completion (matches non-MLS path) so Dart
-                                    // can recompute unread counts even when new_count == 0.
-                                    if has_more != Some(true) {
-                                        let _ = event_tx.send(NetworkEvent::MessageSyncCompleted {
-                                            server_id: sid,
-                                            new_message_count: new_count,
-                                        }).await;
-                                    }
-                                }
+                                sync_handler::handle_envelope_channel_sync_batch(
+                                    mls, bundle_keypair, event_tx, ws_cmd_tx,
+                                    &local_peer, &sender_peer_id,
+                                    sid, cid, messages, total, has_more,
+                                ).await;
                             }
 
                             // -- Vault/shard envelopes via MLS (same logic as Olm handlers) --
 
                             MessageEnvelope::ShardStore { sid, cid, si, sk, k, m, total_size, tier, data, chunks, .. } => {
-                                hollow_log!("[HOLLOW-MLS-VAULT] ShardStore: cid={cid} si={si} from {sender_peer_id}");
-                                let is_member = server_states.get(&sid).map(|s| s.members.contains_key(&sender_peer_id)).unwrap_or(false);
-                                if !is_member { return; }
-                                if chunks == 0 && data.is_empty() {
-                                    // Streamed shard — data arrives via binary WS stream.
-                                    let key = format!("{cid}:{si}");
-                                    pending_shard_streams.insert(key, PendingShardStream {
-                                        server_id: sid, content_id: cid, shard_index: si,
-                                        shard_key: sk, k, m, total_size, tier,
-                                    });
-                                } else if chunks == 0 {
-                                    // Inline shard — store directly.
-                                    if let Ok(shard_bytes) = base64::engine::general_purpose::STANDARD.decode(&data) {
-                                        let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                        let vault_dir = data_dir.join("vault");
-                                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                        if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
-                                            let tier_enum = crate::vault::content_store::StorageTier::from_str(&tier);
-                                            let _ = cs.store_shard(&sid, &cid, si, k, m, total_size, tier_enum, &shard_bytes);
-                                        }
-                                        let _ = event_tx.send(NetworkEvent::ShardStored {
-                                            server_id: sid.clone(), content_id: cid.clone(),
-                                            shard_index: si, from_peer: sender_peer_id.clone(),
-                                        }).await;
-                                        // Send ack via MLS.
-                                        let ack = MessageEnvelope::ShardStoreAck {
-                                            sid, cid, si, ok: true, err: None, target: None,
-                                        };
-                                        if let Some(mls_mgr_ref) = mls {
-                                            let _ = send_mls_to_peer(mls_mgr_ref, ws_cmd_tx, &server_id, &sender_peer_id, &ack, bundle_keypair);
-                                        }
-                                    }
-                                }
+                                vault_ops::handle_envelope_shard_store(
+                                    server_states, pending_shard_streams, mls,
+                                    bundle_keypair, event_tx, ws_cmd_tx,
+                                    &server_id, sender_peer_id,
+                                    sid, cid, si, sk, k, m, total_size, tier, data, chunks,
+                                ).await;
                             }
 
                             MessageEnvelope::ShardChunk { .. } => {
-                                // Chunked shards are legacy — inline/streamed modes handle everything.
-                                hollow_log!("[HOLLOW-MLS-VAULT] ShardChunk via MLS from {sender_peer_id} — legacy, ignoring");
+                                vault_ops::handle_envelope_shard_chunk(&sender_peer_id).await;
                             }
 
                             MessageEnvelope::ShardStoreAck { sid, cid, si, ok, err, .. } => {
-                                if ok {
-                                    hollow_log!("[HOLLOW-MLS-VAULT] ShardStoreAck OK: cid={cid} si={si}");
-                                    let _ = event_tx.send(NetworkEvent::ShardStoreAckReceived {
-                                        server_id: sid, content_id: cid, shard_index: si, success: true, error: String::new(),
-                                    }).await;
-                                } else {
-                                    hollow_log!("[HOLLOW-MLS-VAULT] ShardStoreAck FAILED: cid={cid} si={si} err={err:?}");
-                                    let _ = event_tx.send(NetworkEvent::ShardStoreAckReceived {
-                                        server_id: sid, content_id: cid, shard_index: si, success: false,
-                                        error: err.unwrap_or_default(),
-                                    }).await;
-                                }
+                                vault_ops::handle_envelope_shard_store_ack(
+                                    event_tx, sid, cid, si, ok, err,
+                                ).await;
                             }
 
                             MessageEnvelope::ShardDelete { sid, cid } => {
-                                // SECURITY: Verify sender has MANAGE_SERVER permission.
-                                let has_perm = server_states.get(&sid).map(|s| {
-                                    let role = s.get_role(&sender_peer_id);
-                                    let perms = role.default_permissions();
-                                    (perms & crate::crdt::operations::Permission::MANAGE_SERVER) != 0
-                                }).unwrap_or(false);
-                                if !has_perm { return; }
-                                let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                let vault_dir = data_dir.join("vault");
-                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
-                                    let _ = cs.delete_content(&sid, &cid);
-                                }
-                                let _ = event_tx.send(NetworkEvent::ShardDeleted {
-                                    server_id: sid, content_id: cid,
-                                }).await;
+                                vault_ops::handle_envelope_shard_delete(
+                                    server_states, bundle_keypair, event_tx,
+                                    &sender_peer_id, sid, cid,
+                                ).await;
                             }
 
                             MessageEnvelope::ShardRequest { sid, cid, si, sk, .. } => {
-                                hollow_log!("[HOLLOW-MLS-VAULT] ShardRequest: cid={cid} si={si} from {sender_peer_id}");
-                                let is_member = server_states.get(&sid).map(|s| s.members.contains_key(&sender_peer_id)).unwrap_or(false);
-                                if !is_member { return; }
-                                let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                let vault_dir = data_dir.join("vault");
-                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
-                                    match cs.read_shard_unchecked(&sid, &sk) {
-                                        Ok(shard_data) => {
-                                            // Send metadata via MLS, stream bytes via binary WS.
-                                            let resp = MessageEnvelope::ShardResponse {
-                                                sid: sid.clone(), cid: cid.clone(), si,
-                                                data: String::new(), chunks: 0, found: true, target: None,
-                                            };
-                                            // MLS first, Olm fallback (peer's epoch may be stale).
-                                            let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, bundle_keypair).is_ok();
-                                            if !mls_sent {
-                                                let resp_json = serde_json::to_string(&resp).unwrap_or_default();
-                                                send_encrypted_message(olm, crypto_store, &sender_peer_id, &resp_json, event_tx, ws_cmd_tx, ws_room_peers).await;
-                                            }
-                                            // Stream shard bytes.
-                                                let shard_temp_dir = crate::node::file_transfer::files_dir();
-                                                let shard_safe = &cid[..16.min(cid.len())];
-                                                let shard_temp = shard_temp_dir.join(format!(".stream_shard_{}_{}.tmp", shard_safe, si));
-                                                if let Ok(()) = std::fs::write(&shard_temp, &shard_data) {
-                                                    let shard_kind = super::ws_stream_transfer::StreamKind::Shard { shard_index: si };
-                                                    file_handler::stream_to_peer(
-                                                        ws_cmd_tx, ws_room_peers,
-                                                        webrtc_peers, pending_webrtc_sends, event_tx,
-                                                        &sender_peer_id, &shard_kind,
-                                                        &cid, &shard_temp, shard_data.len() as u64,
-                                                    ).await;
-                                                }
-                                        }
-                                        Err(_) => {
-                                            let resp = MessageEnvelope::ShardResponse {
-                                                sid, cid, si, data: String::new(), chunks: 0, found: false, target: None,
-                                            };
-                                            let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &server_id, &sender_peer_id, &resp, bundle_keypair).is_ok();
-                                            if !mls_sent {
-                                                let resp_json = serde_json::to_string(&resp).unwrap_or_default();
-                                                send_encrypted_message(olm, crypto_store, &sender_peer_id, &resp_json, event_tx, ws_cmd_tx, ws_room_peers).await;
-                                            }
-                                        }
-                                    }
-                                }
+                                vault_ops::handle_envelope_shard_request(
+                                    server_states, olm, crypto_store, mls_mgr,
+                                    bundle_keypair, event_tx, ws_cmd_tx, ws_room_peers,
+                                    webrtc_peers, pending_webrtc_sends,
+                                    &server_id, sender_peer_id, sid, cid, si, sk,
+                                ).await;
                             }
 
                             MessageEnvelope::ShardResponse { sid, cid, si, data, chunks, found, .. } => {
-                                hollow_log!("[HOLLOW-MLS-VAULT] ShardResponse: cid={cid} si={si} found={found}");
-                                if found && data.is_empty() {
-                                    // Streamed — register for binary stream arrival.
-                                    let key = format!("{cid}:{si}");
-                                    pending_shard_streams.insert(key, PendingShardStream {
-                                        server_id: sid, content_id: cid, shard_index: si,
-                                        shard_key: String::new(), k: 0, m: 0, total_size: 0, tier: String::new(),
-                                    });
-                                } else if found {
-                                    // Inline data.
-                                    if let Ok(shard_bytes) = base64::engine::general_purpose::STANDARD.decode(&data) {
-                                        let _ = event_tx.send(NetworkEvent::ShardReceived {
-                                            server_id: sid, content_id: cid, shard_index: si,
-                                            from_peer: sender_peer_id.clone(),
-                                        }).await;
-                                    }
-                                }
+                                vault_ops::handle_envelope_shard_response(
+                                    pending_shard_streams, event_tx, sender_peer_id,
+                                    sid, cid, si, data, chunks, found,
+                                ).await;
                             }
 
                             MessageEnvelope::ShardResponseChunk { .. } => {
-                                // Chunked responses are legacy.
-                                hollow_log!("[HOLLOW-MLS-VAULT] ShardResponseChunk via MLS — legacy, ignoring");
+                                vault_ops::handle_envelope_shard_response_chunk().await;
                             }
 
                             MessageEnvelope::ShardProbe { sid, cid, .. } => {
-                                let is_member = server_states.get(&sid).map(|s| s.members.contains_key(&sender_peer_id)).unwrap_or(false);
-                                if !is_member { return; }
-                                let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                let vault_dir = data_dir.join("vault");
-                                let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                let mut indices = Vec::new();
-                                if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
-                                    if let Ok(records) = cs.list_content_shards(&sid, &cid) {
-                                        indices = records.iter().map(|r| r.shard_index).collect();
-                                    }
-                                }
-                                let resp = MessageEnvelope::ShardProbeResponse {
-                                    sid: sid.clone(), cid, shards: indices, target: None,
-                                };
-                                let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, bundle_keypair).is_ok();
-                                if !mls_sent {
-                                    let resp_json = serde_json::to_string(&resp).unwrap_or_default();
-                                    send_encrypted_message(olm, crypto_store, &sender_peer_id, &resp_json, event_tx, ws_cmd_tx, ws_room_peers).await;
-                                }
+                                vault_ops::handle_envelope_shard_probe(
+                                    server_states, olm, crypto_store, mls_mgr,
+                                    bundle_keypair, event_tx, ws_cmd_tx, ws_room_peers,
+                                    sender_peer_id, sid, cid,
+                                ).await;
                             }
 
                             MessageEnvelope::ShardProbeResponse { sid, cid, shards, .. } => {
-                                hollow_log!("[HOLLOW-MLS-VAULT] ShardProbeResponse: cid={cid} shards={shards:?} from {sender_peer_id}");
-                                // Informational — download pipeline uses this.
+                                vault_ops::handle_envelope_shard_probe_response(
+                                    &sender_peer_id, sid, cid, shards,
+                                ).await;
                             }
 
                             MessageEnvelope::VaultManifestBroadcast { sid, cid, chid, manifest } => {
-                                hollow_log!("[HOLLOW-MLS-VAULT] VaultManifestBroadcast: cid={cid} in {chid}");
-                                if let Ok(manifest_obj) = serde_json::from_str::<crate::vault::pipeline::VaultManifest>(&manifest) {
-                                    let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                    let vault_dir = data_dir.join("vault");
-                                    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                    if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
-                                        let _ = cs.save_manifest(&sid, &chid, &manifest_obj);
-                                    }
-                                    // Link vault content_id to the file record via message_id.
-                                    if !manifest_obj.message_id.is_empty() {
-                                        if let Ok(ms) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                                            let _ = ms.set_file_content_id(&manifest_obj.message_id, &manifest_obj.content_id);
-                                        }
-                                    }
-                                }
+                                vault_ops::handle_envelope_vault_manifest_broadcast(
+                                    bundle_keypair, sid, cid, chid, manifest,
+                                ).await;
                             }
 
                             MessageEnvelope::ShardMigrate { sid, cid, si, sk, data, .. } => {
-                                let is_member = server_states.get(&sid).map(|s| s.members.contains_key(&sender_peer_id)).unwrap_or(false);
-                                if !is_member { return; }
-                                if let Ok(shard_bytes) = base64::engine::general_purpose::STANDARD.decode(&data) {
-                                    let data_dir = crate::identity::data_dir().unwrap_or_default();
-                                    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                                    let vault_dir = data_dir.join("vault");
-                                    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                                    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                                    if let Ok(cs) = crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir) {
-                                        let tier = crate::vault::content_store::StorageTier::Standard;
-                                        let _ = cs.store_shard(&sid, &cid, si, 0, 0, 0, tier, &shard_bytes);
-                                    }
-                                }
+                                vault_ops::handle_envelope_shard_migrate(
+                                    server_states, bundle_keypair, &sender_peer_id,
+                                    sid, cid, si, sk, data,
+                                ).await;
                             }
 
                             // -- Voice channel signaling (Phase 5C) --
-                            // SECURITY (Phase 6.25): VC signal sub-rate-limiter.
+                            // SECURITY (Phase 6.25): VC signal sub-rate-limiter (drop on rate-limit).
                             MessageEnvelope::VoiceChannelJoin { .. }
                             | MessageEnvelope::VoiceChannelLeave { .. }
                             | MessageEnvelope::VoiceChannelSdpOffer { .. }
@@ -5964,293 +5178,101 @@ async fn handle_incoming_request(
                             | MessageEnvelope::VoiceChannelRenegOffer { .. }
                             | MessageEnvelope::VoiceChannelRenegAnswer { .. }
                             | MessageEnvelope::VoiceChannelCameraState { .. }
-                            if {
-                                let (tokens, last_refill) = vc_signal_rate_tokens
-                                    .entry(sender_peer_id.clone())
-                                    .or_insert((VC_SIGNAL_RATE_BURST, std::time::Instant::now()));
-                                let elapsed = last_refill.elapsed().as_secs_f64();
-                                let refill = (elapsed * VC_SIGNAL_RATE_REFILL as f64) as u32;
-                                if refill > 0 {
-                                    *tokens = (*tokens + refill).min(VC_SIGNAL_RATE_BURST);
-                                    *last_refill = std::time::Instant::now();
-                                }
-                                if *tokens == 0 {
-                                    hollow_log!("[HOLLOW-SECURITY] VC signal rate limited for {sender_peer_id} — dropping");
-                                    true // Guard condition: true means "rate limited"
-                                } else {
-                                    *tokens -= 1;
-                                    false // Not rate limited
-                                }
-                            } => {
-                                // Rate limited — drop silently (already logged above).
+                            if !voice_handler::vc_rate_check(vc_signal_rate_tokens, &sender_peer_id) => {
+                                // Rate limited — drop silently (already logged).
                             }
 
                             MessageEnvelope::VoiceChannelJoin { sid, cid } => {
-                                if sender_peer_id != local_peer_str {
-                                    // SECURITY (Phase 6.25): Verify sender is a server member
-                                    // and the channel exists as a voice channel.
-                                    let is_member = server_states.get(&sid)
-                                        .map(|s| s.members.contains_key(&sender_peer_id))
-                                        .unwrap_or(false);
-                                    let is_voice_channel = server_states.get(&sid)
-                                        .and_then(|s| s.channels.get(&cid))
-                                        .map(|ch| ch.channel_type == crate::crdt::server_state::ChannelType::Voice)
-                                        .unwrap_or(false);
-                                    if !is_member {
-                                        hollow_log!("[HOLLOW-SECURITY] BLOCKED VoiceChannelJoin from non-member {sender_peer_id} in server {sid}");
-                                    } else if !is_voice_channel {
-                                        hollow_log!("[HOLLOW-SECURITY] BLOCKED VoiceChannelJoin for non-voice channel {cid} in server {sid}");
-                                    } else {
-                                        hollow_log!("[HOLLOW-VC] {sender_peer_id} joined voice channel {cid} in {sid}");
-                                        // Track participant.
-                                        let vc_key = format!("{sid}:{cid}");
-                                        voice_channel_participants.entry(vc_key.clone()).or_default()
-                                            .insert(sender_peer_id.clone());
-                                        let _ = event_tx.send(NetworkEvent::VoiceChannelJoined {
-                                            server_id: sid.clone(), channel_id: cid.clone(),
-                                            peer_id: sender_peer_id.clone(),
-                                        }).await;
-                                        // Check for mode transition.
-                                        voice_handler::check_voice_mode_transition(
-                                            &vc_key, &sid, &cid,
-                                            &voice_channel_participants, voice_channel_gossip_mode,
-                                            &gossip_overlays, local_peer_str, &event_tx,
-                                        ).await;
-                                    }
-                                }
+                                voice_handler::handle_envelope_voice_channel_join(
+                                    server_states, voice_channel_participants,
+                                    voice_channel_gossip_mode, gossip_overlays,
+                                    event_tx, local_peer_str, sender_peer_id, sid, cid,
+                                ).await;
                             }
                             MessageEnvelope::VoiceChannelLeave { sid, cid } => {
-                                if sender_peer_id != local_peer_str {
-                                    hollow_log!("[HOLLOW-VC] {sender_peer_id} left voice channel {cid} in {sid}");
-                                    // Untrack participant.
-                                    let vc_key = format!("{sid}:{cid}");
-                                    if let Some(participants) = voice_channel_participants.get_mut(&vc_key) {
-                                        participants.remove(&sender_peer_id);
-                                        if participants.is_empty() {
-                                            voice_channel_participants.remove(&vc_key);
-                                            voice_channel_gossip_mode.remove(&vc_key);
-                                        }
-                                    }
-                                    let _ = event_tx.send(NetworkEvent::VoiceChannelLeft {
-                                        server_id: sid.clone(), channel_id: cid.clone(),
-                                        peer_id: sender_peer_id.clone(),
-                                    }).await;
-                                    // Check for mode transition.
-                                    voice_handler::check_voice_mode_transition(
-                                        &vc_key, &sid, &cid,
-                                        &voice_channel_participants, voice_channel_gossip_mode,
-                                        &gossip_overlays, local_peer_str, &event_tx,
-                                    ).await;
-                                }
+                                voice_handler::handle_envelope_voice_channel_leave(
+                                    voice_channel_participants, voice_channel_gossip_mode,
+                                    gossip_overlays, event_tx, local_peer_str,
+                                    sender_peer_id, sid, cid,
+                                ).await;
                             }
                             MessageEnvelope::VoiceChannelSdpOffer { sid, cid, sdp, .. } => {
-                                // SECURITY (Phase 6.25): Verify sender is a VC participant + SDP size limit.
-                                let vc_key = format!("{sid}:{cid}");
-                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
-                                if !is_participant {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC SDP offer from non-participant {sender_peer_id} in {cid}");
-                                } else if sdp.len() > 64 * 1024 {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC SDP offer — size {} exceeds limit from {sender_peer_id}", sdp.len());
-                                } else {
-                                    hollow_log!("[HOLLOW-VC] SDP offer from {sender_peer_id} in vc {cid}");
-                                    let payload = serde_json::json!({"sdp": sdp}).to_string();
-                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                        signal_type: "sdp_offer".to_string(), payload,
-                                    }).await;
-                                }
+                                voice_handler::handle_envelope_voice_channel_sdp_offer(
+                                    voice_channel_participants, event_tx,
+                                    sender_peer_id, sid, cid, sdp,
+                                ).await;
                             }
                             MessageEnvelope::VoiceChannelSdpAnswer { sid, cid, sdp, .. } => {
-                                let vc_key = format!("{sid}:{cid}");
-                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
-                                if !is_participant {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC SDP answer from non-participant {sender_peer_id} in {cid}");
-                                } else if sdp.len() > 64 * 1024 {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC SDP answer — size {} exceeds limit from {sender_peer_id}", sdp.len());
-                                } else {
-                                    hollow_log!("[HOLLOW-VC] SDP answer from {sender_peer_id} in vc {cid}");
-                                    let payload = serde_json::json!({"sdp": sdp}).to_string();
-                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                        signal_type: "sdp_answer".to_string(), payload,
-                                    }).await;
-                                }
+                                voice_handler::handle_envelope_voice_channel_sdp_answer(
+                                    voice_channel_participants, event_tx,
+                                    sender_peer_id, sid, cid, sdp,
+                                ).await;
                             }
                             MessageEnvelope::VoiceChannelIce { sid, cid, candidate, sdp_mid, sdp_mline_index, .. } => {
-                                let vc_key = format!("{sid}:{cid}");
-                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
-                                if !is_participant {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC ICE from non-participant {sender_peer_id} in {cid}");
-                                } else {
-                                    hollow_log!("[HOLLOW-VC] ICE candidate from {sender_peer_id} in vc {cid}");
-                                    let payload = serde_json::json!({
-                                        "candidate": candidate,
-                                        "sdpMid": sdp_mid,
-                                        "sdpMLineIndex": sdp_mline_index,
-                                    }).to_string();
-                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                        signal_type: "ice".to_string(), payload,
-                                    }).await;
-                                }
+                                voice_handler::handle_envelope_voice_channel_ice(
+                                    voice_channel_participants, event_tx,
+                                    sender_peer_id, sid, cid, candidate, sdp_mid, sdp_mline_index,
+                                ).await;
                             }
                             MessageEnvelope::VoiceChannelAudioState { sid, cid, muted, deafened, .. } => {
-                                let vc_key = format!("{sid}:{cid}");
-                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
-                                if !is_participant {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC audio state from non-participant {sender_peer_id} in {cid}");
-                                } else {
-                                    let payload = serde_json::json!({
-                                        "muted": muted,
-                                        "deafened": deafened,
-                                    }).to_string();
-                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                        signal_type: "audio_state".to_string(), payload,
-                                    }).await;
-                                }
+                                voice_handler::handle_envelope_voice_channel_audio_state(
+                                    voice_channel_participants, event_tx,
+                                    sender_peer_id, sid, cid, muted, deafened,
+                                ).await;
                             }
 
                             // -- Voice channel screen sharing (Phase 5B) --
                             MessageEnvelope::VoiceChannelScreenOffer { sid, cid, sdp, .. } => {
-                                let vc_key = format!("{sid}:{cid}");
-                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
-                                if !is_participant {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC screen offer from non-participant {sender_peer_id} in {cid}");
-                                } else if sdp.len() > 64 * 1024 {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC screen offer — size {} exceeds limit from {sender_peer_id}", sdp.len());
-                                } else {
-                                    hollow_log!("[HOLLOW-VC] Screen offer from {sender_peer_id} in vc {cid}");
-                                    let payload = serde_json::json!({"sdp": sdp}).to_string();
-                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                        signal_type: "screen_offer".to_string(), payload,
-                                    }).await;
-                                }
+                                voice_handler::handle_envelope_voice_channel_screen_offer(
+                                    voice_channel_participants, event_tx,
+                                    sender_peer_id, sid, cid, sdp,
+                                ).await;
                             }
                             MessageEnvelope::VoiceChannelScreenAnswer { sid, cid, sdp, .. } => {
-                                let vc_key = format!("{sid}:{cid}");
-                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
-                                if !is_participant {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC screen answer from non-participant {sender_peer_id} in {cid}");
-                                } else if sdp.len() > 64 * 1024 {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC screen answer — size {} exceeds limit from {sender_peer_id}", sdp.len());
-                                } else {
-                                    hollow_log!("[HOLLOW-VC] Screen answer from {sender_peer_id} in vc {cid}");
-                                    let payload = serde_json::json!({"sdp": sdp}).to_string();
-                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                        signal_type: "screen_answer".to_string(), payload,
-                                    }).await;
-                                }
+                                voice_handler::handle_envelope_voice_channel_screen_answer(
+                                    voice_channel_participants, event_tx,
+                                    sender_peer_id, sid, cid, sdp,
+                                ).await;
                             }
                             MessageEnvelope::VoiceChannelScreenIce { sid, cid, candidate, sdp_mid, sdp_mline_index, role, .. } => {
-                                let vc_key = format!("{sid}:{cid}");
-                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
-                                if !is_participant {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC screen ICE from non-participant {sender_peer_id} in {cid}");
-                                } else {
-                                    hollow_log!("[HOLLOW-VC] Screen ICE from {sender_peer_id} in vc {cid} role={role}");
-                                    let payload = serde_json::json!({
-                                        "candidate": candidate,
-                                        "sdpMid": sdp_mid,
-                                        "sdpMLineIndex": sdp_mline_index,
-                                        "role": role,
-                                    }).to_string();
-                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                        signal_type: "screen_ice".to_string(), payload,
-                                    }).await;
-                                }
+                                voice_handler::handle_envelope_voice_channel_screen_ice(
+                                    voice_channel_participants, event_tx,
+                                    sender_peer_id, sid, cid, candidate, sdp_mid, sdp_mline_index, role,
+                                ).await;
                             }
                             MessageEnvelope::VoiceChannelScreenState { sid, cid, enabled, quality, .. } => {
-                                let vc_key = format!("{sid}:{cid}");
-                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
-                                if !is_participant {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC screen state from non-participant {sender_peer_id} in {cid}");
-                                } else {
-                                    hollow_log!("[HOLLOW-VC] Screen state from {sender_peer_id}: enabled={enabled} quality={quality:?}");
-                                    let mut json = serde_json::json!({"enabled": enabled});
-                                    if let Some(q) = &quality {
-                                        json["quality"] = serde_json::Value::String(q.clone());
-                                    }
-                                    let payload = json.to_string();
-                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                        signal_type: "screen_state".to_string(), payload,
-                                    }).await;
-                                }
+                                voice_handler::handle_envelope_voice_channel_screen_state(
+                                    voice_channel_participants, event_tx,
+                                    sender_peer_id, sid, cid, enabled, quality,
+                                ).await;
                             }
 
                             // -- Voice channel camera (Phase 5B) --
                             MessageEnvelope::VoiceChannelRenegOffer { sid, cid, sdp, .. } => {
-                                let vc_key = format!("{sid}:{cid}");
-                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
-                                if !is_participant {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC reneg offer from non-participant {sender_peer_id} in {cid}");
-                                } else if sdp.len() > 64 * 1024 {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC reneg offer — size {} exceeds limit from {sender_peer_id}", sdp.len());
-                                } else {
-                                    hollow_log!("[HOLLOW-VC] Reneg offer from {sender_peer_id} in vc {cid}");
-                                    let payload = serde_json::json!({"sdp": sdp}).to_string();
-                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                        signal_type: "reneg_offer".to_string(), payload,
-                                    }).await;
-                                }
+                                voice_handler::handle_envelope_voice_channel_reneg_offer(
+                                    voice_channel_participants, event_tx,
+                                    sender_peer_id, sid, cid, sdp,
+                                ).await;
                             }
                             MessageEnvelope::VoiceChannelRenegAnswer { sid, cid, sdp, .. } => {
-                                let vc_key = format!("{sid}:{cid}");
-                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
-                                if !is_participant {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC reneg answer from non-participant {sender_peer_id} in {cid}");
-                                } else if sdp.len() > 64 * 1024 {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC reneg answer — size {} exceeds limit from {sender_peer_id}", sdp.len());
-                                } else {
-                                    hollow_log!("[HOLLOW-VC] Reneg answer from {sender_peer_id} in vc {cid}");
-                                    let payload = serde_json::json!({"sdp": sdp}).to_string();
-                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                        signal_type: "reneg_answer".to_string(), payload,
-                                    }).await;
-                                }
+                                voice_handler::handle_envelope_voice_channel_reneg_answer(
+                                    voice_channel_participants, event_tx,
+                                    sender_peer_id, sid, cid, sdp,
+                                ).await;
                             }
                             MessageEnvelope::VoiceChannelCameraState { sid, cid, enabled, .. } => {
-                                let vc_key = format!("{sid}:{cid}");
-                                let is_participant = voice_channel_participants.get(&vc_key).map(|p| p.contains(&sender_peer_id)).unwrap_or(false);
-                                if !is_participant {
-                                    hollow_log!("[HOLLOW-SECURITY] BLOCKED VC camera state from non-participant {sender_peer_id} in {cid}");
-                                } else {
-                                    hollow_log!("[HOLLOW-VC] Camera state from {sender_peer_id}: enabled={enabled}");
-                                    let payload = serde_json::json!({"enabled": enabled}).to_string();
-                                    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
-                                        server_id: sid, channel_id: cid, peer_id: sender_peer_id.clone(),
-                                        signal_type: "camera_state".to_string(), payload,
-                                    }).await;
-                                }
+                                voice_handler::handle_envelope_voice_channel_camera_state(
+                                    voice_channel_participants, event_tx,
+                                    sender_peer_id, sid, cid, enabled,
+                                ).await;
                             }
 
                             // -- Gossip relay tree (Phase 5D) --
                             MessageEnvelope::BroadcastMeta { broadcast_id, origin, sid, cid, file_id, ttl } => {
-                                // SECURITY (Phase 6.25): Validate TTL from wire, cap at MAX_BROADCAST_TTL.
-                                let effective_ttl = ttl.min(MAX_BROADCAST_TTL);
-                                hollow_log!("[HOLLOW-GOSSIP] BroadcastMeta: bid={broadcast_id} origin={origin} fid={file_id} server={sid} ch={cid} ttl={effective_ttl}");
-                                if effective_ttl == 0 {
-                                    hollow_log!("[HOLLOW-GOSSIP] BroadcastMeta TTL=0, not relaying");
-                                } else if let Some(overlay) = gossip_overlays.get_mut(&sid) {
-                                    // Mark broadcast seen for dedup.
-                                    overlay.mark_broadcast_seen(&broadcast_id);
-                                    // Register pending relay — when the file data arrives via
-                                    // data channel, we'll relay to our gossip neighbors.
-                                    // The originator doesn't need a pending relay (they sent it).
-                                    if origin != local_peer_str {
-                                        overlay.add_pending_relay(
-                                            &file_id, &broadcast_id,
-                                            effective_ttl.saturating_sub(1),
-                                            &origin, &cid, &sender_peer_id,
-                                        );
-                                    }
-                                }
+                                file_handler::handle_envelope_broadcast_meta(
+                                    gossip_overlays, local_peer_str, &sender_peer_id,
+                                    broadcast_id, origin, sid, cid, file_id, ttl,
+                                ).await;
                             }
 
                             // DM-only envelopes should never arrive via MLS.

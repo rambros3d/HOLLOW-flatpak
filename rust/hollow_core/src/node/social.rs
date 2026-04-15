@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use base64::Engine;
 use tokio::sync::mpsc;
 
+use crate::crdt::server_state::ServerState;
 use crate::crypto::MlsManager;
 use super::crypto_handler::{
     peer_is_reachable, send_mls_broadcast, send_message_to_peer,
@@ -387,4 +388,71 @@ pub(crate) fn send_own_profile_to_peer(
             send_message_to_peer(ws_cmd_tx, ws_room_peers, target_peer, msg);
         }
     }
+}
+
+/// Handle `MessageEnvelope::Typing` — emit `TypingStarted` event.
+pub(crate) async fn handle_envelope_typing(
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sender_peer_id: String,
+    sid: String,
+    cid: String,
+) {
+    let _ = event_tx.send(NetworkEvent::TypingStarted {
+        peer_id: sender_peer_id,
+        server_id: sid,
+        channel_id: cid,
+    }).await;
+}
+
+/// Handle `MessageEnvelope::ProfileUpdate` — persist profile + update member display names.
+pub(crate) async fn handle_envelope_profile_update(
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    server_states: &mut HashMap<String, ServerState>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    sender_peer_id: String,
+    display_name: String,
+    status: String,
+    about_me: String,
+    updated_at: i64,
+    avatar_b64: String,
+    banner_b64: String,
+) {
+    // Decode avatar/banner base64 (same logic as HavenMessage::ProfileUpdate handler).
+    let avatar_bytes: Option<Vec<u8>> = if avatar_b64.is_empty() {
+        None
+    } else if avatar_b64 == "CLEAR" {
+        Some(vec![])
+    } else {
+        base64::engine::general_purpose::STANDARD.decode(&avatar_b64).ok()
+            .filter(|b| b.len() <= 2_000_000)
+    };
+    let banner_bytes: Option<Vec<u8>> = if banner_b64.is_empty() {
+        None
+    } else if banner_b64 == "CLEAR" {
+        Some(vec![])
+    } else {
+        base64::engine::general_purpose::STANDARD.decode(&banner_b64).ok()
+            .filter(|b| b.len() <= 2_000_000)
+    };
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+        let _ = store.save_profile(
+            &sender_peer_id, &display_name, &status, &about_me, updated_at,
+            avatar_bytes.as_deref(), banner_bytes.as_deref(),
+        );
+    }
+    // Update display_name in server member lists (local-only, not a CRDT op).
+    for (_, state) in server_states.iter_mut() {
+        if let Some(member) = state.members.get_mut(&sender_peer_id) {
+            if !display_name.is_empty() {
+                member.display_name = display_name.clone();
+            }
+        }
+    }
+    let _ = event_tx.send(NetworkEvent::ProfileUpdated {
+        peer_id: sender_peer_id,
+    }).await;
 }

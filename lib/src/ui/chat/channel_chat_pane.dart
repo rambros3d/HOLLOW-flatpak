@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/models/channel_chat_message.dart';
 import 'package:hollow/src/core/models/file_attachment.dart';
 import 'package:hollow/src/core/providers/channel_chat_provider.dart';
 import 'package:hollow/src/core/providers/chat_provider.dart' show generateMessageId;
@@ -143,16 +144,12 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   bool _loadingHistory = false;
 
   Future<void> _loadHistory() async {
-    if (_loadingHistory) return;
-    // Skip if cache already has data (avoids redundant DB loads).
-    final cached = ref.read(channelChatProvider)[_stateKey];
-    if (cached != null && cached.isNotEmpty) {
-      _historyLoaded = true;
-      // Still mark as seen — sync may have populated cache before we got here.
-      ref.read(unreadProvider.notifier)
-          .markChannelSeen(widget.serverId, widget.channelId, cached.last.messageId);
-      return;
-    }
+    if (_loadingHistory || _historyLoaded) return;
+    // Always load from DB on first open — the in-memory cache may contain only
+    // late-arriving network messages (e.g. a push while the server wasn't yet
+    // selected), which would hide full DB history if we skipped the load.
+    // `loadHistory` merges DB results with any in-memory messages not yet
+    // persisted, so this is safe for optimistic in-flight sends.
     _loadingHistory = true;
     await ref
         .read(channelChatProvider.notifier)
@@ -162,6 +159,10 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     _historyLoaded = true;
     _loadingHistory = false;
     setState(() {});
+    // Pin to the latest message. ScrollablePositionedList only honors
+    // `initialScrollIndex` at first build; when loadHistory grows the list
+    // from its initial (possibly 1-message) state, we need an explicit jump.
+    _jumpToBottom();
     // Mark channel as read now that messages are loaded.
     final msgs = ref.read(channelChatProvider)['${widget.serverId}:${widget.channelId}'];
     final latestId = msgs != null && msgs.isNotEmpty
@@ -187,8 +188,21 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
     if (positions.isEmpty) return true;
     final messages = ref.read(channelChatProvider)[_stateKey] ?? [];
     if (messages.isEmpty) return true;
-    // Sentinel item (index == messages.length) visible = at bottom.
+    // Strictly at bottom: sentinel (one past last message) visible.
     return positions.any((p) => p.index >= messages.length - 1);
+  }
+
+  /// Auto-scroll capture zone: a bit more forgiving than `_isNearBottom`.
+  /// If any of the last ~3 messages are visible we treat the user as
+  /// "following along" and auto-scroll on new messages. Outside this
+  /// zone the unread pill takes over.
+  bool get _isInAutoScrollZone {
+    final positions = _itemPositionsListener.itemPositions.value;
+    if (positions.isEmpty) return true;
+    final messages = ref.read(channelChatProvider)[_stateKey] ?? [];
+    if (messages.isEmpty) return true;
+    final threshold = messages.length - 3;
+    return positions.any((p) => p.index >= threshold);
   }
 
   void _jumpToBottom() {
@@ -958,8 +972,16 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
       });
     }
 
-    // Reversed ListView stays at bottom naturally when new messages arrive.
-    // No manual auto-scroll needed.
+    // Auto-scroll on new messages if the user is in the bottom capture zone.
+    // Outside the zone (scrolled up meaningfully), the unread pill takes over.
+    ref.listen<Map<String, List<ChannelChatMessage>>>(channelChatProvider,
+        (prev, next) {
+      final prevLen = (prev?[_stateKey] ?? const []).length;
+      final nextLen = (next[_stateKey] ?? const []).length;
+      if (nextLen > prevLen && _isInAutoScrollZone) {
+        _scrollToBottom();
+      }
+    });
 
     // Focus search field when opened via global shortcut (Ctrl+K).
     ref.listen(channelSearchOpenProvider, (prev, next) {

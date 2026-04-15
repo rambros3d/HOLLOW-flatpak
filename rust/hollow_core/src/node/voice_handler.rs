@@ -614,3 +614,318 @@ pub(crate) async fn check_voice_mode_transition(
         }
     }
 }
+
+/// Rate-limit gate for VC signaling envelopes (token bucket per peer).
+/// Returns `true` if the call is allowed, `false` if rate-limited.
+pub(crate) fn vc_rate_check(
+    vc_signal_rate_tokens: &mut HashMap<String, (u32, std::time::Instant)>,
+    sender_peer_id: &str,
+) -> bool {
+    let entry = vc_signal_rate_tokens
+        .entry(sender_peer_id.to_string())
+        .or_insert((VC_SIGNAL_RATE_BURST, std::time::Instant::now()));
+    let (tokens, last_refill) = entry;
+    let elapsed = last_refill.elapsed().as_secs_f64();
+    let refill = (elapsed * VC_SIGNAL_RATE_REFILL as f64) as u32;
+    if refill > 0 {
+        *tokens = (*tokens + refill).min(VC_SIGNAL_RATE_BURST);
+        *last_refill = std::time::Instant::now();
+    }
+    if *tokens == 0 {
+        hollow_log!("[HOLLOW-SECURITY] VC signal rate limited for {sender_peer_id} — dropping");
+        false
+    } else {
+        *tokens -= 1;
+        true
+    }
+}
+
+/// Helper: check VC participant membership.
+fn is_vc_participant(
+    voice_channel_participants: &HashMap<String, std::collections::HashSet<String>>,
+    vc_key: &str,
+    sender_peer_id: &str,
+) -> bool {
+    voice_channel_participants.get(vc_key)
+        .map(|p| p.contains(sender_peer_id))
+        .unwrap_or(false)
+}
+
+/// Handle `MessageEnvelope::VoiceChannelJoin` (MLS path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_voice_channel_join(
+    server_states: &HashMap<String, ServerState>,
+    voice_channel_participants: &mut HashMap<String, std::collections::HashSet<String>>,
+    voice_channel_gossip_mode: &mut HashMap<String, bool>,
+    gossip_overlays: &HashMap<String, super::gossip::GossipOverlay>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    local_peer_str: &str,
+    sender_peer_id: String,
+    sid: String,
+    cid: String,
+) {
+    if sender_peer_id == local_peer_str { return; }
+    let is_member = server_states.get(&sid)
+        .map(|s| s.members.contains_key(&sender_peer_id))
+        .unwrap_or(false);
+    let is_voice_channel = server_states.get(&sid)
+        .and_then(|s| s.channels.get(&cid))
+        .map(|ch| ch.channel_type == crate::crdt::server_state::ChannelType::Voice)
+        .unwrap_or(false);
+    if !is_member {
+        hollow_log!("[HOLLOW-SECURITY] BLOCKED VoiceChannelJoin from non-member {sender_peer_id} in server {sid}");
+        return;
+    }
+    if !is_voice_channel {
+        hollow_log!("[HOLLOW-SECURITY] BLOCKED VoiceChannelJoin for non-voice channel {cid} in server {sid}");
+        return;
+    }
+    hollow_log!("[HOLLOW-VC] {sender_peer_id} joined voice channel {cid} in {sid}");
+    let vc_key = format!("{sid}:{cid}");
+    voice_channel_participants.entry(vc_key.clone()).or_default()
+        .insert(sender_peer_id.clone());
+    let _ = event_tx.send(NetworkEvent::VoiceChannelJoined {
+        server_id: sid.clone(), channel_id: cid.clone(),
+        peer_id: sender_peer_id,
+    }).await;
+    check_voice_mode_transition(
+        &vc_key, &sid, &cid,
+        voice_channel_participants, voice_channel_gossip_mode,
+        gossip_overlays, local_peer_str, event_tx,
+    ).await;
+}
+
+/// Handle `MessageEnvelope::VoiceChannelLeave` (MLS path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_voice_channel_leave(
+    voice_channel_participants: &mut HashMap<String, std::collections::HashSet<String>>,
+    voice_channel_gossip_mode: &mut HashMap<String, bool>,
+    gossip_overlays: &HashMap<String, super::gossip::GossipOverlay>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    local_peer_str: &str,
+    sender_peer_id: String,
+    sid: String,
+    cid: String,
+) {
+    if sender_peer_id == local_peer_str { return; }
+    hollow_log!("[HOLLOW-VC] {sender_peer_id} left voice channel {cid} in {sid}");
+    let vc_key = format!("{sid}:{cid}");
+    if let Some(participants) = voice_channel_participants.get_mut(&vc_key) {
+        participants.remove(&sender_peer_id);
+        if participants.is_empty() {
+            voice_channel_participants.remove(&vc_key);
+            voice_channel_gossip_mode.remove(&vc_key);
+        }
+    }
+    let _ = event_tx.send(NetworkEvent::VoiceChannelLeft {
+        server_id: sid.clone(), channel_id: cid.clone(),
+        peer_id: sender_peer_id,
+    }).await;
+    check_voice_mode_transition(
+        &vc_key, &sid, &cid,
+        voice_channel_participants, voice_channel_gossip_mode,
+        gossip_overlays, local_peer_str, event_tx,
+    ).await;
+}
+
+/// Helper: emit a VoiceChannelSignal event with sdp-size and participant guards.
+async fn emit_vc_sdp_signal(
+    voice_channel_participants: &HashMap<String, std::collections::HashSet<String>>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sender_peer_id: String,
+    sid: String,
+    cid: String,
+    sdp: String,
+    signal_type: &'static str,
+    log_label: &'static str,
+) {
+    let vc_key = format!("{sid}:{cid}");
+    if !is_vc_participant(voice_channel_participants, &vc_key, &sender_peer_id) {
+        hollow_log!("[HOLLOW-SECURITY] BLOCKED VC {log_label} from non-participant {sender_peer_id} in {cid}");
+        return;
+    }
+    if sdp.len() > 64 * 1024 {
+        hollow_log!("[HOLLOW-SECURITY] BLOCKED VC {log_label} — size {} exceeds limit from {sender_peer_id}", sdp.len());
+        return;
+    }
+    hollow_log!("[HOLLOW-VC] {log_label} from {sender_peer_id} in vc {cid}");
+    let payload = serde_json::json!({"sdp": sdp}).to_string();
+    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+        server_id: sid, channel_id: cid, peer_id: sender_peer_id,
+        signal_type: signal_type.to_string(), payload,
+    }).await;
+}
+
+pub(crate) async fn handle_envelope_voice_channel_sdp_offer(
+    voice_channel_participants: &HashMap<String, std::collections::HashSet<String>>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sender_peer_id: String, sid: String, cid: String, sdp: String,
+) {
+    emit_vc_sdp_signal(voice_channel_participants, event_tx, sender_peer_id, sid, cid, sdp, "sdp_offer", "SDP offer").await;
+}
+
+pub(crate) async fn handle_envelope_voice_channel_sdp_answer(
+    voice_channel_participants: &HashMap<String, std::collections::HashSet<String>>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sender_peer_id: String, sid: String, cid: String, sdp: String,
+) {
+    emit_vc_sdp_signal(voice_channel_participants, event_tx, sender_peer_id, sid, cid, sdp, "sdp_answer", "SDP answer").await;
+}
+
+pub(crate) async fn handle_envelope_voice_channel_screen_offer(
+    voice_channel_participants: &HashMap<String, std::collections::HashSet<String>>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sender_peer_id: String, sid: String, cid: String, sdp: String,
+) {
+    emit_vc_sdp_signal(voice_channel_participants, event_tx, sender_peer_id, sid, cid, sdp, "screen_offer", "Screen offer").await;
+}
+
+pub(crate) async fn handle_envelope_voice_channel_screen_answer(
+    voice_channel_participants: &HashMap<String, std::collections::HashSet<String>>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sender_peer_id: String, sid: String, cid: String, sdp: String,
+) {
+    emit_vc_sdp_signal(voice_channel_participants, event_tx, sender_peer_id, sid, cid, sdp, "screen_answer", "Screen answer").await;
+}
+
+pub(crate) async fn handle_envelope_voice_channel_reneg_offer(
+    voice_channel_participants: &HashMap<String, std::collections::HashSet<String>>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sender_peer_id: String, sid: String, cid: String, sdp: String,
+) {
+    emit_vc_sdp_signal(voice_channel_participants, event_tx, sender_peer_id, sid, cid, sdp, "reneg_offer", "Reneg offer").await;
+}
+
+pub(crate) async fn handle_envelope_voice_channel_reneg_answer(
+    voice_channel_participants: &HashMap<String, std::collections::HashSet<String>>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sender_peer_id: String, sid: String, cid: String, sdp: String,
+) {
+    emit_vc_sdp_signal(voice_channel_participants, event_tx, sender_peer_id, sid, cid, sdp, "reneg_answer", "Reneg answer").await;
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_voice_channel_ice(
+    voice_channel_participants: &HashMap<String, std::collections::HashSet<String>>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sender_peer_id: String,
+    sid: String,
+    cid: String,
+    candidate: String,
+    sdp_mid: String,
+    sdp_mline_index: u32,
+) {
+    let vc_key = format!("{sid}:{cid}");
+    if !is_vc_participant(voice_channel_participants, &vc_key, &sender_peer_id) {
+        hollow_log!("[HOLLOW-SECURITY] BLOCKED VC ICE from non-participant {sender_peer_id} in {cid}");
+        return;
+    }
+    hollow_log!("[HOLLOW-VC] ICE candidate from {sender_peer_id} in vc {cid}");
+    let payload = serde_json::json!({
+        "candidate": candidate,
+        "sdpMid": sdp_mid,
+        "sdpMLineIndex": sdp_mline_index,
+    }).to_string();
+    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+        server_id: sid, channel_id: cid, peer_id: sender_peer_id,
+        signal_type: "ice".to_string(), payload,
+    }).await;
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_voice_channel_screen_ice(
+    voice_channel_participants: &HashMap<String, std::collections::HashSet<String>>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sender_peer_id: String,
+    sid: String,
+    cid: String,
+    candidate: String,
+    sdp_mid: String,
+    sdp_mline_index: u32,
+    role: String,
+) {
+    let vc_key = format!("{sid}:{cid}");
+    if !is_vc_participant(voice_channel_participants, &vc_key, &sender_peer_id) {
+        hollow_log!("[HOLLOW-SECURITY] BLOCKED VC screen ICE from non-participant {sender_peer_id} in {cid}");
+        return;
+    }
+    hollow_log!("[HOLLOW-VC] Screen ICE from {sender_peer_id} in vc {cid} role={role}");
+    let payload = serde_json::json!({
+        "candidate": candidate,
+        "sdpMid": sdp_mid,
+        "sdpMLineIndex": sdp_mline_index,
+        "role": role,
+    }).to_string();
+    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+        server_id: sid, channel_id: cid, peer_id: sender_peer_id,
+        signal_type: "screen_ice".to_string(), payload,
+    }).await;
+}
+
+pub(crate) async fn handle_envelope_voice_channel_audio_state(
+    voice_channel_participants: &HashMap<String, std::collections::HashSet<String>>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sender_peer_id: String,
+    sid: String,
+    cid: String,
+    muted: bool,
+    deafened: bool,
+) {
+    let vc_key = format!("{sid}:{cid}");
+    if !is_vc_participant(voice_channel_participants, &vc_key, &sender_peer_id) {
+        hollow_log!("[HOLLOW-SECURITY] BLOCKED VC audio state from non-participant {sender_peer_id} in {cid}");
+        return;
+    }
+    let payload = serde_json::json!({"muted": muted, "deafened": deafened}).to_string();
+    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+        server_id: sid, channel_id: cid, peer_id: sender_peer_id,
+        signal_type: "audio_state".to_string(), payload,
+    }).await;
+}
+
+pub(crate) async fn handle_envelope_voice_channel_screen_state(
+    voice_channel_participants: &HashMap<String, std::collections::HashSet<String>>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sender_peer_id: String,
+    sid: String,
+    cid: String,
+    enabled: bool,
+    quality: Option<String>,
+) {
+    let vc_key = format!("{sid}:{cid}");
+    if !is_vc_participant(voice_channel_participants, &vc_key, &sender_peer_id) {
+        hollow_log!("[HOLLOW-SECURITY] BLOCKED VC screen state from non-participant {sender_peer_id} in {cid}");
+        return;
+    }
+    hollow_log!("[HOLLOW-VC] Screen state from {sender_peer_id}: enabled={enabled} quality={quality:?}");
+    let mut json = serde_json::json!({"enabled": enabled});
+    if let Some(q) = &quality {
+        json["quality"] = serde_json::Value::String(q.clone());
+    }
+    let payload = json.to_string();
+    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+        server_id: sid, channel_id: cid, peer_id: sender_peer_id,
+        signal_type: "screen_state".to_string(), payload,
+    }).await;
+}
+
+pub(crate) async fn handle_envelope_voice_channel_camera_state(
+    voice_channel_participants: &HashMap<String, std::collections::HashSet<String>>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sender_peer_id: String,
+    sid: String,
+    cid: String,
+    enabled: bool,
+) {
+    let vc_key = format!("{sid}:{cid}");
+    if !is_vc_participant(voice_channel_participants, &vc_key, &sender_peer_id) {
+        hollow_log!("[HOLLOW-SECURITY] BLOCKED VC camera state from non-participant {sender_peer_id} in {cid}");
+        return;
+    }
+    hollow_log!("[HOLLOW-VC] Camera state from {sender_peer_id}: enabled={enabled}");
+    let payload = serde_json::json!({"enabled": enabled}).to_string();
+    let _ = event_tx.send(NetworkEvent::VoiceChannelSignal {
+        server_id: sid, channel_id: cid, peer_id: sender_peer_id,
+        signal_type: "camera_state".to_string(), payload,
+    }).await;
+}

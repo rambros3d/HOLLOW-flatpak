@@ -1355,3 +1355,500 @@ pub(crate) async fn flush_pending_sync_requests(
         }
     }
 }
+
+/// Handle `MessageEnvelope::CrdtOp` (MLS path) — permission-checked CRDT op application.
+pub(crate) async fn handle_envelope_crdt_op(
+    server_states: &mut HashMap<String, ServerState>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sid: String,
+    op_json: String,
+) {
+    if !server_states.contains_key(&sid) { return; }
+    let op = match serde_json::from_str::<crate::crdt::operations::CrdtOp>(&op_json) {
+        Ok(o) => o,
+        Err(_) => return,
+    };
+    {
+        let state = server_states.get(&sid).unwrap();
+        let sender_role = state.get_role(&op.author);
+        let sender_perms = sender_role.default_permissions();
+        use crate::crdt::operations::{CrdtPayload, Permission, MemberRole};
+        let allowed = match &op.payload {
+            CrdtPayload::ChannelAdded { .. }
+            | CrdtPayload::ChannelRemoved { .. }
+            | CrdtPayload::ChannelRenamed { .. }
+            | CrdtPayload::ChannelLayoutUpdated { .. } => {
+                (sender_perms & Permission::MANAGE_CHANNELS) != 0
+            }
+            CrdtPayload::RoleChanged { peer_id, role, .. } => {
+                state.can_change_role(&op.author, peer_id, role)
+            }
+            CrdtPayload::ServerRenamed { .. }
+            | CrdtPayload::ServerSettingChanged { .. } => {
+                sender_role == MemberRole::Owner || sender_role == MemberRole::Admin
+            }
+            CrdtPayload::MemberRemoved { peer_id } => {
+                let target_role = state.get_role(peer_id);
+                (sender_perms & Permission::KICK_MEMBERS) != 0
+                    && sender_role.outranks(&target_role)
+            }
+            CrdtPayload::MemberAdded { .. } => {
+                state.members.contains_key(&op.author)
+            }
+            CrdtPayload::NicknameChanged { peer_id, .. } => {
+                peer_id == &op.author || sender_role == MemberRole::Owner || sender_role == MemberRole::Admin
+            }
+            CrdtPayload::MessagePinned { .. }
+            | CrdtPayload::MessageUnpinned { .. } => {
+                (sender_perms & Permission::MANAGE_CHANNELS) != 0
+            }
+            CrdtPayload::StoragePledgeChanged { peer_id, .. } => {
+                peer_id == &op.author || sender_role == MemberRole::Owner || sender_role == MemberRole::Admin
+            }
+            CrdtPayload::ServerCreated { .. } => true,
+        };
+        if !allowed {
+            hollow_log!("[HOLLOW-SECURITY] REJECTED MLS CrdtOp from {} — insufficient permission", op.author);
+            return;
+        }
+    }
+    let state = server_states.get_mut(&sid).unwrap();
+    let was_len = state.op_log.len();
+    let _ = state.apply_op(&op);
+    if state.op_log.len() > was_len {
+        if let Ok(json) = serde_json::to_string(&*state) {
+            let data_dir = crate::identity::data_dir().unwrap_or_default();
+            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                let _ = store.save_server_state(&sid, &json);
+                let _ = store.insert_crdt_op(&op);
+            }
+        }
+        match &op.payload {
+            CrdtPayload::ChannelAdded { channel_id, name, channel_type, .. } => {
+                let _ = event_tx.send(NetworkEvent::ChannelAdded {
+                    server_id: sid.clone(), channel_id: channel_id.clone(), name: name.clone(), channel_type: channel_type.clone(),
+                }).await;
+            }
+            CrdtPayload::ChannelRemoved { channel_id } => {
+                let _ = event_tx.send(NetworkEvent::ChannelRemoved {
+                    server_id: sid.clone(), channel_id: channel_id.clone(),
+                }).await;
+            }
+            CrdtPayload::MemberAdded { peer_id, .. } => {
+                let _ = event_tx.send(NetworkEvent::MemberJoined {
+                    server_id: sid.clone(), peer_id: peer_id.clone(),
+                }).await;
+            }
+            CrdtPayload::MemberRemoved { peer_id } => {
+                let _ = event_tx.send(NetworkEvent::MemberLeft {
+                    server_id: sid.clone(), peer_id: peer_id.clone(),
+                }).await;
+            }
+            CrdtPayload::RoleChanged { peer_id, role, .. } => {
+                let _ = event_tx.send(NetworkEvent::RoleChanged {
+                    server_id: sid.clone(), peer_id: peer_id.clone(), new_role: role.as_str().to_string(),
+                }).await;
+            }
+            CrdtPayload::ServerSettingChanged { .. }
+            | CrdtPayload::ServerRenamed { .. } => {
+                let _ = event_tx.send(NetworkEvent::ServerUpdated {
+                    server_id: sid.clone(),
+                }).await;
+            }
+            _ => {
+                let _ = event_tx.send(NetworkEvent::SyncCompleted {
+                    server_id: sid.clone(), ops_applied: 1,
+                }).await;
+            }
+        }
+    }
+}
+
+/// Handle `MessageEnvelope::ServerDelete` (MLS path) — owner-only.
+pub(crate) async fn handle_envelope_server_delete(
+    server_states: &mut HashMap<String, ServerState>,
+    mls: &mut Option<MlsManager>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sender_peer_id: &str,
+    sid: String,
+) {
+    let sender_role = server_states.get(&sid)
+        .map(|s| s.get_role(sender_peer_id))
+        .unwrap_or(crate::crdt::operations::MemberRole::Member);
+    if sender_role != crate::crdt::operations::MemberRole::Owner {
+        hollow_log!("[HOLLOW-SECURITY] REJECTED MLS ServerDelete from {sender_peer_id} — not owner");
+        return;
+    }
+    if server_states.remove(&sid).is_some() {
+        let data_dir = crate::identity::data_dir().unwrap_or_default();
+        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+            let _ = store.delete_server_state(&sid);
+        }
+        if let Some(mls_mgr_ref) = mls {
+            mls_mgr_ref.remove_group(&sid);
+            persist_mls_state(mls_mgr_ref, bundle_keypair);
+        }
+        let _ = event_tx.send(NetworkEvent::ServerDeleted {
+            server_id: sid,
+        }).await;
+    }
+}
+
+/// Handle `MessageEnvelope::MemberKick` (MLS path) — kicker must outrank kickee.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_member_kick(
+    server_states: &mut HashMap<String, ServerState>,
+    mls: &mut Option<MlsManager>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    local_peer: &str,
+    sender_peer_id: &str,
+    sid: String,
+) {
+    let can_kick = if let Some(state) = server_states.get(&sid) {
+        let sender_role = state.get_role(sender_peer_id);
+        let our_role = state.get_role(local_peer);
+        let sender_perms = sender_role.default_permissions();
+        (sender_perms & crate::crdt::operations::Permission::KICK_MEMBERS) != 0
+            && sender_role.outranks(&our_role)
+    } else { false };
+    if !can_kick {
+        hollow_log!("[HOLLOW-SECURITY] REJECTED MLS MemberKick from {sender_peer_id} — insufficient permissions");
+        return;
+    }
+    if server_states.remove(&sid).is_some() {
+        let data_dir = crate::identity::data_dir().unwrap_or_default();
+        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+            let _ = store.delete_server_state(&sid);
+        }
+        if let Some(mls_mgr_ref) = mls {
+            mls_mgr_ref.remove_group(&sid);
+            persist_mls_state(mls_mgr_ref, bundle_keypair);
+        }
+        let _ = event_tx.send(NetworkEvent::ServerDeleted {
+            server_id: sid,
+        }).await;
+    }
+}
+
+/// Handle `MessageEnvelope::SyncReq` (MLS path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_sync_req(
+    server_states: &HashMap<String, ServerState>,
+    olm: &mut OlmManager,
+    crypto_store: &CryptoStore,
+    mls_mgr: &mut MlsManager,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    sender_peer_id: String,
+    sid: String,
+    state_vector_json: String,
+) {
+    hollow_log!("[HOLLOW-CRDT] MLS SyncReq from {sender_peer_id} for {sid}, our op_log has {} ops", server_states.get(&sid).map(|s| s.op_log.len()).unwrap_or(0));
+    if let Some(state) = server_states.get(&sid) {
+        if let Ok(their_vector) = serde_json::from_str::<crate::crdt::sync::StateVector>(&state_vector_json) {
+            let delta = crate::crdt::sync::compute_delta(&state.op_log, &their_vector);
+            hollow_log!("[HOLLOW-CRDT] Delta for {sid}: {} ops to send (their vector has {} entries)", delta.len(), their_vector.entries.len());
+            if !delta.is_empty() {
+                let ops_json = serde_json::to_string(&delta).unwrap_or_default();
+                let resp = MessageEnvelope::SyncResp {
+                    sid: sid.clone(), ops_json, target: None,
+                };
+                let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, bundle_keypair).is_ok();
+                if !mls_sent {
+                    let resp_json = serde_json::to_string(&resp).unwrap_or_default();
+                    send_encrypted_message(
+                        olm, crypto_store,
+                        &sender_peer_id, &resp_json, event_tx,
+                        ws_cmd_tx, ws_room_peers,
+                    ).await;
+                }
+            }
+        }
+    }
+}
+
+/// Handle `MessageEnvelope::SyncResp` (MLS path).
+pub(crate) async fn handle_envelope_sync_resp(
+    server_states: &mut HashMap<String, ServerState>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    sid: String,
+    ops_json: String,
+) {
+    if let Some(state) = server_states.get_mut(&sid) {
+        if let Ok(incoming_ops) = serde_json::from_str::<Vec<crate::crdt::operations::CrdtOp>>(&ops_json) {
+            if let Ok(applied) = crate::crdt::sync::merge_ops(state, incoming_ops) {
+                if applied > 0 {
+                    if let Ok(json) = serde_json::to_string(&*state) {
+                        let data_dir = crate::identity::data_dir().unwrap_or_default();
+                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                            let _ = store.save_server_state(&sid, &json);
+                        }
+                    }
+                    let _ = event_tx.send(NetworkEvent::SyncCompleted {
+                        server_id: sid.clone(),
+                        ops_applied: applied as u32,
+                    }).await;
+                }
+            }
+        }
+    }
+}
+
+/// Handle `MessageEnvelope::ChannelSyncReq` (MLS path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_channel_sync_req(
+    server_states: &HashMap<String, ServerState>,
+    mls: &mut Option<MlsManager>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    sender_peer_id: &str,
+    sid: String,
+    cid: String,
+    since_timestamp: i64,
+    sender_timestamps: HashMap<String, i64>,
+) {
+    if !server_states.contains_key(&sid) { return; }
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+        let msgs_result = if !sender_timestamps.is_empty() {
+            store.get_channel_messages_since_per_sender(&sid, &cid, &sender_timestamps, 200)
+        } else {
+            store.get_channel_messages_since(&sid, &cid, since_timestamp, 200)
+        };
+        if let Ok(messages) = msgs_result {
+            let msg_ids: Vec<String> = messages.iter().filter_map(|m| m.message_id.clone()).collect();
+            let reactions_map = store.load_reactions_for_sync(&msg_ids).unwrap_or_default();
+            let items: Vec<SyncMessageItem> = messages.iter().map(|m| {
+                let reactions = m.message_id.as_ref()
+                    .and_then(|mid| reactions_map.get(mid))
+                    .map(|rs| rs.iter().map(|(e, p, ts, sig, pk)| SyncReactionItem {
+                        e: e.clone(), p: p.clone(), ts: *ts, sig: sig.clone(), pk: pk.clone(),
+                    }).collect())
+                    .unwrap_or_default();
+                let file_meta = m.file_id.as_ref().and_then(|fid| {
+                    store.get_file_metadata(fid).ok().flatten().map(|f| SyncFileMetaItem {
+                        fid: f.file_id, name: f.file_name, ext: f.file_ext, mime: f.mime_type,
+                        size: f.size_bytes, img: f.is_image, w: f.width, h: f.height,
+                        mid: f.message_id, ts: f.created_at, sender: f.sender_id,
+                        vthumb: f.video_thumb,
+                    })
+                });
+                SyncMessageItem {
+                    s: m.sender_id.clone(), t: m.text.clone(), ts: m.timestamp,
+                    sig: m.signature.clone(), pk: m.public_key.clone(),
+                    mid: m.message_id.clone(), edited_at: m.edited_at,
+                    reply_to: m.reply_to_mid.clone(), file_id: m.file_id.clone(),
+                    file_meta, hidden_at: m.hidden_at, reactions,
+                }
+            }).collect();
+            if !items.is_empty() {
+                let total = if !sender_timestamps.is_empty() {
+                    store.count_channel_messages_since_per_sender(&sid, &cid, &sender_timestamps).unwrap_or(items.len() as u32)
+                } else {
+                    store.count_channel_messages_since(&sid, &cid, since_timestamp).unwrap_or(items.len() as u32)
+                };
+                let has_more = if items.len() >= 200 && total > 200 { Some(true) } else { None };
+                let batch = MessageEnvelope::ChannelSyncBatch {
+                    sid: sid.clone(), cid: cid.clone(), messages: items,
+                    total, has_more, target: None,
+                };
+                if let Some(mls_mgr_ref) = mls {
+                    if let Err(e) = send_mls_to_peer(mls_mgr_ref, ws_cmd_tx, &sid, sender_peer_id, &batch, bundle_keypair) {
+                        hollow_log!("[HOLLOW-MLS] Failed to send MLS ChannelSyncBatch: {e}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Handle `MessageEnvelope::ChannelProbe` (MLS path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_channel_probe(
+    server_states: &HashMap<String, ServerState>,
+    olm: &mut OlmManager,
+    crypto_store: &CryptoStore,
+    mls_mgr: &mut MlsManager,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    sender_peer_id: String,
+    sid: String,
+    cid: String,
+) {
+    if !server_states.contains_key(&sid) { return; }
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+        let our_latest = store.get_latest_channel_timestamp(&sid, &cid)
+            .unwrap_or(None).unwrap_or(0);
+        let our_count = store.count_channel_messages(&sid, &cid);
+        let resp = MessageEnvelope::ChannelProbeResp {
+            sid: sid.clone(), cid,
+            their_latest: our_latest,
+            msg_count: our_count,
+            target: None,
+        };
+        let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, bundle_keypair).is_ok();
+        if !mls_sent {
+            let resp_json = serde_json::to_string(&resp).unwrap_or_default();
+            send_encrypted_message(
+                olm, crypto_store,
+                &sender_peer_id, &resp_json, event_tx,
+                ws_cmd_tx, ws_room_peers,
+            ).await;
+        }
+    }
+}
+
+/// Handle `MessageEnvelope::ChannelProbeResp` (MLS path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_channel_probe_resp(
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    channel_sync_sent: &mut HashMap<String, std::time::Instant>,
+    sender_peer_id: String,
+    sid: String,
+    cid: String,
+    their_latest: i64,
+    _msg_count: u32,
+) {
+    let dedup_key = format!("{sid}:{cid}");
+    if channel_sync_sent.get(&dedup_key).is_some_and(|t| t.elapsed() < Duration::from_secs(5)) {
+        return;
+    }
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+        let our_latest = store.get_latest_channel_timestamp(&sid, &cid)
+            .unwrap_or(None).unwrap_or(0);
+        let _our_count = store.count_channel_messages(&sid, &cid);
+        if their_latest > our_latest {
+            channel_sync_sent.insert(dedup_key, std::time::Instant::now());
+            let per_sender = store.get_per_sender_timestamps(&sid, &cid)
+                .unwrap_or_default();
+            send_message_to_peer(
+                ws_cmd_tx, ws_room_peers,
+                &sender_peer_id, HavenMessage::ChannelSyncRequest {
+                    server_id: sid.clone(),
+                    channel_id: cid.clone(),
+                    since_timestamp: our_latest,
+                    sender_timestamps: per_sender,
+                },
+            );
+        }
+    }
+}
+
+/// Handle `MessageEnvelope::ChannelSyncBatch` (MLS path).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_channel_sync_batch(
+    mls: &mut Option<MlsManager>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    local_peer: &str,
+    sender_peer_id: &str,
+    sid: String,
+    cid: String,
+    messages: Vec<SyncMessageItem>,
+    _total: u32,
+    has_more: Option<bool>,
+) {
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+        let mut new_count = 0u32;
+        for msg in &messages {
+            let is_mine = msg.s == local_peer;
+            if let Ok(1) = store.insert_channel_message(
+                &sid, &cid, &msg.s, &msg.t, is_mine, msg.ts,
+                msg.sig.as_deref(), msg.pk.as_deref(), msg.mid.as_deref(),
+                msg.reply_to.as_deref(), msg.file_id.as_deref(),
+            ) {
+                new_count += 1;
+            }
+            if let (Some(hidden_ts), Some(mid)) = (msg.hidden_at, &msg.mid) {
+                let _ = store.set_channel_message_hidden(mid, hidden_ts);
+            }
+            if let Some(ref fm) = msg.file_meta {
+                let ctx_id = format!("{sid}:{cid}");
+                let _ = store.insert_file_metadata(
+                    &fm.fid, &fm.name, &fm.ext, &fm.mime,
+                    fm.size, 0, fm.img, fm.w, fm.h,
+                    fm.mid.as_deref(), "channel", &ctx_id,
+                    &fm.sender, msg.s == local_peer, fm.ts,
+                    fm.vthumb.as_ref(),
+                );
+                let _ = event_tx.send(NetworkEvent::FileHeaderReceived {
+                    file_id: fm.fid.clone(), file_name: fm.name.clone(),
+                    size_bytes: fm.size, is_image: fm.img,
+                    width: fm.w, height: fm.h,
+                    message_id: fm.mid.clone().unwrap_or_default(),
+                    sender_id: fm.sender.clone(),
+                    server_id: sid.clone(), channel_id: cid.clone(),
+                    video_thumb: fm.vthumb.clone(),
+                }).await;
+            }
+            if let Some(mid) = &msg.mid {
+                for r in &msg.reactions {
+                    let _ = store.add_reaction(
+                        mid, &r.e, &r.p, r.ts,
+                        r.sig.as_deref(), r.pk.as_deref(),
+                    );
+                }
+            }
+        }
+        if has_more == Some(true) {
+            let sender_ts = store.get_per_sender_timestamps(&sid, &cid)
+                .unwrap_or_default();
+            let since = store.get_latest_channel_timestamp(&sid, &cid)
+                .unwrap_or(None).unwrap_or(0);
+            let req = MessageEnvelope::ChannelSyncReq {
+                sid: sid.clone(), cid: cid.clone(),
+                since_timestamp: since, sender_timestamps: sender_ts,
+                target: None,
+            };
+            if let Some(mls_mgr_ref) = mls {
+                if let Err(e) = send_mls_to_peer(mls_mgr_ref, ws_cmd_tx, &sid, sender_peer_id, &req, bundle_keypair) {
+                    hollow_log!("[HOLLOW-MLS] Failed to send follow-up ChannelSyncReq: {e}");
+                }
+            }
+        }
+        if has_more != Some(true) {
+            let _ = event_tx.send(NetworkEvent::MessageSyncCompleted {
+                server_id: sid,
+                new_message_count: new_count,
+            }).await;
+        }
+    }
+}

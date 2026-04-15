@@ -917,3 +917,205 @@ pub(crate) async fn broadcast_to_gossip_neighbors(
         }
     }
 }
+
+/// Handle `MessageEnvelope::FileHeader` — register pending stream + emit FileHeaderReceived.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_file_header(
+    server_states: &HashMap<String, ServerState>,
+    pending_file_streams: &mut HashMap<String, PendingFileStream>,
+    pending_shard_streams: &mut HashMap<String, PendingShardStream>,
+    early_file_streams: &mut HashMap<String, (PathBuf, u64, String)>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    server_id: &str,
+    sender_peer_id: String,
+    fid: String,
+    name: String,
+    ext: String,
+    mime: String,
+    size: u64,
+    chunks: u32,
+    img: bool,
+    w: Option<u32>,
+    h: Option<u32>,
+    mid: Option<String>,
+    sid: Option<String>,
+    cid: Option<String>,
+    ts: i64,
+    aes_key: Option<String>,
+    aes_nonce: Option<String>,
+    vthumb: Option<VideoThumbRef>,
+) {
+    hollow_log!("[HOLLOW-FILE] MLS FileHeader: {fid} ({name}, {size} bytes, {chunks} chunks)");
+
+    let max_mb_str = if let Some(state) = server_states.get(server_id) {
+        state.settings.get("max_file_size_mb")
+            .map(|r| r.read().clone())
+            .unwrap_or_else(|| "34".to_string())
+    } else { "34".to_string() };
+    let max_bytes = max_mb_str.parse::<u64>().unwrap_or(34) * 1024 * 1024;
+    if size > max_bytes {
+        hollow_log!("[HOLLOW-SECURITY] REJECTED MLS FileHeader from {sender_peer_id} — size {size} exceeds max {max_bytes}");
+        return;
+    }
+
+    let ctx_type = "channel";
+    let ctx_id = match (&sid, &cid) {
+        (Some(s), Some(c)) => format!("{s}:{c}"),
+        _ => server_id.to_string(),
+    };
+
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+        let _ = store.insert_file_metadata(
+            &fid, &name, &ext, &mime,
+            size, chunks, img,
+            w, h,
+            mid.as_deref(), ctx_type, &ctx_id,
+            &sender_peer_id, false, ts,
+            vthumb.as_ref(),
+        );
+    }
+
+    // Register pending stream so binary file bytes can be decrypted on arrival.
+    if let (Some(ak), Some(an)) = (aes_key, aes_nonce) {
+        pending_file_streams.insert(fid.clone(), PendingFileStream {
+            aes_key: ak,
+            aes_nonce: an,
+            file_name: name.clone(),
+            ext: ext.clone(),
+            sender: sender_peer_id.clone(),
+            server_id: sid.clone().unwrap_or_else(|| server_id.to_string()),
+            channel_id: cid.clone().unwrap_or_default(),
+            message_id: mid.clone().unwrap_or_default(),
+            is_image: img,
+            width: w,
+            height: h,
+        });
+        hollow_log!("[HOLLOW-FILE] Registered pending stream for {fid} (MLS streamed transfer)");
+
+        // Check if WebRTC bytes already arrived before this FileHeader.
+        if let Some((temp_path, file_size, sender)) = early_file_streams.remove(&fid) {
+            hollow_log!("[HOLLOW-FILE] Early arrival found for {fid} (MLS path) — processing now");
+            let request = ws_stream_transfer::StreamRequest {
+                kind: ws_stream_transfer::StreamKind::File,
+                id: fid.clone(),
+                size: file_size,
+                temp_path,
+            };
+            let mut empty_vault_dl = HashMap::new();
+            handle_completed_stream(
+                request, &sender,
+                pending_file_streams, pending_shard_streams,
+                &mut empty_vault_dl, early_file_streams,
+                bundle_keypair, event_tx,
+            ).await;
+        }
+    }
+
+    let _ = event_tx.send(NetworkEvent::FileHeaderReceived {
+        file_id: fid,
+        file_name: name,
+        size_bytes: size,
+        is_image: img,
+        width: w,
+        height: h,
+        message_id: mid.unwrap_or_default(),
+        sender_id: sender_peer_id,
+        server_id: sid.unwrap_or_else(|| server_id.to_string()),
+        channel_id: cid.unwrap_or_default(),
+        video_thumb: vthumb,
+    }).await;
+}
+
+/// Handle `MessageEnvelope::FileChunk` — write chunk + assemble on completion.
+pub(crate) async fn handle_envelope_file_chunk(
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    fid: String,
+    idx: u32,
+    data: String,
+) {
+    let chunk_bytes = match base64::engine::general_purpose::STANDARD.decode(&data) {
+        Ok(b) => b,
+        Err(e) => {
+            hollow_log!("[HOLLOW-FILE] MLS chunk decode failed: {e}");
+            return;
+        }
+    };
+
+    if let Err(e) = file_transfer::write_chunk(&fid, idx, &chunk_bytes) {
+        hollow_log!("[HOLLOW-FILE] {e}");
+    } else {
+        let data_dir = crate::identity::data_dir().unwrap_or_default();
+        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+            if let Ok(received) = store.mark_chunk_received(&fid, idx) {
+                if let Ok(Some(file_meta)) = store.get_file_metadata(&fid) {
+                    let _ = event_tx.send(NetworkEvent::FileProgress {
+                        file_id: fid.clone(),
+                        chunks_received: received,
+                        total_chunks: file_meta.chunk_count,
+                    }).await;
+
+                    if received >= file_meta.chunk_count {
+                        let final_path = file_transfer::final_file_path(&fid, &file_meta.file_ext);
+                        match file_transfer::assemble_file(&fid, file_meta.chunk_count, &final_path) {
+                            Ok(()) => {
+                                let disk_path = final_path.to_string_lossy().to_string();
+                                let _ = store.mark_file_complete(&fid, &disk_path);
+                                hollow_log!("[HOLLOW-FILE] MLS file {fid} complete: {disk_path}");
+                                let _ = event_tx.send(NetworkEvent::FileCompleted {
+                                    file_id: fid,
+                                    disk_path,
+                                }).await;
+                            }
+                            Err(e) => {
+                                hollow_log!("[HOLLOW-FILE] MLS assembly failed: {e}");
+                                let _ = event_tx.send(NetworkEvent::FileFailed {
+                                    file_id: fid,
+                                    error: e,
+                                }).await;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Handle `MessageEnvelope::BroadcastMeta` — gossip relay tree dedup + pending relay registration.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_envelope_broadcast_meta(
+    gossip_overlays: &mut HashMap<String, gossip::GossipOverlay>,
+    local_peer_str: &str,
+    sender_peer_id: &str,
+    broadcast_id: String,
+    origin: String,
+    sid: String,
+    cid: String,
+    file_id: String,
+    ttl: u8,
+) {
+    // SECURITY (Phase 6.25): Validate TTL from wire, cap at MAX_BROADCAST_TTL.
+    let effective_ttl = ttl.min(MAX_BROADCAST_TTL);
+    hollow_log!("[HOLLOW-GOSSIP] BroadcastMeta: bid={broadcast_id} origin={origin} fid={file_id} server={sid} ch={cid} ttl={effective_ttl}");
+    if effective_ttl == 0 {
+        hollow_log!("[HOLLOW-GOSSIP] BroadcastMeta TTL=0, not relaying");
+    } else if let Some(overlay) = gossip_overlays.get_mut(&sid) {
+        overlay.mark_broadcast_seen(&broadcast_id);
+        if origin != local_peer_str {
+            overlay.add_pending_relay(
+                &file_id, &broadcast_id,
+                effective_ttl.saturating_sub(1),
+                &origin, &cid, sender_peer_id,
+            );
+        }
+    }
+}
