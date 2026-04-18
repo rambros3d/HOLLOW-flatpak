@@ -376,6 +376,22 @@ Future<void> webrtcTransferComplete({
   shardIndex: shardIndex,
 );
 
+/// Notify Rust that a WebRTC share-chunk transfer completed.
+/// Distinct from `webrtc_transfer_complete` because share chunks need a
+/// 32-bit chunk_index (a single share can have up to 4 billion chunks).
+/// Routes into share_handler verify+decrypt+write path.
+Future<void> webrtcShareChunkComplete({
+  required String transferId,
+  required String tempPath,
+  required String senderPeerId,
+  required int chunkIndex,
+}) => RustLib.instance.api.crateApiNetworkWebrtcShareChunkComplete(
+  transferId: transferId,
+  tempPath: tempPath,
+  senderPeerId: senderPeerId,
+  chunkIndex: chunkIndex,
+);
+
 /// Notify Rust that a WebRTC file send completed (sender side).
 /// Rust cleans up the temp encrypted file.
 Future<void> webrtcSendComplete({required String transferId}) => RustLib
@@ -906,6 +922,7 @@ sealed class NetworkEvent with _$NetworkEvent {
     required BigInt totalSize,
     required String kind,
     required int shardIndex,
+    required int chunkIndex,
   }) = NetworkEvent_WebRtcSendFile;
 
   /// Forward incoming voice call signaling message to Dart.
@@ -998,6 +1015,103 @@ sealed class NetworkEvent with _$NetworkEvent {
   }) = NetworkEvent_RecoveryPoolFileRecovered;
   const factory NetworkEvent.recoveryPoolStopped({required String serverId}) =
       NetworkEvent_RecoveryPoolStopped;
+  const factory NetworkEvent.shareManifestReady({
+    required String rootHash,
+    required String fileName,
+    required BigInt totalSize,
+    required int chunkCount,
+  }) = NetworkEvent_ShareManifestReady;
+  const factory NetworkEvent.shareProgress({
+    required String rootHash,
+    required int chunksHave,
+    required int chunksTotal,
+    required int peers,
+    required BigInt bytesPerSec,
+  }) = NetworkEvent_ShareProgress;
+  const factory NetworkEvent.shareCompleted({
+    required String rootHash,
+    required String diskPath,
+  }) = NetworkEvent_ShareCompleted;
+  const factory NetworkEvent.shareFailed({
+    required String rootHash,
+    required String error,
+  }) = NetworkEvent_ShareFailed;
+  const factory NetworkEvent.shareSeedingChanged({
+    required String rootHash,
+    required bool seeding,
+    required int peers,
+    required BigInt bytesUploaded,
+  }) = NetworkEvent_ShareSeedingChanged;
+  const factory NetworkEvent.shareCreated({
+    required String rootHash,
+    required String link,
+    required String fileName,
+    required BigInt totalSize,
+  }) = NetworkEvent_ShareCreated;
+  const factory NetworkEvent.shareList({required List<ShareEntry> entries}) =
+      NetworkEvent_ShareList;
+  const factory NetworkEvent.shareNeedWebRtc({required String peerId}) =
+      NetworkEvent_ShareNeedWebRtc;
+}
+
+/// Lightweight FFI mirror of node::types::ShareEntryRef.
+class ShareEntry {
+  final String rootHash;
+  final String fileName;
+  final BigInt totalSize;
+  final int chunksHave;
+  final int chunksTotal;
+  final String state;
+  final bool seeding;
+  final String? diskPath;
+  final BigInt bytesUploaded;
+  final String shareLink;
+  final PlatformInt64 createdAt;
+
+  const ShareEntry({
+    required this.rootHash,
+    required this.fileName,
+    required this.totalSize,
+    required this.chunksHave,
+    required this.chunksTotal,
+    required this.state,
+    required this.seeding,
+    this.diskPath,
+    required this.bytesUploaded,
+    required this.shareLink,
+    required this.createdAt,
+  });
+
+  @override
+  int get hashCode =>
+      rootHash.hashCode ^
+      fileName.hashCode ^
+      totalSize.hashCode ^
+      chunksHave.hashCode ^
+      chunksTotal.hashCode ^
+      state.hashCode ^
+      seeding.hashCode ^
+      diskPath.hashCode ^
+      bytesUploaded.hashCode ^
+      shareLink.hashCode ^
+      createdAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ShareEntry &&
+          runtimeType == other.runtimeType &&
+          rootHash == other.rootHash &&
+          fileName == other.fileName &&
+          totalSize == other.totalSize &&
+          chunksHave == other.chunksHave &&
+          chunksTotal == other.chunksTotal &&
+          state == other.state &&
+          seeding == other.seeding &&
+          diskPath == other.diskPath &&
+          bytesUploaded == other.bytesUploaded &&
+          shareLink == other.shareLink &&
+          createdAt == other.createdAt;
 }
 
 /// FFI-facing video thumbnail back-reference.

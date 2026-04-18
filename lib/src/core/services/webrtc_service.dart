@@ -20,6 +20,7 @@ const _kChunkSize = 64 * 1024;
 const _kMaxBufferedAmount = 256 * 1024;
 const _kTypeFile = 0x00;
 const _kTypeShard = 0x01;
+const _kTypeShareChunk = 0x02;
 const _kTypeContinuation = 0xFF;
 const _kTypePing = 0xFE; // keepalive ping byte
 const _kTypePong = 0xFC; // keepalive pong response byte
@@ -177,8 +178,9 @@ class WebRtcService {
     String filePath,
     int totalSize,
     String kind,
-    int shardIndex,
-  ) async {
+    int shardIndex, {
+    int chunkIndex = 0,
+  }) async {
     final conn = _connections[peerId];
     if (conn == null || !hasPeerChannel(peerId)) {
       _log('[HOLLOW-WEBRTC-DART] No data channel for $peerId, failing transfer $transferId');
@@ -197,11 +199,24 @@ class WebRtcService {
       final fileData = await File(filePath).readAsBytes();
       final dc = conn.dataChannel!;
 
-      final typeFlag = kind == 'shard' ? _kTypeShard : _kTypeFile;
+      final typeFlag = switch (kind) {
+        'shard' => _kTypeShard,
+        'share_chunk' => _kTypeShareChunk,
+        _ => _kTypeFile,
+      };
       final idPadded = _padId(transferId);
 
-      // Build and send first chunk.
-      final headerLen = 1 + 64 + 8 + (kind == 'shard' ? 2 : 0);
+      // Build and send first chunk. Header layout:
+      //   [type:1][id:64][size:8][extra...][data]
+      //   extra:  shard      = u16 LE shard_index (2 bytes)
+      //           share_chunk = u32 LE chunk_index (4 bytes)
+      //           file       = (none)
+      final extraLen = switch (kind) {
+        'shard' => 2,
+        'share_chunk' => 4,
+        _ => 0,
+      };
+      final headerLen = 1 + 64 + 8 + extraLen;
       final firstDataLen = min(_kChunkSize - headerLen, fileData.length);
 
       final firstChunk = BytesBuilder();
@@ -214,6 +229,11 @@ class WebRtcService {
       if (kind == 'shard') {
         firstChunk.add(
             (ByteData(2)..setUint16(0, shardIndex, Endian.little))
+                .buffer
+                .asUint8List());
+      } else if (kind == 'share_chunk') {
+        firstChunk.add(
+            (ByteData(4)..setUint32(0, chunkIndex, Endian.little))
                 .buffer
                 .asUint8List());
       }
@@ -610,8 +630,11 @@ class WebRtcService {
       if (transfer.bytesReceived >= transfer.totalSize) {
         _completeIncomingTransfer(id);
       }
-    } else if (typeByte == _kTypeFile || typeByte == _kTypeShard) {
-      // First chunk: [type:1][id:64][total_size:8][shard_index:2?][payload...]
+    } else if (typeByte == _kTypeFile || typeByte == _kTypeShard || typeByte == _kTypeShareChunk) {
+      // First chunk: [type:1][id:64][total_size:8][extra...][payload]
+      //   extra: shard       = u16 LE shard_index (2 bytes)
+      //          share_chunk  = u32 LE chunk_index (4 bytes)
+      //          file        = (none)
       if (data.length < 73) return;
       final id = _extractId(data, 1);
       final totalSize = ByteData.sublistView(data, 65, 73)
@@ -619,15 +642,28 @@ class WebRtcService {
 
       int payloadStart = 73;
       int shardIndex = 0;
+      int chunkIndex = 0;
+      String kind;
       if (typeByte == _kTypeShard) {
         if (data.length < 75) return;
         shardIndex =
             ByteData.sublistView(data, 73, 75).getUint16(0, Endian.little);
         payloadStart = 75;
+        kind = 'shard';
+      } else if (typeByte == _kTypeShareChunk) {
+        if (data.length < 77) return;
+        chunkIndex =
+            ByteData.sublistView(data, 73, 77).getUint32(0, Endian.little);
+        payloadStart = 77;
+        kind = 'share_chunk';
+      } else {
+        kind = 'file';
       }
 
-      final kind = typeByte == _kTypeShard ? 'shard' : 'file';
       final filesDir = _getFilesDir();
+      // Note: for share_chunk the sender packs chunk_index INTO the id (see sendFile
+      // and Rust ws_stream_send) so continuation messages route correctly even
+      // with many parallel share chunks in flight. transferId IS already unique.
       final tempPath = '$filesDir/.webrtc_recv_$id.tmp';
 
       // Fix 4: Discard stale transfer if re-sent (new AES key from re-request).
@@ -651,6 +687,7 @@ class WebRtcService {
         totalSize: totalSize,
         kind: kind,
         shardIndex: shardIndex,
+        chunkIndex: chunkIndex,
         tempPath: tempPath,
         sink: sink,
       );
@@ -683,13 +720,23 @@ class WebRtcService {
         transfer.kind,
         transfer.shardIndex,
       );
-      network_api.webrtcTransferComplete(
-        transferId: transfer.transferId,
-        tempPath: transfer.tempPath,
-        senderPeerId: transfer.senderPeerId,
-        kind: transfer.kind,
-        shardIndex: transfer.shardIndex,
-      );
+      if (transfer.kind == 'share_chunk') {
+        // Hollow Share routes through a dedicated FFI that carries u32 chunk_index.
+        network_api.webrtcShareChunkComplete(
+          transferId: transfer.transferId,
+          tempPath: transfer.tempPath,
+          senderPeerId: transfer.senderPeerId,
+          chunkIndex: transfer.chunkIndex,
+        );
+      } else {
+        network_api.webrtcTransferComplete(
+          transferId: transfer.transferId,
+          tempPath: transfer.tempPath,
+          senderPeerId: transfer.senderPeerId,
+          kind: transfer.kind,
+          shardIndex: transfer.shardIndex,
+        );
+      }
     });
   }
 
@@ -772,6 +819,7 @@ class _IncomingTransfer {
   final int totalSize;
   final String kind;
   final int shardIndex;
+  final int chunkIndex;
   final String tempPath;
   final IOSink sink;
   int bytesReceived = 0;
@@ -783,6 +831,7 @@ class _IncomingTransfer {
     required this.totalSize,
     required this.kind,
     required this.shardIndex,
+    this.chunkIndex = 0,
     required this.tempPath,
     required this.sink,
   });

@@ -55,7 +55,7 @@ extension NetworkEventPatterns on NetworkEvent {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult Function( NetworkEvent_Listening value)?  listening,TResult Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult Function( NetworkEvent_ChannelMessageReceived value)?  channelMessageReceived,TResult Function( NetworkEvent_MessageSent value)?  messageSent,TResult Function( NetworkEvent_ChannelMessageSent value)?  channelMessageSent,TResult Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult Function( NetworkEvent_Error value)?  error,TResult Function( NetworkEvent_ServerCreated value)?  serverCreated,TResult Function( NetworkEvent_ServerUpdated value)?  serverUpdated,TResult Function( NetworkEvent_ChannelAdded value)?  channelAdded,TResult Function( NetworkEvent_ChannelRemoved value)?  channelRemoved,TResult Function( NetworkEvent_ChannelRenamed value)?  channelRenamed,TResult Function( NetworkEvent_ServerDeleted value)?  serverDeleted,TResult Function( NetworkEvent_MemberJoined value)?  memberJoined,TResult Function( NetworkEvent_MemberLeft value)?  memberLeft,TResult Function( NetworkEvent_SyncCompleted value)?  syncCompleted,TResult Function( NetworkEvent_ServerJoined value)?  serverJoined,TResult Function( NetworkEvent_ServerJoinFailed value)?  serverJoinFailed,TResult Function( NetworkEvent_MessageSyncStarted value)?  messageSyncStarted,TResult Function( NetworkEvent_MessageSyncCompleted value)?  messageSyncCompleted,TResult Function( NetworkEvent_MessageSyncFailed value)?  messageSyncFailed,TResult Function( NetworkEvent_MessageSyncProgress value)?  messageSyncProgress,TResult Function( NetworkEvent_RoleChanged value)?  roleChanged,TResult Function( NetworkEvent_DmSyncCompleted value)?  dmSyncCompleted,TResult Function( NetworkEvent_ProfileUpdated value)?  profileUpdated,TResult Function( NetworkEvent_ChannelMessageEdited value)?  channelMessageEdited,TResult Function( NetworkEvent_DmMessageEdited value)?  dmMessageEdited,TResult Function( NetworkEvent_ChannelMessageDeleted value)?  channelMessageDeleted,TResult Function( NetworkEvent_DmMessageDeleted value)?  dmMessageDeleted,TResult Function( NetworkEvent_ChannelReactionAdded value)?  channelReactionAdded,TResult Function( NetworkEvent_DmReactionAdded value)?  dmReactionAdded,TResult Function( NetworkEvent_ChannelReactionRemoved value)?  channelReactionRemoved,TResult Function( NetworkEvent_DmReactionRemoved value)?  dmReactionRemoved,TResult Function( NetworkEvent_FriendRequestReceived value)?  friendRequestReceived,TResult Function( NetworkEvent_FriendRequestAccepted value)?  friendRequestAccepted,TResult Function( NetworkEvent_FriendRequestRejected value)?  friendRequestRejected,TResult Function( NetworkEvent_FriendRemoved value)?  friendRemoved,TResult Function( NetworkEvent_TypingStarted value)?  typingStarted,TResult Function( NetworkEvent_MessagePinned value)?  messagePinned,TResult Function( NetworkEvent_MessageUnpinned value)?  messageUnpinned,TResult Function( NetworkEvent_FileHeaderReceived value)?  fileHeaderReceived,TResult Function( NetworkEvent_FileProgress value)?  fileProgress,TResult Function( NetworkEvent_FileCompleted value)?  fileCompleted,TResult Function( NetworkEvent_FileFailed value)?  fileFailed,TResult Function( NetworkEvent_ShardStored value)?  shardStored,TResult Function( NetworkEvent_ShardStoreAckReceived value)?  shardStoreAckReceived,TResult Function( NetworkEvent_ShardStoreFailed value)?  shardStoreFailed,TResult Function( NetworkEvent_ShardDeleted value)?  shardDeleted,TResult Function( NetworkEvent_ShardReceived value)?  shardReceived,TResult Function( NetworkEvent_ShardRequestFailed value)?  shardRequestFailed,TResult Function( NetworkEvent_VaultUploadProgress value)?  vaultUploadProgress,TResult Function( NetworkEvent_VaultUploadComplete value)?  vaultUploadComplete,TResult Function( NetworkEvent_VaultUploadFailed value)?  vaultUploadFailed,TResult Function( NetworkEvent_VaultDownloadProgress value)?  vaultDownloadProgress,TResult Function( NetworkEvent_VaultDownloadComplete value)?  vaultDownloadComplete,TResult Function( NetworkEvent_VaultDownloadFailed value)?  vaultDownloadFailed,TResult Function( NetworkEvent_RebalanceStarted value)?  rebalanceStarted,TResult Function( NetworkEvent_RebalanceProgress value)?  rebalanceProgress,TResult Function( NetworkEvent_RebalanceCompleted value)?  rebalanceCompleted,TResult Function( NetworkEvent_VaultUploadReplicationFallback value)?  vaultUploadReplicationFallback,TResult Function( NetworkEvent_KeyExchangeStarted value)?  keyExchangeStarted,TResult Function( NetworkEvent_KeyExchangeProgress value)?  keyExchangeProgress,TResult Function( NetworkEvent_WebRtcSignal value)?  webRtcSignal,TResult Function( NetworkEvent_WebRtcSendFile value)?  webRtcSendFile,TResult Function( NetworkEvent_CallSignal value)?  callSignal,TResult Function( NetworkEvent_VoiceChannelJoined value)?  voiceChannelJoined,TResult Function( NetworkEvent_VoiceChannelLeft value)?  voiceChannelLeft,TResult Function( NetworkEvent_VoiceChannelSignal value)?  voiceChannelSignal,TResult Function( NetworkEvent_GossipConnect value)?  gossipConnect,TResult Function( NetworkEvent_GossipDisconnect value)?  gossipDisconnect,TResult Function( NetworkEvent_GossipRelayFile value)?  gossipRelayFile,TResult Function( NetworkEvent_VoiceChannelModeChanged value)?  voiceChannelModeChanged,TResult Function( NetworkEvent_MlsEpochChanged value)?  mlsEpochChanged,TResult Function( NetworkEvent_RecoveryPoolCreated value)?  recoveryPoolCreated,TResult Function( NetworkEvent_RecoveryPoolJoined value)?  recoveryPoolJoined,TResult Function( NetworkEvent_RecoveryPoolJoinFailed value)?  recoveryPoolJoinFailed,TResult Function( NetworkEvent_RecoveryPoolMemberJoined value)?  recoveryPoolMemberJoined,TResult Function( NetworkEvent_RecoveryPoolMemberLeft value)?  recoveryPoolMemberLeft,TResult Function( NetworkEvent_RecoveryPoolStatus value)?  recoveryPoolStatus,TResult Function( NetworkEvent_RecoveryPoolShardTransferred value)?  recoveryPoolShardTransferred,TResult Function( NetworkEvent_RecoveryPoolFileRecovered value)?  recoveryPoolFileRecovered,TResult Function( NetworkEvent_RecoveryPoolStopped value)?  recoveryPoolStopped,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult Function( NetworkEvent_Listening value)?  listening,TResult Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult Function( NetworkEvent_ChannelMessageReceived value)?  channelMessageReceived,TResult Function( NetworkEvent_MessageSent value)?  messageSent,TResult Function( NetworkEvent_ChannelMessageSent value)?  channelMessageSent,TResult Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult Function( NetworkEvent_Error value)?  error,TResult Function( NetworkEvent_ServerCreated value)?  serverCreated,TResult Function( NetworkEvent_ServerUpdated value)?  serverUpdated,TResult Function( NetworkEvent_ChannelAdded value)?  channelAdded,TResult Function( NetworkEvent_ChannelRemoved value)?  channelRemoved,TResult Function( NetworkEvent_ChannelRenamed value)?  channelRenamed,TResult Function( NetworkEvent_ServerDeleted value)?  serverDeleted,TResult Function( NetworkEvent_MemberJoined value)?  memberJoined,TResult Function( NetworkEvent_MemberLeft value)?  memberLeft,TResult Function( NetworkEvent_SyncCompleted value)?  syncCompleted,TResult Function( NetworkEvent_ServerJoined value)?  serverJoined,TResult Function( NetworkEvent_ServerJoinFailed value)?  serverJoinFailed,TResult Function( NetworkEvent_MessageSyncStarted value)?  messageSyncStarted,TResult Function( NetworkEvent_MessageSyncCompleted value)?  messageSyncCompleted,TResult Function( NetworkEvent_MessageSyncFailed value)?  messageSyncFailed,TResult Function( NetworkEvent_MessageSyncProgress value)?  messageSyncProgress,TResult Function( NetworkEvent_RoleChanged value)?  roleChanged,TResult Function( NetworkEvent_DmSyncCompleted value)?  dmSyncCompleted,TResult Function( NetworkEvent_ProfileUpdated value)?  profileUpdated,TResult Function( NetworkEvent_ChannelMessageEdited value)?  channelMessageEdited,TResult Function( NetworkEvent_DmMessageEdited value)?  dmMessageEdited,TResult Function( NetworkEvent_ChannelMessageDeleted value)?  channelMessageDeleted,TResult Function( NetworkEvent_DmMessageDeleted value)?  dmMessageDeleted,TResult Function( NetworkEvent_ChannelReactionAdded value)?  channelReactionAdded,TResult Function( NetworkEvent_DmReactionAdded value)?  dmReactionAdded,TResult Function( NetworkEvent_ChannelReactionRemoved value)?  channelReactionRemoved,TResult Function( NetworkEvent_DmReactionRemoved value)?  dmReactionRemoved,TResult Function( NetworkEvent_FriendRequestReceived value)?  friendRequestReceived,TResult Function( NetworkEvent_FriendRequestAccepted value)?  friendRequestAccepted,TResult Function( NetworkEvent_FriendRequestRejected value)?  friendRequestRejected,TResult Function( NetworkEvent_FriendRemoved value)?  friendRemoved,TResult Function( NetworkEvent_TypingStarted value)?  typingStarted,TResult Function( NetworkEvent_MessagePinned value)?  messagePinned,TResult Function( NetworkEvent_MessageUnpinned value)?  messageUnpinned,TResult Function( NetworkEvent_FileHeaderReceived value)?  fileHeaderReceived,TResult Function( NetworkEvent_FileProgress value)?  fileProgress,TResult Function( NetworkEvent_FileCompleted value)?  fileCompleted,TResult Function( NetworkEvent_FileFailed value)?  fileFailed,TResult Function( NetworkEvent_ShardStored value)?  shardStored,TResult Function( NetworkEvent_ShardStoreAckReceived value)?  shardStoreAckReceived,TResult Function( NetworkEvent_ShardStoreFailed value)?  shardStoreFailed,TResult Function( NetworkEvent_ShardDeleted value)?  shardDeleted,TResult Function( NetworkEvent_ShardReceived value)?  shardReceived,TResult Function( NetworkEvent_ShardRequestFailed value)?  shardRequestFailed,TResult Function( NetworkEvent_VaultUploadProgress value)?  vaultUploadProgress,TResult Function( NetworkEvent_VaultUploadComplete value)?  vaultUploadComplete,TResult Function( NetworkEvent_VaultUploadFailed value)?  vaultUploadFailed,TResult Function( NetworkEvent_VaultDownloadProgress value)?  vaultDownloadProgress,TResult Function( NetworkEvent_VaultDownloadComplete value)?  vaultDownloadComplete,TResult Function( NetworkEvent_VaultDownloadFailed value)?  vaultDownloadFailed,TResult Function( NetworkEvent_RebalanceStarted value)?  rebalanceStarted,TResult Function( NetworkEvent_RebalanceProgress value)?  rebalanceProgress,TResult Function( NetworkEvent_RebalanceCompleted value)?  rebalanceCompleted,TResult Function( NetworkEvent_VaultUploadReplicationFallback value)?  vaultUploadReplicationFallback,TResult Function( NetworkEvent_KeyExchangeStarted value)?  keyExchangeStarted,TResult Function( NetworkEvent_KeyExchangeProgress value)?  keyExchangeProgress,TResult Function( NetworkEvent_WebRtcSignal value)?  webRtcSignal,TResult Function( NetworkEvent_WebRtcSendFile value)?  webRtcSendFile,TResult Function( NetworkEvent_CallSignal value)?  callSignal,TResult Function( NetworkEvent_VoiceChannelJoined value)?  voiceChannelJoined,TResult Function( NetworkEvent_VoiceChannelLeft value)?  voiceChannelLeft,TResult Function( NetworkEvent_VoiceChannelSignal value)?  voiceChannelSignal,TResult Function( NetworkEvent_GossipConnect value)?  gossipConnect,TResult Function( NetworkEvent_GossipDisconnect value)?  gossipDisconnect,TResult Function( NetworkEvent_GossipRelayFile value)?  gossipRelayFile,TResult Function( NetworkEvent_VoiceChannelModeChanged value)?  voiceChannelModeChanged,TResult Function( NetworkEvent_MlsEpochChanged value)?  mlsEpochChanged,TResult Function( NetworkEvent_RecoveryPoolCreated value)?  recoveryPoolCreated,TResult Function( NetworkEvent_RecoveryPoolJoined value)?  recoveryPoolJoined,TResult Function( NetworkEvent_RecoveryPoolJoinFailed value)?  recoveryPoolJoinFailed,TResult Function( NetworkEvent_RecoveryPoolMemberJoined value)?  recoveryPoolMemberJoined,TResult Function( NetworkEvent_RecoveryPoolMemberLeft value)?  recoveryPoolMemberLeft,TResult Function( NetworkEvent_RecoveryPoolStatus value)?  recoveryPoolStatus,TResult Function( NetworkEvent_RecoveryPoolShardTransferred value)?  recoveryPoolShardTransferred,TResult Function( NetworkEvent_RecoveryPoolFileRecovered value)?  recoveryPoolFileRecovered,TResult Function( NetworkEvent_RecoveryPoolStopped value)?  recoveryPoolStopped,TResult Function( NetworkEvent_ShareManifestReady value)?  shareManifestReady,TResult Function( NetworkEvent_ShareProgress value)?  shareProgress,TResult Function( NetworkEvent_ShareCompleted value)?  shareCompleted,TResult Function( NetworkEvent_ShareFailed value)?  shareFailed,TResult Function( NetworkEvent_ShareSeedingChanged value)?  shareSeedingChanged,TResult Function( NetworkEvent_ShareCreated value)?  shareCreated,TResult Function( NetworkEvent_ShareList value)?  shareList,TResult Function( NetworkEvent_ShareNeedWebRtc value)?  shareNeedWebRtc,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
@@ -145,7 +145,15 @@ return recoveryPoolMemberLeft(_that);case NetworkEvent_RecoveryPoolStatus() when
 return recoveryPoolStatus(_that);case NetworkEvent_RecoveryPoolShardTransferred() when recoveryPoolShardTransferred != null:
 return recoveryPoolShardTransferred(_that);case NetworkEvent_RecoveryPoolFileRecovered() when recoveryPoolFileRecovered != null:
 return recoveryPoolFileRecovered(_that);case NetworkEvent_RecoveryPoolStopped() when recoveryPoolStopped != null:
-return recoveryPoolStopped(_that);case _:
+return recoveryPoolStopped(_that);case NetworkEvent_ShareManifestReady() when shareManifestReady != null:
+return shareManifestReady(_that);case NetworkEvent_ShareProgress() when shareProgress != null:
+return shareProgress(_that);case NetworkEvent_ShareCompleted() when shareCompleted != null:
+return shareCompleted(_that);case NetworkEvent_ShareFailed() when shareFailed != null:
+return shareFailed(_that);case NetworkEvent_ShareSeedingChanged() when shareSeedingChanged != null:
+return shareSeedingChanged(_that);case NetworkEvent_ShareCreated() when shareCreated != null:
+return shareCreated(_that);case NetworkEvent_ShareList() when shareList != null:
+return shareList(_that);case NetworkEvent_ShareNeedWebRtc() when shareNeedWebRtc != null:
+return shareNeedWebRtc(_that);case _:
   return orElse();
 
 }
@@ -163,7 +171,7 @@ return recoveryPoolStopped(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( NetworkEvent_PeerDiscovered value)  peerDiscovered,required TResult Function( NetworkEvent_PeerExpired value)  peerExpired,required TResult Function( NetworkEvent_PeerDisconnected value)  peerDisconnected,required TResult Function( NetworkEvent_RoomCleared value)  roomCleared,required TResult Function( NetworkEvent_Listening value)  listening,required TResult Function( NetworkEvent_MessageReceived value)  messageReceived,required TResult Function( NetworkEvent_ChannelMessageReceived value)  channelMessageReceived,required TResult Function( NetworkEvent_MessageSent value)  messageSent,required TResult Function( NetworkEvent_ChannelMessageSent value)  channelMessageSent,required TResult Function( NetworkEvent_MessageSendFailed value)  messageSendFailed,required TResult Function( NetworkEvent_SessionEstablished value)  sessionEstablished,required TResult Function( NetworkEvent_Error value)  error,required TResult Function( NetworkEvent_ServerCreated value)  serverCreated,required TResult Function( NetworkEvent_ServerUpdated value)  serverUpdated,required TResult Function( NetworkEvent_ChannelAdded value)  channelAdded,required TResult Function( NetworkEvent_ChannelRemoved value)  channelRemoved,required TResult Function( NetworkEvent_ChannelRenamed value)  channelRenamed,required TResult Function( NetworkEvent_ServerDeleted value)  serverDeleted,required TResult Function( NetworkEvent_MemberJoined value)  memberJoined,required TResult Function( NetworkEvent_MemberLeft value)  memberLeft,required TResult Function( NetworkEvent_SyncCompleted value)  syncCompleted,required TResult Function( NetworkEvent_ServerJoined value)  serverJoined,required TResult Function( NetworkEvent_ServerJoinFailed value)  serverJoinFailed,required TResult Function( NetworkEvent_MessageSyncStarted value)  messageSyncStarted,required TResult Function( NetworkEvent_MessageSyncCompleted value)  messageSyncCompleted,required TResult Function( NetworkEvent_MessageSyncFailed value)  messageSyncFailed,required TResult Function( NetworkEvent_MessageSyncProgress value)  messageSyncProgress,required TResult Function( NetworkEvent_RoleChanged value)  roleChanged,required TResult Function( NetworkEvent_DmSyncCompleted value)  dmSyncCompleted,required TResult Function( NetworkEvent_ProfileUpdated value)  profileUpdated,required TResult Function( NetworkEvent_ChannelMessageEdited value)  channelMessageEdited,required TResult Function( NetworkEvent_DmMessageEdited value)  dmMessageEdited,required TResult Function( NetworkEvent_ChannelMessageDeleted value)  channelMessageDeleted,required TResult Function( NetworkEvent_DmMessageDeleted value)  dmMessageDeleted,required TResult Function( NetworkEvent_ChannelReactionAdded value)  channelReactionAdded,required TResult Function( NetworkEvent_DmReactionAdded value)  dmReactionAdded,required TResult Function( NetworkEvent_ChannelReactionRemoved value)  channelReactionRemoved,required TResult Function( NetworkEvent_DmReactionRemoved value)  dmReactionRemoved,required TResult Function( NetworkEvent_FriendRequestReceived value)  friendRequestReceived,required TResult Function( NetworkEvent_FriendRequestAccepted value)  friendRequestAccepted,required TResult Function( NetworkEvent_FriendRequestRejected value)  friendRequestRejected,required TResult Function( NetworkEvent_FriendRemoved value)  friendRemoved,required TResult Function( NetworkEvent_TypingStarted value)  typingStarted,required TResult Function( NetworkEvent_MessagePinned value)  messagePinned,required TResult Function( NetworkEvent_MessageUnpinned value)  messageUnpinned,required TResult Function( NetworkEvent_FileHeaderReceived value)  fileHeaderReceived,required TResult Function( NetworkEvent_FileProgress value)  fileProgress,required TResult Function( NetworkEvent_FileCompleted value)  fileCompleted,required TResult Function( NetworkEvent_FileFailed value)  fileFailed,required TResult Function( NetworkEvent_ShardStored value)  shardStored,required TResult Function( NetworkEvent_ShardStoreAckReceived value)  shardStoreAckReceived,required TResult Function( NetworkEvent_ShardStoreFailed value)  shardStoreFailed,required TResult Function( NetworkEvent_ShardDeleted value)  shardDeleted,required TResult Function( NetworkEvent_ShardReceived value)  shardReceived,required TResult Function( NetworkEvent_ShardRequestFailed value)  shardRequestFailed,required TResult Function( NetworkEvent_VaultUploadProgress value)  vaultUploadProgress,required TResult Function( NetworkEvent_VaultUploadComplete value)  vaultUploadComplete,required TResult Function( NetworkEvent_VaultUploadFailed value)  vaultUploadFailed,required TResult Function( NetworkEvent_VaultDownloadProgress value)  vaultDownloadProgress,required TResult Function( NetworkEvent_VaultDownloadComplete value)  vaultDownloadComplete,required TResult Function( NetworkEvent_VaultDownloadFailed value)  vaultDownloadFailed,required TResult Function( NetworkEvent_RebalanceStarted value)  rebalanceStarted,required TResult Function( NetworkEvent_RebalanceProgress value)  rebalanceProgress,required TResult Function( NetworkEvent_RebalanceCompleted value)  rebalanceCompleted,required TResult Function( NetworkEvent_VaultUploadReplicationFallback value)  vaultUploadReplicationFallback,required TResult Function( NetworkEvent_KeyExchangeStarted value)  keyExchangeStarted,required TResult Function( NetworkEvent_KeyExchangeProgress value)  keyExchangeProgress,required TResult Function( NetworkEvent_WebRtcSignal value)  webRtcSignal,required TResult Function( NetworkEvent_WebRtcSendFile value)  webRtcSendFile,required TResult Function( NetworkEvent_CallSignal value)  callSignal,required TResult Function( NetworkEvent_VoiceChannelJoined value)  voiceChannelJoined,required TResult Function( NetworkEvent_VoiceChannelLeft value)  voiceChannelLeft,required TResult Function( NetworkEvent_VoiceChannelSignal value)  voiceChannelSignal,required TResult Function( NetworkEvent_GossipConnect value)  gossipConnect,required TResult Function( NetworkEvent_GossipDisconnect value)  gossipDisconnect,required TResult Function( NetworkEvent_GossipRelayFile value)  gossipRelayFile,required TResult Function( NetworkEvent_VoiceChannelModeChanged value)  voiceChannelModeChanged,required TResult Function( NetworkEvent_MlsEpochChanged value)  mlsEpochChanged,required TResult Function( NetworkEvent_RecoveryPoolCreated value)  recoveryPoolCreated,required TResult Function( NetworkEvent_RecoveryPoolJoined value)  recoveryPoolJoined,required TResult Function( NetworkEvent_RecoveryPoolJoinFailed value)  recoveryPoolJoinFailed,required TResult Function( NetworkEvent_RecoveryPoolMemberJoined value)  recoveryPoolMemberJoined,required TResult Function( NetworkEvent_RecoveryPoolMemberLeft value)  recoveryPoolMemberLeft,required TResult Function( NetworkEvent_RecoveryPoolStatus value)  recoveryPoolStatus,required TResult Function( NetworkEvent_RecoveryPoolShardTransferred value)  recoveryPoolShardTransferred,required TResult Function( NetworkEvent_RecoveryPoolFileRecovered value)  recoveryPoolFileRecovered,required TResult Function( NetworkEvent_RecoveryPoolStopped value)  recoveryPoolStopped,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( NetworkEvent_PeerDiscovered value)  peerDiscovered,required TResult Function( NetworkEvent_PeerExpired value)  peerExpired,required TResult Function( NetworkEvent_PeerDisconnected value)  peerDisconnected,required TResult Function( NetworkEvent_RoomCleared value)  roomCleared,required TResult Function( NetworkEvent_Listening value)  listening,required TResult Function( NetworkEvent_MessageReceived value)  messageReceived,required TResult Function( NetworkEvent_ChannelMessageReceived value)  channelMessageReceived,required TResult Function( NetworkEvent_MessageSent value)  messageSent,required TResult Function( NetworkEvent_ChannelMessageSent value)  channelMessageSent,required TResult Function( NetworkEvent_MessageSendFailed value)  messageSendFailed,required TResult Function( NetworkEvent_SessionEstablished value)  sessionEstablished,required TResult Function( NetworkEvent_Error value)  error,required TResult Function( NetworkEvent_ServerCreated value)  serverCreated,required TResult Function( NetworkEvent_ServerUpdated value)  serverUpdated,required TResult Function( NetworkEvent_ChannelAdded value)  channelAdded,required TResult Function( NetworkEvent_ChannelRemoved value)  channelRemoved,required TResult Function( NetworkEvent_ChannelRenamed value)  channelRenamed,required TResult Function( NetworkEvent_ServerDeleted value)  serverDeleted,required TResult Function( NetworkEvent_MemberJoined value)  memberJoined,required TResult Function( NetworkEvent_MemberLeft value)  memberLeft,required TResult Function( NetworkEvent_SyncCompleted value)  syncCompleted,required TResult Function( NetworkEvent_ServerJoined value)  serverJoined,required TResult Function( NetworkEvent_ServerJoinFailed value)  serverJoinFailed,required TResult Function( NetworkEvent_MessageSyncStarted value)  messageSyncStarted,required TResult Function( NetworkEvent_MessageSyncCompleted value)  messageSyncCompleted,required TResult Function( NetworkEvent_MessageSyncFailed value)  messageSyncFailed,required TResult Function( NetworkEvent_MessageSyncProgress value)  messageSyncProgress,required TResult Function( NetworkEvent_RoleChanged value)  roleChanged,required TResult Function( NetworkEvent_DmSyncCompleted value)  dmSyncCompleted,required TResult Function( NetworkEvent_ProfileUpdated value)  profileUpdated,required TResult Function( NetworkEvent_ChannelMessageEdited value)  channelMessageEdited,required TResult Function( NetworkEvent_DmMessageEdited value)  dmMessageEdited,required TResult Function( NetworkEvent_ChannelMessageDeleted value)  channelMessageDeleted,required TResult Function( NetworkEvent_DmMessageDeleted value)  dmMessageDeleted,required TResult Function( NetworkEvent_ChannelReactionAdded value)  channelReactionAdded,required TResult Function( NetworkEvent_DmReactionAdded value)  dmReactionAdded,required TResult Function( NetworkEvent_ChannelReactionRemoved value)  channelReactionRemoved,required TResult Function( NetworkEvent_DmReactionRemoved value)  dmReactionRemoved,required TResult Function( NetworkEvent_FriendRequestReceived value)  friendRequestReceived,required TResult Function( NetworkEvent_FriendRequestAccepted value)  friendRequestAccepted,required TResult Function( NetworkEvent_FriendRequestRejected value)  friendRequestRejected,required TResult Function( NetworkEvent_FriendRemoved value)  friendRemoved,required TResult Function( NetworkEvent_TypingStarted value)  typingStarted,required TResult Function( NetworkEvent_MessagePinned value)  messagePinned,required TResult Function( NetworkEvent_MessageUnpinned value)  messageUnpinned,required TResult Function( NetworkEvent_FileHeaderReceived value)  fileHeaderReceived,required TResult Function( NetworkEvent_FileProgress value)  fileProgress,required TResult Function( NetworkEvent_FileCompleted value)  fileCompleted,required TResult Function( NetworkEvent_FileFailed value)  fileFailed,required TResult Function( NetworkEvent_ShardStored value)  shardStored,required TResult Function( NetworkEvent_ShardStoreAckReceived value)  shardStoreAckReceived,required TResult Function( NetworkEvent_ShardStoreFailed value)  shardStoreFailed,required TResult Function( NetworkEvent_ShardDeleted value)  shardDeleted,required TResult Function( NetworkEvent_ShardReceived value)  shardReceived,required TResult Function( NetworkEvent_ShardRequestFailed value)  shardRequestFailed,required TResult Function( NetworkEvent_VaultUploadProgress value)  vaultUploadProgress,required TResult Function( NetworkEvent_VaultUploadComplete value)  vaultUploadComplete,required TResult Function( NetworkEvent_VaultUploadFailed value)  vaultUploadFailed,required TResult Function( NetworkEvent_VaultDownloadProgress value)  vaultDownloadProgress,required TResult Function( NetworkEvent_VaultDownloadComplete value)  vaultDownloadComplete,required TResult Function( NetworkEvent_VaultDownloadFailed value)  vaultDownloadFailed,required TResult Function( NetworkEvent_RebalanceStarted value)  rebalanceStarted,required TResult Function( NetworkEvent_RebalanceProgress value)  rebalanceProgress,required TResult Function( NetworkEvent_RebalanceCompleted value)  rebalanceCompleted,required TResult Function( NetworkEvent_VaultUploadReplicationFallback value)  vaultUploadReplicationFallback,required TResult Function( NetworkEvent_KeyExchangeStarted value)  keyExchangeStarted,required TResult Function( NetworkEvent_KeyExchangeProgress value)  keyExchangeProgress,required TResult Function( NetworkEvent_WebRtcSignal value)  webRtcSignal,required TResult Function( NetworkEvent_WebRtcSendFile value)  webRtcSendFile,required TResult Function( NetworkEvent_CallSignal value)  callSignal,required TResult Function( NetworkEvent_VoiceChannelJoined value)  voiceChannelJoined,required TResult Function( NetworkEvent_VoiceChannelLeft value)  voiceChannelLeft,required TResult Function( NetworkEvent_VoiceChannelSignal value)  voiceChannelSignal,required TResult Function( NetworkEvent_GossipConnect value)  gossipConnect,required TResult Function( NetworkEvent_GossipDisconnect value)  gossipDisconnect,required TResult Function( NetworkEvent_GossipRelayFile value)  gossipRelayFile,required TResult Function( NetworkEvent_VoiceChannelModeChanged value)  voiceChannelModeChanged,required TResult Function( NetworkEvent_MlsEpochChanged value)  mlsEpochChanged,required TResult Function( NetworkEvent_RecoveryPoolCreated value)  recoveryPoolCreated,required TResult Function( NetworkEvent_RecoveryPoolJoined value)  recoveryPoolJoined,required TResult Function( NetworkEvent_RecoveryPoolJoinFailed value)  recoveryPoolJoinFailed,required TResult Function( NetworkEvent_RecoveryPoolMemberJoined value)  recoveryPoolMemberJoined,required TResult Function( NetworkEvent_RecoveryPoolMemberLeft value)  recoveryPoolMemberLeft,required TResult Function( NetworkEvent_RecoveryPoolStatus value)  recoveryPoolStatus,required TResult Function( NetworkEvent_RecoveryPoolShardTransferred value)  recoveryPoolShardTransferred,required TResult Function( NetworkEvent_RecoveryPoolFileRecovered value)  recoveryPoolFileRecovered,required TResult Function( NetworkEvent_RecoveryPoolStopped value)  recoveryPoolStopped,required TResult Function( NetworkEvent_ShareManifestReady value)  shareManifestReady,required TResult Function( NetworkEvent_ShareProgress value)  shareProgress,required TResult Function( NetworkEvent_ShareCompleted value)  shareCompleted,required TResult Function( NetworkEvent_ShareFailed value)  shareFailed,required TResult Function( NetworkEvent_ShareSeedingChanged value)  shareSeedingChanged,required TResult Function( NetworkEvent_ShareCreated value)  shareCreated,required TResult Function( NetworkEvent_ShareList value)  shareList,required TResult Function( NetworkEvent_ShareNeedWebRtc value)  shareNeedWebRtc,}){
 final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered():
@@ -253,7 +261,15 @@ return recoveryPoolMemberLeft(_that);case NetworkEvent_RecoveryPoolStatus():
 return recoveryPoolStatus(_that);case NetworkEvent_RecoveryPoolShardTransferred():
 return recoveryPoolShardTransferred(_that);case NetworkEvent_RecoveryPoolFileRecovered():
 return recoveryPoolFileRecovered(_that);case NetworkEvent_RecoveryPoolStopped():
-return recoveryPoolStopped(_that);}
+return recoveryPoolStopped(_that);case NetworkEvent_ShareManifestReady():
+return shareManifestReady(_that);case NetworkEvent_ShareProgress():
+return shareProgress(_that);case NetworkEvent_ShareCompleted():
+return shareCompleted(_that);case NetworkEvent_ShareFailed():
+return shareFailed(_that);case NetworkEvent_ShareSeedingChanged():
+return shareSeedingChanged(_that);case NetworkEvent_ShareCreated():
+return shareCreated(_that);case NetworkEvent_ShareList():
+return shareList(_that);case NetworkEvent_ShareNeedWebRtc():
+return shareNeedWebRtc(_that);}
 }
 /// A variant of `map` that fallback to returning `null`.
 ///
@@ -267,7 +283,7 @@ return recoveryPoolStopped(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult? Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult? Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult? Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult? Function( NetworkEvent_Listening value)?  listening,TResult? Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult? Function( NetworkEvent_ChannelMessageReceived value)?  channelMessageReceived,TResult? Function( NetworkEvent_MessageSent value)?  messageSent,TResult? Function( NetworkEvent_ChannelMessageSent value)?  channelMessageSent,TResult? Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult? Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult? Function( NetworkEvent_Error value)?  error,TResult? Function( NetworkEvent_ServerCreated value)?  serverCreated,TResult? Function( NetworkEvent_ServerUpdated value)?  serverUpdated,TResult? Function( NetworkEvent_ChannelAdded value)?  channelAdded,TResult? Function( NetworkEvent_ChannelRemoved value)?  channelRemoved,TResult? Function( NetworkEvent_ChannelRenamed value)?  channelRenamed,TResult? Function( NetworkEvent_ServerDeleted value)?  serverDeleted,TResult? Function( NetworkEvent_MemberJoined value)?  memberJoined,TResult? Function( NetworkEvent_MemberLeft value)?  memberLeft,TResult? Function( NetworkEvent_SyncCompleted value)?  syncCompleted,TResult? Function( NetworkEvent_ServerJoined value)?  serverJoined,TResult? Function( NetworkEvent_ServerJoinFailed value)?  serverJoinFailed,TResult? Function( NetworkEvent_MessageSyncStarted value)?  messageSyncStarted,TResult? Function( NetworkEvent_MessageSyncCompleted value)?  messageSyncCompleted,TResult? Function( NetworkEvent_MessageSyncFailed value)?  messageSyncFailed,TResult? Function( NetworkEvent_MessageSyncProgress value)?  messageSyncProgress,TResult? Function( NetworkEvent_RoleChanged value)?  roleChanged,TResult? Function( NetworkEvent_DmSyncCompleted value)?  dmSyncCompleted,TResult? Function( NetworkEvent_ProfileUpdated value)?  profileUpdated,TResult? Function( NetworkEvent_ChannelMessageEdited value)?  channelMessageEdited,TResult? Function( NetworkEvent_DmMessageEdited value)?  dmMessageEdited,TResult? Function( NetworkEvent_ChannelMessageDeleted value)?  channelMessageDeleted,TResult? Function( NetworkEvent_DmMessageDeleted value)?  dmMessageDeleted,TResult? Function( NetworkEvent_ChannelReactionAdded value)?  channelReactionAdded,TResult? Function( NetworkEvent_DmReactionAdded value)?  dmReactionAdded,TResult? Function( NetworkEvent_ChannelReactionRemoved value)?  channelReactionRemoved,TResult? Function( NetworkEvent_DmReactionRemoved value)?  dmReactionRemoved,TResult? Function( NetworkEvent_FriendRequestReceived value)?  friendRequestReceived,TResult? Function( NetworkEvent_FriendRequestAccepted value)?  friendRequestAccepted,TResult? Function( NetworkEvent_FriendRequestRejected value)?  friendRequestRejected,TResult? Function( NetworkEvent_FriendRemoved value)?  friendRemoved,TResult? Function( NetworkEvent_TypingStarted value)?  typingStarted,TResult? Function( NetworkEvent_MessagePinned value)?  messagePinned,TResult? Function( NetworkEvent_MessageUnpinned value)?  messageUnpinned,TResult? Function( NetworkEvent_FileHeaderReceived value)?  fileHeaderReceived,TResult? Function( NetworkEvent_FileProgress value)?  fileProgress,TResult? Function( NetworkEvent_FileCompleted value)?  fileCompleted,TResult? Function( NetworkEvent_FileFailed value)?  fileFailed,TResult? Function( NetworkEvent_ShardStored value)?  shardStored,TResult? Function( NetworkEvent_ShardStoreAckReceived value)?  shardStoreAckReceived,TResult? Function( NetworkEvent_ShardStoreFailed value)?  shardStoreFailed,TResult? Function( NetworkEvent_ShardDeleted value)?  shardDeleted,TResult? Function( NetworkEvent_ShardReceived value)?  shardReceived,TResult? Function( NetworkEvent_ShardRequestFailed value)?  shardRequestFailed,TResult? Function( NetworkEvent_VaultUploadProgress value)?  vaultUploadProgress,TResult? Function( NetworkEvent_VaultUploadComplete value)?  vaultUploadComplete,TResult? Function( NetworkEvent_VaultUploadFailed value)?  vaultUploadFailed,TResult? Function( NetworkEvent_VaultDownloadProgress value)?  vaultDownloadProgress,TResult? Function( NetworkEvent_VaultDownloadComplete value)?  vaultDownloadComplete,TResult? Function( NetworkEvent_VaultDownloadFailed value)?  vaultDownloadFailed,TResult? Function( NetworkEvent_RebalanceStarted value)?  rebalanceStarted,TResult? Function( NetworkEvent_RebalanceProgress value)?  rebalanceProgress,TResult? Function( NetworkEvent_RebalanceCompleted value)?  rebalanceCompleted,TResult? Function( NetworkEvent_VaultUploadReplicationFallback value)?  vaultUploadReplicationFallback,TResult? Function( NetworkEvent_KeyExchangeStarted value)?  keyExchangeStarted,TResult? Function( NetworkEvent_KeyExchangeProgress value)?  keyExchangeProgress,TResult? Function( NetworkEvent_WebRtcSignal value)?  webRtcSignal,TResult? Function( NetworkEvent_WebRtcSendFile value)?  webRtcSendFile,TResult? Function( NetworkEvent_CallSignal value)?  callSignal,TResult? Function( NetworkEvent_VoiceChannelJoined value)?  voiceChannelJoined,TResult? Function( NetworkEvent_VoiceChannelLeft value)?  voiceChannelLeft,TResult? Function( NetworkEvent_VoiceChannelSignal value)?  voiceChannelSignal,TResult? Function( NetworkEvent_GossipConnect value)?  gossipConnect,TResult? Function( NetworkEvent_GossipDisconnect value)?  gossipDisconnect,TResult? Function( NetworkEvent_GossipRelayFile value)?  gossipRelayFile,TResult? Function( NetworkEvent_VoiceChannelModeChanged value)?  voiceChannelModeChanged,TResult? Function( NetworkEvent_MlsEpochChanged value)?  mlsEpochChanged,TResult? Function( NetworkEvent_RecoveryPoolCreated value)?  recoveryPoolCreated,TResult? Function( NetworkEvent_RecoveryPoolJoined value)?  recoveryPoolJoined,TResult? Function( NetworkEvent_RecoveryPoolJoinFailed value)?  recoveryPoolJoinFailed,TResult? Function( NetworkEvent_RecoveryPoolMemberJoined value)?  recoveryPoolMemberJoined,TResult? Function( NetworkEvent_RecoveryPoolMemberLeft value)?  recoveryPoolMemberLeft,TResult? Function( NetworkEvent_RecoveryPoolStatus value)?  recoveryPoolStatus,TResult? Function( NetworkEvent_RecoveryPoolShardTransferred value)?  recoveryPoolShardTransferred,TResult? Function( NetworkEvent_RecoveryPoolFileRecovered value)?  recoveryPoolFileRecovered,TResult? Function( NetworkEvent_RecoveryPoolStopped value)?  recoveryPoolStopped,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( NetworkEvent_PeerDiscovered value)?  peerDiscovered,TResult? Function( NetworkEvent_PeerExpired value)?  peerExpired,TResult? Function( NetworkEvent_PeerDisconnected value)?  peerDisconnected,TResult? Function( NetworkEvent_RoomCleared value)?  roomCleared,TResult? Function( NetworkEvent_Listening value)?  listening,TResult? Function( NetworkEvent_MessageReceived value)?  messageReceived,TResult? Function( NetworkEvent_ChannelMessageReceived value)?  channelMessageReceived,TResult? Function( NetworkEvent_MessageSent value)?  messageSent,TResult? Function( NetworkEvent_ChannelMessageSent value)?  channelMessageSent,TResult? Function( NetworkEvent_MessageSendFailed value)?  messageSendFailed,TResult? Function( NetworkEvent_SessionEstablished value)?  sessionEstablished,TResult? Function( NetworkEvent_Error value)?  error,TResult? Function( NetworkEvent_ServerCreated value)?  serverCreated,TResult? Function( NetworkEvent_ServerUpdated value)?  serverUpdated,TResult? Function( NetworkEvent_ChannelAdded value)?  channelAdded,TResult? Function( NetworkEvent_ChannelRemoved value)?  channelRemoved,TResult? Function( NetworkEvent_ChannelRenamed value)?  channelRenamed,TResult? Function( NetworkEvent_ServerDeleted value)?  serverDeleted,TResult? Function( NetworkEvent_MemberJoined value)?  memberJoined,TResult? Function( NetworkEvent_MemberLeft value)?  memberLeft,TResult? Function( NetworkEvent_SyncCompleted value)?  syncCompleted,TResult? Function( NetworkEvent_ServerJoined value)?  serverJoined,TResult? Function( NetworkEvent_ServerJoinFailed value)?  serverJoinFailed,TResult? Function( NetworkEvent_MessageSyncStarted value)?  messageSyncStarted,TResult? Function( NetworkEvent_MessageSyncCompleted value)?  messageSyncCompleted,TResult? Function( NetworkEvent_MessageSyncFailed value)?  messageSyncFailed,TResult? Function( NetworkEvent_MessageSyncProgress value)?  messageSyncProgress,TResult? Function( NetworkEvent_RoleChanged value)?  roleChanged,TResult? Function( NetworkEvent_DmSyncCompleted value)?  dmSyncCompleted,TResult? Function( NetworkEvent_ProfileUpdated value)?  profileUpdated,TResult? Function( NetworkEvent_ChannelMessageEdited value)?  channelMessageEdited,TResult? Function( NetworkEvent_DmMessageEdited value)?  dmMessageEdited,TResult? Function( NetworkEvent_ChannelMessageDeleted value)?  channelMessageDeleted,TResult? Function( NetworkEvent_DmMessageDeleted value)?  dmMessageDeleted,TResult? Function( NetworkEvent_ChannelReactionAdded value)?  channelReactionAdded,TResult? Function( NetworkEvent_DmReactionAdded value)?  dmReactionAdded,TResult? Function( NetworkEvent_ChannelReactionRemoved value)?  channelReactionRemoved,TResult? Function( NetworkEvent_DmReactionRemoved value)?  dmReactionRemoved,TResult? Function( NetworkEvent_FriendRequestReceived value)?  friendRequestReceived,TResult? Function( NetworkEvent_FriendRequestAccepted value)?  friendRequestAccepted,TResult? Function( NetworkEvent_FriendRequestRejected value)?  friendRequestRejected,TResult? Function( NetworkEvent_FriendRemoved value)?  friendRemoved,TResult? Function( NetworkEvent_TypingStarted value)?  typingStarted,TResult? Function( NetworkEvent_MessagePinned value)?  messagePinned,TResult? Function( NetworkEvent_MessageUnpinned value)?  messageUnpinned,TResult? Function( NetworkEvent_FileHeaderReceived value)?  fileHeaderReceived,TResult? Function( NetworkEvent_FileProgress value)?  fileProgress,TResult? Function( NetworkEvent_FileCompleted value)?  fileCompleted,TResult? Function( NetworkEvent_FileFailed value)?  fileFailed,TResult? Function( NetworkEvent_ShardStored value)?  shardStored,TResult? Function( NetworkEvent_ShardStoreAckReceived value)?  shardStoreAckReceived,TResult? Function( NetworkEvent_ShardStoreFailed value)?  shardStoreFailed,TResult? Function( NetworkEvent_ShardDeleted value)?  shardDeleted,TResult? Function( NetworkEvent_ShardReceived value)?  shardReceived,TResult? Function( NetworkEvent_ShardRequestFailed value)?  shardRequestFailed,TResult? Function( NetworkEvent_VaultUploadProgress value)?  vaultUploadProgress,TResult? Function( NetworkEvent_VaultUploadComplete value)?  vaultUploadComplete,TResult? Function( NetworkEvent_VaultUploadFailed value)?  vaultUploadFailed,TResult? Function( NetworkEvent_VaultDownloadProgress value)?  vaultDownloadProgress,TResult? Function( NetworkEvent_VaultDownloadComplete value)?  vaultDownloadComplete,TResult? Function( NetworkEvent_VaultDownloadFailed value)?  vaultDownloadFailed,TResult? Function( NetworkEvent_RebalanceStarted value)?  rebalanceStarted,TResult? Function( NetworkEvent_RebalanceProgress value)?  rebalanceProgress,TResult? Function( NetworkEvent_RebalanceCompleted value)?  rebalanceCompleted,TResult? Function( NetworkEvent_VaultUploadReplicationFallback value)?  vaultUploadReplicationFallback,TResult? Function( NetworkEvent_KeyExchangeStarted value)?  keyExchangeStarted,TResult? Function( NetworkEvent_KeyExchangeProgress value)?  keyExchangeProgress,TResult? Function( NetworkEvent_WebRtcSignal value)?  webRtcSignal,TResult? Function( NetworkEvent_WebRtcSendFile value)?  webRtcSendFile,TResult? Function( NetworkEvent_CallSignal value)?  callSignal,TResult? Function( NetworkEvent_VoiceChannelJoined value)?  voiceChannelJoined,TResult? Function( NetworkEvent_VoiceChannelLeft value)?  voiceChannelLeft,TResult? Function( NetworkEvent_VoiceChannelSignal value)?  voiceChannelSignal,TResult? Function( NetworkEvent_GossipConnect value)?  gossipConnect,TResult? Function( NetworkEvent_GossipDisconnect value)?  gossipDisconnect,TResult? Function( NetworkEvent_GossipRelayFile value)?  gossipRelayFile,TResult? Function( NetworkEvent_VoiceChannelModeChanged value)?  voiceChannelModeChanged,TResult? Function( NetworkEvent_MlsEpochChanged value)?  mlsEpochChanged,TResult? Function( NetworkEvent_RecoveryPoolCreated value)?  recoveryPoolCreated,TResult? Function( NetworkEvent_RecoveryPoolJoined value)?  recoveryPoolJoined,TResult? Function( NetworkEvent_RecoveryPoolJoinFailed value)?  recoveryPoolJoinFailed,TResult? Function( NetworkEvent_RecoveryPoolMemberJoined value)?  recoveryPoolMemberJoined,TResult? Function( NetworkEvent_RecoveryPoolMemberLeft value)?  recoveryPoolMemberLeft,TResult? Function( NetworkEvent_RecoveryPoolStatus value)?  recoveryPoolStatus,TResult? Function( NetworkEvent_RecoveryPoolShardTransferred value)?  recoveryPoolShardTransferred,TResult? Function( NetworkEvent_RecoveryPoolFileRecovered value)?  recoveryPoolFileRecovered,TResult? Function( NetworkEvent_RecoveryPoolStopped value)?  recoveryPoolStopped,TResult? Function( NetworkEvent_ShareManifestReady value)?  shareManifestReady,TResult? Function( NetworkEvent_ShareProgress value)?  shareProgress,TResult? Function( NetworkEvent_ShareCompleted value)?  shareCompleted,TResult? Function( NetworkEvent_ShareFailed value)?  shareFailed,TResult? Function( NetworkEvent_ShareSeedingChanged value)?  shareSeedingChanged,TResult? Function( NetworkEvent_ShareCreated value)?  shareCreated,TResult? Function( NetworkEvent_ShareList value)?  shareList,TResult? Function( NetworkEvent_ShareNeedWebRtc value)?  shareNeedWebRtc,}){
 final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
@@ -357,7 +373,15 @@ return recoveryPoolMemberLeft(_that);case NetworkEvent_RecoveryPoolStatus() when
 return recoveryPoolStatus(_that);case NetworkEvent_RecoveryPoolShardTransferred() when recoveryPoolShardTransferred != null:
 return recoveryPoolShardTransferred(_that);case NetworkEvent_RecoveryPoolFileRecovered() when recoveryPoolFileRecovered != null:
 return recoveryPoolFileRecovered(_that);case NetworkEvent_RecoveryPoolStopped() when recoveryPoolStopped != null:
-return recoveryPoolStopped(_that);case _:
+return recoveryPoolStopped(_that);case NetworkEvent_ShareManifestReady() when shareManifestReady != null:
+return shareManifestReady(_that);case NetworkEvent_ShareProgress() when shareProgress != null:
+return shareProgress(_that);case NetworkEvent_ShareCompleted() when shareCompleted != null:
+return shareCompleted(_that);case NetworkEvent_ShareFailed() when shareFailed != null:
+return shareFailed(_that);case NetworkEvent_ShareSeedingChanged() when shareSeedingChanged != null:
+return shareSeedingChanged(_that);case NetworkEvent_ShareCreated() when shareCreated != null:
+return shareCreated(_that);case NetworkEvent_ShareList() when shareList != null:
+return shareList(_that);case NetworkEvent_ShareNeedWebRtc() when shareNeedWebRtc != null:
+return shareNeedWebRtc(_that);case _:
   return null;
 
 }
@@ -374,7 +398,7 @@ return recoveryPoolStopped(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( DiscoveredPeer peer)?  peerDiscovered,TResult Function( String peerId)?  peerExpired,TResult Function( String peerId)?  peerDisconnected,TResult Function()?  roomCleared,TResult Function( String address)?  listening,TResult Function( String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid,  LinkPreviewRef? linkPreview,  String? signature,  String? publicKey)?  messageReceived,TResult Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid,  LinkPreviewRef? linkPreview,  String? signature,  String? publicKey)?  channelMessageReceived,TResult Function( String toPeer,  String messageId,  PlatformInt64 timestamp,  String? signature,  String? publicKey)?  messageSent,TResult Function( String serverId,  String channelId,  String messageId,  PlatformInt64 timestamp,  String? signature,  String? publicKey)?  channelMessageSent,TResult Function( String toPeer,  String error)?  messageSendFailed,TResult Function( String peerId)?  sessionEstablished,TResult Function( String message)?  error,TResult Function( String serverId,  String name)?  serverCreated,TResult Function( String serverId)?  serverUpdated,TResult Function( String serverId,  String channelId,  String name,  String channelType)?  channelAdded,TResult Function( String serverId,  String channelId)?  channelRemoved,TResult Function( String serverId,  String channelId,  String newName)?  channelRenamed,TResult Function( String serverId)?  serverDeleted,TResult Function( String serverId,  String peerId)?  memberJoined,TResult Function( String serverId,  String peerId)?  memberLeft,TResult Function( String serverId,  int opsApplied)?  syncCompleted,TResult Function( String serverId,  String name)?  serverJoined,TResult Function( String serverId,  String reason)?  serverJoinFailed,TResult Function( String serverId,  String peerId)?  messageSyncStarted,TResult Function( String serverId,  int newMessageCount)?  messageSyncCompleted,TResult Function( String serverId,  String error)?  messageSyncFailed,TResult Function( String serverId,  String channelId,  int receivedCount,  int totalCount)?  messageSyncProgress,TResult Function( String serverId,  String peerId,  String newRole)?  roleChanged,TResult Function( String peerId,  int newMessageCount)?  dmSyncCompleted,TResult Function( String peerId)?  profileUpdated,TResult Function( String serverId,  String channelId,  String messageId,  String newText,  PlatformInt64 editedAt,  String? signature,  String? publicKey)?  channelMessageEdited,TResult Function( String peerId,  String messageId,  String newText,  PlatformInt64 editedAt,  String? signature,  String? publicKey)?  dmMessageEdited,TResult Function( String serverId,  String channelId,  String messageId,  PlatformInt64 deletedAt)?  channelMessageDeleted,TResult Function( String peerId,  String messageId,  PlatformInt64 deletedAt)?  dmMessageDeleted,TResult Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)?  channelReactionAdded,TResult Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)?  dmReactionAdded,TResult Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)?  channelReactionRemoved,TResult Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)?  dmReactionRemoved,TResult Function( String peerId)?  friendRequestReceived,TResult Function( String peerId)?  friendRequestAccepted,TResult Function( String peerId)?  friendRequestRejected,TResult Function( String peerId)?  friendRemoved,TResult Function( String peerId,  String serverId,  String channelId)?  typingStarted,TResult Function( String serverId,  String channelId,  String messageId)?  messagePinned,TResult Function( String serverId,  String channelId,  String messageId)?  messageUnpinned,TResult Function( String fileId,  String fileName,  BigInt sizeBytes,  bool isImage,  int? width,  int? height,  String messageId,  String senderId,  String serverId,  String channelId,  VideoThumbRef? videoThumb)?  fileHeaderReceived,TResult Function( String fileId,  int chunksReceived,  int totalChunks)?  fileProgress,TResult Function( String fileId,  String diskPath)?  fileCompleted,TResult Function( String fileId,  String error)?  fileFailed,TResult Function( String serverId,  String contentId,  int shardIndex,  String fromPeer)?  shardStored,TResult Function( String serverId,  String contentId,  int shardIndex,  bool success,  String error)?  shardStoreAckReceived,TResult Function( String serverId,  String contentId,  int shardIndex,  String targetPeer,  String error)?  shardStoreFailed,TResult Function( String serverId,  String contentId)?  shardDeleted,TResult Function( String serverId,  String contentId,  int shardIndex,  String fromPeer)?  shardReceived,TResult Function( String serverId,  String contentId,  int shardIndex,  String error)?  shardRequestFailed,TResult Function( String serverId,  String contentId,  String phase,  double progress)?  vaultUploadProgress,TResult Function( String serverId,  String contentId,  String channelId)?  vaultUploadComplete,TResult Function( String serverId,  String contentId,  String error)?  vaultUploadFailed,TResult Function( String serverId,  String contentId,  String phase,  double progress)?  vaultDownloadProgress,TResult Function( String serverId,  String contentId,  String diskPath)?  vaultDownloadComplete,TResult Function( String serverId,  String contentId,  String error)?  vaultDownloadFailed,TResult Function( String serverId,  int shardsToMove)?  rebalanceStarted,TResult Function( String serverId,  int moved,  int total)?  rebalanceProgress,TResult Function( String serverId)?  rebalanceCompleted,TResult Function( String serverId,  String contentId,  BigInt online,  BigInt needed)?  vaultUploadReplicationFallback,TResult Function( String peerId)?  keyExchangeStarted,TResult Function( String peerId,  String stage)?  keyExchangeProgress,TResult Function( String peerId,  String signalType,  String payload,  String connId)?  webRtcSignal,TResult Function( String peerId,  String transferId,  String filePath,  BigInt totalSize,  String kind,  int shardIndex)?  webRtcSendFile,TResult Function( String peerId,  String signalType,  String payload)?  callSignal,TResult Function( String serverId,  String channelId,  String peerId)?  voiceChannelJoined,TResult Function( String serverId,  String channelId,  String peerId)?  voiceChannelLeft,TResult Function( String serverId,  String channelId,  String peerId,  String signalType,  String payload)?  voiceChannelSignal,TResult Function( String peerId)?  gossipConnect,TResult Function( String peerId)?  gossipDisconnect,TResult Function( String broadcastId,  int ttl,  String originPeerId,  String filePath,  BigInt totalSize,  String kind,  int shardIndex,  String excludePeerId,  String serverId,  String channelId)?  gossipRelayFile,TResult Function( String serverId,  String channelId,  String mode,  List<String> gossipNeighbors)?  voiceChannelModeChanged,TResult Function( String serverId,  BigInt epoch,  Uint8List sframeKey)?  mlsEpochChanged,TResult Function( String serverId,  String inviteLink)?  recoveryPoolCreated,TResult Function( String serverId)?  recoveryPoolJoined,TResult Function( String serverId,  String reason)?  recoveryPoolJoinFailed,TResult Function( String serverId,  String peerId)?  recoveryPoolMemberJoined,TResult Function( String serverId,  String peerId)?  recoveryPoolMemberLeft,TResult Function( String serverId,  int totalFiles,  int reconstructable,  int partial,  int noShards,  double progressPct)?  recoveryPoolStatus,TResult Function( String serverId,  String contentId,  int shardIndex)?  recoveryPoolShardTransferred,TResult Function( String serverId,  String contentId,  String diskPath)?  recoveryPoolFileRecovered,TResult Function( String serverId)?  recoveryPoolStopped,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( DiscoveredPeer peer)?  peerDiscovered,TResult Function( String peerId)?  peerExpired,TResult Function( String peerId)?  peerDisconnected,TResult Function()?  roomCleared,TResult Function( String address)?  listening,TResult Function( String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid,  LinkPreviewRef? linkPreview,  String? signature,  String? publicKey)?  messageReceived,TResult Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid,  LinkPreviewRef? linkPreview,  String? signature,  String? publicKey)?  channelMessageReceived,TResult Function( String toPeer,  String messageId,  PlatformInt64 timestamp,  String? signature,  String? publicKey)?  messageSent,TResult Function( String serverId,  String channelId,  String messageId,  PlatformInt64 timestamp,  String? signature,  String? publicKey)?  channelMessageSent,TResult Function( String toPeer,  String error)?  messageSendFailed,TResult Function( String peerId)?  sessionEstablished,TResult Function( String message)?  error,TResult Function( String serverId,  String name)?  serverCreated,TResult Function( String serverId)?  serverUpdated,TResult Function( String serverId,  String channelId,  String name,  String channelType)?  channelAdded,TResult Function( String serverId,  String channelId)?  channelRemoved,TResult Function( String serverId,  String channelId,  String newName)?  channelRenamed,TResult Function( String serverId)?  serverDeleted,TResult Function( String serverId,  String peerId)?  memberJoined,TResult Function( String serverId,  String peerId)?  memberLeft,TResult Function( String serverId,  int opsApplied)?  syncCompleted,TResult Function( String serverId,  String name)?  serverJoined,TResult Function( String serverId,  String reason)?  serverJoinFailed,TResult Function( String serverId,  String peerId)?  messageSyncStarted,TResult Function( String serverId,  int newMessageCount)?  messageSyncCompleted,TResult Function( String serverId,  String error)?  messageSyncFailed,TResult Function( String serverId,  String channelId,  int receivedCount,  int totalCount)?  messageSyncProgress,TResult Function( String serverId,  String peerId,  String newRole)?  roleChanged,TResult Function( String peerId,  int newMessageCount)?  dmSyncCompleted,TResult Function( String peerId)?  profileUpdated,TResult Function( String serverId,  String channelId,  String messageId,  String newText,  PlatformInt64 editedAt,  String? signature,  String? publicKey)?  channelMessageEdited,TResult Function( String peerId,  String messageId,  String newText,  PlatformInt64 editedAt,  String? signature,  String? publicKey)?  dmMessageEdited,TResult Function( String serverId,  String channelId,  String messageId,  PlatformInt64 deletedAt)?  channelMessageDeleted,TResult Function( String peerId,  String messageId,  PlatformInt64 deletedAt)?  dmMessageDeleted,TResult Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)?  channelReactionAdded,TResult Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)?  dmReactionAdded,TResult Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)?  channelReactionRemoved,TResult Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)?  dmReactionRemoved,TResult Function( String peerId)?  friendRequestReceived,TResult Function( String peerId)?  friendRequestAccepted,TResult Function( String peerId)?  friendRequestRejected,TResult Function( String peerId)?  friendRemoved,TResult Function( String peerId,  String serverId,  String channelId)?  typingStarted,TResult Function( String serverId,  String channelId,  String messageId)?  messagePinned,TResult Function( String serverId,  String channelId,  String messageId)?  messageUnpinned,TResult Function( String fileId,  String fileName,  BigInt sizeBytes,  bool isImage,  int? width,  int? height,  String messageId,  String senderId,  String serverId,  String channelId,  VideoThumbRef? videoThumb)?  fileHeaderReceived,TResult Function( String fileId,  int chunksReceived,  int totalChunks)?  fileProgress,TResult Function( String fileId,  String diskPath)?  fileCompleted,TResult Function( String fileId,  String error)?  fileFailed,TResult Function( String serverId,  String contentId,  int shardIndex,  String fromPeer)?  shardStored,TResult Function( String serverId,  String contentId,  int shardIndex,  bool success,  String error)?  shardStoreAckReceived,TResult Function( String serverId,  String contentId,  int shardIndex,  String targetPeer,  String error)?  shardStoreFailed,TResult Function( String serverId,  String contentId)?  shardDeleted,TResult Function( String serverId,  String contentId,  int shardIndex,  String fromPeer)?  shardReceived,TResult Function( String serverId,  String contentId,  int shardIndex,  String error)?  shardRequestFailed,TResult Function( String serverId,  String contentId,  String phase,  double progress)?  vaultUploadProgress,TResult Function( String serverId,  String contentId,  String channelId)?  vaultUploadComplete,TResult Function( String serverId,  String contentId,  String error)?  vaultUploadFailed,TResult Function( String serverId,  String contentId,  String phase,  double progress)?  vaultDownloadProgress,TResult Function( String serverId,  String contentId,  String diskPath)?  vaultDownloadComplete,TResult Function( String serverId,  String contentId,  String error)?  vaultDownloadFailed,TResult Function( String serverId,  int shardsToMove)?  rebalanceStarted,TResult Function( String serverId,  int moved,  int total)?  rebalanceProgress,TResult Function( String serverId)?  rebalanceCompleted,TResult Function( String serverId,  String contentId,  BigInt online,  BigInt needed)?  vaultUploadReplicationFallback,TResult Function( String peerId)?  keyExchangeStarted,TResult Function( String peerId,  String stage)?  keyExchangeProgress,TResult Function( String peerId,  String signalType,  String payload,  String connId)?  webRtcSignal,TResult Function( String peerId,  String transferId,  String filePath,  BigInt totalSize,  String kind,  int shardIndex,  int chunkIndex)?  webRtcSendFile,TResult Function( String peerId,  String signalType,  String payload)?  callSignal,TResult Function( String serverId,  String channelId,  String peerId)?  voiceChannelJoined,TResult Function( String serverId,  String channelId,  String peerId)?  voiceChannelLeft,TResult Function( String serverId,  String channelId,  String peerId,  String signalType,  String payload)?  voiceChannelSignal,TResult Function( String peerId)?  gossipConnect,TResult Function( String peerId)?  gossipDisconnect,TResult Function( String broadcastId,  int ttl,  String originPeerId,  String filePath,  BigInt totalSize,  String kind,  int shardIndex,  String excludePeerId,  String serverId,  String channelId)?  gossipRelayFile,TResult Function( String serverId,  String channelId,  String mode,  List<String> gossipNeighbors)?  voiceChannelModeChanged,TResult Function( String serverId,  BigInt epoch,  Uint8List sframeKey)?  mlsEpochChanged,TResult Function( String serverId,  String inviteLink)?  recoveryPoolCreated,TResult Function( String serverId)?  recoveryPoolJoined,TResult Function( String serverId,  String reason)?  recoveryPoolJoinFailed,TResult Function( String serverId,  String peerId)?  recoveryPoolMemberJoined,TResult Function( String serverId,  String peerId)?  recoveryPoolMemberLeft,TResult Function( String serverId,  int totalFiles,  int reconstructable,  int partial,  int noShards,  double progressPct)?  recoveryPoolStatus,TResult Function( String serverId,  String contentId,  int shardIndex)?  recoveryPoolShardTransferred,TResult Function( String serverId,  String contentId,  String diskPath)?  recoveryPoolFileRecovered,TResult Function( String serverId)?  recoveryPoolStopped,TResult Function( String rootHash,  String fileName,  BigInt totalSize,  int chunkCount)?  shareManifestReady,TResult Function( String rootHash,  int chunksHave,  int chunksTotal,  int peers,  BigInt bytesPerSec)?  shareProgress,TResult Function( String rootHash,  String diskPath)?  shareCompleted,TResult Function( String rootHash,  String error)?  shareFailed,TResult Function( String rootHash,  bool seeding,  int peers,  BigInt bytesUploaded)?  shareSeedingChanged,TResult Function( String rootHash,  String link,  String fileName,  BigInt totalSize)?  shareCreated,TResult Function( List<ShareEntry> entries)?  shareList,TResult Function( String peerId)?  shareNeedWebRtc,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
 return peerDiscovered(_that.peer);case NetworkEvent_PeerExpired() when peerExpired != null:
@@ -445,7 +469,7 @@ return vaultUploadReplicationFallback(_that.serverId,_that.contentId,_that.onlin
 return keyExchangeStarted(_that.peerId);case NetworkEvent_KeyExchangeProgress() when keyExchangeProgress != null:
 return keyExchangeProgress(_that.peerId,_that.stage);case NetworkEvent_WebRtcSignal() when webRtcSignal != null:
 return webRtcSignal(_that.peerId,_that.signalType,_that.payload,_that.connId);case NetworkEvent_WebRtcSendFile() when webRtcSendFile != null:
-return webRtcSendFile(_that.peerId,_that.transferId,_that.filePath,_that.totalSize,_that.kind,_that.shardIndex);case NetworkEvent_CallSignal() when callSignal != null:
+return webRtcSendFile(_that.peerId,_that.transferId,_that.filePath,_that.totalSize,_that.kind,_that.shardIndex,_that.chunkIndex);case NetworkEvent_CallSignal() when callSignal != null:
 return callSignal(_that.peerId,_that.signalType,_that.payload);case NetworkEvent_VoiceChannelJoined() when voiceChannelJoined != null:
 return voiceChannelJoined(_that.serverId,_that.channelId,_that.peerId);case NetworkEvent_VoiceChannelLeft() when voiceChannelLeft != null:
 return voiceChannelLeft(_that.serverId,_that.channelId,_that.peerId);case NetworkEvent_VoiceChannelSignal() when voiceChannelSignal != null:
@@ -463,7 +487,15 @@ return recoveryPoolMemberLeft(_that.serverId,_that.peerId);case NetworkEvent_Rec
 return recoveryPoolStatus(_that.serverId,_that.totalFiles,_that.reconstructable,_that.partial,_that.noShards,_that.progressPct);case NetworkEvent_RecoveryPoolShardTransferred() when recoveryPoolShardTransferred != null:
 return recoveryPoolShardTransferred(_that.serverId,_that.contentId,_that.shardIndex);case NetworkEvent_RecoveryPoolFileRecovered() when recoveryPoolFileRecovered != null:
 return recoveryPoolFileRecovered(_that.serverId,_that.contentId,_that.diskPath);case NetworkEvent_RecoveryPoolStopped() when recoveryPoolStopped != null:
-return recoveryPoolStopped(_that.serverId);case _:
+return recoveryPoolStopped(_that.serverId);case NetworkEvent_ShareManifestReady() when shareManifestReady != null:
+return shareManifestReady(_that.rootHash,_that.fileName,_that.totalSize,_that.chunkCount);case NetworkEvent_ShareProgress() when shareProgress != null:
+return shareProgress(_that.rootHash,_that.chunksHave,_that.chunksTotal,_that.peers,_that.bytesPerSec);case NetworkEvent_ShareCompleted() when shareCompleted != null:
+return shareCompleted(_that.rootHash,_that.diskPath);case NetworkEvent_ShareFailed() when shareFailed != null:
+return shareFailed(_that.rootHash,_that.error);case NetworkEvent_ShareSeedingChanged() when shareSeedingChanged != null:
+return shareSeedingChanged(_that.rootHash,_that.seeding,_that.peers,_that.bytesUploaded);case NetworkEvent_ShareCreated() when shareCreated != null:
+return shareCreated(_that.rootHash,_that.link,_that.fileName,_that.totalSize);case NetworkEvent_ShareList() when shareList != null:
+return shareList(_that.entries);case NetworkEvent_ShareNeedWebRtc() when shareNeedWebRtc != null:
+return shareNeedWebRtc(_that.peerId);case _:
   return orElse();
 
 }
@@ -481,7 +513,7 @@ return recoveryPoolStopped(_that.serverId);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( DiscoveredPeer peer)  peerDiscovered,required TResult Function( String peerId)  peerExpired,required TResult Function( String peerId)  peerDisconnected,required TResult Function()  roomCleared,required TResult Function( String address)  listening,required TResult Function( String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid,  LinkPreviewRef? linkPreview,  String? signature,  String? publicKey)  messageReceived,required TResult Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid,  LinkPreviewRef? linkPreview,  String? signature,  String? publicKey)  channelMessageReceived,required TResult Function( String toPeer,  String messageId,  PlatformInt64 timestamp,  String? signature,  String? publicKey)  messageSent,required TResult Function( String serverId,  String channelId,  String messageId,  PlatformInt64 timestamp,  String? signature,  String? publicKey)  channelMessageSent,required TResult Function( String toPeer,  String error)  messageSendFailed,required TResult Function( String peerId)  sessionEstablished,required TResult Function( String message)  error,required TResult Function( String serverId,  String name)  serverCreated,required TResult Function( String serverId)  serverUpdated,required TResult Function( String serverId,  String channelId,  String name,  String channelType)  channelAdded,required TResult Function( String serverId,  String channelId)  channelRemoved,required TResult Function( String serverId,  String channelId,  String newName)  channelRenamed,required TResult Function( String serverId)  serverDeleted,required TResult Function( String serverId,  String peerId)  memberJoined,required TResult Function( String serverId,  String peerId)  memberLeft,required TResult Function( String serverId,  int opsApplied)  syncCompleted,required TResult Function( String serverId,  String name)  serverJoined,required TResult Function( String serverId,  String reason)  serverJoinFailed,required TResult Function( String serverId,  String peerId)  messageSyncStarted,required TResult Function( String serverId,  int newMessageCount)  messageSyncCompleted,required TResult Function( String serverId,  String error)  messageSyncFailed,required TResult Function( String serverId,  String channelId,  int receivedCount,  int totalCount)  messageSyncProgress,required TResult Function( String serverId,  String peerId,  String newRole)  roleChanged,required TResult Function( String peerId,  int newMessageCount)  dmSyncCompleted,required TResult Function( String peerId)  profileUpdated,required TResult Function( String serverId,  String channelId,  String messageId,  String newText,  PlatformInt64 editedAt,  String? signature,  String? publicKey)  channelMessageEdited,required TResult Function( String peerId,  String messageId,  String newText,  PlatformInt64 editedAt,  String? signature,  String? publicKey)  dmMessageEdited,required TResult Function( String serverId,  String channelId,  String messageId,  PlatformInt64 deletedAt)  channelMessageDeleted,required TResult Function( String peerId,  String messageId,  PlatformInt64 deletedAt)  dmMessageDeleted,required TResult Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)  channelReactionAdded,required TResult Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)  dmReactionAdded,required TResult Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)  channelReactionRemoved,required TResult Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)  dmReactionRemoved,required TResult Function( String peerId)  friendRequestReceived,required TResult Function( String peerId)  friendRequestAccepted,required TResult Function( String peerId)  friendRequestRejected,required TResult Function( String peerId)  friendRemoved,required TResult Function( String peerId,  String serverId,  String channelId)  typingStarted,required TResult Function( String serverId,  String channelId,  String messageId)  messagePinned,required TResult Function( String serverId,  String channelId,  String messageId)  messageUnpinned,required TResult Function( String fileId,  String fileName,  BigInt sizeBytes,  bool isImage,  int? width,  int? height,  String messageId,  String senderId,  String serverId,  String channelId,  VideoThumbRef? videoThumb)  fileHeaderReceived,required TResult Function( String fileId,  int chunksReceived,  int totalChunks)  fileProgress,required TResult Function( String fileId,  String diskPath)  fileCompleted,required TResult Function( String fileId,  String error)  fileFailed,required TResult Function( String serverId,  String contentId,  int shardIndex,  String fromPeer)  shardStored,required TResult Function( String serverId,  String contentId,  int shardIndex,  bool success,  String error)  shardStoreAckReceived,required TResult Function( String serverId,  String contentId,  int shardIndex,  String targetPeer,  String error)  shardStoreFailed,required TResult Function( String serverId,  String contentId)  shardDeleted,required TResult Function( String serverId,  String contentId,  int shardIndex,  String fromPeer)  shardReceived,required TResult Function( String serverId,  String contentId,  int shardIndex,  String error)  shardRequestFailed,required TResult Function( String serverId,  String contentId,  String phase,  double progress)  vaultUploadProgress,required TResult Function( String serverId,  String contentId,  String channelId)  vaultUploadComplete,required TResult Function( String serverId,  String contentId,  String error)  vaultUploadFailed,required TResult Function( String serverId,  String contentId,  String phase,  double progress)  vaultDownloadProgress,required TResult Function( String serverId,  String contentId,  String diskPath)  vaultDownloadComplete,required TResult Function( String serverId,  String contentId,  String error)  vaultDownloadFailed,required TResult Function( String serverId,  int shardsToMove)  rebalanceStarted,required TResult Function( String serverId,  int moved,  int total)  rebalanceProgress,required TResult Function( String serverId)  rebalanceCompleted,required TResult Function( String serverId,  String contentId,  BigInt online,  BigInt needed)  vaultUploadReplicationFallback,required TResult Function( String peerId)  keyExchangeStarted,required TResult Function( String peerId,  String stage)  keyExchangeProgress,required TResult Function( String peerId,  String signalType,  String payload,  String connId)  webRtcSignal,required TResult Function( String peerId,  String transferId,  String filePath,  BigInt totalSize,  String kind,  int shardIndex)  webRtcSendFile,required TResult Function( String peerId,  String signalType,  String payload)  callSignal,required TResult Function( String serverId,  String channelId,  String peerId)  voiceChannelJoined,required TResult Function( String serverId,  String channelId,  String peerId)  voiceChannelLeft,required TResult Function( String serverId,  String channelId,  String peerId,  String signalType,  String payload)  voiceChannelSignal,required TResult Function( String peerId)  gossipConnect,required TResult Function( String peerId)  gossipDisconnect,required TResult Function( String broadcastId,  int ttl,  String originPeerId,  String filePath,  BigInt totalSize,  String kind,  int shardIndex,  String excludePeerId,  String serverId,  String channelId)  gossipRelayFile,required TResult Function( String serverId,  String channelId,  String mode,  List<String> gossipNeighbors)  voiceChannelModeChanged,required TResult Function( String serverId,  BigInt epoch,  Uint8List sframeKey)  mlsEpochChanged,required TResult Function( String serverId,  String inviteLink)  recoveryPoolCreated,required TResult Function( String serverId)  recoveryPoolJoined,required TResult Function( String serverId,  String reason)  recoveryPoolJoinFailed,required TResult Function( String serverId,  String peerId)  recoveryPoolMemberJoined,required TResult Function( String serverId,  String peerId)  recoveryPoolMemberLeft,required TResult Function( String serverId,  int totalFiles,  int reconstructable,  int partial,  int noShards,  double progressPct)  recoveryPoolStatus,required TResult Function( String serverId,  String contentId,  int shardIndex)  recoveryPoolShardTransferred,required TResult Function( String serverId,  String contentId,  String diskPath)  recoveryPoolFileRecovered,required TResult Function( String serverId)  recoveryPoolStopped,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( DiscoveredPeer peer)  peerDiscovered,required TResult Function( String peerId)  peerExpired,required TResult Function( String peerId)  peerDisconnected,required TResult Function()  roomCleared,required TResult Function( String address)  listening,required TResult Function( String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid,  LinkPreviewRef? linkPreview,  String? signature,  String? publicKey)  messageReceived,required TResult Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid,  LinkPreviewRef? linkPreview,  String? signature,  String? publicKey)  channelMessageReceived,required TResult Function( String toPeer,  String messageId,  PlatformInt64 timestamp,  String? signature,  String? publicKey)  messageSent,required TResult Function( String serverId,  String channelId,  String messageId,  PlatformInt64 timestamp,  String? signature,  String? publicKey)  channelMessageSent,required TResult Function( String toPeer,  String error)  messageSendFailed,required TResult Function( String peerId)  sessionEstablished,required TResult Function( String message)  error,required TResult Function( String serverId,  String name)  serverCreated,required TResult Function( String serverId)  serverUpdated,required TResult Function( String serverId,  String channelId,  String name,  String channelType)  channelAdded,required TResult Function( String serverId,  String channelId)  channelRemoved,required TResult Function( String serverId,  String channelId,  String newName)  channelRenamed,required TResult Function( String serverId)  serverDeleted,required TResult Function( String serverId,  String peerId)  memberJoined,required TResult Function( String serverId,  String peerId)  memberLeft,required TResult Function( String serverId,  int opsApplied)  syncCompleted,required TResult Function( String serverId,  String name)  serverJoined,required TResult Function( String serverId,  String reason)  serverJoinFailed,required TResult Function( String serverId,  String peerId)  messageSyncStarted,required TResult Function( String serverId,  int newMessageCount)  messageSyncCompleted,required TResult Function( String serverId,  String error)  messageSyncFailed,required TResult Function( String serverId,  String channelId,  int receivedCount,  int totalCount)  messageSyncProgress,required TResult Function( String serverId,  String peerId,  String newRole)  roleChanged,required TResult Function( String peerId,  int newMessageCount)  dmSyncCompleted,required TResult Function( String peerId)  profileUpdated,required TResult Function( String serverId,  String channelId,  String messageId,  String newText,  PlatformInt64 editedAt,  String? signature,  String? publicKey)  channelMessageEdited,required TResult Function( String peerId,  String messageId,  String newText,  PlatformInt64 editedAt,  String? signature,  String? publicKey)  dmMessageEdited,required TResult Function( String serverId,  String channelId,  String messageId,  PlatformInt64 deletedAt)  channelMessageDeleted,required TResult Function( String peerId,  String messageId,  PlatformInt64 deletedAt)  dmMessageDeleted,required TResult Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)  channelReactionAdded,required TResult Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)  dmReactionAdded,required TResult Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)  channelReactionRemoved,required TResult Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)  dmReactionRemoved,required TResult Function( String peerId)  friendRequestReceived,required TResult Function( String peerId)  friendRequestAccepted,required TResult Function( String peerId)  friendRequestRejected,required TResult Function( String peerId)  friendRemoved,required TResult Function( String peerId,  String serverId,  String channelId)  typingStarted,required TResult Function( String serverId,  String channelId,  String messageId)  messagePinned,required TResult Function( String serverId,  String channelId,  String messageId)  messageUnpinned,required TResult Function( String fileId,  String fileName,  BigInt sizeBytes,  bool isImage,  int? width,  int? height,  String messageId,  String senderId,  String serverId,  String channelId,  VideoThumbRef? videoThumb)  fileHeaderReceived,required TResult Function( String fileId,  int chunksReceived,  int totalChunks)  fileProgress,required TResult Function( String fileId,  String diskPath)  fileCompleted,required TResult Function( String fileId,  String error)  fileFailed,required TResult Function( String serverId,  String contentId,  int shardIndex,  String fromPeer)  shardStored,required TResult Function( String serverId,  String contentId,  int shardIndex,  bool success,  String error)  shardStoreAckReceived,required TResult Function( String serverId,  String contentId,  int shardIndex,  String targetPeer,  String error)  shardStoreFailed,required TResult Function( String serverId,  String contentId)  shardDeleted,required TResult Function( String serverId,  String contentId,  int shardIndex,  String fromPeer)  shardReceived,required TResult Function( String serverId,  String contentId,  int shardIndex,  String error)  shardRequestFailed,required TResult Function( String serverId,  String contentId,  String phase,  double progress)  vaultUploadProgress,required TResult Function( String serverId,  String contentId,  String channelId)  vaultUploadComplete,required TResult Function( String serverId,  String contentId,  String error)  vaultUploadFailed,required TResult Function( String serverId,  String contentId,  String phase,  double progress)  vaultDownloadProgress,required TResult Function( String serverId,  String contentId,  String diskPath)  vaultDownloadComplete,required TResult Function( String serverId,  String contentId,  String error)  vaultDownloadFailed,required TResult Function( String serverId,  int shardsToMove)  rebalanceStarted,required TResult Function( String serverId,  int moved,  int total)  rebalanceProgress,required TResult Function( String serverId)  rebalanceCompleted,required TResult Function( String serverId,  String contentId,  BigInt online,  BigInt needed)  vaultUploadReplicationFallback,required TResult Function( String peerId)  keyExchangeStarted,required TResult Function( String peerId,  String stage)  keyExchangeProgress,required TResult Function( String peerId,  String signalType,  String payload,  String connId)  webRtcSignal,required TResult Function( String peerId,  String transferId,  String filePath,  BigInt totalSize,  String kind,  int shardIndex,  int chunkIndex)  webRtcSendFile,required TResult Function( String peerId,  String signalType,  String payload)  callSignal,required TResult Function( String serverId,  String channelId,  String peerId)  voiceChannelJoined,required TResult Function( String serverId,  String channelId,  String peerId)  voiceChannelLeft,required TResult Function( String serverId,  String channelId,  String peerId,  String signalType,  String payload)  voiceChannelSignal,required TResult Function( String peerId)  gossipConnect,required TResult Function( String peerId)  gossipDisconnect,required TResult Function( String broadcastId,  int ttl,  String originPeerId,  String filePath,  BigInt totalSize,  String kind,  int shardIndex,  String excludePeerId,  String serverId,  String channelId)  gossipRelayFile,required TResult Function( String serverId,  String channelId,  String mode,  List<String> gossipNeighbors)  voiceChannelModeChanged,required TResult Function( String serverId,  BigInt epoch,  Uint8List sframeKey)  mlsEpochChanged,required TResult Function( String serverId,  String inviteLink)  recoveryPoolCreated,required TResult Function( String serverId)  recoveryPoolJoined,required TResult Function( String serverId,  String reason)  recoveryPoolJoinFailed,required TResult Function( String serverId,  String peerId)  recoveryPoolMemberJoined,required TResult Function( String serverId,  String peerId)  recoveryPoolMemberLeft,required TResult Function( String serverId,  int totalFiles,  int reconstructable,  int partial,  int noShards,  double progressPct)  recoveryPoolStatus,required TResult Function( String serverId,  String contentId,  int shardIndex)  recoveryPoolShardTransferred,required TResult Function( String serverId,  String contentId,  String diskPath)  recoveryPoolFileRecovered,required TResult Function( String serverId)  recoveryPoolStopped,required TResult Function( String rootHash,  String fileName,  BigInt totalSize,  int chunkCount)  shareManifestReady,required TResult Function( String rootHash,  int chunksHave,  int chunksTotal,  int peers,  BigInt bytesPerSec)  shareProgress,required TResult Function( String rootHash,  String diskPath)  shareCompleted,required TResult Function( String rootHash,  String error)  shareFailed,required TResult Function( String rootHash,  bool seeding,  int peers,  BigInt bytesUploaded)  shareSeedingChanged,required TResult Function( String rootHash,  String link,  String fileName,  BigInt totalSize)  shareCreated,required TResult Function( List<ShareEntry> entries)  shareList,required TResult Function( String peerId)  shareNeedWebRtc,}) {final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered():
 return peerDiscovered(_that.peer);case NetworkEvent_PeerExpired():
@@ -552,7 +584,7 @@ return vaultUploadReplicationFallback(_that.serverId,_that.contentId,_that.onlin
 return keyExchangeStarted(_that.peerId);case NetworkEvent_KeyExchangeProgress():
 return keyExchangeProgress(_that.peerId,_that.stage);case NetworkEvent_WebRtcSignal():
 return webRtcSignal(_that.peerId,_that.signalType,_that.payload,_that.connId);case NetworkEvent_WebRtcSendFile():
-return webRtcSendFile(_that.peerId,_that.transferId,_that.filePath,_that.totalSize,_that.kind,_that.shardIndex);case NetworkEvent_CallSignal():
+return webRtcSendFile(_that.peerId,_that.transferId,_that.filePath,_that.totalSize,_that.kind,_that.shardIndex,_that.chunkIndex);case NetworkEvent_CallSignal():
 return callSignal(_that.peerId,_that.signalType,_that.payload);case NetworkEvent_VoiceChannelJoined():
 return voiceChannelJoined(_that.serverId,_that.channelId,_that.peerId);case NetworkEvent_VoiceChannelLeft():
 return voiceChannelLeft(_that.serverId,_that.channelId,_that.peerId);case NetworkEvent_VoiceChannelSignal():
@@ -570,7 +602,15 @@ return recoveryPoolMemberLeft(_that.serverId,_that.peerId);case NetworkEvent_Rec
 return recoveryPoolStatus(_that.serverId,_that.totalFiles,_that.reconstructable,_that.partial,_that.noShards,_that.progressPct);case NetworkEvent_RecoveryPoolShardTransferred():
 return recoveryPoolShardTransferred(_that.serverId,_that.contentId,_that.shardIndex);case NetworkEvent_RecoveryPoolFileRecovered():
 return recoveryPoolFileRecovered(_that.serverId,_that.contentId,_that.diskPath);case NetworkEvent_RecoveryPoolStopped():
-return recoveryPoolStopped(_that.serverId);}
+return recoveryPoolStopped(_that.serverId);case NetworkEvent_ShareManifestReady():
+return shareManifestReady(_that.rootHash,_that.fileName,_that.totalSize,_that.chunkCount);case NetworkEvent_ShareProgress():
+return shareProgress(_that.rootHash,_that.chunksHave,_that.chunksTotal,_that.peers,_that.bytesPerSec);case NetworkEvent_ShareCompleted():
+return shareCompleted(_that.rootHash,_that.diskPath);case NetworkEvent_ShareFailed():
+return shareFailed(_that.rootHash,_that.error);case NetworkEvent_ShareSeedingChanged():
+return shareSeedingChanged(_that.rootHash,_that.seeding,_that.peers,_that.bytesUploaded);case NetworkEvent_ShareCreated():
+return shareCreated(_that.rootHash,_that.link,_that.fileName,_that.totalSize);case NetworkEvent_ShareList():
+return shareList(_that.entries);case NetworkEvent_ShareNeedWebRtc():
+return shareNeedWebRtc(_that.peerId);}
 }
 /// A variant of `when` that fallback to returning `null`
 ///
@@ -584,7 +624,7 @@ return recoveryPoolStopped(_that.serverId);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( DiscoveredPeer peer)?  peerDiscovered,TResult? Function( String peerId)?  peerExpired,TResult? Function( String peerId)?  peerDisconnected,TResult? Function()?  roomCleared,TResult? Function( String address)?  listening,TResult? Function( String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid,  LinkPreviewRef? linkPreview,  String? signature,  String? publicKey)?  messageReceived,TResult? Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid,  LinkPreviewRef? linkPreview,  String? signature,  String? publicKey)?  channelMessageReceived,TResult? Function( String toPeer,  String messageId,  PlatformInt64 timestamp,  String? signature,  String? publicKey)?  messageSent,TResult? Function( String serverId,  String channelId,  String messageId,  PlatformInt64 timestamp,  String? signature,  String? publicKey)?  channelMessageSent,TResult? Function( String toPeer,  String error)?  messageSendFailed,TResult? Function( String peerId)?  sessionEstablished,TResult? Function( String message)?  error,TResult? Function( String serverId,  String name)?  serverCreated,TResult? Function( String serverId)?  serverUpdated,TResult? Function( String serverId,  String channelId,  String name,  String channelType)?  channelAdded,TResult? Function( String serverId,  String channelId)?  channelRemoved,TResult? Function( String serverId,  String channelId,  String newName)?  channelRenamed,TResult? Function( String serverId)?  serverDeleted,TResult? Function( String serverId,  String peerId)?  memberJoined,TResult? Function( String serverId,  String peerId)?  memberLeft,TResult? Function( String serverId,  int opsApplied)?  syncCompleted,TResult? Function( String serverId,  String name)?  serverJoined,TResult? Function( String serverId,  String reason)?  serverJoinFailed,TResult? Function( String serverId,  String peerId)?  messageSyncStarted,TResult? Function( String serverId,  int newMessageCount)?  messageSyncCompleted,TResult? Function( String serverId,  String error)?  messageSyncFailed,TResult? Function( String serverId,  String channelId,  int receivedCount,  int totalCount)?  messageSyncProgress,TResult? Function( String serverId,  String peerId,  String newRole)?  roleChanged,TResult? Function( String peerId,  int newMessageCount)?  dmSyncCompleted,TResult? Function( String peerId)?  profileUpdated,TResult? Function( String serverId,  String channelId,  String messageId,  String newText,  PlatformInt64 editedAt,  String? signature,  String? publicKey)?  channelMessageEdited,TResult? Function( String peerId,  String messageId,  String newText,  PlatformInt64 editedAt,  String? signature,  String? publicKey)?  dmMessageEdited,TResult? Function( String serverId,  String channelId,  String messageId,  PlatformInt64 deletedAt)?  channelMessageDeleted,TResult? Function( String peerId,  String messageId,  PlatformInt64 deletedAt)?  dmMessageDeleted,TResult? Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)?  channelReactionAdded,TResult? Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)?  dmReactionAdded,TResult? Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)?  channelReactionRemoved,TResult? Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)?  dmReactionRemoved,TResult? Function( String peerId)?  friendRequestReceived,TResult? Function( String peerId)?  friendRequestAccepted,TResult? Function( String peerId)?  friendRequestRejected,TResult? Function( String peerId)?  friendRemoved,TResult? Function( String peerId,  String serverId,  String channelId)?  typingStarted,TResult? Function( String serverId,  String channelId,  String messageId)?  messagePinned,TResult? Function( String serverId,  String channelId,  String messageId)?  messageUnpinned,TResult? Function( String fileId,  String fileName,  BigInt sizeBytes,  bool isImage,  int? width,  int? height,  String messageId,  String senderId,  String serverId,  String channelId,  VideoThumbRef? videoThumb)?  fileHeaderReceived,TResult? Function( String fileId,  int chunksReceived,  int totalChunks)?  fileProgress,TResult? Function( String fileId,  String diskPath)?  fileCompleted,TResult? Function( String fileId,  String error)?  fileFailed,TResult? Function( String serverId,  String contentId,  int shardIndex,  String fromPeer)?  shardStored,TResult? Function( String serverId,  String contentId,  int shardIndex,  bool success,  String error)?  shardStoreAckReceived,TResult? Function( String serverId,  String contentId,  int shardIndex,  String targetPeer,  String error)?  shardStoreFailed,TResult? Function( String serverId,  String contentId)?  shardDeleted,TResult? Function( String serverId,  String contentId,  int shardIndex,  String fromPeer)?  shardReceived,TResult? Function( String serverId,  String contentId,  int shardIndex,  String error)?  shardRequestFailed,TResult? Function( String serverId,  String contentId,  String phase,  double progress)?  vaultUploadProgress,TResult? Function( String serverId,  String contentId,  String channelId)?  vaultUploadComplete,TResult? Function( String serverId,  String contentId,  String error)?  vaultUploadFailed,TResult? Function( String serverId,  String contentId,  String phase,  double progress)?  vaultDownloadProgress,TResult? Function( String serverId,  String contentId,  String diskPath)?  vaultDownloadComplete,TResult? Function( String serverId,  String contentId,  String error)?  vaultDownloadFailed,TResult? Function( String serverId,  int shardsToMove)?  rebalanceStarted,TResult? Function( String serverId,  int moved,  int total)?  rebalanceProgress,TResult? Function( String serverId)?  rebalanceCompleted,TResult? Function( String serverId,  String contentId,  BigInt online,  BigInt needed)?  vaultUploadReplicationFallback,TResult? Function( String peerId)?  keyExchangeStarted,TResult? Function( String peerId,  String stage)?  keyExchangeProgress,TResult? Function( String peerId,  String signalType,  String payload,  String connId)?  webRtcSignal,TResult? Function( String peerId,  String transferId,  String filePath,  BigInt totalSize,  String kind,  int shardIndex)?  webRtcSendFile,TResult? Function( String peerId,  String signalType,  String payload)?  callSignal,TResult? Function( String serverId,  String channelId,  String peerId)?  voiceChannelJoined,TResult? Function( String serverId,  String channelId,  String peerId)?  voiceChannelLeft,TResult? Function( String serverId,  String channelId,  String peerId,  String signalType,  String payload)?  voiceChannelSignal,TResult? Function( String peerId)?  gossipConnect,TResult? Function( String peerId)?  gossipDisconnect,TResult? Function( String broadcastId,  int ttl,  String originPeerId,  String filePath,  BigInt totalSize,  String kind,  int shardIndex,  String excludePeerId,  String serverId,  String channelId)?  gossipRelayFile,TResult? Function( String serverId,  String channelId,  String mode,  List<String> gossipNeighbors)?  voiceChannelModeChanged,TResult? Function( String serverId,  BigInt epoch,  Uint8List sframeKey)?  mlsEpochChanged,TResult? Function( String serverId,  String inviteLink)?  recoveryPoolCreated,TResult? Function( String serverId)?  recoveryPoolJoined,TResult? Function( String serverId,  String reason)?  recoveryPoolJoinFailed,TResult? Function( String serverId,  String peerId)?  recoveryPoolMemberJoined,TResult? Function( String serverId,  String peerId)?  recoveryPoolMemberLeft,TResult? Function( String serverId,  int totalFiles,  int reconstructable,  int partial,  int noShards,  double progressPct)?  recoveryPoolStatus,TResult? Function( String serverId,  String contentId,  int shardIndex)?  recoveryPoolShardTransferred,TResult? Function( String serverId,  String contentId,  String diskPath)?  recoveryPoolFileRecovered,TResult? Function( String serverId)?  recoveryPoolStopped,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( DiscoveredPeer peer)?  peerDiscovered,TResult? Function( String peerId)?  peerExpired,TResult? Function( String peerId)?  peerDisconnected,TResult? Function()?  roomCleared,TResult? Function( String address)?  listening,TResult? Function( String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid,  LinkPreviewRef? linkPreview,  String? signature,  String? publicKey)?  messageReceived,TResult? Function( String serverId,  String channelId,  String fromPeer,  String text,  PlatformInt64 timestamp,  String messageId,  String replyToMid,  LinkPreviewRef? linkPreview,  String? signature,  String? publicKey)?  channelMessageReceived,TResult? Function( String toPeer,  String messageId,  PlatformInt64 timestamp,  String? signature,  String? publicKey)?  messageSent,TResult? Function( String serverId,  String channelId,  String messageId,  PlatformInt64 timestamp,  String? signature,  String? publicKey)?  channelMessageSent,TResult? Function( String toPeer,  String error)?  messageSendFailed,TResult? Function( String peerId)?  sessionEstablished,TResult? Function( String message)?  error,TResult? Function( String serverId,  String name)?  serverCreated,TResult? Function( String serverId)?  serverUpdated,TResult? Function( String serverId,  String channelId,  String name,  String channelType)?  channelAdded,TResult? Function( String serverId,  String channelId)?  channelRemoved,TResult? Function( String serverId,  String channelId,  String newName)?  channelRenamed,TResult? Function( String serverId)?  serverDeleted,TResult? Function( String serverId,  String peerId)?  memberJoined,TResult? Function( String serverId,  String peerId)?  memberLeft,TResult? Function( String serverId,  int opsApplied)?  syncCompleted,TResult? Function( String serverId,  String name)?  serverJoined,TResult? Function( String serverId,  String reason)?  serverJoinFailed,TResult? Function( String serverId,  String peerId)?  messageSyncStarted,TResult? Function( String serverId,  int newMessageCount)?  messageSyncCompleted,TResult? Function( String serverId,  String error)?  messageSyncFailed,TResult? Function( String serverId,  String channelId,  int receivedCount,  int totalCount)?  messageSyncProgress,TResult? Function( String serverId,  String peerId,  String newRole)?  roleChanged,TResult? Function( String peerId,  int newMessageCount)?  dmSyncCompleted,TResult? Function( String peerId)?  profileUpdated,TResult? Function( String serverId,  String channelId,  String messageId,  String newText,  PlatformInt64 editedAt,  String? signature,  String? publicKey)?  channelMessageEdited,TResult? Function( String peerId,  String messageId,  String newText,  PlatformInt64 editedAt,  String? signature,  String? publicKey)?  dmMessageEdited,TResult? Function( String serverId,  String channelId,  String messageId,  PlatformInt64 deletedAt)?  channelMessageDeleted,TResult? Function( String peerId,  String messageId,  PlatformInt64 deletedAt)?  dmMessageDeleted,TResult? Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)?  channelReactionAdded,TResult? Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 addedAt)?  dmReactionAdded,TResult? Function( String serverId,  String channelId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)?  channelReactionRemoved,TResult? Function( String peerId,  String messageId,  String emoji,  String reactor,  PlatformInt64 removedAt)?  dmReactionRemoved,TResult? Function( String peerId)?  friendRequestReceived,TResult? Function( String peerId)?  friendRequestAccepted,TResult? Function( String peerId)?  friendRequestRejected,TResult? Function( String peerId)?  friendRemoved,TResult? Function( String peerId,  String serverId,  String channelId)?  typingStarted,TResult? Function( String serverId,  String channelId,  String messageId)?  messagePinned,TResult? Function( String serverId,  String channelId,  String messageId)?  messageUnpinned,TResult? Function( String fileId,  String fileName,  BigInt sizeBytes,  bool isImage,  int? width,  int? height,  String messageId,  String senderId,  String serverId,  String channelId,  VideoThumbRef? videoThumb)?  fileHeaderReceived,TResult? Function( String fileId,  int chunksReceived,  int totalChunks)?  fileProgress,TResult? Function( String fileId,  String diskPath)?  fileCompleted,TResult? Function( String fileId,  String error)?  fileFailed,TResult? Function( String serverId,  String contentId,  int shardIndex,  String fromPeer)?  shardStored,TResult? Function( String serverId,  String contentId,  int shardIndex,  bool success,  String error)?  shardStoreAckReceived,TResult? Function( String serverId,  String contentId,  int shardIndex,  String targetPeer,  String error)?  shardStoreFailed,TResult? Function( String serverId,  String contentId)?  shardDeleted,TResult? Function( String serverId,  String contentId,  int shardIndex,  String fromPeer)?  shardReceived,TResult? Function( String serverId,  String contentId,  int shardIndex,  String error)?  shardRequestFailed,TResult? Function( String serverId,  String contentId,  String phase,  double progress)?  vaultUploadProgress,TResult? Function( String serverId,  String contentId,  String channelId)?  vaultUploadComplete,TResult? Function( String serverId,  String contentId,  String error)?  vaultUploadFailed,TResult? Function( String serverId,  String contentId,  String phase,  double progress)?  vaultDownloadProgress,TResult? Function( String serverId,  String contentId,  String diskPath)?  vaultDownloadComplete,TResult? Function( String serverId,  String contentId,  String error)?  vaultDownloadFailed,TResult? Function( String serverId,  int shardsToMove)?  rebalanceStarted,TResult? Function( String serverId,  int moved,  int total)?  rebalanceProgress,TResult? Function( String serverId)?  rebalanceCompleted,TResult? Function( String serverId,  String contentId,  BigInt online,  BigInt needed)?  vaultUploadReplicationFallback,TResult? Function( String peerId)?  keyExchangeStarted,TResult? Function( String peerId,  String stage)?  keyExchangeProgress,TResult? Function( String peerId,  String signalType,  String payload,  String connId)?  webRtcSignal,TResult? Function( String peerId,  String transferId,  String filePath,  BigInt totalSize,  String kind,  int shardIndex,  int chunkIndex)?  webRtcSendFile,TResult? Function( String peerId,  String signalType,  String payload)?  callSignal,TResult? Function( String serverId,  String channelId,  String peerId)?  voiceChannelJoined,TResult? Function( String serverId,  String channelId,  String peerId)?  voiceChannelLeft,TResult? Function( String serverId,  String channelId,  String peerId,  String signalType,  String payload)?  voiceChannelSignal,TResult? Function( String peerId)?  gossipConnect,TResult? Function( String peerId)?  gossipDisconnect,TResult? Function( String broadcastId,  int ttl,  String originPeerId,  String filePath,  BigInt totalSize,  String kind,  int shardIndex,  String excludePeerId,  String serverId,  String channelId)?  gossipRelayFile,TResult? Function( String serverId,  String channelId,  String mode,  List<String> gossipNeighbors)?  voiceChannelModeChanged,TResult? Function( String serverId,  BigInt epoch,  Uint8List sframeKey)?  mlsEpochChanged,TResult? Function( String serverId,  String inviteLink)?  recoveryPoolCreated,TResult? Function( String serverId)?  recoveryPoolJoined,TResult? Function( String serverId,  String reason)?  recoveryPoolJoinFailed,TResult? Function( String serverId,  String peerId)?  recoveryPoolMemberJoined,TResult? Function( String serverId,  String peerId)?  recoveryPoolMemberLeft,TResult? Function( String serverId,  int totalFiles,  int reconstructable,  int partial,  int noShards,  double progressPct)?  recoveryPoolStatus,TResult? Function( String serverId,  String contentId,  int shardIndex)?  recoveryPoolShardTransferred,TResult? Function( String serverId,  String contentId,  String diskPath)?  recoveryPoolFileRecovered,TResult? Function( String serverId)?  recoveryPoolStopped,TResult? Function( String rootHash,  String fileName,  BigInt totalSize,  int chunkCount)?  shareManifestReady,TResult? Function( String rootHash,  int chunksHave,  int chunksTotal,  int peers,  BigInt bytesPerSec)?  shareProgress,TResult? Function( String rootHash,  String diskPath)?  shareCompleted,TResult? Function( String rootHash,  String error)?  shareFailed,TResult? Function( String rootHash,  bool seeding,  int peers,  BigInt bytesUploaded)?  shareSeedingChanged,TResult? Function( String rootHash,  String link,  String fileName,  BigInt totalSize)?  shareCreated,TResult? Function( List<ShareEntry> entries)?  shareList,TResult? Function( String peerId)?  shareNeedWebRtc,}) {final _that = this;
 switch (_that) {
 case NetworkEvent_PeerDiscovered() when peerDiscovered != null:
 return peerDiscovered(_that.peer);case NetworkEvent_PeerExpired() when peerExpired != null:
@@ -655,7 +695,7 @@ return vaultUploadReplicationFallback(_that.serverId,_that.contentId,_that.onlin
 return keyExchangeStarted(_that.peerId);case NetworkEvent_KeyExchangeProgress() when keyExchangeProgress != null:
 return keyExchangeProgress(_that.peerId,_that.stage);case NetworkEvent_WebRtcSignal() when webRtcSignal != null:
 return webRtcSignal(_that.peerId,_that.signalType,_that.payload,_that.connId);case NetworkEvent_WebRtcSendFile() when webRtcSendFile != null:
-return webRtcSendFile(_that.peerId,_that.transferId,_that.filePath,_that.totalSize,_that.kind,_that.shardIndex);case NetworkEvent_CallSignal() when callSignal != null:
+return webRtcSendFile(_that.peerId,_that.transferId,_that.filePath,_that.totalSize,_that.kind,_that.shardIndex,_that.chunkIndex);case NetworkEvent_CallSignal() when callSignal != null:
 return callSignal(_that.peerId,_that.signalType,_that.payload);case NetworkEvent_VoiceChannelJoined() when voiceChannelJoined != null:
 return voiceChannelJoined(_that.serverId,_that.channelId,_that.peerId);case NetworkEvent_VoiceChannelLeft() when voiceChannelLeft != null:
 return voiceChannelLeft(_that.serverId,_that.channelId,_that.peerId);case NetworkEvent_VoiceChannelSignal() when voiceChannelSignal != null:
@@ -673,7 +713,15 @@ return recoveryPoolMemberLeft(_that.serverId,_that.peerId);case NetworkEvent_Rec
 return recoveryPoolStatus(_that.serverId,_that.totalFiles,_that.reconstructable,_that.partial,_that.noShards,_that.progressPct);case NetworkEvent_RecoveryPoolShardTransferred() when recoveryPoolShardTransferred != null:
 return recoveryPoolShardTransferred(_that.serverId,_that.contentId,_that.shardIndex);case NetworkEvent_RecoveryPoolFileRecovered() when recoveryPoolFileRecovered != null:
 return recoveryPoolFileRecovered(_that.serverId,_that.contentId,_that.diskPath);case NetworkEvent_RecoveryPoolStopped() when recoveryPoolStopped != null:
-return recoveryPoolStopped(_that.serverId);case _:
+return recoveryPoolStopped(_that.serverId);case NetworkEvent_ShareManifestReady() when shareManifestReady != null:
+return shareManifestReady(_that.rootHash,_that.fileName,_that.totalSize,_that.chunkCount);case NetworkEvent_ShareProgress() when shareProgress != null:
+return shareProgress(_that.rootHash,_that.chunksHave,_that.chunksTotal,_that.peers,_that.bytesPerSec);case NetworkEvent_ShareCompleted() when shareCompleted != null:
+return shareCompleted(_that.rootHash,_that.diskPath);case NetworkEvent_ShareFailed() when shareFailed != null:
+return shareFailed(_that.rootHash,_that.error);case NetworkEvent_ShareSeedingChanged() when shareSeedingChanged != null:
+return shareSeedingChanged(_that.rootHash,_that.seeding,_that.peers,_that.bytesUploaded);case NetworkEvent_ShareCreated() when shareCreated != null:
+return shareCreated(_that.rootHash,_that.link,_that.fileName,_that.totalSize);case NetworkEvent_ShareList() when shareList != null:
+return shareList(_that.entries);case NetworkEvent_ShareNeedWebRtc() when shareNeedWebRtc != null:
+return shareNeedWebRtc(_that.peerId);case _:
   return null;
 
 }
@@ -5427,7 +5475,7 @@ as String,
 
 
 class NetworkEvent_WebRtcSendFile extends NetworkEvent {
-  const NetworkEvent_WebRtcSendFile({required this.peerId, required this.transferId, required this.filePath, required this.totalSize, required this.kind, required this.shardIndex}): super._();
+  const NetworkEvent_WebRtcSendFile({required this.peerId, required this.transferId, required this.filePath, required this.totalSize, required this.kind, required this.shardIndex, required this.chunkIndex}): super._();
   
 
  final  String peerId;
@@ -5436,6 +5484,7 @@ class NetworkEvent_WebRtcSendFile extends NetworkEvent {
  final  BigInt totalSize;
  final  String kind;
  final  int shardIndex;
+ final  int chunkIndex;
 
 /// Create a copy of NetworkEvent
 /// with the given fields replaced by the non-null parameter values.
@@ -5447,16 +5496,16 @@ $NetworkEvent_WebRtcSendFileCopyWith<NetworkEvent_WebRtcSendFile> get copyWith =
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_WebRtcSendFile&&(identical(other.peerId, peerId) || other.peerId == peerId)&&(identical(other.transferId, transferId) || other.transferId == transferId)&&(identical(other.filePath, filePath) || other.filePath == filePath)&&(identical(other.totalSize, totalSize) || other.totalSize == totalSize)&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.shardIndex, shardIndex) || other.shardIndex == shardIndex));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_WebRtcSendFile&&(identical(other.peerId, peerId) || other.peerId == peerId)&&(identical(other.transferId, transferId) || other.transferId == transferId)&&(identical(other.filePath, filePath) || other.filePath == filePath)&&(identical(other.totalSize, totalSize) || other.totalSize == totalSize)&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.shardIndex, shardIndex) || other.shardIndex == shardIndex)&&(identical(other.chunkIndex, chunkIndex) || other.chunkIndex == chunkIndex));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,peerId,transferId,filePath,totalSize,kind,shardIndex);
+int get hashCode => Object.hash(runtimeType,peerId,transferId,filePath,totalSize,kind,shardIndex,chunkIndex);
 
 @override
 String toString() {
-  return 'NetworkEvent.webRtcSendFile(peerId: $peerId, transferId: $transferId, filePath: $filePath, totalSize: $totalSize, kind: $kind, shardIndex: $shardIndex)';
+  return 'NetworkEvent.webRtcSendFile(peerId: $peerId, transferId: $transferId, filePath: $filePath, totalSize: $totalSize, kind: $kind, shardIndex: $shardIndex, chunkIndex: $chunkIndex)';
 }
 
 
@@ -5467,7 +5516,7 @@ abstract mixin class $NetworkEvent_WebRtcSendFileCopyWith<$Res> implements $Netw
   factory $NetworkEvent_WebRtcSendFileCopyWith(NetworkEvent_WebRtcSendFile value, $Res Function(NetworkEvent_WebRtcSendFile) _then) = _$NetworkEvent_WebRtcSendFileCopyWithImpl;
 @useResult
 $Res call({
- String peerId, String transferId, String filePath, BigInt totalSize, String kind, int shardIndex
+ String peerId, String transferId, String filePath, BigInt totalSize, String kind, int shardIndex, int chunkIndex
 });
 
 
@@ -5484,7 +5533,7 @@ class _$NetworkEvent_WebRtcSendFileCopyWithImpl<$Res>
 
 /// Create a copy of NetworkEvent
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? peerId = null,Object? transferId = null,Object? filePath = null,Object? totalSize = null,Object? kind = null,Object? shardIndex = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? peerId = null,Object? transferId = null,Object? filePath = null,Object? totalSize = null,Object? kind = null,Object? shardIndex = null,Object? chunkIndex = null,}) {
   return _then(NetworkEvent_WebRtcSendFile(
 peerId: null == peerId ? _self.peerId : peerId // ignore: cast_nullable_to_non_nullable
 as String,transferId: null == transferId ? _self.transferId : transferId // ignore: cast_nullable_to_non_nullable
@@ -5492,6 +5541,7 @@ as String,filePath: null == filePath ? _self.filePath : filePath // ignore: cast
 as String,totalSize: null == totalSize ? _self.totalSize : totalSize // ignore: cast_nullable_to_non_nullable
 as BigInt,kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
 as String,shardIndex: null == shardIndex ? _self.shardIndex : shardIndex // ignore: cast_nullable_to_non_nullable
+as int,chunkIndex: null == chunkIndex ? _self.chunkIndex : chunkIndex // ignore: cast_nullable_to_non_nullable
 as int,
   ));
 }
@@ -6760,6 +6810,570 @@ class _$NetworkEvent_RecoveryPoolStoppedCopyWithImpl<$Res>
 @pragma('vm:prefer-inline') $Res call({Object? serverId = null,}) {
   return _then(NetworkEvent_RecoveryPoolStopped(
 serverId: null == serverId ? _self.serverId : serverId // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_ShareManifestReady extends NetworkEvent {
+  const NetworkEvent_ShareManifestReady({required this.rootHash, required this.fileName, required this.totalSize, required this.chunkCount}): super._();
+  
+
+ final  String rootHash;
+ final  String fileName;
+ final  BigInt totalSize;
+ final  int chunkCount;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_ShareManifestReadyCopyWith<NetworkEvent_ShareManifestReady> get copyWith => _$NetworkEvent_ShareManifestReadyCopyWithImpl<NetworkEvent_ShareManifestReady>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_ShareManifestReady&&(identical(other.rootHash, rootHash) || other.rootHash == rootHash)&&(identical(other.fileName, fileName) || other.fileName == fileName)&&(identical(other.totalSize, totalSize) || other.totalSize == totalSize)&&(identical(other.chunkCount, chunkCount) || other.chunkCount == chunkCount));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,rootHash,fileName,totalSize,chunkCount);
+
+@override
+String toString() {
+  return 'NetworkEvent.shareManifestReady(rootHash: $rootHash, fileName: $fileName, totalSize: $totalSize, chunkCount: $chunkCount)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_ShareManifestReadyCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_ShareManifestReadyCopyWith(NetworkEvent_ShareManifestReady value, $Res Function(NetworkEvent_ShareManifestReady) _then) = _$NetworkEvent_ShareManifestReadyCopyWithImpl;
+@useResult
+$Res call({
+ String rootHash, String fileName, BigInt totalSize, int chunkCount
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_ShareManifestReadyCopyWithImpl<$Res>
+    implements $NetworkEvent_ShareManifestReadyCopyWith<$Res> {
+  _$NetworkEvent_ShareManifestReadyCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_ShareManifestReady _self;
+  final $Res Function(NetworkEvent_ShareManifestReady) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? rootHash = null,Object? fileName = null,Object? totalSize = null,Object? chunkCount = null,}) {
+  return _then(NetworkEvent_ShareManifestReady(
+rootHash: null == rootHash ? _self.rootHash : rootHash // ignore: cast_nullable_to_non_nullable
+as String,fileName: null == fileName ? _self.fileName : fileName // ignore: cast_nullable_to_non_nullable
+as String,totalSize: null == totalSize ? _self.totalSize : totalSize // ignore: cast_nullable_to_non_nullable
+as BigInt,chunkCount: null == chunkCount ? _self.chunkCount : chunkCount // ignore: cast_nullable_to_non_nullable
+as int,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_ShareProgress extends NetworkEvent {
+  const NetworkEvent_ShareProgress({required this.rootHash, required this.chunksHave, required this.chunksTotal, required this.peers, required this.bytesPerSec}): super._();
+  
+
+ final  String rootHash;
+ final  int chunksHave;
+ final  int chunksTotal;
+ final  int peers;
+ final  BigInt bytesPerSec;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_ShareProgressCopyWith<NetworkEvent_ShareProgress> get copyWith => _$NetworkEvent_ShareProgressCopyWithImpl<NetworkEvent_ShareProgress>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_ShareProgress&&(identical(other.rootHash, rootHash) || other.rootHash == rootHash)&&(identical(other.chunksHave, chunksHave) || other.chunksHave == chunksHave)&&(identical(other.chunksTotal, chunksTotal) || other.chunksTotal == chunksTotal)&&(identical(other.peers, peers) || other.peers == peers)&&(identical(other.bytesPerSec, bytesPerSec) || other.bytesPerSec == bytesPerSec));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,rootHash,chunksHave,chunksTotal,peers,bytesPerSec);
+
+@override
+String toString() {
+  return 'NetworkEvent.shareProgress(rootHash: $rootHash, chunksHave: $chunksHave, chunksTotal: $chunksTotal, peers: $peers, bytesPerSec: $bytesPerSec)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_ShareProgressCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_ShareProgressCopyWith(NetworkEvent_ShareProgress value, $Res Function(NetworkEvent_ShareProgress) _then) = _$NetworkEvent_ShareProgressCopyWithImpl;
+@useResult
+$Res call({
+ String rootHash, int chunksHave, int chunksTotal, int peers, BigInt bytesPerSec
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_ShareProgressCopyWithImpl<$Res>
+    implements $NetworkEvent_ShareProgressCopyWith<$Res> {
+  _$NetworkEvent_ShareProgressCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_ShareProgress _self;
+  final $Res Function(NetworkEvent_ShareProgress) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? rootHash = null,Object? chunksHave = null,Object? chunksTotal = null,Object? peers = null,Object? bytesPerSec = null,}) {
+  return _then(NetworkEvent_ShareProgress(
+rootHash: null == rootHash ? _self.rootHash : rootHash // ignore: cast_nullable_to_non_nullable
+as String,chunksHave: null == chunksHave ? _self.chunksHave : chunksHave // ignore: cast_nullable_to_non_nullable
+as int,chunksTotal: null == chunksTotal ? _self.chunksTotal : chunksTotal // ignore: cast_nullable_to_non_nullable
+as int,peers: null == peers ? _self.peers : peers // ignore: cast_nullable_to_non_nullable
+as int,bytesPerSec: null == bytesPerSec ? _self.bytesPerSec : bytesPerSec // ignore: cast_nullable_to_non_nullable
+as BigInt,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_ShareCompleted extends NetworkEvent {
+  const NetworkEvent_ShareCompleted({required this.rootHash, required this.diskPath}): super._();
+  
+
+ final  String rootHash;
+ final  String diskPath;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_ShareCompletedCopyWith<NetworkEvent_ShareCompleted> get copyWith => _$NetworkEvent_ShareCompletedCopyWithImpl<NetworkEvent_ShareCompleted>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_ShareCompleted&&(identical(other.rootHash, rootHash) || other.rootHash == rootHash)&&(identical(other.diskPath, diskPath) || other.diskPath == diskPath));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,rootHash,diskPath);
+
+@override
+String toString() {
+  return 'NetworkEvent.shareCompleted(rootHash: $rootHash, diskPath: $diskPath)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_ShareCompletedCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_ShareCompletedCopyWith(NetworkEvent_ShareCompleted value, $Res Function(NetworkEvent_ShareCompleted) _then) = _$NetworkEvent_ShareCompletedCopyWithImpl;
+@useResult
+$Res call({
+ String rootHash, String diskPath
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_ShareCompletedCopyWithImpl<$Res>
+    implements $NetworkEvent_ShareCompletedCopyWith<$Res> {
+  _$NetworkEvent_ShareCompletedCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_ShareCompleted _self;
+  final $Res Function(NetworkEvent_ShareCompleted) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? rootHash = null,Object? diskPath = null,}) {
+  return _then(NetworkEvent_ShareCompleted(
+rootHash: null == rootHash ? _self.rootHash : rootHash // ignore: cast_nullable_to_non_nullable
+as String,diskPath: null == diskPath ? _self.diskPath : diskPath // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_ShareFailed extends NetworkEvent {
+  const NetworkEvent_ShareFailed({required this.rootHash, required this.error}): super._();
+  
+
+ final  String rootHash;
+ final  String error;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_ShareFailedCopyWith<NetworkEvent_ShareFailed> get copyWith => _$NetworkEvent_ShareFailedCopyWithImpl<NetworkEvent_ShareFailed>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_ShareFailed&&(identical(other.rootHash, rootHash) || other.rootHash == rootHash)&&(identical(other.error, error) || other.error == error));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,rootHash,error);
+
+@override
+String toString() {
+  return 'NetworkEvent.shareFailed(rootHash: $rootHash, error: $error)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_ShareFailedCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_ShareFailedCopyWith(NetworkEvent_ShareFailed value, $Res Function(NetworkEvent_ShareFailed) _then) = _$NetworkEvent_ShareFailedCopyWithImpl;
+@useResult
+$Res call({
+ String rootHash, String error
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_ShareFailedCopyWithImpl<$Res>
+    implements $NetworkEvent_ShareFailedCopyWith<$Res> {
+  _$NetworkEvent_ShareFailedCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_ShareFailed _self;
+  final $Res Function(NetworkEvent_ShareFailed) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? rootHash = null,Object? error = null,}) {
+  return _then(NetworkEvent_ShareFailed(
+rootHash: null == rootHash ? _self.rootHash : rootHash // ignore: cast_nullable_to_non_nullable
+as String,error: null == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_ShareSeedingChanged extends NetworkEvent {
+  const NetworkEvent_ShareSeedingChanged({required this.rootHash, required this.seeding, required this.peers, required this.bytesUploaded}): super._();
+  
+
+ final  String rootHash;
+ final  bool seeding;
+ final  int peers;
+ final  BigInt bytesUploaded;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_ShareSeedingChangedCopyWith<NetworkEvent_ShareSeedingChanged> get copyWith => _$NetworkEvent_ShareSeedingChangedCopyWithImpl<NetworkEvent_ShareSeedingChanged>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_ShareSeedingChanged&&(identical(other.rootHash, rootHash) || other.rootHash == rootHash)&&(identical(other.seeding, seeding) || other.seeding == seeding)&&(identical(other.peers, peers) || other.peers == peers)&&(identical(other.bytesUploaded, bytesUploaded) || other.bytesUploaded == bytesUploaded));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,rootHash,seeding,peers,bytesUploaded);
+
+@override
+String toString() {
+  return 'NetworkEvent.shareSeedingChanged(rootHash: $rootHash, seeding: $seeding, peers: $peers, bytesUploaded: $bytesUploaded)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_ShareSeedingChangedCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_ShareSeedingChangedCopyWith(NetworkEvent_ShareSeedingChanged value, $Res Function(NetworkEvent_ShareSeedingChanged) _then) = _$NetworkEvent_ShareSeedingChangedCopyWithImpl;
+@useResult
+$Res call({
+ String rootHash, bool seeding, int peers, BigInt bytesUploaded
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_ShareSeedingChangedCopyWithImpl<$Res>
+    implements $NetworkEvent_ShareSeedingChangedCopyWith<$Res> {
+  _$NetworkEvent_ShareSeedingChangedCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_ShareSeedingChanged _self;
+  final $Res Function(NetworkEvent_ShareSeedingChanged) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? rootHash = null,Object? seeding = null,Object? peers = null,Object? bytesUploaded = null,}) {
+  return _then(NetworkEvent_ShareSeedingChanged(
+rootHash: null == rootHash ? _self.rootHash : rootHash // ignore: cast_nullable_to_non_nullable
+as String,seeding: null == seeding ? _self.seeding : seeding // ignore: cast_nullable_to_non_nullable
+as bool,peers: null == peers ? _self.peers : peers // ignore: cast_nullable_to_non_nullable
+as int,bytesUploaded: null == bytesUploaded ? _self.bytesUploaded : bytesUploaded // ignore: cast_nullable_to_non_nullable
+as BigInt,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_ShareCreated extends NetworkEvent {
+  const NetworkEvent_ShareCreated({required this.rootHash, required this.link, required this.fileName, required this.totalSize}): super._();
+  
+
+ final  String rootHash;
+ final  String link;
+ final  String fileName;
+ final  BigInt totalSize;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_ShareCreatedCopyWith<NetworkEvent_ShareCreated> get copyWith => _$NetworkEvent_ShareCreatedCopyWithImpl<NetworkEvent_ShareCreated>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_ShareCreated&&(identical(other.rootHash, rootHash) || other.rootHash == rootHash)&&(identical(other.link, link) || other.link == link)&&(identical(other.fileName, fileName) || other.fileName == fileName)&&(identical(other.totalSize, totalSize) || other.totalSize == totalSize));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,rootHash,link,fileName,totalSize);
+
+@override
+String toString() {
+  return 'NetworkEvent.shareCreated(rootHash: $rootHash, link: $link, fileName: $fileName, totalSize: $totalSize)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_ShareCreatedCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_ShareCreatedCopyWith(NetworkEvent_ShareCreated value, $Res Function(NetworkEvent_ShareCreated) _then) = _$NetworkEvent_ShareCreatedCopyWithImpl;
+@useResult
+$Res call({
+ String rootHash, String link, String fileName, BigInt totalSize
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_ShareCreatedCopyWithImpl<$Res>
+    implements $NetworkEvent_ShareCreatedCopyWith<$Res> {
+  _$NetworkEvent_ShareCreatedCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_ShareCreated _self;
+  final $Res Function(NetworkEvent_ShareCreated) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? rootHash = null,Object? link = null,Object? fileName = null,Object? totalSize = null,}) {
+  return _then(NetworkEvent_ShareCreated(
+rootHash: null == rootHash ? _self.rootHash : rootHash // ignore: cast_nullable_to_non_nullable
+as String,link: null == link ? _self.link : link // ignore: cast_nullable_to_non_nullable
+as String,fileName: null == fileName ? _self.fileName : fileName // ignore: cast_nullable_to_non_nullable
+as String,totalSize: null == totalSize ? _self.totalSize : totalSize // ignore: cast_nullable_to_non_nullable
+as BigInt,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_ShareList extends NetworkEvent {
+  const NetworkEvent_ShareList({required final  List<ShareEntry> entries}): _entries = entries,super._();
+  
+
+ final  List<ShareEntry> _entries;
+ List<ShareEntry> get entries {
+  if (_entries is EqualUnmodifiableListView) return _entries;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableListView(_entries);
+}
+
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_ShareListCopyWith<NetworkEvent_ShareList> get copyWith => _$NetworkEvent_ShareListCopyWithImpl<NetworkEvent_ShareList>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_ShareList&&const DeepCollectionEquality().equals(other._entries, _entries));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(_entries));
+
+@override
+String toString() {
+  return 'NetworkEvent.shareList(entries: $entries)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_ShareListCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_ShareListCopyWith(NetworkEvent_ShareList value, $Res Function(NetworkEvent_ShareList) _then) = _$NetworkEvent_ShareListCopyWithImpl;
+@useResult
+$Res call({
+ List<ShareEntry> entries
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_ShareListCopyWithImpl<$Res>
+    implements $NetworkEvent_ShareListCopyWith<$Res> {
+  _$NetworkEvent_ShareListCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_ShareList _self;
+  final $Res Function(NetworkEvent_ShareList) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? entries = null,}) {
+  return _then(NetworkEvent_ShareList(
+entries: null == entries ? _self._entries : entries // ignore: cast_nullable_to_non_nullable
+as List<ShareEntry>,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class NetworkEvent_ShareNeedWebRtc extends NetworkEvent {
+  const NetworkEvent_ShareNeedWebRtc({required this.peerId}): super._();
+  
+
+ final  String peerId;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NetworkEvent_ShareNeedWebRtcCopyWith<NetworkEvent_ShareNeedWebRtc> get copyWith => _$NetworkEvent_ShareNeedWebRtcCopyWithImpl<NetworkEvent_ShareNeedWebRtc>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkEvent_ShareNeedWebRtc&&(identical(other.peerId, peerId) || other.peerId == peerId));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,peerId);
+
+@override
+String toString() {
+  return 'NetworkEvent.shareNeedWebRtc(peerId: $peerId)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NetworkEvent_ShareNeedWebRtcCopyWith<$Res> implements $NetworkEventCopyWith<$Res> {
+  factory $NetworkEvent_ShareNeedWebRtcCopyWith(NetworkEvent_ShareNeedWebRtc value, $Res Function(NetworkEvent_ShareNeedWebRtc) _then) = _$NetworkEvent_ShareNeedWebRtcCopyWithImpl;
+@useResult
+$Res call({
+ String peerId
+});
+
+
+
+
+}
+/// @nodoc
+class _$NetworkEvent_ShareNeedWebRtcCopyWithImpl<$Res>
+    implements $NetworkEvent_ShareNeedWebRtcCopyWith<$Res> {
+  _$NetworkEvent_ShareNeedWebRtcCopyWithImpl(this._self, this._then);
+
+  final NetworkEvent_ShareNeedWebRtc _self;
+  final $Res Function(NetworkEvent_ShareNeedWebRtc) _then;
+
+/// Create a copy of NetworkEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? peerId = null,}) {
+  return _then(NetworkEvent_ShareNeedWebRtc(
+peerId: null == peerId ? _self.peerId : peerId // ignore: cast_nullable_to_non_nullable
 as String,
   ));
 }

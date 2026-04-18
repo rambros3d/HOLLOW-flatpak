@@ -1753,37 +1753,71 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
   - [ ] Upstream PR to flutter-webrtc — submit once Windows implementation has baked in Hollow for a couple weeks
   - Note: Windows path uses a forked `flutter_webrtc` (at `../flutter-webrtc-1.4.1/`, git-tracked, 1 commit on top of release baseline). Pubspec points at `path:` until the PR lands upstream.
 
-- [ ] **Hollow Share — Private P2P File Sharing (encrypted torrent)** — Zero-tracker, zero-IP-leak, encrypted file sharing built on existing WebRTC data channels + gossip tree. STUN-only (no TURN — relay bandwidth reserved for messaging).
-  - [ ] **Core protocol:**
-    - [ ] Share manifest: content hash (SHA-256) + file name + size + chunk count + chunk hashes → serialized as a shareable link (`hollow://share/<base64-manifest>`) or QR code
-    - [ ] Chunk splitting: reuse existing 64KB chunked transfer protocol from data channel file sharing
-    - [ ] Multi-source parallel download: request different chunks from different connected peers simultaneously (6-12 gossip neighbors = 6-12x parallel throughput, theoretical ~54 MB/s)
-    - [ ] Chunk verification: SHA-256 per chunk (already in content-addressed storage) — reject corrupt/tampered chunks
-    - [ ] Seeding: completed files remain available for upload. User chooses to seed or not. Seeding state persisted in SQLCipher
-  - [ ] **Discovery & peer finding:**
-    - [ ] Paste `hollow://share/` link → parse manifest → join a sharing swarm (WS relay room keyed by content hash, signaling only)
-    - [ ] Swarm members exchange peer lists via existing PeerExchange mechanism
-    - [ ] WebRTC data channels established via STUN between peers who have chunks
-    - [ ] No TURN fallback — STUN-only for sharing (relay bandwidth reserved for core messaging). ~85% of peers connect directly, others simply can't participate in that specific transfer (they can still download from other seeds)
-  - [ ] **UI — Share tab in app:**
-    - [ ] New "Share" tab/section in the app layout (alongside DMs, servers)
-    - [ ] "Add" button: paste link or scan QR → shows file metadata (name, size, seeds, availability)
-    - [ ] Download picker: choose save location, start download
-    - [ ] Progress: per-file progress bar, chunk availability grid, connected peers count, download speed
-    - [ ] Seed management: toggle seeding per file, see upload stats
-    - [ ] Active transfers list: downloading + seeding files with speeds
-  - [ ] **Privacy & security:**
-    - [ ] No tracker server — relay only does WebRTC signaling (SDP/ICE exchange), never touches file data
-    - [ ] No IP exposure — ICE candidates exchanged via encrypted relay, never published to a public DHT
-    - [ ] Encrypted in transit — WebRTC DTLS on data channels (standard)
-    - [ ] ISP-invisible — looks like normal WebRTC traffic, no protocol fingerprint to throttle
-    - [ ] Optional E2EE on chunks — encrypt file before sharing, include decryption key in the share link (only link holders can read)
-  - Note: Builds entirely on existing infrastructure — WebRTC data channels (Phase 5A), gossip overlay (Phase 5D), content-addressed storage (Phase 4), chunked transfer protocol. Estimated new code: ~1 Rust module (sharing swarm) + ~1 Dart service + UI tab
+- [x] **Hollow Share — Private P2P File Sharing (encrypted torrent)** — Zero-tracker, zero-IP-leak, encrypted file sharing built on existing WebRTC data channels. STUN-only (no TURN — relay bandwidth reserved for messaging). Zero file bytes ever touch the relay.
+  - [x] **Core protocol:**
+    - [x] Share manifest: SHA-256 root hash + file name + size + chunk count + per-chunk SHA-256 hashes (`ShareManifest` in `node/types.rs`)
+    - [x] Share link: `hollow://share/<base64url(version:1 || root_hash:32 || key:32)>` — 65-byte payload, 87 base64url chars, QR-able. Manifest is fetched-by-hash from the swarm
+    - [x] Chunk splitting: 256 KiB plaintext → AES-256-GCM encrypted on-the-fly (key from link, nonce = `[0;4] || chunk_index_be:8`) → SHA-256 of ciphertext stored in manifest. Receiver verifies hash *then* decrypts
+    - [x] Multi-source parallel download: scheduler tick (50ms / 20 Hz) does rarest-first piece selection across `peer_have` bitmaps filtered by `webrtc_peers`, caps in-flight at 4 chunks per peer, retries on 8s timeout
+    - [x] Chunk verification: SHA-256(ciphertext) == manifest.chunk_hashes[i] before decrypt; tampered chunks rejected and re-requested from a different peer
+    - [x] Seeding: completed files remain available; auto-seed on completion; toggle per file; persisted via `seeding` column in SQLCipher
+    - [x] Auto-rejoin on app start: `seeding=1` rows rebuild in-memory state, reopen source files, rejoin swarm rooms before main loop. Missing files → mark stale + disable seeding
+    - [x] Bandwidth coexistence: process-wide `SeedBudget` token bucket (20 MiB/s refill, 40 MiB burst) caps share uploads. Scheduler pauses chunk requests for 200ms after any messaging/voice traffic
+    - [x] Persistence: `shares` + `share_chunks` tables in SQLCipher. Have-bitmap snapshot on every chunk arrival → paused/restarted downloads resume without re-fetching
+    - [x] Zero-copy seeding: sender stores original file path (no encrypted copy). Chunks encrypted on-the-fly with AES-256-GCM (~50μs per 256 KB chunk on AES-NI). Temp files auto-deleted after WebRTC send completes
+    - [x] Speed: 3-second sliding window throughput measurement (replaced broken EWMA). Honest bytes/sec display
+  - [x] **Discovery & peer finding:**
+    - [x] `share_open_link` is a pure probe — decodes link, joins relay room, requests manifest. No DB entry until user explicitly presses Download
+    - [x] Manifest timeout: 10s countdown in the paste dialog. No seeders → returns to input with error
+    - [x] Relay room rendezvous: signaling only — no public DHT, no tracker. Zero file bytes over relay
+    - [x] STUN-only: `shareIceConfigProvider` returns no-TURN config so share traffic never consumes relay bandwidth
+    - [x] `PeerLeft` cleanup: dropped peer is removed from every share's `peer_have`, in-flight requests freed for rescheduling
+  - [x] **Chunk transport — WebRTC-only binary path:**
+    - [x] Control plane (manifest req/resp, Have bitmaps, chunk requests) rides `HavenMessage` over the relay — small signaling messages
+    - [x] **Bulk chunk bytes ride direct WebRTC data channels only (STUN-only, no TURN, no relay fallback).** If no WebRTC connection exists, chunks are skipped (not sent over relay). Scheduler only requests from `webrtc_peers`-connected peers
+    - [x] Wire format: `StreamKind::ShareChunk` + `TYPE_SHARE_CHUNK = 0x02` byte + 4-byte LE `chunk_index`. Identical in Rust `ws_stream_transfer.rs` and Dart `webrtc_service.dart`
+    - [x] Receiver: Dart `_completeIncomingTransfer` branches on `kind == "share_chunk"` → calls `webrtcShareChunkComplete` FFI → Rust verify+decrypt+write+progress+complete
+    - [x] **WebRTC auto-reconnection:** `ShareNeedWebRtc { peer_id }` event emitted when scheduler detects a peer in `peer_have` but not in `webrtc_peers`. Dart calls `ensureConnection()` to re-establish the data channel. Download resumes automatically
+    - [x] Sender-side temp cleanup: `.send_*.tmp` files deleted after WebRTC send completes via `handle_webrtc_send_complete`
+  - [x] **UI — Share tab in app:**
+    - [x] **Shell integration:** Share icon on bottom bar (dock mode) + server strip (classic mode), follows Archive pattern. `hollow_shell.dart:_buildChatOrEmpty()` checks `shareTabOpenProvider` before `archiveTabOpenProvider`. All navigation paths (Home, Archive, server, peer selection) clear share state
+    - [x] **ShareDashboard** — single-panel scrollable list, header with "Share a File" + "Paste Link" buttons. Two grouped sections: "Downloading" (progress bar, chunks, seeds, speed, cancel) and "Seeding" (uploaded, peers, copy link, show in folder, seeding toggle, remove)
+    - [x] **Paste Link dialog** — 3-state flow: input (with validation) → loading (10s countdown, cancel cleans up) → confirm (file name, size, chunks, Download/Cancel). Download only starts when user presses Download — no auto-start
+    - [x] **Progress:** 3-second sliding window throughput (honest bytes/sec, not inflated EWMA). Per-chunk from Rust — no Flutter-side byte counting
+    - [x] **Share creation:** "Share a File" → FilePicker → `share_create_from_file` → stores original path (zero copy) → emits `ShareCreated` with link. Copy Link button on seeding card
+    - [x] **Real-time seeder updates:** tick emits `ShareSeedingChanged` every 2s with live `bytes_uploaded` + `peers` count
+    - [x] **Seeding survives restarts:** DB `seeding=1` set on download completion. `auto_rejoin_seeders` reopens source files on app start. Toggle off→on reopens file from DB `disk_path`
+    - [x] **Stale entry cleanup:** missing files → mark stale + disable seeding on startup/tick. Orphan `(unknown)` DB entries cleaned on `shareList`. Orphan `.send_*.tmp` files pruned
+    - [x] **Toggle state cached:** `handleShareList` preserves in-memory seeding/progress state when merging with DB, preventing OFF→ON flicker on tab switch
+  - [x] **Privacy & security:**
+    - [x] No tracker server — relay only does WebRTC signaling (SDP/ICE exchange), never touches file data
+    - [x] No IP exposure — ICE candidates exchanged via encrypted relay, never published to a public DHT
+    - [x] Encrypted in transit — WebRTC DTLS on data channels + every chunk independently AES-256-GCM encrypted with per-link key
+    - [x] ISP-invisible — looks like normal WebRTC traffic, no protocol fingerprint to throttle
+    - [x] Always-on per-chunk encryption — link IS access control, chunks unreadable without it
+  - **Implementation files:**
+    - `rust/hollow_core/src/node/share_handler.rs` (~1600 lines, NEW) — link codec, on-the-fly AES-256-GCM crypto, swarm registry, all command + envelope handlers, scheduler tick (20 Hz), `SeedBudget` (20 MiB/s), `auto_rejoin_seeders`, `finalize_completed_download`, `ChunkBitmap`, 9 unit tests
+    - `rust/hollow_core/src/node/types.rs` — `ShareManifest`, 5 `HavenMessage` variants (share rides `HavenMessage`, NOT `MessageEnvelope`), 7 `NodeCommand`, 8 `NetworkEvent` (incl. `ShareNeedWebRtc`)
+    - `rust/hollow_core/src/storage/messages.rs` — `shares` + `share_chunks` tables, `StoredShare`, 11 DB methods
+    - `rust/hollow_core/src/api/share.rs` (NEW) + `api/network.rs` — 8 `#[frb]` functions, `ShareEntry`/`ShareLinkInfo` FFI structs, `to_ffi_event` arms
+    - `rust/hollow_core/src/node/swarm.rs` — registry, `SeedBudget`, `last_message_traffic`, 50ms share tick timer, command dispatch, envelope intercept, `PeerLeft` cleanup, auto-rejoin
+    - `rust/hollow_core/src/node/file_handler.rs` — sender-side `.send_*.tmp` cleanup in `handle_webrtc_send_complete`
+    - `lib/src/core/providers/share_tab_provider.dart` (NEW) — `shareTabOpenProvider`, `ShareTabNotifier` with live list state, pending manifest tracking, toggle state caching
+    - `lib/src/core/providers/event_provider.dart` — Share event dispatch + `ShareNeedWebRtc` → `ensureConnection`
+    - `lib/src/core/providers/ice_config_provider.dart` — `shareIceConfigProvider` (STUN-only)
+    - `lib/src/ui/share/share_dashboard.dart` (NEW) — main dashboard, header, empty state, grouped list
+    - `lib/src/ui/share/share_card.dart` (NEW) — download/seeding/failed card modes, progress bar, speed, toggle, show in folder
+    - `lib/src/ui/share/paste_link_dialog.dart` (NEW) — 3-state dialog with 10s countdown, cancel cleanup, no auto-start
+    - `lib/src/ui/shell/bottom_bar.dart` — Share icon + `_openShare()` + mutual exclusion with Archive
+    - `lib/src/ui/shell/server_strip.dart` — Share icon in classic layout
+    - `lib/src/ui/shell/hollow_shell.dart` — `shareTabOpenProvider` check in `_buildChatOrEmpty`
 
 - [X] Fix channel + DM history race on first open after receiving a message; auto-scroll to bottom when in capture zone, pill otherwise
 - [X] Fix audio card preview update on download
 - [X] Check if there is a Search bar in Incoming/Outgoing friend requests
 - [X] Voice recordings in the chat — tap-to-record mic button beside the file picker in DM + channel inputs. Opus-in-Ogg @ 16 kHz mono 24 kbps (~90 KB per 30s, ~8-10× smaller than MP3 at equivalent voice quality). Live waveform + pulsing rec dot + timer. Reuses existing `sendFile()` pipeline so voice messages are E2EE + signed like any attachment. 34-hour hard cap to mirror the 34 MB DM vibe.
+- [ ] **Fix file transfer progress bar (DM/channel file sends).** WebRTC streaming transfers (`total_chunks = 0`) have broken progress: Dart WebRTC receives bytes and updates `onProgress` every 512 KB (`webrtc_service.dart:624`), but Rust only learns about the transfer when the entire file finishes via `webrtcTransferComplete`. Rust then decrypts the whole blob and emits a single `FileCompleted` — no intermediate `FileProgress` events. Result: progress bar sits at ~10% then jumps to 100%. Fix: either (a) bridge Dart's byte-level progress directly to `fileTransferProvider` without waiting for Rust (pure Dart fix — progress = bytes received / total, skip Rust events for streaming transfers), or (b) convert streaming transfers to chunked transfers so Rust can emit `FileProgress` per chunk like Share does. Option (a) is simpler but progress won't account for decryption time at the end; (b) is a deeper refactor but gives honest progress. Key files: `webrtc_service.dart:620-631`, `webrtc_provider.dart:40-49`, `file_handler.rs:560-630`, `file_transfer_provider.dart:394-427`
+- [ ] 411 errors with -D warning on cargo clippy - wtf is that?
 - [ ] Proper roles on the server and editing of permissions
 - [ ] Security of the community servers. To prevent massive spam/abuse in terms of files and such - add for example OAuth for Twitch and allow the server joining if you're a follower for 1 day or something (use Twitch API like for getting the follow: https://dev.twitch.tv/docs/api/reference#get-followed-channels)
 - [ ] Discord import system (full implementation — parse GDPR export ZIP, map servers/channels/roles/messages, placeholder identities, member claiming) == reflect to the discord_migration_plan.md

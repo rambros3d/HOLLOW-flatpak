@@ -85,9 +85,11 @@ class WebRtcNotifier extends Notifier<WebRtcState> {
 
   /// Handle WebRtcSendFile event from Rust.
   Future<void> handleSendFile(String peerId, String transferId,
-      String filePath, int totalSize, String kind, int shardIndex) async {
+      String filePath, int totalSize, String kind, int shardIndex,
+      {int chunkIndex = 0}) async {
     await service.sendFile(
-        peerId, transferId, filePath, totalSize, kind, shardIndex);
+        peerId, transferId, filePath, totalSize, kind, shardIndex,
+        chunkIndex: chunkIndex);
   }
 
   /// Proactively establish WebRTC connection to a peer.

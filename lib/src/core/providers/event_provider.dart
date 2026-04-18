@@ -32,6 +32,7 @@ import 'package:hollow/src/core/providers/webrtc_provider.dart';
 import 'package:hollow/src/core/providers/call_provider.dart';
 import 'package:hollow/src/core/providers/voice_channel_provider.dart';
 import 'package:hollow/src/core/providers/recovery_pool_provider.dart';
+import 'package:hollow/src/core/providers/share_tab_provider.dart';
 import 'package:hollow/src/ui/app.dart' show hollowNavigatorKey;
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
@@ -698,9 +699,10 @@ class EventStreamNotifier extends Notifier<bool> {
 
       case NetworkEvent_WebRtcSendFile(
             :final peerId, :final transferId, :final filePath,
-            :final totalSize, :final kind, :final shardIndex):
+            :final totalSize, :final kind, :final shardIndex, :final chunkIndex):
         ref.read(webRtcProvider.notifier).handleSendFile(
-              peerId, transferId, filePath, totalSize.toInt(), kind, shardIndex);
+              peerId, transferId, filePath, totalSize.toInt(), kind, shardIndex,
+              chunkIndex: chunkIndex);
 
       // -- Voice call events (Phase 5B) --
       case NetworkEvent_CallSignal(
@@ -824,6 +826,34 @@ class EventStreamNotifier extends Notifier<bool> {
         ref.read(recoveryPoolProvider.notifier).onFileRecovered(serverId, contentId, diskPath);
       case NetworkEvent_RecoveryPoolStopped(:final serverId):
         ref.read(recoveryPoolProvider.notifier).onPoolStopped(serverId);
+      // -- Hollow Share --
+      case NetworkEvent_ShareManifestReady(
+            :final rootHash, :final fileName, :final totalSize, :final chunkCount):
+        debugPrint('[HOLLOW-SHARE] manifest ready: $fileName ($totalSize bytes, $chunkCount chunks) root=$rootHash');
+        ref.read(shareTabProvider.notifier).handleShareManifestReady(rootHash, fileName, totalSize.toInt(), chunkCount);
+      case NetworkEvent_ShareProgress(
+            :final rootHash, :final chunksHave, :final chunksTotal, :final peers, :final bytesPerSec):
+        debugPrint('[HOLLOW-SHARE] progress $rootHash: $chunksHave/$chunksTotal chunks, $peers peers, $bytesPerSec B/s');
+        ref.read(shareTabProvider.notifier).handleShareProgress(rootHash, chunksHave, chunksTotal, peers, bytesPerSec.toInt());
+      case NetworkEvent_ShareCompleted(:final rootHash, :final diskPath):
+        debugPrint('[HOLLOW-SHARE] completed $rootHash → $diskPath');
+        ref.read(shareTabProvider.notifier).handleShareCompleted(rootHash, diskPath);
+      case NetworkEvent_ShareFailed(:final rootHash, :final error):
+        debugPrint('[HOLLOW-SHARE] failed $rootHash: $error');
+        ref.read(shareTabProvider.notifier).handleShareFailed(rootHash, error);
+      case NetworkEvent_ShareSeedingChanged(
+            :final rootHash, :final seeding, :final peers, :final bytesUploaded):
+        debugPrint('[HOLLOW-SHARE] seeding changed $rootHash: seeding=$seeding peers=$peers uploaded=$bytesUploaded');
+        ref.read(shareTabProvider.notifier).handleShareSeedingChanged(rootHash, seeding, peers, bytesUploaded.toInt());
+      case NetworkEvent_ShareCreated(
+            :final rootHash, :final link, :final fileName, :final totalSize):
+        debugPrint('[HOLLOW-SHARE] created $fileName ($totalSize bytes) root=$rootHash link=$link');
+        ref.read(shareTabProvider.notifier).handleShareCreated(rootHash, link, fileName, totalSize.toInt());
+      case NetworkEvent_ShareList(:final entries):
+        debugPrint('[HOLLOW-SHARE] list: ${entries.length} entries');
+        ref.read(shareTabProvider.notifier).handleShareList(entries);
+      case NetworkEvent_ShareNeedWebRtc(:final peerId):
+        ref.read(webRtcProvider.notifier).ensureConnection(peerId);
 
     }
     } catch (e, st) {

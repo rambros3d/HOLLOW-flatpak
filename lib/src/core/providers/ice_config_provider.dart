@@ -103,3 +103,22 @@ class IceConfigNotifier extends Notifier<Map<String, dynamic>> {
 final iceConfigProvider =
     NotifierProvider<IceConfigNotifier, Map<String, dynamic>>(
         IceConfigNotifier.new);
+
+/// STUN-only ICE config used by Hollow Share data channels (Phase 7A).
+///
+/// Per HOLLOW_PLAN.md §7A: share traffic must NOT consume relay (TURN)
+/// bandwidth — that capacity is reserved for messaging and voice. About
+/// 85% of peers connect via STUN; the rest can't participate in a given
+/// share but can still join other shares.
+///
+/// Pass this map to `RTCPeerConnection` factory calls whose room ID begins
+/// with `share:`. Mirrors `IceConfigNotifier._stunOnlyConfig`.
+final shareIceConfigProvider = Provider<Map<String, dynamic>>((ref) {
+  return const {
+    'iceServers': [
+      {'urls': 'stun:relay.anonlisten.com:3478'},
+      {'urls': 'stun:stun.cloudflare.com:3478'},
+      {'urls': 'stun:stun.l.google.com:19302'},
+    ],
+  };
+});

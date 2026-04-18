@@ -7,6 +7,7 @@ pub(crate) mod image_convert;
 pub(crate) mod link_preview;
 pub(crate) mod message_ops;
 pub(crate) mod recovery_pool;
+pub(crate) mod share_handler;
 pub(crate) mod signaling;
 pub(crate) mod social;
 pub(crate) mod sync_handler;

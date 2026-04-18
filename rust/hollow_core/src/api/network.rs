@@ -230,7 +230,7 @@ pub enum NetworkEvent {
     /// Forward incoming WebRTC signaling message to Dart.
     WebRtcSignal { peer_id: String, signal_type: String, payload: String, conn_id: String },
     /// Tell Dart to send a file over WebRTC data channel.
-    WebRtcSendFile { peer_id: String, transfer_id: String, file_path: String, total_size: u64, kind: String, shard_index: u16 },
+    WebRtcSendFile { peer_id: String, transfer_id: String, file_path: String, total_size: u64, kind: String, shard_index: u16, chunk_index: u32 },
     // -- Voice call events (Phase 5B) --
     /// Forward incoming voice call signaling message to Dart.
     CallSignal { peer_id: String, signal_type: String, payload: String },
@@ -275,6 +275,30 @@ pub enum NetworkEvent {
     RecoveryPoolShardTransferred { server_id: String, content_id: String, shard_index: u16 },
     RecoveryPoolFileRecovered { server_id: String, content_id: String, disk_path: String },
     RecoveryPoolStopped { server_id: String },
+    // -- Hollow Share (Phase 7A) --
+    ShareManifestReady { root_hash: String, file_name: String, total_size: u64, chunk_count: u32 },
+    ShareProgress { root_hash: String, chunks_have: u32, chunks_total: u32, peers: u8, bytes_per_sec: u64 },
+    ShareCompleted { root_hash: String, disk_path: String },
+    ShareFailed { root_hash: String, error: String },
+    ShareSeedingChanged { root_hash: String, seeding: bool, peers: u8, bytes_uploaded: u64 },
+    ShareCreated { root_hash: String, link: String, file_name: String, total_size: u64 },
+    ShareList { entries: Vec<ShareEntry> },
+    ShareNeedWebRtc { peer_id: String },
+}
+
+/// Lightweight FFI mirror of node::types::ShareEntryRef.
+pub struct ShareEntry {
+    pub root_hash: String,
+    pub file_name: String,
+    pub total_size: u64,
+    pub chunks_have: u32,
+    pub chunks_total: u32,
+    pub state: String,
+    pub seeding: bool,
+    pub disk_path: Option<String>,
+    pub bytes_uploaded: u64,
+    pub share_link: String,
+    pub created_at: i64,
 }
 
 /// Holds all mutable state for the running node.
@@ -667,8 +691,8 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::WebRtcSignal { peer_id, signal_type, payload, conn_id } => {
             NetworkEvent::WebRtcSignal { peer_id, signal_type, payload, conn_id }
         }
-        node::NetworkEvent::WebRtcSendFile { peer_id, transfer_id, file_path, total_size, kind, shard_index } => {
-            NetworkEvent::WebRtcSendFile { peer_id, transfer_id, file_path, total_size, kind, shard_index }
+        node::NetworkEvent::WebRtcSendFile { peer_id, transfer_id, file_path, total_size, kind, shard_index, chunk_index } => {
+            NetworkEvent::WebRtcSendFile { peer_id, transfer_id, file_path, total_size, kind, shard_index, chunk_index }
         }
         // -- Voice call events (Phase 5B) --
         node::NetworkEvent::CallSignal { peer_id, signal_type, payload } => {
@@ -727,6 +751,45 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::RecoveryPoolStopped { server_id } => {
             NetworkEvent::RecoveryPoolStopped { server_id }
+        }
+        // -- Hollow Share (Phase 7A) --
+        node::NetworkEvent::ShareManifestReady { root_hash, file_name, total_size, chunk_count } => {
+            NetworkEvent::ShareManifestReady { root_hash, file_name, total_size, chunk_count }
+        }
+        node::NetworkEvent::ShareProgress { root_hash, chunks_have, chunks_total, peers, bytes_per_sec } => {
+            NetworkEvent::ShareProgress { root_hash, chunks_have, chunks_total, peers, bytes_per_sec }
+        }
+        node::NetworkEvent::ShareCompleted { root_hash, disk_path } => {
+            NetworkEvent::ShareCompleted { root_hash, disk_path }
+        }
+        node::NetworkEvent::ShareFailed { root_hash, error } => {
+            NetworkEvent::ShareFailed { root_hash, error }
+        }
+        node::NetworkEvent::ShareSeedingChanged { root_hash, seeding, peers, bytes_uploaded } => {
+            NetworkEvent::ShareSeedingChanged { root_hash, seeding, peers, bytes_uploaded }
+        }
+        node::NetworkEvent::ShareCreated { root_hash, link, file_name, total_size } => {
+            NetworkEvent::ShareCreated { root_hash, link, file_name, total_size }
+        }
+        node::NetworkEvent::ShareList { entries } => {
+            NetworkEvent::ShareList {
+                entries: entries.into_iter().map(|e| ShareEntry {
+                    root_hash: e.root_hash,
+                    file_name: e.file_name,
+                    total_size: e.total_size,
+                    chunks_have: e.chunks_have,
+                    chunks_total: e.chunks_total,
+                    state: e.state,
+                    seeding: e.seeding,
+                    disk_path: e.disk_path,
+                    bytes_uploaded: e.bytes_uploaded,
+                    share_link: e.share_link,
+                    created_at: e.created_at,
+                }).collect(),
+            }
+        }
+        node::NetworkEvent::ShareNeedWebRtc { peer_id } => {
+            NetworkEvent::ShareNeedWebRtc { peer_id }
         }
     }
 }
@@ -1561,7 +1624,32 @@ pub fn webrtc_transfer_complete(
     let state = guard.as_ref().ok_or("Node is not running")?;
     let rt = get_runtime();
     rt.block_on(state.cmd_tx.send(node::NodeCommand::WebRtcTransferComplete {
-        transfer_id, temp_path, sender_peer_id, kind, shard_index,
+        transfer_id, temp_path, sender_peer_id, kind, shard_index, chunk_index: 0,
+    }))
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+    Ok(())
+}
+
+/// Notify Rust that a WebRTC share-chunk transfer completed.
+/// Distinct from `webrtc_transfer_complete` because share chunks need a
+/// 32-bit chunk_index (a single share can have up to 4 billion chunks).
+/// Routes into share_handler verify+decrypt+write path.
+#[frb]
+pub fn webrtc_share_chunk_complete(
+    transfer_id: String,
+    temp_path: String,
+    sender_peer_id: String,
+    chunk_index: u32,
+) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+    let rt = get_runtime();
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::WebRtcTransferComplete {
+        transfer_id, temp_path, sender_peer_id,
+        kind: "share_chunk".to_string(),
+        shard_index: 0,
+        chunk_index,
     }))
     .map_err(|e| format!("Failed to send command: {e}"))?;
     Ok(())

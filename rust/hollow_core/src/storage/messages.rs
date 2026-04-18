@@ -525,6 +525,58 @@ impl MessageStore {
         )
         .map_err(|e| format!("Failed to create verified_peers table: {e}"))?;
 
+        // -- Hollow Share (Phase 7A) --
+        // One row per share we've created, opened, or downloaded. The encryption_key
+        // is the AES-256-GCM key from the share link; if the user loses the link
+        // and the row is gone, the file is unrecoverable (which is the point).
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS shares (
+                root_hash       TEXT PRIMARY KEY,
+                file_name       TEXT NOT NULL,
+                file_ext        TEXT NOT NULL,
+                mime            TEXT NOT NULL,
+                total_size      INTEGER NOT NULL,
+                chunk_size      INTEGER NOT NULL,
+                chunk_count     INTEGER NOT NULL,
+                manifest_json   TEXT NOT NULL,
+                encryption_key  BLOB NOT NULL,
+                share_link      TEXT NOT NULL,
+                state           TEXT NOT NULL,
+                seeding         INTEGER NOT NULL DEFAULT 1,
+                disk_path       TEXT,
+                save_dir        TEXT,
+                bytes_uploaded  INTEGER NOT NULL DEFAULT 0,
+                created_at      INTEGER NOT NULL,
+                completed_at    INTEGER
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create shares table: {e}"))?;
+        // Idempotent migration for existing dbs from before save_dir was added.
+        conn.execute_batch(
+            "ALTER TABLE shares ADD COLUMN save_dir TEXT;"
+        ).unwrap_or(());
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_shares_state ON shares(state)",
+            [],
+        ).map_err(|e| format!("Failed to create idx_shares_state: {e}"))?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_shares_seeding ON shares(seeding)",
+            [],
+        ).map_err(|e| format!("Failed to create idx_shares_seeding: {e}"))?;
+
+        // Have-bitmap per share, persisted so paused/restarted downloads resume
+        // without re-fetching. bitmap_blob is little-endian-packed bits.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS share_chunks (
+                root_hash    TEXT PRIMARY KEY,
+                bitmap_blob  BLOB NOT NULL,
+                updated_at   INTEGER NOT NULL
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create share_chunks table: {e}"))?;
+
         Ok(MessageStore { conn })
     }
 
@@ -2880,4 +2932,197 @@ impl MessageStore {
             .map_err(|e| format!("Failed to query content_id: {e}"))
     }
 
+    // -- Hollow Share (Phase 7A) --
+
+    /// Insert or replace a share row. Used both at create-time (we made the share)
+    /// and at open-link-time (we received the link, manifest will arrive later).
+    #[allow(clippy::too_many_arguments)]
+    pub fn upsert_share(
+        &self,
+        root_hash: &str,
+        file_name: &str,
+        file_ext: &str,
+        mime: &str,
+        total_size: u64,
+        chunk_size: u32,
+        chunk_count: u32,
+        manifest_json: &str,
+        encryption_key: &[u8],
+        share_link: &str,
+        state: &str,
+        seeding: bool,
+        disk_path: Option<&str>,
+        save_dir: Option<&str>,
+        created_at: i64,
+    ) -> Result<(), String> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO shares (
+                root_hash, file_name, file_ext, mime, total_size, chunk_size, chunk_count,
+                manifest_json, encryption_key, share_link, state, seeding, disk_path, save_dir,
+                bytes_uploaded, created_at, completed_at
+            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,
+                COALESCE((SELECT bytes_uploaded FROM shares WHERE root_hash = ?1), 0),
+                ?15,
+                (SELECT completed_at FROM shares WHERE root_hash = ?1)
+            )",
+            params![
+                root_hash, file_name, file_ext, mime,
+                total_size as i64, chunk_size as i64, chunk_count as i64,
+                manifest_json, encryption_key, share_link, state, seeding as i32,
+                disk_path, save_dir, created_at,
+            ],
+        ).map_err(|e| format!("Failed to upsert share: {e}"))?;
+        Ok(())
+    }
+
+    /// Update only the save_dir for a share. Used by share_start when the
+    /// caller passes a new download location.
+    pub fn set_share_save_dir(&self, root_hash: &str, save_dir: &str) -> Result<(), String> {
+        self.conn.execute(
+            "UPDATE shares SET save_dir = ?2 WHERE root_hash = ?1",
+            params![root_hash, save_dir],
+        ).map_err(|e| format!("Failed to set save_dir: {e}"))?;
+        Ok(())
+    }
+
+    pub fn load_share(&self, root_hash: &str) -> Result<Option<StoredShare>, String> {
+        let mut stmt = self.conn.prepare(
+            "SELECT root_hash, file_name, file_ext, mime, total_size, chunk_size, chunk_count,
+                    manifest_json, encryption_key, share_link, state, seeding, disk_path,
+                    bytes_uploaded, created_at, completed_at, save_dir
+             FROM shares WHERE root_hash = ?1",
+        ).map_err(|e| format!("Failed to prepare load_share: {e}"))?;
+        let mut rows = stmt.query(params![root_hash])
+            .map_err(|e| format!("Failed to query share: {e}"))?;
+        if let Some(row) = rows.next().map_err(|e| format!("Row error: {e}"))? {
+            Ok(Some(stored_share_from_row(row)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn load_shares(&self) -> Result<Vec<StoredShare>, String> {
+        let mut stmt = self.conn.prepare(
+            "SELECT root_hash, file_name, file_ext, mime, total_size, chunk_size, chunk_count,
+                    manifest_json, encryption_key, share_link, state, seeding, disk_path,
+                    bytes_uploaded, created_at, completed_at, save_dir
+             FROM shares ORDER BY created_at DESC",
+        ).map_err(|e| format!("Failed to prepare load_shares: {e}"))?;
+        let mut rows = stmt.query([])
+            .map_err(|e| format!("Failed to query shares: {e}"))?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().map_err(|e| format!("Row error: {e}"))? {
+            out.push(stored_share_from_row(row)?);
+        }
+        Ok(out)
+    }
+
+    pub fn mark_share_complete(&self, root_hash: &str, disk_path: &str, completed_at: i64) -> Result<(), String> {
+        self.conn.execute(
+            "UPDATE shares SET state = 'completed', disk_path = ?2, completed_at = ?3 WHERE root_hash = ?1",
+            params![root_hash, disk_path, completed_at],
+        ).map_err(|e| format!("Failed to mark share complete: {e}"))?;
+        Ok(())
+    }
+
+    pub fn set_share_state(&self, root_hash: &str, state: &str) -> Result<(), String> {
+        self.conn.execute(
+            "UPDATE shares SET state = ?2 WHERE root_hash = ?1",
+            params![root_hash, state],
+        ).map_err(|e| format!("Failed to set share state: {e}"))?;
+        Ok(())
+    }
+
+    pub fn set_share_seeding(&self, root_hash: &str, seeding: bool) -> Result<(), String> {
+        self.conn.execute(
+            "UPDATE shares SET seeding = ?2 WHERE root_hash = ?1",
+            params![root_hash, seeding as i32],
+        ).map_err(|e| format!("Failed to set share seeding: {e}"))?;
+        Ok(())
+    }
+
+    pub fn add_share_bytes_uploaded(&self, root_hash: &str, delta: u64) -> Result<(), String> {
+        self.conn.execute(
+            "UPDATE shares SET bytes_uploaded = bytes_uploaded + ?2 WHERE root_hash = ?1",
+            params![root_hash, delta as i64],
+        ).map_err(|e| format!("Failed to add share bytes_uploaded: {e}"))?;
+        Ok(())
+    }
+
+    pub fn delete_share(&self, root_hash: &str) -> Result<(), String> {
+        self.conn.execute(
+            "DELETE FROM share_chunks WHERE root_hash = ?1",
+            params![root_hash],
+        ).map_err(|e| format!("Failed to delete share_chunks row: {e}"))?;
+        self.conn.execute(
+            "DELETE FROM shares WHERE root_hash = ?1",
+            params![root_hash],
+        ).map_err(|e| format!("Failed to delete share row: {e}"))?;
+        Ok(())
+    }
+
+    pub fn save_chunk_bitmap(&self, root_hash: &str, bitmap: &[u8], updated_at: i64) -> Result<(), String> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO share_chunks (root_hash, bitmap_blob, updated_at) VALUES (?1, ?2, ?3)",
+            params![root_hash, bitmap, updated_at],
+        ).map_err(|e| format!("Failed to save chunk bitmap: {e}"))?;
+        Ok(())
+    }
+
+    pub fn load_chunk_bitmap(&self, root_hash: &str) -> Result<Option<Vec<u8>>, String> {
+        self.conn
+            .query_row(
+                "SELECT bitmap_blob FROM share_chunks WHERE root_hash = ?1",
+                params![root_hash],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .map(Some)
+            .or_else(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                other => Err(format!("Failed to load chunk bitmap: {other}")),
+            })
+    }
+}
+
+/// Persisted share row.
+pub struct StoredShare {
+    pub root_hash: String,
+    pub file_name: String,
+    pub file_ext: String,
+    pub mime: String,
+    pub total_size: u64,
+    pub chunk_size: u32,
+    pub chunk_count: u32,
+    pub manifest_json: String,
+    pub encryption_key: Vec<u8>,
+    pub share_link: String,
+    pub state: String,
+    pub seeding: bool,
+    pub disk_path: Option<String>,
+    pub bytes_uploaded: u64,
+    pub created_at: i64,
+    pub completed_at: Option<i64>,
+    pub save_dir: Option<String>,
+}
+
+fn stored_share_from_row(row: &rusqlite::Row<'_>) -> Result<StoredShare, String> {
+    Ok(StoredShare {
+        root_hash:      row.get(0).map_err(|e| format!("col 0: {e}"))?,
+        file_name:      row.get(1).map_err(|e| format!("col 1: {e}"))?,
+        file_ext:       row.get(2).map_err(|e| format!("col 2: {e}"))?,
+        mime:           row.get(3).map_err(|e| format!("col 3: {e}"))?,
+        total_size:     row.get::<_, i64>(4).map_err(|e| format!("col 4: {e}"))? as u64,
+        chunk_size:     row.get::<_, i64>(5).map_err(|e| format!("col 5: {e}"))? as u32,
+        chunk_count:    row.get::<_, i64>(6).map_err(|e| format!("col 6: {e}"))? as u32,
+        manifest_json:  row.get(7).map_err(|e| format!("col 7: {e}"))?,
+        encryption_key: row.get(8).map_err(|e| format!("col 8: {e}"))?,
+        share_link:     row.get(9).map_err(|e| format!("col 9: {e}"))?,
+        state:          row.get(10).map_err(|e| format!("col 10: {e}"))?,
+        seeding:        row.get::<_, i32>(11).map_err(|e| format!("col 11: {e}"))? != 0,
+        disk_path:      row.get::<_, Option<String>>(12).map_err(|e| format!("col 12: {e}"))?,
+        bytes_uploaded: row.get::<_, i64>(13).map_err(|e| format!("col 13: {e}"))? as u64,
+        created_at:     row.get(14).map_err(|e| format!("col 14: {e}"))?,
+        completed_at:   row.get::<_, Option<i64>>(15).map_err(|e| format!("col 15: {e}"))?,
+        save_dir:       row.get::<_, Option<String>>(16).map_err(|e| format!("col 16: {e}"))?,
+    })
 }

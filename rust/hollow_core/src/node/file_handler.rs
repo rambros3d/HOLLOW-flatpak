@@ -630,9 +630,18 @@ pub(crate) fn handle_webrtc_send_complete(
 ) {
     hollow_log!("[HOLLOW-WEBRTC] Send complete: {transfer_id}");
     if let Some((_, _, _, path, _)) = pending_webrtc_sends.remove(&transfer_id) {
-        // Clean up the temp encrypted file if it's a .stream_send_ temp.
         if path.file_name().map(|n| n.to_string_lossy().starts_with(".stream_send_")).unwrap_or(false) {
             let _ = std::fs::remove_file(&path);
+        }
+    }
+    // Share chunk temps bypass pending_webrtc_sends — clean by transfer_id pattern.
+    // Share transfer_ids are "{short_root}:{chunk_index}".
+    if transfer_id.contains(':') {
+        let short_root = transfer_id.split(':').next().unwrap_or("");
+        let idx_str = transfer_id.split(':').nth(1).unwrap_or("");
+        if let Ok(shares_dir) = super::share_handler::shares_dir() {
+            let tmp = shares_dir.join(format!(".send_{short_root}_{idx_str}.tmp"));
+            let _ = std::fs::remove_file(&tmp);
         }
     }
 }
@@ -691,7 +700,12 @@ pub(crate) async fn handle_completed_stream(
 ) {
     use ws_stream_transfer::StreamKind;
 
+    // Share chunks have their own completion path (handle_webrtc_share_chunk_complete)
+    // and never flow through this function — early return defensively.
+    if matches!(request.kind, StreamKind::ShareChunk { .. }) { return; }
+
     match request.kind {
+        StreamKind::ShareChunk { .. } => unreachable!(),
         StreamKind::File => {
             let file_id = request.id.clone();
             hollow_log!("[HOLLOW-STREAM] Inbound file stream: {file_id} ({} bytes)", request.size);
@@ -843,6 +857,7 @@ pub(crate) async fn stream_to_peer(
         let kind_str = match kind {
             ws_stream_transfer::StreamKind::File => "file",
             ws_stream_transfer::StreamKind::Shard { .. } => "shard",
+            ws_stream_transfer::StreamKind::ShareChunk { .. } => "share_chunk",
         };
         let shard_index = match kind {
             ws_stream_transfer::StreamKind::Shard { shard_index } => *shard_index,
@@ -860,6 +875,7 @@ pub(crate) async fn stream_to_peer(
             total_size,
             kind: kind_str.to_string(),
             shard_index,
+            chunk_index: 0,
         }).await;
         hollow_log!("[HOLLOW-WEBRTC] Routing {id} to {peer_str} via WebRTC data channel");
         return;

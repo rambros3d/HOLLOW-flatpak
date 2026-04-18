@@ -149,6 +149,21 @@ async fn run_event_loop(
     // -- Recovery pool state (Evidence Recovery) --
     let mut recovery_pool_state: Option<crate::node::recovery_pool::RecoveryPoolState> = None;
 
+    // -- Hollow Share --
+    // Registry of active share swarms. Owned by this event loop and passed
+    // as &mut into every handler — same pattern as other domain modules.
+    let mut share_registry: super::share_handler::ShareRegistry = super::share_handler::new_registry();
+    // Process-wide outbound seed bandwidth bucket — caps share uploads at
+    // SEED_REFILL_BPS so messaging/voice never starve.
+    let mut seed_budget = super::share_handler::SeedBudget::new();
+    // Coexistence: any messaging/voice send bumps this; the share scheduler
+    // pauses chunk requests while it's recent.
+    let mut last_message_traffic: std::time::Instant = std::time::Instant::now()
+        .checked_sub(std::time::Duration::from_secs(60))
+        .unwrap_or_else(std::time::Instant::now);
+    // Auto-rejoin every share row with seeding=1 so we keep serving across restarts.
+    super::share_handler::auto_rejoin_seeders(&mut share_registry, &bundle_keypair, &ws_cmd_tx);
+
     // -- CRDT state (Phase 3) --
     // Server states keyed by server_id. Reload from DB so servers survive restarts.
     let mut server_states: HashMap<String, ServerState> = HashMap::new();
@@ -334,6 +349,11 @@ async fn run_event_loop(
     let mut gossip_exchange_timer = tokio::time::interval(Duration::from_secs(120));
     gossip_exchange_timer.tick().await; // consume immediate first tick
 
+    // Hollow Share scheduler: 1-second tick drives chunk requests, Have
+    // rebroadcast every 10s, in-flight timeout/retry.
+    let mut share_tick_timer = tokio::time::interval(Duration::from_millis(50));
+    share_tick_timer.tick().await; // consume immediate first tick
+
     loop {
         tokio::select! {
             // Handle commands from the FFI layer.
@@ -361,6 +381,7 @@ async fn run_event_loop(
                         }).await;
                     }
                     NodeCommand::SendMessage { peer_id: peer_id_str, text, message_id, reply_to_mid, link_preview } => {
+                        last_message_traffic = std::time::Instant::now();
                         message_ops::handle_send_message(
                             &mut olm, &crypto_store, &event_tx, &ws_cmd_tx, &ws_room_peers,
                             &mut pending_messages, &mut key_request_in_flight,
@@ -370,6 +391,7 @@ async fn run_event_loop(
                     }
 
                     NodeCommand::SendChannelMessage { server_id, channel_id, text, message_id, reply_to_mid, link_preview } => {
+                        last_message_traffic = std::time::Instant::now();
                         message_ops::handle_send_channel_message(
                             &mut olm, &crypto_store, &mut mls, &server_states,
                             &event_tx, &ws_cmd_tx, &ws_room_peers,
@@ -714,14 +736,22 @@ async fn run_event_loop(
                             &ws_cmd_tx, &ws_room_peers,
                         );
                     }
-                    NodeCommand::WebRtcTransferComplete { transfer_id, temp_path, sender_peer_id, kind, shard_index } => {
-                        file_handler::handle_webrtc_transfer_complete(
-                            transfer_id, temp_path, sender_peer_id, kind, shard_index,
-                            &mut pending_file_streams, &mut pending_shard_streams,
-                            &mut pending_vault_downloads, &mut early_file_streams,
-                            &bundle_keypair, &event_tx,
-                            &mut gossip_overlays, &webrtc_peers,
-                        ).await;
+                    NodeCommand::WebRtcTransferComplete { transfer_id, temp_path, sender_peer_id, kind, shard_index, chunk_index } => {
+                        if kind == "share_chunk" {
+                            // transfer_id is the share's root_hash hex.
+                            super::share_handler::handle_webrtc_share_chunk_complete(
+                                &mut share_registry, &bundle_keypair, &event_tx,
+                                transfer_id, chunk_index, temp_path,
+                            ).await;
+                        } else {
+                            file_handler::handle_webrtc_transfer_complete(
+                                transfer_id, temp_path, sender_peer_id, kind, shard_index,
+                                &mut pending_file_streams, &mut pending_shard_streams,
+                                &mut pending_vault_downloads, &mut early_file_streams,
+                                &bundle_keypair, &event_tx,
+                                &mut gossip_overlays, &webrtc_peers,
+                            ).await;
+                        }
                     }
                     NodeCommand::WebRtcSendComplete { transfer_id } => {
                         file_handler::handle_webrtc_send_complete(
@@ -739,6 +769,7 @@ async fn run_event_loop(
 
                     // -- Voice call signaling (Phase 5B) --
                     NodeCommand::CallSendSignal { peer_id, signal_type, payload } => {
+                        last_message_traffic = std::time::Instant::now();
                         voice_handler::handle_call_send_signal(
                             peer_id, signal_type, payload,
                             &ws_cmd_tx, &ws_room_peers,
@@ -767,6 +798,7 @@ async fn run_event_loop(
                     }
 
                     NodeCommand::VoiceChannelSendSignal { server_id, channel_id, peer_id, signal_type, payload } => {
+                        last_message_traffic = std::time::Instant::now();
                         voice_handler::handle_voice_channel_send_signal(
                             server_id, channel_id, peer_id, signal_type, payload,
                             &mut mls, &mut olm, &crypto_store,
@@ -826,6 +858,43 @@ async fn run_event_loop(
                             &mut recovery_pool_state,
                             &event_tx, &ws_cmd_tx,
                             server_id,
+                        ).await;
+                    }
+
+                    // ── Hollow Share (Phase 7A) ──
+                    NodeCommand::ShareCreate { source_path } => {
+                        super::share_handler::handle_command_share_create(
+                            &mut share_registry, &bundle_keypair, &ws_cmd_tx, &event_tx, source_path,
+                        ).await;
+                    }
+                    NodeCommand::ShareOpenLink { link } => {
+                        super::share_handler::handle_command_share_open_link(
+                            &mut share_registry, &bundle_keypair, &ws_cmd_tx, &event_tx, link,
+                        ).await;
+                    }
+                    NodeCommand::ShareStart { root_hash, save_dir } => {
+                        super::share_handler::handle_command_share_start(
+                            &mut share_registry, &bundle_keypair, &ws_cmd_tx, &event_tx, root_hash, save_dir,
+                        ).await;
+                    }
+                    NodeCommand::ShareCancel { root_hash } => {
+                        super::share_handler::handle_command_share_cancel(
+                            &mut share_registry, &bundle_keypair, &ws_cmd_tx, &event_tx, root_hash,
+                        ).await;
+                    }
+                    NodeCommand::ShareSetSeeding { root_hash, seeding } => {
+                        super::share_handler::handle_command_share_set_seeding(
+                            &mut share_registry, &bundle_keypair, &ws_cmd_tx, &event_tx, root_hash, seeding,
+                        ).await;
+                    }
+                    NodeCommand::ShareRemove { root_hash, delete_file } => {
+                        super::share_handler::handle_command_share_remove(
+                            &mut share_registry, &bundle_keypair, &ws_cmd_tx, root_hash, delete_file,
+                        ).await;
+                    }
+                    NodeCommand::ShareList => {
+                        super::share_handler::handle_command_share_list(
+                            &bundle_keypair, &mut share_registry, &event_tx,
                         ).await;
                     }
 
@@ -1194,6 +1263,12 @@ async fn run_event_loop(
                             if peers.is_empty() {
                                 ws_room_peers.remove(&room);
                             }
+                        }
+
+                        // Hollow Share: drop the peer from peer_have + free
+                        // any in-flight chunk requests so the scheduler retries.
+                        if room.starts_with("share:") {
+                            super::share_handler::forget_peer(&mut share_registry, &peer_id);
                         }
 
                         // Recovery pool: track member departure.
@@ -1757,6 +1832,50 @@ async fn run_event_loop(
                                         continue; // Don't pass to handle_incoming_request.
                                     }
 
+                                    // ── Hollow Share message interception ──
+                                    // Share envelopes ride HavenMessage (relay-room broadcast or
+                                    // SendDirect within a share room), not MLS. Intercept before
+                                    // Olm/MLS decryption attempts.
+                                    let is_share = matches!(msg,
+                                        HavenMessage::ShareManifestRequest { .. }
+                                        | HavenMessage::ShareManifestResponse { .. }
+                                        | HavenMessage::ShareHave { .. }
+                                        | HavenMessage::ShareChunkRequest { .. }
+                                        | HavenMessage::ShareChunkResponse { .. }
+                                    );
+                                    if is_share {
+                                        match msg {
+                                            HavenMessage::ShareManifestRequest { root_hash } => {
+                                                super::share_handler::handle_envelope_share_manifest_request(
+                                                    &mut share_registry, &ws_cmd_tx, &from, root_hash,
+                                                ).await;
+                                            }
+                                            HavenMessage::ShareManifestResponse { root_hash, manifest_b64 } => {
+                                                super::share_handler::handle_envelope_share_manifest_response(
+                                                    &mut share_registry, &bundle_keypair, &event_tx, root_hash, manifest_b64,
+                                                ).await;
+                                            }
+                                            HavenMessage::ShareHave { root_hash, bitmap_b64, chunk_count } => {
+                                                super::share_handler::handle_envelope_share_have(
+                                                    &mut share_registry, &from, root_hash, bitmap_b64, chunk_count,
+                                                ).await;
+                                            }
+                                            HavenMessage::ShareChunkRequest { root_hash, indices } => {
+                                                super::share_handler::handle_envelope_share_chunk_request(
+                                                    &mut share_registry, &mut seed_budget, &bundle_keypair, &ws_cmd_tx,
+                                                    &event_tx, &webrtc_peers, &from, root_hash, indices,
+                                                ).await;
+                                            }
+                                            HavenMessage::ShareChunkResponse { root_hash, index, data_b64 } => {
+                                                super::share_handler::handle_envelope_share_chunk_response(
+                                                    &mut share_registry, &bundle_keypair, &event_tx, root_hash, index, data_b64,
+                                                ).await;
+                                            }
+                                            _ => {}
+                                        }
+                                        continue;
+                                    }
+
                                     handle_incoming_request(
                                         &mut olm, &crypto_store, &event_tx,
                                         &mut pending_messages, &mut key_request_in_flight,
@@ -2251,6 +2370,16 @@ async fn run_event_loop(
             // -- Gossip peer exchange timer (2 minutes) --
             _ = gossip_exchange_timer.tick() => {
                 super::gossip_relay::handle_gossip_exchange(&gossip_overlays, &ws_cmd_tx);
+            }
+
+            // -- Hollow Share scheduler (1 second) --
+            // Drives chunk requests, Have rebroadcast, in-flight timeout/retry.
+            // Pauses chunk requests when messaging/voice traffic is recent so
+            // share never starves real-time traffic on the same peer connection.
+            _ = share_tick_timer.tick() => {
+                let messaging_active = std::time::Instant::now()
+                    .duration_since(last_message_traffic) < super::share_handler::COEXIST_PAUSE;
+                super::share_handler::tick(&mut share_registry, &ws_cmd_tx, messaging_active, &webrtc_peers, &event_tx, &bundle_keypair).await;
             }
         }
     }

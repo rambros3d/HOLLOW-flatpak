@@ -57,7 +57,9 @@ import 'package:hollow/src/ui/shell/bottom_bar.dart';
 import 'package:hollow/src/ui/shell/channel_sidebar.dart';
 import 'package:hollow/src/ui/shell/friends_bar.dart';
 import 'package:hollow/src/core/providers/archive_provider.dart';
+import 'package:hollow/src/core/providers/share_tab_provider.dart';
 import 'package:hollow/src/ui/shell/archive_dashboard.dart';
+import 'package:hollow/src/ui/share/share_dashboard.dart';
 import 'package:hollow/src/ui/shell/home_dashboard.dart';
 import 'package:hollow/src/ui/shell/member_panel.dart';
 import 'package:hollow/src/ui/shell/mobile_nav.dart';
@@ -359,6 +361,7 @@ class _HollowShellState extends ConsumerState<HollowShell>
       dockMode: dockMode,
       showUserBar: !dockMode,
       onPeerSelected: (peerId) {
+        ref.read(shareTabOpenProvider.notifier).state = false;
         ref.read(archiveTabOpenProvider.notifier).state = false;
         ref.read(selectedPeerProvider.notifier).state = peerId;
         // Mark DM as read.
@@ -514,6 +517,12 @@ class _HollowShellState extends ConsumerState<HollowShell>
     required String? selectedChannelId,
     required Map<String, ChannelInfo> channels,
   }) {
+    // Share tab view
+    final shareOpen = ref.watch(shareTabOpenProvider);
+    if (shareOpen) {
+      return const ShareDashboard();
+    }
+
     // Archive tab view
     final archiveOpen = ref.watch(archiveTabOpenProvider);
     if (archiveOpen) {

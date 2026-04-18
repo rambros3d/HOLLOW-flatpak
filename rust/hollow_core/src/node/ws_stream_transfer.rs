@@ -31,6 +31,9 @@ pub enum StreamKind {
     File,
     /// Vault shard transfer.
     Shard { shard_index: u16 },
+    /// Hollow Share encrypted chunk. `id` is the share's root_hash (hex);
+    /// `chunk_index` identifies which chunk this is.
+    ShareChunk { chunk_index: u32 },
 }
 
 /// The request type used for both sending and receiving.
@@ -67,6 +70,7 @@ const WS_CHUNK_SIZE: usize = 256 * 1024;
 
 const TYPE_FILE: u8 = 0;
 const TYPE_SHARD: u8 = 1;
+const TYPE_SHARE_CHUNK: u8 = 2;
 const TYPE_CONTINUATION: u8 = 0xFF;
 
 /// State for an in-progress WS stream transfer (receiver side).
@@ -100,22 +104,35 @@ pub async fn ws_stream_send(
     };
 
     // Build header for first chunk.
+    // Wire format: [type:1][id:64][size:8][extra...][data]
+    //   File:       extra = (none)
+    //   Shard:      extra = shard_index:u16 LE (2 bytes)
+    //   ShareChunk: extra = chunk_index:u32 LE (4 bytes)
     let id_padded = pad_id(id);
-    let shard_index = match kind {
-        StreamKind::Shard { shard_index } => Some(*shard_index),
-        StreamKind::File => None,
+    let extra_len: usize = match kind {
+        StreamKind::File => 0,
+        StreamKind::Shard { .. } => 2,
+        StreamKind::ShareChunk { .. } => 4,
     };
-
-    let header_len = 1 + 64 + 8 + if shard_index.is_some() { 2 } else { 0 };
+    let header_len = 1 + 64 + 8 + extra_len;
     let first_data_len = WS_CHUNK_SIZE.saturating_sub(header_len).min(file_data.len());
 
-    // First chunk: [type][id:64][size:8][shard_index:2?][data...]
     let mut first_chunk = Vec::with_capacity(header_len + first_data_len);
-    first_chunk.push(match kind { StreamKind::File => TYPE_FILE, StreamKind::Shard { .. } => TYPE_SHARD });
+    first_chunk.push(match kind {
+        StreamKind::File => TYPE_FILE,
+        StreamKind::Shard { .. } => TYPE_SHARD,
+        StreamKind::ShareChunk { .. } => TYPE_SHARE_CHUNK,
+    });
     first_chunk.extend_from_slice(&id_padded);
     first_chunk.extend_from_slice(&total_size.to_le_bytes());
-    if let Some(si) = shard_index {
-        first_chunk.extend_from_slice(&si.to_le_bytes());
+    match kind {
+        StreamKind::Shard { shard_index } => {
+            first_chunk.extend_from_slice(&shard_index.to_le_bytes());
+        }
+        StreamKind::ShareChunk { chunk_index } => {
+            first_chunk.extend_from_slice(&chunk_index.to_le_bytes());
+        }
+        StreamKind::File => {}
     }
     first_chunk.extend_from_slice(&file_data[..first_data_len]);
 
@@ -185,8 +202,8 @@ pub fn ws_stream_receive(
             return complete_transfer(pending, &id);
         }
         None
-    } else if type_byte == TYPE_FILE || type_byte == TYPE_SHARD {
-        // First chunk: [type][id:64][size:8][shard_index:2?][data...]
+    } else if type_byte == TYPE_FILE || type_byte == TYPE_SHARD || type_byte == TYPE_SHARE_CHUNK {
+        // First chunk: [type][id:64][size:8][extra...][data]
         let min_len = 1 + 64 + 8;
         if data.len() < min_len {
             return None;
@@ -194,14 +211,22 @@ pub fn ws_stream_receive(
         let id = parse_id(&data[1..65]);
         let total_size = u64::from_le_bytes(data[65..73].try_into().unwrap_or([0; 8]));
 
-        let (kind, payload_start) = if type_byte == TYPE_SHARD {
-            if data.len() < min_len + 2 {
-                return None;
+        let (kind, payload_start) = match type_byte {
+            TYPE_SHARD => {
+                if data.len() < min_len + 2 {
+                    return None;
+                }
+                let si = u16::from_le_bytes(data[73..75].try_into().unwrap_or([0; 2]));
+                (StreamKind::Shard { shard_index: si }, 75)
             }
-            let si = u16::from_le_bytes(data[73..75].try_into().unwrap_or([0; 2]));
-            (StreamKind::Shard { shard_index: si }, 75)
-        } else {
-            (StreamKind::File, 73)
+            TYPE_SHARE_CHUNK => {
+                if data.len() < min_len + 4 {
+                    return None;
+                }
+                let ci = u32::from_le_bytes(data[73..77].try_into().unwrap_or([0; 4]));
+                (StreamKind::ShareChunk { chunk_index: ci }, 77)
+            }
+            _ => (StreamKind::File, 73),
         };
 
         let payload = &data[payload_start..];

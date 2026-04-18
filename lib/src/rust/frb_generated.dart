@@ -7,6 +7,7 @@ import 'api/archive.dart';
 import 'api/crdt.dart';
 import 'api/identity.dart';
 import 'api/network.dart';
+import 'api/share.dart';
 import 'api/simple.dart';
 import 'api/storage.dart';
 import 'dart:async';
@@ -71,7 +72,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => -931067583;
+  int get rustContentHash => -18825199;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -521,6 +522,31 @@ abstract class RustLibApi extends BaseApi {
     required BigInt pledgeBytes,
   });
 
+  Future<void> crateApiShareShareCancel({required String rootHash});
+
+  Future<void> crateApiShareShareCreateFromFile({required String sourcePath});
+
+  Future<ShareLinkInfo> crateApiShareShareDecodeLink({required String link});
+
+  Future<void> crateApiShareShareList();
+
+  Future<void> crateApiShareShareOpenLink({required String link});
+
+  Future<void> crateApiShareShareRemove({
+    required String rootHash,
+    required bool deleteFile,
+  });
+
+  Future<void> crateApiShareShareSetSeeding({
+    required String rootHash,
+    required bool seeding,
+  });
+
+  Future<void> crateApiShareShareStartDownload({
+    required String rootHash,
+    required String saveDir,
+  });
+
   Future<String> crateApiNetworkStartNode();
 
   Future<void> crateApiNetworkStopNode();
@@ -623,6 +649,13 @@ abstract class RustLibApi extends BaseApi {
     required String signalType,
     required String payload,
     required String connId,
+  });
+
+  Future<void> crateApiNetworkWebrtcShareChunkComplete({
+    required String transferId,
+    required String tempPath,
+    required String senderPeerId,
+    required int chunkIndex,
   });
 
   Future<void> crateApiNetworkWebrtcTransferComplete({
@@ -4279,6 +4312,252 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<void> crateApiShareShareCancel({required String rootHash}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(rootHash, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 110,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiShareShareCancelConstMeta,
+        argValues: [rootHash],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiShareShareCancelConstMeta =>
+      const TaskConstMeta(debugName: "share_cancel", argNames: ["rootHash"]);
+
+  @override
+  Future<void> crateApiShareShareCreateFromFile({required String sourcePath}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(sourcePath, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 111,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiShareShareCreateFromFileConstMeta,
+        argValues: [sourcePath],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiShareShareCreateFromFileConstMeta =>
+      const TaskConstMeta(
+        debugName: "share_create_from_file",
+        argNames: ["sourcePath"],
+      );
+
+  @override
+  Future<ShareLinkInfo> crateApiShareShareDecodeLink({required String link}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(link, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 112,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_share_link_info,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiShareShareDecodeLinkConstMeta,
+        argValues: [link],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiShareShareDecodeLinkConstMeta =>
+      const TaskConstMeta(debugName: "share_decode_link", argNames: ["link"]);
+
+  @override
+  Future<void> crateApiShareShareList() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 113,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiShareShareListConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiShareShareListConstMeta =>
+      const TaskConstMeta(debugName: "share_list", argNames: []);
+
+  @override
+  Future<void> crateApiShareShareOpenLink({required String link}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(link, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 114,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiShareShareOpenLinkConstMeta,
+        argValues: [link],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiShareShareOpenLinkConstMeta =>
+      const TaskConstMeta(debugName: "share_open_link", argNames: ["link"]);
+
+  @override
+  Future<void> crateApiShareShareRemove({
+    required String rootHash,
+    required bool deleteFile,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(rootHash, serializer);
+          sse_encode_bool(deleteFile, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 115,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiShareShareRemoveConstMeta,
+        argValues: [rootHash, deleteFile],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiShareShareRemoveConstMeta => const TaskConstMeta(
+    debugName: "share_remove",
+    argNames: ["rootHash", "deleteFile"],
+  );
+
+  @override
+  Future<void> crateApiShareShareSetSeeding({
+    required String rootHash,
+    required bool seeding,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(rootHash, serializer);
+          sse_encode_bool(seeding, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 116,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiShareShareSetSeedingConstMeta,
+        argValues: [rootHash, seeding],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiShareShareSetSeedingConstMeta =>
+      const TaskConstMeta(
+        debugName: "share_set_seeding",
+        argNames: ["rootHash", "seeding"],
+      );
+
+  @override
+  Future<void> crateApiShareShareStartDownload({
+    required String rootHash,
+    required String saveDir,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(rootHash, serializer);
+          sse_encode_String(saveDir, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 117,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiShareShareStartDownloadConstMeta,
+        argValues: [rootHash, saveDir],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiShareShareStartDownloadConstMeta =>
+      const TaskConstMeta(
+        debugName: "share_start_download",
+        argNames: ["rootHash", "saveDir"],
+      );
+
+  @override
   Future<String> crateApiNetworkStartNode() {
     return handler.executeNormal(
       NormalTask(
@@ -4287,7 +4566,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 110,
+            funcId: 118,
             port: port_,
           );
         },
@@ -4314,7 +4593,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 111,
+            funcId: 119,
             port: port_,
           );
         },
@@ -4342,7 +4621,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 112,
+            funcId: 120,
             port: port_,
           );
         },
@@ -4379,7 +4658,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 113,
+            funcId: 121,
             port: port_,
           );
         },
@@ -4413,7 +4692,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 114,
+            funcId: 122,
             port: port_,
           );
         },
@@ -4454,7 +4733,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 115,
+            funcId: 123,
             port: port_,
           );
         },
@@ -4497,7 +4776,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 116,
+            funcId: 124,
             port: port_,
           );
         },
@@ -4532,7 +4811,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 117,
+            funcId: 125,
             port: port_,
           );
         },
@@ -4571,7 +4850,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 118,
+            funcId: 126,
             port: port_,
           );
         },
@@ -4604,7 +4883,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 119,
+            funcId: 127,
             port: port_,
           );
         },
@@ -4643,7 +4922,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 120,
+            funcId: 128,
             port: port_,
           );
         },
@@ -4683,7 +4962,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 121,
+            funcId: 129,
             port: port_,
           );
         },
@@ -4718,7 +4997,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 122,
+            funcId: 130,
             port: port_,
           );
         },
@@ -4759,7 +5038,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 123,
+            funcId: 131,
             port: port_,
           );
         },
@@ -4792,7 +5071,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 124,
+              funcId: 132,
               port: port_,
             );
           },
@@ -4843,7 +5122,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 125,
+            funcId: 133,
             port: port_,
           );
         },
@@ -4894,7 +5173,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 126,
+            funcId: 134,
             port: port_,
           );
         },
@@ -4925,7 +5204,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 127,
+            funcId: 135,
             port: port_,
           );
         },
@@ -4960,7 +5239,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 128,
+            funcId: 136,
             port: port_,
           );
         },
@@ -4991,7 +5270,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 129,
+            funcId: 137,
             port: port_,
           );
         },
@@ -5030,7 +5309,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 130,
+            funcId: 138,
             port: port_,
           );
         },
@@ -5049,6 +5328,45 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(
         debugName: "webrtc_send_signal",
         argNames: ["peerId", "signalType", "payload", "connId"],
+      );
+
+  @override
+  Future<void> crateApiNetworkWebrtcShareChunkComplete({
+    required String transferId,
+    required String tempPath,
+    required String senderPeerId,
+    required int chunkIndex,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(transferId, serializer);
+          sse_encode_String(tempPath, serializer);
+          sse_encode_String(senderPeerId, serializer);
+          sse_encode_u_32(chunkIndex, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 139,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiNetworkWebrtcShareChunkCompleteConstMeta,
+        argValues: [transferId, tempPath, senderPeerId, chunkIndex],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiNetworkWebrtcShareChunkCompleteConstMeta =>
+      const TaskConstMeta(
+        debugName: "webrtc_share_chunk_complete",
+        argNames: ["transferId", "tempPath", "senderPeerId", "chunkIndex"],
       );
 
   @override
@@ -5071,7 +5389,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 131,
+            funcId: 140,
             port: port_,
           );
         },
@@ -5114,7 +5432,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 132,
+            funcId: 141,
             port: port_,
           );
         },
@@ -5612,6 +5930,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ShareEntry> dco_decode_list_share_entry(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_share_entry).toList();
+  }
+
+  @protected
   List<StoredChannelMessage> dco_decode_list_stored_channel_message(
     dynamic raw,
   ) {
@@ -6082,6 +6406,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           totalSize: dco_decode_u_64(raw[4]),
           kind: dco_decode_String(raw[5]),
           shardIndex: dco_decode_u_16(raw[6]),
+          chunkIndex: dco_decode_u_32(raw[7]),
         );
       case 69:
         return NetworkEvent_CallSignal(
@@ -6188,6 +6513,51 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         return NetworkEvent_RecoveryPoolStopped(
           serverId: dco_decode_String(raw[1]),
         );
+      case 87:
+        return NetworkEvent_ShareManifestReady(
+          rootHash: dco_decode_String(raw[1]),
+          fileName: dco_decode_String(raw[2]),
+          totalSize: dco_decode_u_64(raw[3]),
+          chunkCount: dco_decode_u_32(raw[4]),
+        );
+      case 88:
+        return NetworkEvent_ShareProgress(
+          rootHash: dco_decode_String(raw[1]),
+          chunksHave: dco_decode_u_32(raw[2]),
+          chunksTotal: dco_decode_u_32(raw[3]),
+          peers: dco_decode_u_8(raw[4]),
+          bytesPerSec: dco_decode_u_64(raw[5]),
+        );
+      case 89:
+        return NetworkEvent_ShareCompleted(
+          rootHash: dco_decode_String(raw[1]),
+          diskPath: dco_decode_String(raw[2]),
+        );
+      case 90:
+        return NetworkEvent_ShareFailed(
+          rootHash: dco_decode_String(raw[1]),
+          error: dco_decode_String(raw[2]),
+        );
+      case 91:
+        return NetworkEvent_ShareSeedingChanged(
+          rootHash: dco_decode_String(raw[1]),
+          seeding: dco_decode_bool(raw[2]),
+          peers: dco_decode_u_8(raw[3]),
+          bytesUploaded: dco_decode_u_64(raw[4]),
+        );
+      case 92:
+        return NetworkEvent_ShareCreated(
+          rootHash: dco_decode_String(raw[1]),
+          link: dco_decode_String(raw[2]),
+          fileName: dco_decode_String(raw[3]),
+          totalSize: dco_decode_u_64(raw[4]),
+        );
+      case 93:
+        return NetworkEvent_ShareList(
+          entries: dco_decode_list_share_entry(raw[1]),
+        );
+      case 94:
+        return NetworkEvent_ShareNeedWebRtc(peerId: dco_decode_String(raw[1]));
       default:
         throw Exception("unreachable");
     }
@@ -6289,6 +6659,39 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       shardsImported: dco_decode_u_32(arr[2]),
       shardsSkipped: dco_decode_u_32(arr[3]),
       newReconstructable: dco_decode_u_32(arr[4]),
+    );
+  }
+
+  @protected
+  ShareEntry dco_decode_share_entry(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 11)
+      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
+    return ShareEntry(
+      rootHash: dco_decode_String(arr[0]),
+      fileName: dco_decode_String(arr[1]),
+      totalSize: dco_decode_u_64(arr[2]),
+      chunksHave: dco_decode_u_32(arr[3]),
+      chunksTotal: dco_decode_u_32(arr[4]),
+      state: dco_decode_String(arr[5]),
+      seeding: dco_decode_bool(arr[6]),
+      diskPath: dco_decode_opt_String(arr[7]),
+      bytesUploaded: dco_decode_u_64(arr[8]),
+      shareLink: dco_decode_String(arr[9]),
+      createdAt: dco_decode_i_64(arr[10]),
+    );
+  }
+
+  @protected
+  ShareLinkInfo dco_decode_share_link_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return ShareLinkInfo(
+      rootHash: dco_decode_String(arr[0]),
+      roomId: dco_decode_String(arr[1]),
     );
   }
 
@@ -7160,6 +7563,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ShareEntry> sse_decode_list_share_entry(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <ShareEntry>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_share_entry(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<StoredChannelMessage> sse_decode_list_stored_channel_message(
     SseDeserializer deserializer,
   ) {
@@ -7879,6 +8294,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         var var_totalSize = sse_decode_u_64(deserializer);
         var var_kind = sse_decode_String(deserializer);
         var var_shardIndex = sse_decode_u_16(deserializer);
+        var var_chunkIndex = sse_decode_u_32(deserializer);
         return NetworkEvent_WebRtcSendFile(
           peerId: var_peerId,
           transferId: var_transferId,
@@ -7886,6 +8302,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           totalSize: var_totalSize,
           kind: var_kind,
           shardIndex: var_shardIndex,
+          chunkIndex: var_chunkIndex,
         );
       case 69:
         var var_peerId = sse_decode_String(deserializer);
@@ -8043,6 +8460,72 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 86:
         var var_serverId = sse_decode_String(deserializer);
         return NetworkEvent_RecoveryPoolStopped(serverId: var_serverId);
+      case 87:
+        var var_rootHash = sse_decode_String(deserializer);
+        var var_fileName = sse_decode_String(deserializer);
+        var var_totalSize = sse_decode_u_64(deserializer);
+        var var_chunkCount = sse_decode_u_32(deserializer);
+        return NetworkEvent_ShareManifestReady(
+          rootHash: var_rootHash,
+          fileName: var_fileName,
+          totalSize: var_totalSize,
+          chunkCount: var_chunkCount,
+        );
+      case 88:
+        var var_rootHash = sse_decode_String(deserializer);
+        var var_chunksHave = sse_decode_u_32(deserializer);
+        var var_chunksTotal = sse_decode_u_32(deserializer);
+        var var_peers = sse_decode_u_8(deserializer);
+        var var_bytesPerSec = sse_decode_u_64(deserializer);
+        return NetworkEvent_ShareProgress(
+          rootHash: var_rootHash,
+          chunksHave: var_chunksHave,
+          chunksTotal: var_chunksTotal,
+          peers: var_peers,
+          bytesPerSec: var_bytesPerSec,
+        );
+      case 89:
+        var var_rootHash = sse_decode_String(deserializer);
+        var var_diskPath = sse_decode_String(deserializer);
+        return NetworkEvent_ShareCompleted(
+          rootHash: var_rootHash,
+          diskPath: var_diskPath,
+        );
+      case 90:
+        var var_rootHash = sse_decode_String(deserializer);
+        var var_error = sse_decode_String(deserializer);
+        return NetworkEvent_ShareFailed(
+          rootHash: var_rootHash,
+          error: var_error,
+        );
+      case 91:
+        var var_rootHash = sse_decode_String(deserializer);
+        var var_seeding = sse_decode_bool(deserializer);
+        var var_peers = sse_decode_u_8(deserializer);
+        var var_bytesUploaded = sse_decode_u_64(deserializer);
+        return NetworkEvent_ShareSeedingChanged(
+          rootHash: var_rootHash,
+          seeding: var_seeding,
+          peers: var_peers,
+          bytesUploaded: var_bytesUploaded,
+        );
+      case 92:
+        var var_rootHash = sse_decode_String(deserializer);
+        var var_link = sse_decode_String(deserializer);
+        var var_fileName = sse_decode_String(deserializer);
+        var var_totalSize = sse_decode_u_64(deserializer);
+        return NetworkEvent_ShareCreated(
+          rootHash: var_rootHash,
+          link: var_link,
+          fileName: var_fileName,
+          totalSize: var_totalSize,
+        );
+      case 93:
+        var var_entries = sse_decode_list_share_entry(deserializer);
+        return NetworkEvent_ShareList(entries: var_entries);
+      case 94:
+        var var_peerId = sse_decode_String(deserializer);
+        return NetworkEvent_ShareNeedWebRtc(peerId: var_peerId);
       default:
         throw UnimplementedError('');
     }
@@ -8210,6 +8693,43 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       shardsSkipped: var_shardsSkipped,
       newReconstructable: var_newReconstructable,
     );
+  }
+
+  @protected
+  ShareEntry sse_decode_share_entry(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_rootHash = sse_decode_String(deserializer);
+    var var_fileName = sse_decode_String(deserializer);
+    var var_totalSize = sse_decode_u_64(deserializer);
+    var var_chunksHave = sse_decode_u_32(deserializer);
+    var var_chunksTotal = sse_decode_u_32(deserializer);
+    var var_state = sse_decode_String(deserializer);
+    var var_seeding = sse_decode_bool(deserializer);
+    var var_diskPath = sse_decode_opt_String(deserializer);
+    var var_bytesUploaded = sse_decode_u_64(deserializer);
+    var var_shareLink = sse_decode_String(deserializer);
+    var var_createdAt = sse_decode_i_64(deserializer);
+    return ShareEntry(
+      rootHash: var_rootHash,
+      fileName: var_fileName,
+      totalSize: var_totalSize,
+      chunksHave: var_chunksHave,
+      chunksTotal: var_chunksTotal,
+      state: var_state,
+      seeding: var_seeding,
+      diskPath: var_diskPath,
+      bytesUploaded: var_bytesUploaded,
+      shareLink: var_shareLink,
+      createdAt: var_createdAt,
+    );
+  }
+
+  @protected
+  ShareLinkInfo sse_decode_share_link_info(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_rootHash = sse_decode_String(deserializer);
+    var var_roomId = sse_decode_String(deserializer);
+    return ShareLinkInfo(rootHash: var_rootHash, roomId: var_roomId);
   }
 
   @protected
@@ -9056,6 +9576,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_share_entry(
+    List<ShareEntry> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_share_entry(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_stored_channel_message(
     List<StoredChannelMessage> self,
     SseSerializer serializer,
@@ -9749,6 +10281,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         totalSize: final totalSize,
         kind: final kind,
         shardIndex: final shardIndex,
+        chunkIndex: final chunkIndex,
       ):
         sse_encode_i_32(68, serializer);
         sse_encode_String(peerId, serializer);
@@ -9757,6 +10290,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_u_64(totalSize, serializer);
         sse_encode_String(kind, serializer);
         sse_encode_u_16(shardIndex, serializer);
+        sse_encode_u_32(chunkIndex, serializer);
       case NetworkEvent_CallSignal(
         peerId: final peerId,
         signalType: final signalType,
@@ -9913,6 +10447,72 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case NetworkEvent_RecoveryPoolStopped(serverId: final serverId):
         sse_encode_i_32(86, serializer);
         sse_encode_String(serverId, serializer);
+      case NetworkEvent_ShareManifestReady(
+        rootHash: final rootHash,
+        fileName: final fileName,
+        totalSize: final totalSize,
+        chunkCount: final chunkCount,
+      ):
+        sse_encode_i_32(87, serializer);
+        sse_encode_String(rootHash, serializer);
+        sse_encode_String(fileName, serializer);
+        sse_encode_u_64(totalSize, serializer);
+        sse_encode_u_32(chunkCount, serializer);
+      case NetworkEvent_ShareProgress(
+        rootHash: final rootHash,
+        chunksHave: final chunksHave,
+        chunksTotal: final chunksTotal,
+        peers: final peers,
+        bytesPerSec: final bytesPerSec,
+      ):
+        sse_encode_i_32(88, serializer);
+        sse_encode_String(rootHash, serializer);
+        sse_encode_u_32(chunksHave, serializer);
+        sse_encode_u_32(chunksTotal, serializer);
+        sse_encode_u_8(peers, serializer);
+        sse_encode_u_64(bytesPerSec, serializer);
+      case NetworkEvent_ShareCompleted(
+        rootHash: final rootHash,
+        diskPath: final diskPath,
+      ):
+        sse_encode_i_32(89, serializer);
+        sse_encode_String(rootHash, serializer);
+        sse_encode_String(diskPath, serializer);
+      case NetworkEvent_ShareFailed(
+        rootHash: final rootHash,
+        error: final error,
+      ):
+        sse_encode_i_32(90, serializer);
+        sse_encode_String(rootHash, serializer);
+        sse_encode_String(error, serializer);
+      case NetworkEvent_ShareSeedingChanged(
+        rootHash: final rootHash,
+        seeding: final seeding,
+        peers: final peers,
+        bytesUploaded: final bytesUploaded,
+      ):
+        sse_encode_i_32(91, serializer);
+        sse_encode_String(rootHash, serializer);
+        sse_encode_bool(seeding, serializer);
+        sse_encode_u_8(peers, serializer);
+        sse_encode_u_64(bytesUploaded, serializer);
+      case NetworkEvent_ShareCreated(
+        rootHash: final rootHash,
+        link: final link,
+        fileName: final fileName,
+        totalSize: final totalSize,
+      ):
+        sse_encode_i_32(92, serializer);
+        sse_encode_String(rootHash, serializer);
+        sse_encode_String(link, serializer);
+        sse_encode_String(fileName, serializer);
+        sse_encode_u_64(totalSize, serializer);
+      case NetworkEvent_ShareList(entries: final entries):
+        sse_encode_i_32(93, serializer);
+        sse_encode_list_share_entry(entries, serializer);
+      case NetworkEvent_ShareNeedWebRtc(peerId: final peerId):
+        sse_encode_i_32(94, serializer);
+        sse_encode_String(peerId, serializer);
     }
   }
 
@@ -10067,6 +10667,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_32(self.shardsImported, serializer);
     sse_encode_u_32(self.shardsSkipped, serializer);
     sse_encode_u_32(self.newReconstructable, serializer);
+  }
+
+  @protected
+  void sse_encode_share_entry(ShareEntry self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.rootHash, serializer);
+    sse_encode_String(self.fileName, serializer);
+    sse_encode_u_64(self.totalSize, serializer);
+    sse_encode_u_32(self.chunksHave, serializer);
+    sse_encode_u_32(self.chunksTotal, serializer);
+    sse_encode_String(self.state, serializer);
+    sse_encode_bool(self.seeding, serializer);
+    sse_encode_opt_String(self.diskPath, serializer);
+    sse_encode_u_64(self.bytesUploaded, serializer);
+    sse_encode_String(self.shareLink, serializer);
+    sse_encode_i_64(self.createdAt, serializer);
+  }
+
+  @protected
+  void sse_encode_share_link_info(
+    ShareLinkInfo self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.rootHash, serializer);
+    sse_encode_String(self.roomId, serializer);
   }
 
   @protected

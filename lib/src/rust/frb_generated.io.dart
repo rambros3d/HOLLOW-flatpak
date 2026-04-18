@@ -7,6 +7,7 @@ import 'api/archive.dart';
 import 'api/crdt.dart';
 import 'api/identity.dart';
 import 'api/network.dart';
+import 'api/share.dart';
 import 'api/simple.dart';
 import 'api/storage.dart';
 import 'dart:async';
@@ -179,6 +180,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ServerFfi> dco_decode_list_server_ffi(dynamic raw);
 
   @protected
+  List<ShareEntry> dco_decode_list_share_entry(dynamic raw);
+
+  @protected
   List<StoredChannelMessage> dco_decode_list_stored_channel_message(
     dynamic raw,
   );
@@ -245,6 +249,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ShardImportResultFfi dco_decode_shard_import_result_ffi(dynamic raw);
+
+  @protected
+  ShareEntry dco_decode_share_entry(dynamic raw);
+
+  @protected
+  ShareLinkInfo dco_decode_share_link_info(dynamic raw);
 
   @protected
   StorageStatsFfi dco_decode_storage_stats_ffi(dynamic raw);
@@ -481,6 +491,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ServerFfi> sse_decode_list_server_ffi(SseDeserializer deserializer);
 
   @protected
+  List<ShareEntry> sse_decode_list_share_entry(SseDeserializer deserializer);
+
+  @protected
   List<StoredChannelMessage> sse_decode_list_stored_channel_message(
     SseDeserializer deserializer,
   );
@@ -571,6 +584,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ShardImportResultFfi sse_decode_shard_import_result_ffi(
     SseDeserializer deserializer,
   );
+
+  @protected
+  ShareEntry sse_decode_share_entry(SseDeserializer deserializer);
+
+  @protected
+  ShareLinkInfo sse_decode_share_link_info(SseDeserializer deserializer);
 
   @protected
   StorageStatsFfi sse_decode_storage_stats_ffi(SseDeserializer deserializer);
@@ -879,6 +898,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_share_entry(
+    List<ShareEntry> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_stored_channel_message(
     List<StoredChannelMessage> self,
     SseSerializer serializer,
@@ -991,6 +1016,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     ShardImportResultFfi self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_share_entry(ShareEntry self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_share_link_info(ShareLinkInfo self, SseSerializer serializer);
 
   @protected
   void sse_encode_storage_stats_ffi(

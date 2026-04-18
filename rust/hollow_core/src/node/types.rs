@@ -152,7 +152,8 @@ pub(crate) enum NetworkEvent {
     /// Forward incoming WebRTC signaling message to Dart.
     WebRtcSignal { peer_id: String, signal_type: String, payload: String, conn_id: String },
     /// Tell Dart to send a file over WebRTC data channel.
-    WebRtcSendFile { peer_id: String, transfer_id: String, file_path: String, total_size: u64, kind: String, shard_index: u16 },
+    /// `chunk_index` is only meaningful when kind == "share_chunk"; otherwise 0.
+    WebRtcSendFile { peer_id: String, transfer_id: String, file_path: String, total_size: u64, kind: String, shard_index: u16, chunk_index: u32 },
     // -- Voice call events (Phase 5B) --
     /// Forward incoming voice call signaling message to Dart.
     CallSignal { peer_id: String, signal_type: String, payload: String },
@@ -201,6 +202,40 @@ pub(crate) enum NetworkEvent {
     RecoveryPoolShardTransferred { server_id: String, content_id: String, shard_index: u16 },
     RecoveryPoolFileRecovered { server_id: String, content_id: String, disk_path: String },
     RecoveryPoolStopped { server_id: String },
+    // -- Hollow Share (Phase 7A) --
+    /// Manifest for a share has been fetched and verified; download can be started.
+    ShareManifestReady { root_hash: String, file_name: String, total_size: u64, chunk_count: u32 },
+    /// Periodic progress update for an active share download or seed.
+    ShareProgress { root_hash: String, chunks_have: u32, chunks_total: u32, peers: u8, bytes_per_sec: u64 },
+    /// Download finished, file written to disk_path.
+    ShareCompleted { root_hash: String, disk_path: String },
+    /// Download/seed encountered a fatal error; swarm state has been dropped.
+    ShareFailed { root_hash: String, error: String },
+    /// Seeding flag toggled (manually or by completion auto-seed).
+    ShareSeedingChanged { root_hash: String, seeding: bool, peers: u8, bytes_uploaded: u64 },
+    /// share_create_from_file finished; link is ready to share.
+    ShareCreated { root_hash: String, link: String, file_name: String, total_size: u64 },
+    /// Result of share_list (returned via stream so it stays uniform with other queries).
+    ShareList { entries: Vec<ShareEntryRef> },
+    /// A share peer needs a WebRTC connection — Dart should call ensureConnection.
+    ShareNeedWebRtc { peer_id: String },
+}
+
+/// Lightweight ShareEntry for streaming lists to Dart. The persisted row is wider
+/// (manifest_json, encryption_key blob, etc.) — Dart only needs what it renders.
+#[derive(Clone)]
+pub(crate) struct ShareEntryRef {
+    pub root_hash: String,
+    pub file_name: String,
+    pub total_size: u64,
+    pub chunks_have: u32,
+    pub chunks_total: u32,
+    pub state: String,           // "downloading" | "completed" | "paused" | "failed"
+    pub seeding: bool,
+    pub disk_path: Option<String>,
+    pub bytes_uploaded: u64,
+    pub share_link: String,
+    pub created_at: i64,
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
@@ -301,7 +336,8 @@ pub(crate) enum NodeCommand {
     WebRtcPeerConnected { peer_id: String },
     WebRtcPeerDisconnected { peer_id: String },
     WebRtcSendSignal { peer_id: String, signal_type: String, payload: String, conn_id: String },
-    WebRtcTransferComplete { transfer_id: String, temp_path: String, sender_peer_id: String, kind: String, shard_index: u16 },
+    /// `chunk_index` is only meaningful when kind == "share_chunk"; for "file" / "shard" it's ignored.
+    WebRtcTransferComplete { transfer_id: String, temp_path: String, sender_peer_id: String, kind: String, shard_index: u16, chunk_index: u32 },
     WebRtcSendComplete { transfer_id: String },
     WebRtcTransferFailed { transfer_id: String, peer_id: String, error: String },
     // -- Voice call commands (Phase 5B) --
@@ -343,6 +379,23 @@ pub(crate) enum NodeCommand {
     InitiateRecoveryPool { server_id: String, token: String },
     JoinRecoveryPool { server_id: String, token: String },
     StopRecoveryPool { server_id: String },
+    // -- Hollow Share (Phase 7A) --
+    /// Build a ShareManifest from a local file, persist it, generate the link, start auto-seeding.
+    /// Emits ShareCreated on success.
+    ShareCreate { source_path: String },
+    /// Decode a hollow://share/ link, join the swarm room, fetch the manifest from any peer.
+    /// Emits ShareManifestReady or ShareFailed.
+    ShareOpenLink { link: String },
+    /// After ShareManifestReady, begin downloading chunks into save_dir.
+    ShareStart { root_hash: String, save_dir: String },
+    /// Stop an in-flight download (keeps partial file + bitmap for resume).
+    ShareCancel { root_hash: String },
+    /// Toggle seeding for a completed share (joins/leaves the swarm room).
+    ShareSetSeeding { root_hash: String, seeding: bool },
+    /// Drop a share entry. If delete_file = true, also unlinks the file/partial.
+    ShareRemove { root_hash: String, delete_file: bool },
+    /// Enumerate persisted shares; result returned via NetworkEvent::ShareList.
+    ShareList,
 }
 
 // -- Wire protocol types (v2: encrypted) --
@@ -776,6 +829,78 @@ pub(crate) enum HavenMessage {
     /// Initiator stops the pool.
     #[serde(rename = "recovery_stop")]
     RecoveryStop,
+
+    // -- Hollow Share (Phase 7A) --
+    // Share control lives in HavenMessage (the wire-level enum), NOT MessageEnvelope.
+    // MessageEnvelope assumes a stable MLS group membership; share swarms have none —
+    // anyone with the link joins/leaves freely. HavenMessage is the same layer 1:1
+    // call signaling uses (RtcOffer, CallInvite, etc.).
+
+    /// Sent by a peer that just joined a share swarm and needs the manifest.
+    /// Any seeder in the room responds with ShareManifestResponse.
+    #[serde(rename = "share_manifest_req")]
+    ShareManifestRequest {
+        root_hash: String,
+    },
+
+    /// Manifest payload (raw JSON bytes of ShareManifest, base64-encoded).
+    /// Receiver verifies SHA-256(manifest_bytes) == root_hash before trusting.
+    #[serde(rename = "share_manifest_resp")]
+    ShareManifestResponse {
+        root_hash: String,
+        manifest_b64: String,
+    },
+
+    /// Periodic broadcast of which chunks the sender holds.
+    /// bitmap_b64 is base64(little-endian-packed bits, MSB-first within each byte).
+    #[serde(rename = "share_have")]
+    ShareHave {
+        root_hash: String,
+        bitmap_b64: String,
+        chunk_count: u32,
+    },
+
+    /// Request a batch of chunks from a specific peer.
+    #[serde(rename = "share_chunk_req")]
+    ShareChunkRequest {
+        root_hash: String,
+        indices: Vec<u32>,
+    },
+
+    /// Inline chunk delivery for very small chunks; bulk path uses the existing
+    /// ws_stream binary frames + WebRtcSendFile pipeline with kind = "share_chunk".
+    /// Receiver verifies SHA-256(data) == manifest.chunk_hashes[index] then AES-GCM decrypts.
+    #[serde(rename = "share_chunk_resp")]
+    ShareChunkResponse {
+        root_hash: String,
+        index: u32,
+        data_b64: String,
+    },
+}
+
+// -- Hollow Share manifest (Phase 7A) --
+
+/// Manifest describing a shared file. Transmitted in the clear over the swarm room
+/// (the manifest's SHA-256 IS the root_hash from the share link, so encrypting it
+/// would make discovery impossible). The decryption key is in the link only — never
+/// in the manifest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct ShareManifest {
+    /// Format version; bump if the chunk hash domain or nonce derivation changes.
+    pub version: u16,
+    pub file_name: String,
+    pub mime: String,
+    pub total_size: u64,
+    /// 262_144 (256 KiB) for v1.
+    pub chunk_size: u32,
+    pub chunk_count: u32,
+    /// SHA-256 of each *encrypted* chunk (ciphertext || GCM tag), in order.
+    pub chunk_hashes: Vec<[u8; 32]>,
+    /// Unix seconds at creation time.
+    pub created_at: u64,
+    /// Optional creator-supplied note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// Envelope for the plaintext body inside an Encrypted message.

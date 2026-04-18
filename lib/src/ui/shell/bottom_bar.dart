@@ -22,6 +22,7 @@ import 'package:hollow/src/ui/components/hollow_avatar.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/ui/components/hollow_tooltip.dart';
 import 'package:hollow/src/core/providers/archive_provider.dart';
+import 'package:hollow/src/core/providers/share_tab_provider.dart';
 import 'package:hollow/src/ui/components/download_icon_button.dart';
 import 'package:hollow/src/ui/components/server_folder_popup.dart';
 import 'package:hollow/src/ui/components/profile_card_popup.dart';
@@ -77,6 +78,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
     }
 
     final archiveOpen = ref.watch(archiveTabOpenProvider);
+    final shareOpen = ref.watch(shareTabOpenProvider);
     final stripLayout = ref.watch(serverStripLayoutProvider);
     final splitState = ref.watch(splitViewProvider);
 
@@ -169,7 +171,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
 
                 // Home button (pinned left)
                 _BottomServerIcon(
-                  isSelected: selectedServerId == null && !archiveOpen,
+                  isSelected: selectedServerId == null && !archiveOpen && !shareOpen,
                   unreadCount:
                       selectedServerId != null ? dmUnreadTotal : 0,
                   tooltip: 'Home',
@@ -289,6 +291,22 @@ class _BottomBarState extends ConsumerState<BottomBar> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 HollowTooltip(
+                  message: 'Share',
+                  child: HollowPressable(
+                    onTap: () => _openShare(ref),
+                    borderRadius:
+                        BorderRadius.circular(hollow.radiusSm),
+                    padding: const EdgeInsets.all(HollowSpacing.xs),
+                    child: Icon(
+                      LucideIcons.share2,
+                      size: 18,
+                      color: shareOpen
+                          ? hollow.accent
+                          : hollow.textSecondary,
+                    ),
+                  ),
+                ),
+                HollowTooltip(
                   message: 'Archive',
                   child: HollowPressable(
                     onTap: () => _openArchive(ref),
@@ -344,11 +362,25 @@ class _BottomBarState extends ConsumerState<BottomBar> {
   }
 
   void _goHome(WidgetRef ref) {
-    // Always close split and go home.
     final split = ref.read(splitViewProvider);
     if (split.isSplit) {
       ref.read(splitViewProvider.notifier).closeSplit();
     }
+    ref.read(archiveTabOpenProvider.notifier).state = false;
+    ref.read(shareTabOpenProvider.notifier).state = false;
+    ref.read(selectedServerProvider.notifier).state = null;
+    ref.read(channelListProvider.notifier).clear();
+    ref.read(selectedChannelProvider.notifier).state = null;
+    ref.read(selectedPeerProvider.notifier).state = null;
+    ref.read(serverSettingsOpenProvider.notifier).state = false;
+  }
+
+  void _openShare(WidgetRef ref) {
+    final split = ref.read(splitViewProvider);
+    if (split.isSplit) {
+      ref.read(splitViewProvider.notifier).closeSplit();
+    }
+    ref.read(shareTabOpenProvider.notifier).state = true;
     ref.read(archiveTabOpenProvider.notifier).state = false;
     ref.read(selectedServerProvider.notifier).state = null;
     ref.read(channelListProvider.notifier).clear();
@@ -362,12 +394,12 @@ class _BottomBarState extends ConsumerState<BottomBar> {
     if (split.isSplit) {
       ref.read(splitViewProvider.notifier).closeSplit();
     }
-    // Invalidate cached data so it reloads fresh from DB.
     ref.invalidate(archiveDmListProvider);
     ref.invalidate(archiveChannelListProvider);
     ref.read(archiveSelectedDmProvider.notifier).state = null;
     ref.read(archiveSelectedChannelProvider.notifier).state = null;
     ref.read(archiveTabOpenProvider.notifier).state = true;
+    ref.read(shareTabOpenProvider.notifier).state = false;
     ref.read(selectedServerProvider.notifier).state = null;
     ref.read(channelListProvider.notifier).clear();
     ref.read(selectedChannelProvider.notifier).state = null;
@@ -424,6 +456,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
     // Batch all provider writes synchronously — single rebuild with
     // consistent server + channels + selectedChannel state.
     ref.read(archiveTabOpenProvider.notifier).state = false;
+    ref.read(shareTabOpenProvider.notifier).state = false;
     ref.read(selectedPeerProvider.notifier).state = null;
     ref.read(serverSettingsOpenProvider.notifier).state = false;
     ref.read(channelListProvider.notifier).setChannels(channels);
