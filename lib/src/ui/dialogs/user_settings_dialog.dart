@@ -3797,7 +3797,7 @@ class _AboutTab extends StatelessWidget {
               const SizedBox(width: HollowSpacing.sm),
               _KickBotIcon(
                 tooltip: 'Tip via KickBot',
-                url: 'https://kick.com/AnonListen',
+                url: 'https://kickbot.com/tips/AnonListen',
               ),
             ],
           ),

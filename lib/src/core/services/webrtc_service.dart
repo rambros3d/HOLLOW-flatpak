@@ -84,6 +84,12 @@ class WebRtcService {
   void Function(String transferId, String tempPath, String senderPeerId,
       String kind, int shardIndex)? onReceiveComplete;
 
+  /// Called when a STUN-only (Share) connection fails — peer unreachable without TURN.
+  void Function(String peerId)? onShareConnectionFailed;
+
+  /// Peers connected with STUN-only config (Share). Used to fire the right callback on failure.
+  final Set<String> _stunOnlyPeers = {};
+
   WebRtcService({required this.localPeerId, Map<String, dynamic>? iceServers})
       : iceServers = iceServers ?? _defaultIceServers;
 
@@ -96,16 +102,20 @@ class WebRtcService {
   }
 
   /// Initiate a WebRTC connection to a peer (offerer side).
-  Future<void> connectToPeer(String peerId) async {
+  /// Pass [iceConfigOverride] to use a specific ICE config (e.g. STUN-only for Share).
+  Future<void> connectToPeer(String peerId, {Map<String, dynamic>? iceConfigOverride}) async {
     // Already connected or connecting.
     if (_connections.containsKey(peerId)) return;
     if (!_connecting.add(peerId)) return;
 
+    final isStunOnly = iceConfigOverride != null;
+    final config = iceConfigOverride ?? iceServers;
+    if (isStunOnly) _stunOnlyPeers.add(peerId);
     final connId = _generateConnId();
-    _log('[HOLLOW-WEBRTC-DART] Connecting to $peerId (conn=$connId, local=$localPeerId)');
+    _log('[HOLLOW-WEBRTC-DART] Connecting to $peerId (conn=$connId, local=$localPeerId, stunOnly=$isStunOnly)');
 
     try {
-      final pc = await createPeerConnection(iceServers);
+      final pc = await createPeerConnection(config);
       final conn = _PeerConn(
         pc: pc,
         connId: connId,
@@ -345,6 +355,7 @@ class WebRtcService {
   /// Remove and close a peer connection without marking intentional.
   Future<void> _cleanupConnection(String peerId) async {
     _connecting.remove(peerId);
+    _stunOnlyPeers.remove(peerId);
     final conn = _connections.remove(peerId);
     if (conn != null) {
       conn.idleTimer?.cancel();
@@ -603,14 +614,60 @@ class WebRtcService {
   void _handleConnectionState(
       String peerId, RTCPeerConnectionState state) {
     _log('[HOLLOW-WEBRTC-DART] PC state: $peerId -> $state');
+    if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+      Future.delayed(const Duration(seconds: 1), () => _logIceRoute(peerId));
+    }
     if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-      _log('[HOLLOW-WEBRTC-DART] Connection FAILED with $peerId — closing');
+      final wasStunOnly = _stunOnlyPeers.remove(peerId);
+      _log('[HOLLOW-WEBRTC-DART] Connection FAILED with $peerId — closing (stunOnly=$wasStunOnly)');
       _cleanupConnection(peerId);
       network_api.webrtcPeerDisconnected(peerId: peerId);
+      if (wasStunOnly) {
+        onShareConnectionFailed?.call(peerId);
+      }
       // Don't force reconnect here — let _onDataChannelClosed or the share
       // tick (ShareNeedWebRtc) drive reconnection when actually needed.
     }
     // Note: don't close on RTCPeerConnectionStateDisconnected — it can recover.
+  }
+
+  Future<void> _logIceRoute(String peerId) async {
+    final conn = _connections[peerId];
+    if (conn == null) return;
+    try {
+      final stats = await conn.pc.getStats();
+      for (final report in stats) {
+        if (report.type == 'candidate-pair' &&
+            report.values['state'] == 'succeeded') {
+          final localId = report.values['localCandidateId'] as String?;
+          final remoteId = report.values['remoteCandidateId'] as String?;
+          String localType = '?';
+          String remoteType = '?';
+          String localProto = '';
+          for (final r in stats) {
+            if (r.type == 'local-candidate' && r.id == localId) {
+              localType = (r.values['candidateType'] as String?) ?? '?';
+              localProto = (r.values['protocol'] as String?) ?? '';
+            }
+            if (r.type == 'remote-candidate' && r.id == remoteId) {
+              remoteType = (r.values['candidateType'] as String?) ?? '?';
+            }
+          }
+          final route = localType == 'relay' || remoteType == 'relay'
+              ? 'TURN (relayed)'
+              : localType == 'srflx' || remoteType == 'srflx'
+                  ? 'STUN (direct P2P)'
+                  : localType == 'host' && remoteType == 'host'
+                      ? 'LAN (direct)'
+                      : 'P2P ($localType/$remoteType)';
+          _log('[HOLLOW-WEBRTC-DART] ICE route to $peerId: $route (local=$localType remote=$remoteType proto=$localProto)');
+          return;
+        }
+      }
+      _log('[HOLLOW-WEBRTC-DART] ICE route to $peerId: no succeeded candidate pair found');
+    } catch (e) {
+      _log('[HOLLOW-WEBRTC-DART] ICE route check failed for $peerId: $e');
+    }
   }
 
   void _onDataChannelMessage(String peerId, Uint8List data) {

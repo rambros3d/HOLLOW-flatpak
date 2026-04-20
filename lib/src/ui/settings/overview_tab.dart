@@ -40,8 +40,6 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
   late final TextEditingController _nicknameController;
   bool _saving = false;
   bool _savingNickname = false;
-  int _maxFileSizeMb = 34;
-
   @override
   void initState() {
     super.initState();
@@ -50,7 +48,6 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
     _nicknameController = TextEditingController();
     _loadDescription();
     _loadNickname();
-    _loadMaxFileSize();
   }
 
   Future<void> _loadDescription() async {
@@ -78,19 +75,6 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
     } catch (_) {}
   }
 
-  Future<void> _loadMaxFileSize() async {
-    try {
-      final val = await crdt_api.getServerSetting(
-        serverId: widget.server.serverId,
-        key: 'max_file_size_mb',
-      );
-      if (mounted && val.isNotEmpty) {
-        setState(() {
-          _maxFileSizeMb = int.tryParse(val) ?? 34;
-        });
-      }
-    } catch (_) {}
-  }
 
   @override
   void didUpdateWidget(OverviewTab oldWidget) {
@@ -346,81 +330,6 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
               compact: true,
               child: const Text('Save Description'),
             ),
-          ),
-          const SizedBox(height: HollowSpacing.xl),
-
-          // Max File Size
-          Text(
-            'Max File Size',
-            style:
-                HollowTypography.label.copyWith(color: hollow.textSecondary),
-          ),
-          const SizedBox(height: HollowSpacing.sm),
-          Row(
-            children: [
-              Icon(LucideIcons.fileUp, size: 16, color: hollow.textSecondary),
-              const SizedBox(width: HollowSpacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Maximum file upload size for this server',
-                      style: HollowTypography.body.copyWith(
-                        color: hollow.textSecondary,
-                        fontSize: 12,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '1–500 MB  •  Enter to save',
-                      style: HollowTypography.caption.copyWith(
-                        color: hollow.textSecondary.withValues(alpha: 0.5),
-                        fontSize: 10,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              SizedBox(
-                width: 100,
-                child: HollowTextField(
-                  controller: TextEditingController(text: _maxFileSizeMb.toString()),
-                  isDense: true,
-                  hintText: '1–500',
-                  style: HollowTypography.body.copyWith(
-                    color: hollow.textPrimary,
-                    fontSize: 13,
-                  ),
-                  borderRadius: hollow.radiusSm,
-                  onSubmitted: (val) async {
-                    final mb = int.tryParse(val.trim());
-                    if (mb == null || mb < 1 || mb > 500) {
-                      HollowToast.show(context, 'Must be between 1 and 500 MB', type: HollowToastType.error);
-                      return;
-                    }
-                    setState(() => _maxFileSizeMb = mb);
-                    try {
-                      await crdt_api.updateServerSetting(
-                        serverId: widget.server.serverId,
-                        key: 'max_file_size_mb',
-                        value: mb.toString(),
-                      );
-                      if (mounted) HollowToast.show(context, 'Max file size set to ${mb}MB', type: HollowToastType.success);
-                    } catch (_) {}
-                  },
-                ),
-              ),
-              const SizedBox(width: HollowSpacing.sm),
-              Text(
-                'MB',
-                style: HollowTypography.body.copyWith(
-                  color: hollow.textPrimary,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                ),
-              ),
-            ],
           ),
           const SizedBox(height: HollowSpacing.xl),
           Divider(color: hollow.border),

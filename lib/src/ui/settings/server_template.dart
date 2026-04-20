@@ -25,7 +25,6 @@ class ServerTemplate {
   final String name;
   final String description;
   final String? iconBase64Webp;
-  final int? maxFileSizeMb;
   final List<TemplateChannel> channels;
   final List<Map<String, dynamic>> channelLayout;
 
@@ -35,7 +34,6 @@ class ServerTemplate {
     required this.name,
     required this.description,
     this.iconBase64Webp,
-    this.maxFileSizeMb,
     required this.channels,
     required this.channelLayout,
   });
@@ -57,7 +55,6 @@ class ServerTemplate {
       name: server['name'] as String? ?? '',
       description: server['description'] as String? ?? '',
       iconBase64Webp: server['icon_base64_webp'] as String?,
-      maxFileSizeMb: server['max_file_size_mb'] as int?,
       channels: channelsJson
           .map((c) => TemplateChannel.fromJson(c as Map<String, dynamic>))
           .toList(),
@@ -72,7 +69,6 @@ class ServerTemplate {
           'name': name,
           'description': description,
           'icon_base64_webp': iconBase64Webp,
-          'max_file_size_mb': maxFileSizeMb,
         },
         'channels': channels.map((c) => c.toJson()).toList(),
         'channel_layout': channelLayout,
@@ -112,7 +108,6 @@ class TemplateChannel {
 class TemplateDiff {
   final String? nameChange;
   final String? descriptionChange;
-  final int? maxFileSizeChange;
   final bool iconChanged;
   final List<TemplateChannel> channelsToAdd;
   final List<ChannelInfo> channelsToRemove;
@@ -124,7 +119,6 @@ class TemplateDiff {
   const TemplateDiff({
     this.nameChange,
     this.descriptionChange,
-    this.maxFileSizeChange,
     this.iconChanged = false,
     this.channelsToAdd = const [],
     this.channelsToRemove = const [],
@@ -135,7 +129,6 @@ class TemplateDiff {
   bool get isEmpty =>
       nameChange == null &&
       descriptionChange == null &&
-      maxFileSizeChange == null &&
       !iconChanged &&
       channelsToAdd.isEmpty &&
       channelsToRemove.isEmpty &&
@@ -166,13 +159,6 @@ Future<void> exportServerTemplate(
     try {
       description = await crdt_api.getServerSetting(
           serverId: server.serverId, key: 'description');
-    } catch (_) {}
-
-    int? maxFileSizeMb;
-    try {
-      final val = await crdt_api.getServerSetting(
-          serverId: server.serverId, key: 'max_file_size_mb');
-      if (val.isNotEmpty) maxFileSizeMb = int.tryParse(val);
     } catch (_) {}
 
     String? iconBase64;
@@ -219,7 +205,6 @@ Future<void> exportServerTemplate(
       name: server.name,
       description: description,
       iconBase64Webp: iconBase64,
-      maxFileSizeMb: maxFileSizeMb,
       channels: templateChannels,
       channelLayout: templateLayout,
     );
@@ -338,13 +323,6 @@ Future<void> importServerTemplate(
           serverId: server.serverId, key: 'description');
     } catch (_) {}
 
-    int? currentMaxFileSize;
-    try {
-      final val = await crdt_api.getServerSetting(
-          serverId: server.serverId, key: 'max_file_size_mb');
-      if (val.isNotEmpty) currentMaxFileSize = int.tryParse(val);
-    } catch (_) {}
-
     String? currentIcon;
     try {
       final val = await crdt_api.getServerSetting(
@@ -356,7 +334,6 @@ Future<void> importServerTemplate(
       template: template,
       currentName: server.name,
       currentDescription: currentDesc,
-      currentMaxFileSizeMb: currentMaxFileSize,
       currentIcon: currentIcon,
       currentChannels: currentChannelInfos,
     );
@@ -403,7 +380,6 @@ TemplateDiff _computeDiff({
   required ServerTemplate template,
   required String currentName,
   required String currentDescription,
-  required int? currentMaxFileSizeMb,
   required String? currentIcon,
   required List<ChannelInfo> currentChannels,
 }) {
@@ -456,11 +432,6 @@ TemplateDiff _computeDiff({
     descriptionChange: template.description != currentDescription
         ? template.description
         : null,
-    maxFileSizeChange:
-        template.maxFileSizeMb != null &&
-                template.maxFileSizeMb != currentMaxFileSizeMb
-            ? template.maxFileSizeMb
-            : null,
     iconChanged: template.iconBase64Webp != null &&
         template.iconBase64Webp != currentIcon,
     channelsToAdd: toAdd,
@@ -501,13 +472,6 @@ Future<void> _applyTemplate(
         serverId: serverId,
         key: 'description',
         value: diff.descriptionChange!,
-      ));
-    }
-    if (diff.maxFileSizeChange != null) {
-      settingsFutures.add(crdt_api.updateServerSetting(
-        serverId: serverId,
-        key: 'max_file_size_mb',
-        value: diff.maxFileSizeChange.toString(),
       ));
     }
     if (diff.iconChanged && template.iconBase64Webp != null) {
@@ -644,7 +608,6 @@ Future<bool?> _showConfirmationDialog(
               // Settings changes.
               if (diff.nameChange != null ||
                   diff.descriptionChange != null ||
-                  diff.maxFileSizeChange != null ||
                   diff.iconChanged) ...[
                 _sectionHeader(hollow, 'SETTINGS'),
                 const SizedBox(height: HollowSpacing.xs),
@@ -654,9 +617,6 @@ Future<bool?> _showConfirmationDialog(
                 if (diff.descriptionChange != null)
                   _changeRow(hollow, LucideIcons.alignLeft,
                       'Description will be updated'),
-                if (diff.maxFileSizeChange != null)
-                  _changeRow(hollow, LucideIcons.fileUp,
-                      'Max file size \u2192 ${diff.maxFileSizeChange} MB'),
                 if (diff.iconChanged)
                   _changeRow(
                       hollow, LucideIcons.image, 'Server icon will change'),

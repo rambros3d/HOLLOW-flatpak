@@ -544,31 +544,22 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   }
 
   /// Stages a file dropped from the OS via desktop_drop.
-  /// Enforces the same per-server file size limit as [_pickAndStageFile].
   Future<void> _handleDroppedFile(String path, String name, int sizeBytes) async {
     if (!mounted) return;
 
-    // Check file size against server limit (matches _pickAndStageFile logic).
-    try {
-      final maxMbStr = await crdt_api.getServerSetting(
-        serverId: widget.serverId,
-        key: 'max_file_size_mb',
-      );
-      final maxMb = int.tryParse(maxMbStr) ?? 34;
-      final maxBytes = maxMb * 1024 * 1024;
-      if (sizeBytes > maxBytes) {
-        if (mounted) {
-          final fileMb = (sizeBytes / (1024 * 1024)).toStringAsFixed(1);
-          HollowToast.show(
-            context,
-            'File too large (${fileMb}MB). Server limit is ${maxMb}MB.',
-            type: HollowToastType.error,
-            duration: const Duration(seconds: 4),
-          );
-        }
-        return;
+    const maxBytes = 34 * 1024 * 1024;
+    if (sizeBytes > maxBytes) {
+      if (mounted) {
+        final fileMb = (sizeBytes / (1024 * 1024)).toStringAsFixed(1);
+        HollowToast.show(
+          context,
+          'File too large (${fileMb}MB). Limit is 34 MB.',
+          type: HollowToastType.error,
+          duration: const Duration(seconds: 4),
+        );
       }
-    } catch (_) {}
+      return;
+    }
 
     if (!mounted) return;
     final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
@@ -590,28 +581,20 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
       final file = result.files.first;
       if (file.path == null) { _isPicking = false; return; }
 
-      // Check file size against server limit.
-      try {
-        final maxMbStr = await crdt_api.getServerSetting(
-          serverId: widget.serverId,
-          key: 'max_file_size_mb',
-        );
-        final maxMb = int.tryParse(maxMbStr) ?? 34;
-        final maxBytes = maxMb * 1024 * 1024;
-        if (file.size > maxBytes) {
-          if (mounted) {
-            final fileMb = (file.size / (1024 * 1024)).toStringAsFixed(1);
-            HollowToast.show(
-              context,
-              'File too large (${fileMb}MB). Server limit is ${maxMb}MB.',
-              type: HollowToastType.error,
-              duration: const Duration(seconds: 4),
-            );
-          }
-          _isPicking = false;
-          return;
+      const maxBytes = 34 * 1024 * 1024;
+      if (file.size > maxBytes) {
+        if (mounted) {
+          final fileMb = (file.size / (1024 * 1024)).toStringAsFixed(1);
+          HollowToast.show(
+            context,
+            'File too large (${fileMb}MB). Limit is 34 MB.',
+            type: HollowToastType.error,
+            duration: const Duration(seconds: 4),
+          );
         }
-      } catch (_) {}
+        _isPicking = false;
+        return;
+      }
 
       final ext = file.name.contains('.')
           ? file.name.split('.').last.toLowerCase()
@@ -635,29 +618,21 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
       return;
     }
     final size = await file.length();
-    // Enforce per-server file size limit.
-    try {
-      final maxMbStr = await crdt_api.getServerSetting(
-        serverId: widget.serverId,
-        key: 'max_file_size_mb',
-      );
-      final maxMb = int.tryParse(maxMbStr) ?? 34;
-      final maxBytes = maxMb * 1024 * 1024;
-      if (size > maxBytes) {
-        if (mounted) {
-          final fileMb = (size / (1024 * 1024)).toStringAsFixed(1);
-          HollowToast.show(
-            context,
-            'Voice message too large (${fileMb}MB). Server limit is ${maxMb}MB.',
-            type: HollowToastType.error,
-            duration: const Duration(seconds: 4),
-          );
-        }
-        try { await file.delete(); } catch (_) {}
-        setState(() => _isRecordingVoice = false);
-        return;
+    const maxBytes = 34 * 1024 * 1024;
+    if (size > maxBytes) {
+      if (mounted) {
+        final fileMb = (size / (1024 * 1024)).toStringAsFixed(1);
+        HollowToast.show(
+          context,
+          'Voice message too large (${fileMb}MB). Limit is 34 MB.',
+          type: HollowToastType.error,
+          duration: const Duration(seconds: 4),
+        );
       }
-    } catch (_) {}
+      try { await file.delete(); } catch (_) {}
+      setState(() => _isRecordingVoice = false);
+      return;
+    }
 
     setState(() {
       _isRecordingVoice = false;

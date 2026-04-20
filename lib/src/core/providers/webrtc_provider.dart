@@ -4,6 +4,8 @@ import 'package:hollow/src/core/providers/file_transfer_provider.dart';
 import 'package:hollow/src/core/providers/ice_config_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/services/webrtc_service.dart';
+import 'package:hollow/src/ui/app.dart' show hollowNavigatorKey;
+import 'package:hollow/src/ui/components/hollow_toast.dart';
 
 /// Per-peer WebRTC connection status.
 enum WebRtcPeerStatus { connecting, connected, failed }
@@ -68,6 +70,19 @@ class WebRtcNotifier extends Notifier<WebRtcState> {
         ensureConnection(peerId);
       });
     };
+
+    _service!.onShareConnectionFailed = (peerId) {
+      final short = peerId.length > 12 ? '${peerId.substring(0, 12)}...' : peerId;
+      debugPrint('[HOLLOW-SHARE] STUN-only connection failed to $peerId — peer unreachable without TURN');
+      final ctx = hollowNavigatorKey.currentContext;
+      if (ctx != null) {
+        HollowToast.show(
+          ctx,
+          'Share: peer $short unreachable (strict NAT)',
+          type: HollowToastType.error,
+        );
+      }
+    };
   }
 
   /// Handle incoming signaling message from Rust event.
@@ -93,13 +108,14 @@ class WebRtcNotifier extends Notifier<WebRtcState> {
   }
 
   /// Proactively establish WebRTC connection to a peer.
-  Future<void> ensureConnection(String peerId) async {
+  /// Pass [iceConfigOverride] for STUN-only connections (e.g. Share).
+  Future<void> ensureConnection(String peerId, {Map<String, dynamic>? iceConfigOverride}) async {
     final s = service;
     if (s.hasPeerChannel(peerId)) return;
     final peers = Map<String, WebRtcPeerStatus>.from(state.peers);
     peers[peerId] = WebRtcPeerStatus.connecting;
     state = state.copyWith(peers: peers);
-    await s.connectToPeer(peerId);
+    await s.connectToPeer(peerId, iceConfigOverride: iceConfigOverride);
   }
 
   /// Mark peer as connected (called when data channel opens).

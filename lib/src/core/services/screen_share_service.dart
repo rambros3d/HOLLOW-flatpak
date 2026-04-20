@@ -389,6 +389,42 @@ class ScreenShareService {
       switch (state) {
         case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
           onConnected?.call();
+          final screenPc = _pc;
+          if (screenPc != null) {
+            Future.delayed(const Duration(seconds: 1), () async {
+              try {
+                final stats = await screenPc.getStats();
+                for (final report in stats) {
+                  if (report.type == 'candidate-pair' && report.values['state'] == 'succeeded') {
+                    final localId = report.values['localCandidateId'] as String?;
+                    final remoteId = report.values['remoteCandidateId'] as String?;
+                    String localType = '?', remoteType = '?', proto = '';
+                    for (final r in stats) {
+                      if (r.type == 'local-candidate' && r.id == localId) {
+                        localType = (r.values['candidateType'] as String?) ?? '?';
+                        proto = (r.values['protocol'] as String?) ?? '';
+                      }
+                      if (r.type == 'remote-candidate' && r.id == remoteId) {
+                        remoteType = (r.values['candidateType'] as String?) ?? '?';
+                      }
+                    }
+                    final route = localType == 'relay' || remoteType == 'relay'
+                        ? 'TURN (relayed)'
+                        : localType == 'srflx' || remoteType == 'srflx'
+                            ? 'STUN (direct P2P)'
+                            : localType == 'host' && remoteType == 'host'
+                                ? 'LAN (direct)'
+                                : 'P2P ($localType/$remoteType)';
+                    _log('[HOLLOW-SCREEN] ICE route: $route (local=$localType remote=$remoteType proto=$proto)');
+                    return;
+                  }
+                }
+                _log('[HOLLOW-SCREEN] ICE route: no succeeded candidate pair found');
+              } catch (e) {
+                _log('[HOLLOW-SCREEN] ICE route check failed: $e');
+              }
+            });
+          }
         case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
         case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
         case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
