@@ -544,38 +544,38 @@ class _ArchivePovViewerState extends ConsumerState<_ArchivePovViewer> {
     final searchOpen = ref.watch(archiveMessageSearchOpenProvider);
 
     // Determine verification banner state.
-    final isFullyValid =
-        v.archiveSignatureValid && v.messagesWithInvalidSig == 0;
-    final hasWarning = v.messagesWithInvalidSig > 0;
-
-    final bannerColor = isFullyValid
-        ? hollow.accent
-        : hasWarning
-            ? Colors.amber.shade700
-            : hollow.error;
-
     final exportDate =
         DateTime.fromMillisecondsSinceEpoch(v.exportTimestamp);
     final dateStr =
         '${exportDate.year}-${exportDate.month.toString().padLeft(2, '0')}-${exportDate.day.toString().padLeft(2, '0')}';
+    final exporterName = displayNameFor(profiles, v.exporterPeerId);
 
-    final String bannerText;
-    if (isFullyValid) {
-      bannerText =
-          'Verified — ${v.messagesWithValidSig} messages signed by original senders, exported on $dateStr';
-    } else if (!v.archiveSignatureValid) {
-      bannerText =
-          'Archive signature invalid — this archive may have been tampered with';
-    } else {
-      bannerText =
-          'Warning — ${v.messagesWithInvalidSig} messages failed signature verification';
-    }
-
-    final bannerIcon = isFullyValid
+    // Archive-level signature (file integrity).
+    final archiveColor =
+        v.archiveSignatureValid ? hollow.accent : hollow.error;
+    final archiveIcon = v.archiveSignatureValid
         ? LucideIcons.shieldCheck
-        : hasWarning
-            ? LucideIcons.alertTriangle
-            : LucideIcons.shieldOff;
+        : LucideIcons.shieldOff;
+    final archiveText = v.archiveSignatureValid
+        ? 'Archive signed by $exporterName on $dateStr'
+        : 'Archive signature invalid — may have been tampered with';
+
+    // Per-message signatures.
+    final hasWarning = v.messagesWithInvalidSig > 0;
+    final msgColor = hasWarning ? Colors.amber.shade700 : hollow.accent;
+    final msgIcon = hasWarning
+        ? LucideIcons.alertTriangle
+        : LucideIcons.shieldCheck;
+    final String msgText;
+    if (hasWarning) {
+      msgText =
+          '${v.messagesWithInvalidSig} of ${v.messageCount} messages failed signature verification';
+    } else if (v.messagesWithValidSig > 0) {
+      msgText =
+          '${v.messagesWithValidSig} messages verified from original senders';
+    } else {
+      msgText = '${v.messageCount} messages (no signatures)';
+    }
 
     final isDm = data.archiveType == 'dm';
     final isServer = data.archiveType == 'server';
@@ -697,26 +697,49 @@ class _ArchivePovViewerState extends ConsumerState<_ArchivePovViewer> {
           padding: const EdgeInsets.symmetric(
               horizontal: HollowSpacing.lg, vertical: 10),
           decoration: BoxDecoration(
-            color: bannerColor.withValues(alpha: 0.08),
+            color: archiveColor.withValues(alpha: 0.08),
             border: Border(
                 bottom: BorderSide(
-                    color: bannerColor.withValues(alpha: 0.2))),
+                    color: hollow.border.withValues(alpha: 0.3))),
           ),
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(bannerIcon, size: 16, color: bannerColor),
-              const SizedBox(width: HollowSpacing.sm),
-              Expanded(
-                child: Text(
-                  bannerText,
-                  style: HollowTypography.caption.copyWith(
-                    color: bannerColor,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12,
+              Row(
+                children: [
+                  Icon(archiveIcon, size: 14, color: archiveColor),
+                  const SizedBox(width: HollowSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      archiveText,
+                      style: HollowTypography.caption.copyWith(
+                        color: archiveColor,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(msgIcon, size: 14, color: msgColor),
+                  const SizedBox(width: HollowSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      msgText,
+                      style: HollowTypography.caption.copyWith(
+                        color: msgColor,
+                        fontSize: 11,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

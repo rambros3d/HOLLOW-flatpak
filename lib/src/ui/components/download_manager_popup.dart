@@ -91,12 +91,8 @@ class _DownloadManagerOverlayState
     final hollow = HollowTheme.of(context);
     final entries = ref.watch(downloadManagerEntriesProvider);
     final allShares = ref.watch(shareTabProvider);
-    final dismissed = ref.watch(dismissedShareDownloadsProvider);
     final activeShareDownloads = downloadingShares(allShares);
-    final completedShareDownloads = seedingShares(allShares)
-        .where((s) => !dismissed.contains(s.rootHash))
-        .toList();
-    final shareItems = [...activeShareDownloads, ...completedShareDownloads];
+    final shareItems = activeShareDownloads;
 
     const cardWidth = 340.0;
     const maxHeight = 420.0;
@@ -195,10 +191,6 @@ class _DownloadManagerOverlayState
                               HollowPressable(
                                 onTap: () {
                                   ref.read(downloadManagerStateProvider.notifier).clearAll();
-                                  final allRoots = completedShareDownloads.map((s) => s.rootHash).toSet();
-                                  ref.read(dismissedShareDownloadsProvider.notifier).state = {
-                                    ...ref.read(dismissedShareDownloadsProvider), ...allRoots,
-                                  };
                                 },
                                 borderRadius:
                                     BorderRadius.circular(hollow.radiusSm),

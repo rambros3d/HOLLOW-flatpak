@@ -200,10 +200,15 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
         _messageKey.currentContext?.findRenderObject() as RenderBox?;
     if (renderBox == null) return;
 
+    final overlay = Overlay.of(context);
+    final overlayBox =
+        overlay.context.findRenderObject() as RenderBox?;
+    if (overlayBox == null) return;
+
     final size = renderBox.size;
-    final offset = renderBox.localToGlobal(Offset.zero);
+    final offset = renderBox.localToGlobal(Offset.zero, ancestor: overlayBox);
     final hollow = HollowTheme.of(context);
-    final screenWidth = MediaQuery.of(context).size.width;
+    final screenWidth = overlayBox.size.width;
 
     // --- Highlight overlay (exact match with message rect) ---
     _highlightEntry = OverlayEntry(
@@ -307,7 +312,6 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
       );
     }
 
-    final overlay = Overlay.of(context);
     overlay.insert(_highlightEntry!);
     if (_actionBarEntry != null) {
       overlay.insert(_actionBarEntry!);

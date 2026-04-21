@@ -246,9 +246,6 @@ final downloadManagerEntriesProvider =
   return entries;
 });
 
-/// Share downloads dismissed from the Downloads popup (session-only).
-final dismissedShareDownloadsProvider = StateProvider<Set<String>>((ref) => {});
-
 /// Badge count — active rebalances + share downloads show a dot on the icon.
 /// Saved files don't pulse the badge (they're passive history).
 final activeTransferCountProvider = Provider<int>((ref) {
