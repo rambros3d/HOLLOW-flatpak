@@ -122,3 +122,9 @@ final shareIceConfigProvider = Provider<Map<String, dynamic>>((ref) {
     ],
   };
 });
+
+/// ICE config for hidden Share connections (video streaming, large files).
+/// STUN-only — large file transfers through TURN would saturate relay bandwidth.
+final streamIceConfigProvider = Provider<Map<String, dynamic>>((ref) {
+  return ref.watch(shareIceConfigProvider);
+});

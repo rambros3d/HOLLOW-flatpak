@@ -18,6 +18,6 @@ pub(crate) mod ws_stream_transfer;
 mod swarm;
 pub(crate) mod ws_client;
 
-pub(crate) use types::{LinkPreviewRef, NetworkEvent, NodeCommand, VideoThumbRef};
+pub(crate) use types::{LinkPreviewRef, NetworkEvent, NodeCommand, ShareRef, VideoThumbRef};
 pub(crate) use crypto_handler::{message_signing_payload, verify_message_signature};
 pub(crate) use swarm::spawn_node;

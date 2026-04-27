@@ -702,10 +702,10 @@ async fn run_event_loop(
                     }
 
                     // -- File sharing (Phase 3.5) --
-                    NodeCommand::SendFile { peer_id, server_id, channel_id, file_path, message_id, message_text, vthumb, override_width, override_height } => {
+                    NodeCommand::SendFile { peer_id, server_id, channel_id, file_path, message_id, message_text, vthumb, override_width, override_height, share_ref } => {
                         file_handler::handle_send_file(
                             peer_id, server_id, channel_id, file_path, message_id, message_text,
-                            vthumb, override_width, override_height,
+                            vthumb, override_width, override_height, share_ref,
                             &event_tx, &server_states, &bundle_keypair, &pub_key_b64, &local_peer_str,
                             &mut olm, &crypto_store, &mut mls,
                             &ws_cmd_tx, &ws_room_peers, &webrtc_peers, &mut pending_webrtc_sends,
@@ -865,7 +865,12 @@ async fn run_event_loop(
                     // ── Hollow Share (Phase 7A) ──
                     NodeCommand::ShareCreate { source_path } => {
                         super::share_handler::handle_command_share_create(
-                            &mut share_registry, &bundle_keypair, &ws_cmd_tx, &event_tx, source_path,
+                            &mut share_registry, &bundle_keypair, &ws_cmd_tx, &event_tx, source_path, false,
+                        ).await;
+                    }
+                    NodeCommand::ShareCreateHidden { source_path } => {
+                        super::share_handler::handle_command_share_create(
+                            &mut share_registry, &bundle_keypair, &ws_cmd_tx, &event_tx, source_path, true,
                         ).await;
                     }
                     NodeCommand::ShareOpenLink { link } => {
@@ -873,9 +878,9 @@ async fn run_event_loop(
                             &mut share_registry, &bundle_keypair, &ws_cmd_tx, &event_tx, link,
                         ).await;
                     }
-                    NodeCommand::ShareStart { root_hash, save_dir, link } => {
+                    NodeCommand::ShareStart { root_hash, save_dir, link, sequential } => {
                         super::share_handler::handle_command_share_start(
-                            &mut share_registry, &bundle_keypair, &ws_cmd_tx, &event_tx, root_hash, save_dir, link,
+                            &mut share_registry, &bundle_keypair, &ws_cmd_tx, &event_tx, root_hash, save_dir, link, sequential,
                         ).await;
                     }
                     NodeCommand::ShareCancel { root_hash } => {
@@ -2873,6 +2878,7 @@ async fn handle_incoming_request(
                                         server_id: sid.clone(),
                                         channel_id: cid.clone(),
                                         video_thumb: fm.vthumb.clone(),
+                                        share_ref: None,
                                     }).await;
                                 }
 
@@ -3055,6 +3061,7 @@ async fn handle_incoming_request(
                                         server_id: String::new(),
                                         channel_id: peer_str.to_string(),
                                         video_thumb: fm.vthumb.clone(),
+                                        share_ref: None,
                                     }).await;
                                 }
 
@@ -3289,27 +3296,30 @@ async fn handle_incoming_request(
                     }
                 }
                 // -- File transfer receive handlers --
-                Ok(MessageEnvelope::FileHeader { fid, name, ext, mime, size, chunks, img, w, h, mid, sid, cid, ts, aes_key, aes_nonce, vthumb, .. }) => {
+                Ok(MessageEnvelope::FileHeader { fid, name, ext, mime, size, chunks, img, w, h, mid, sid, cid, ts, aes_key, aes_nonce, vthumb, share_ref, .. }) => {
                     use crate::node::file_transfer;
-                    hollow_log!("[HOLLOW-FILE] FileHeader received: {fid} ({name}, {size} bytes, {chunks} chunks)");
+                    hollow_log!("[HOLLOW-FILE] FileHeader received: {fid} ({name}, {size} bytes, {chunks} chunks, share_ref={})", share_ref.is_some());
 
                     // SECURITY: Validate file size against server limit (or default 34MB for DMs).
-                    let mut max_bytes: u64 = if let Some(ref s) = sid {
-                        if let Some(state) = server_states.get(s) {
-                            let max_mb_str = state.settings.get("max_file_size_mb")
-                                .map(|r| r.read().clone())
-                                .unwrap_or_else(|| "34".to_string());
-                            let max_mb = max_mb_str.parse::<u64>().unwrap_or(34);
-                            max_mb * 1024 * 1024
+                    // Skip for share-backed files — Share handles delivery with no size limit.
+                    if share_ref.is_none() {
+                        let max_bytes: u64 = if let Some(ref s) = sid {
+                            if let Some(state) = server_states.get(s) {
+                                let max_mb_str = state.settings.get("max_file_size_mb")
+                                    .map(|r| r.read().clone())
+                                    .unwrap_or_else(|| "34".to_string());
+                                let max_mb = max_mb_str.parse::<u64>().unwrap_or(34);
+                                max_mb * 1024 * 1024
+                            } else {
+                                34 * 1024 * 1024
+                            }
                         } else {
                             34 * 1024 * 1024
+                        };
+                        if size > max_bytes {
+                            hollow_log!("[HOLLOW-SECURITY] REJECTED FileHeader from {peer_str} — size {size} exceeds max {max_bytes} bytes");
+                            return;
                         }
-                    } else {
-                        34 * 1024 * 1024
-                    };
-                    if size > max_bytes {
-                        hollow_log!("[HOLLOW-SECURITY] REJECTED FileHeader from {peer_str} — size {size} exceeds max {max_bytes} bytes");
-                        return;
                     }
 
                     let ctx_type = if sid.is_some() { "channel" } else { "dm" };
@@ -3339,8 +3349,9 @@ async fn handle_incoming_request(
                     let sid_str = sid.unwrap_or_default();
                     let cid_str = cid.unwrap_or_else(|| peer_str.to_string());
 
-                    // If aes_key is present, this is a streamed transfer — register for stream receive.
-                    if let (Some(ak), Some(an)) = (aes_key, aes_nonce) {
+                    // If aes_key is present and no share_ref, this is a streamed transfer — register for stream receive.
+                    // Share-backed files skip this — Share handles delivery, no P2P binary data.
+                    if share_ref.is_none() && let (Some(ak), Some(an)) = (aes_key, aes_nonce) {
                         pending_file_streams.insert(fid.clone(), PendingFileStream {
                             aes_key: ak,
                             aes_nonce: an,
@@ -3387,6 +3398,7 @@ async fn handle_incoming_request(
                         server_id: sid_str,
                         channel_id: cid_str,
                         video_thumb: vthumb,
+                        share_ref,
                     }).await;
                 }
                 Ok(MessageEnvelope::FileChunk { fid, idx, data }) => {
@@ -5143,13 +5155,13 @@ async fn handle_incoming_request(
                                     mid, emoji, ts, sig, pk, sid, cid,
                                 ).await;
                             }
-                            MessageEnvelope::FileHeader { fid, name, ext, mime, size, chunks, img, w, h, mid, sid, cid, ts, aes_key, aes_nonce, vthumb, .. } => {
+                            MessageEnvelope::FileHeader { fid, name, ext, mime, size, chunks, img, w, h, mid, sid, cid, ts, aes_key, aes_nonce, vthumb, share_ref, .. } => {
                                 file_handler::handle_envelope_file_header(
                                     server_states, pending_file_streams, pending_shard_streams,
                                     early_file_streams, bundle_keypair, event_tx,
                                     &server_id, sender_peer_id,
                                     fid, name, ext, mime, size, chunks, img, w, h,
-                                    mid, sid, cid, ts, aes_key, aes_nonce, vthumb,
+                                    mid, sid, cid, ts, aes_key, aes_nonce, vthumb, share_ref,
                                 ).await;
                             }
                             MessageEnvelope::FileChunk { fid, idx, data } => {
@@ -5987,6 +5999,7 @@ async fn handle_incoming_request(
                                             aes_nonce: Some(hex::encode(enc.nonce)),
                                             target: None,
                                             vthumb: file_meta.video_thumb.clone(),
+                                            share_ref: None,
                                         };
                                         // Send FileHeader via MLS (targeted) if possible, Olm fallback.
                                             let ctx_sid = file_meta.context_id.split(':').next().unwrap_or("").to_string();

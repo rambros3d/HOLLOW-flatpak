@@ -54,13 +54,15 @@ pub fn share_open_link(link: String) -> Result<(), String> {
 }
 
 /// Begin downloading after ShareManifestReady.
+/// When `sequential` is true, chunks are fetched in order (0, 1, 2, ...)
+/// instead of rarest-first. Used for progressive video streaming.
 #[frb]
-pub fn share_start_download(root_hash: String, save_dir: String, link: String) -> Result<(), String> {
+pub fn share_start_download(root_hash: String, save_dir: String, link: String, sequential: bool) -> Result<(), String> {
     let node = get_node();
     let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
     let state = guard.as_ref().ok_or("Node is not running")?;
     let rt = get_runtime();
-    rt.block_on(state.cmd_tx.send(node::NodeCommand::ShareStart { root_hash, save_dir, link }))
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::ShareStart { root_hash, save_dir, link, sequential }))
         .map_err(|e| format!("Failed to send command: {e}"))?;
     Ok(())
 }
@@ -100,6 +102,36 @@ pub fn share_remove(root_hash: String, delete_file: bool) -> Result<(), String> 
     let rt = get_runtime();
     rt.block_on(state.cmd_tx.send(node::NodeCommand::ShareRemove { root_hash, delete_file }))
         .map_err(|e| format!("Failed to send command: {e}"))?;
+    Ok(())
+}
+
+/// Start a hidden Share download from raw root_hash + key (no link URL parsing).
+/// Used by the receiver when a FileHeader carries a ShareRef.
+/// Joins the swarm room, fetches manifest, and starts sequential download.
+#[frb]
+pub fn share_start_from_ref(root_hash: String, key_hex: String, save_dir: String, sequential: bool) -> Result<(), String> {
+    let key_bytes = hex::decode(&key_hex)
+        .map_err(|e| format!("Invalid key hex: {e}"))?;
+    if key_bytes.len() != 32 {
+        return Err(format!("Key must be 32 bytes, got {}", key_bytes.len()));
+    }
+    let mut root = [0u8; 32];
+    let root_bytes = hex::decode(&root_hash)
+        .map_err(|e| format!("Invalid root_hash hex: {e}"))?;
+    if root_bytes.len() != 32 {
+        return Err(format!("Root hash must be 32 bytes, got {}", root_bytes.len()));
+    }
+    root.copy_from_slice(&root_bytes);
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&key_bytes);
+
+    let link = node::share_handler::encode_link(&root, &key);
+    let node_lock = get_node();
+    let guard = node_lock.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+    let rt = get_runtime();
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::ShareOpenLink { link: link.clone() }))
+        .map_err(|e| format!("Failed to send open command: {e}"))?;
     Ok(())
 }
 

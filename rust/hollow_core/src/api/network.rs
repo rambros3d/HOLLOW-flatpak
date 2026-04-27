@@ -188,6 +188,9 @@ pub enum NetworkEvent {
         /// Video thumbnail back-reference (Phase 6.75 video preview).
         /// Present when the received FileHeader is a thumbnail for a vault video.
         video_thumb: Option<VideoThumbRef>,
+        /// Hidden Share back-reference for large files / progressive video streaming.
+        share_root_hash: Option<String>,
+        share_key_hex: Option<String>,
     },
     FileProgress {
         file_id: String,
@@ -282,8 +285,9 @@ pub enum NetworkEvent {
     ShareFailed { root_hash: String, error: String },
     ShareSeedingChanged { root_hash: String, seeding: bool, seeders: u8, leechers: u8, bytes_uploaded: u64 },
     ShareCreated { root_hash: String, link: String, file_name: String, total_size: u64 },
+    ShareCreatedHidden { root_hash: String, key_hex: String, file_name: String, total_size: u64 },
     ShareList { entries: Vec<ShareEntry> },
-    ShareNeedWebRtc { peer_id: String },
+    ShareNeedWebRtc { peer_id: String, hidden: bool },
     // -- License key events --
     LicenseError { reason: String },
 }
@@ -622,11 +626,13 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
             NetworkEvent::MessageUnpinned { server_id, channel_id, message_id }
         }
         // -- File transfer events --
-        node::NetworkEvent::FileHeaderReceived { file_id, file_name, size_bytes, is_image, width, height, message_id, sender_id, server_id, channel_id, video_thumb } => {
+        node::NetworkEvent::FileHeaderReceived { file_id, file_name, size_bytes, is_image, width, height, message_id, sender_id, server_id, channel_id, video_thumb, share_ref } => {
             NetworkEvent::FileHeaderReceived {
                 file_id, file_name, size_bytes, is_image, width, height,
                 message_id, sender_id, server_id, channel_id,
                 video_thumb: video_thumb.map(VideoThumbRef::from),
+                share_root_hash: share_ref.as_ref().map(|r| r.root_hash.clone()),
+                share_key_hex: share_ref.map(|r| r.key),
             }
         }
         node::NetworkEvent::FileProgress { file_id, chunks_received, total_chunks } => {
@@ -797,8 +803,11 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
                 }).collect(),
             }
         }
-        node::NetworkEvent::ShareNeedWebRtc { peer_id } => {
-            NetworkEvent::ShareNeedWebRtc { peer_id }
+        node::NetworkEvent::ShareNeedWebRtc { peer_id, hidden } => {
+            NetworkEvent::ShareNeedWebRtc { peer_id, hidden }
+        }
+        node::NetworkEvent::ShareCreatedHidden { root_hash, key_hex, file_name, total_size } => {
+            NetworkEvent::ShareCreatedHidden { root_hash, key_hex, file_name, total_size }
         }
         node::NetworkEvent::LicenseError { reason } => {
             NetworkEvent::LicenseError { reason }
@@ -1508,12 +1517,21 @@ pub fn send_file(
     vthumb: Option<VideoThumbRef>,
     override_width: Option<u32>,
     override_height: Option<u32>,
+    share_root_hash: Option<String>,
+    share_key_hex: Option<String>,
 ) -> Result<(), String> {
     let node = get_node();
     let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
     let state = guard.as_ref().ok_or("Node is not running")?;
 
     let peer = peer_id.filter(|id| !id.is_empty());
+
+    let share_ref = match (share_root_hash, share_key_hex) {
+        (Some(rh), Some(k)) if !rh.is_empty() && !k.is_empty() => {
+            Some(node::ShareRef { root_hash: rh, key: k })
+        }
+        _ => None,
+    };
 
     let rt = get_runtime();
     rt.block_on(
@@ -1529,6 +1547,7 @@ pub fn send_file(
                 vthumb: vthumb.map(node::VideoThumbRef::from),
                 override_width,
                 override_height,
+                share_ref,
             }),
     )
     .map_err(|e| format!("Failed to send command: {e}"))?;

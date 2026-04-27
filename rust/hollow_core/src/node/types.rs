@@ -110,6 +110,8 @@ pub(crate) enum NetworkEvent {
         /// Video thumbnail back-reference (Phase 6.75 video preview).
         /// Present when the received FileHeader is a thumbnail for a vault video.
         video_thumb: Option<VideoThumbRef>,
+        /// Hidden Share back-reference for large files / progressive video streaming.
+        share_ref: Option<ShareRef>,
     },
     FileProgress {
         file_id: String,
@@ -215,10 +217,14 @@ pub(crate) enum NetworkEvent {
     ShareSeedingChanged { root_hash: String, seeding: bool, seeders: u8, leechers: u8, bytes_uploaded: u64 },
     /// share_create_from_file finished; link is ready to share.
     ShareCreated { root_hash: String, link: String, file_name: String, total_size: u64 },
+    /// Hidden share created for large file / video streaming. Contains root_hash + key
+    /// needed to build a ShareRef for the FileHeader.
+    ShareCreatedHidden { root_hash: String, key_hex: String, file_name: String, total_size: u64 },
     /// Result of share_list (returned via stream so it stays uniform with other queries).
     ShareList { entries: Vec<ShareEntryRef> },
     /// A share peer needs a WebRTC connection — Dart should call ensureConnection.
-    ShareNeedWebRtc { peer_id: String },
+    /// `hidden` indicates this is a hidden share (use TURN-enabled ICE config).
+    ShareNeedWebRtc { peer_id: String, hidden: bool },
     // -- License key events --
     LicenseError { reason: String },
 }
@@ -306,6 +312,9 @@ pub(crate) enum NodeCommand {
         /// Ignored for image files (Rust extracts those dimensions itself).
         override_width: Option<u32>,
         override_height: Option<u32>,
+        /// When set, file bytes are delivered via Share infrastructure — the
+        /// FileHeader carries this ref and no binary data follows.
+        share_ref: Option<ShareRef>,
     },
     RequestFile {
         file_id: String,
@@ -385,11 +394,15 @@ pub(crate) enum NodeCommand {
     /// Build a ShareManifest from a local file, persist it, generate the link, start auto-seeding.
     /// Emits ShareCreated on success.
     ShareCreate { source_path: String },
+    /// Create a hidden Share (not shown in Share tab) for large file / video streaming.
+    /// Emits ShareCreatedHidden on success.
+    ShareCreateHidden { source_path: String },
     /// Decode a hollow://share/ link, join the swarm room, fetch the manifest from any peer.
     /// Emits ShareManifestReady or ShareFailed.
     ShareOpenLink { link: String },
     /// After ShareManifestReady, begin downloading chunks into save_dir.
-    ShareStart { root_hash: String, save_dir: String, link: String },
+    /// When `sequential` is true, chunks are fetched in order (for video streaming).
+    ShareStart { root_hash: String, save_dir: String, link: String, sequential: bool },
     /// Stop an in-flight download (keeps partial file + bitmap for resume).
     ShareCancel { root_hash: String },
     /// Toggle seeding for a completed share (joins/leaves the swarm room).
@@ -1119,6 +1132,12 @@ pub(crate) enum MessageEnvelope {
         /// Old clients lacking this field deserialize it as None.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         vthumb: Option<VideoThumbRef>,
+        /// Hidden Share back-reference for large files / video streaming.
+        /// When present, file bytes are delivered via Share P2P infrastructure
+        /// instead of a direct binary stream. Receiver joins the share swarm
+        /// using root_hash + key to download chunks.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        share_ref: Option<ShareRef>,
     },
 
     /// A single file chunk (base64-encoded data).
@@ -1697,6 +1716,21 @@ pub struct VideoThumbRef {
     /// Video duration in milliseconds.
     #[serde(default)]
     pub dur_ms: u32,
+}
+
+/// Back-reference to a hidden Share that provides chunked P2P delivery for
+/// large files (>34 MB) or progressive video streaming. Embedded in
+/// `MessageEnvelope::FileHeader` so the receiver can join the share swarm
+/// and download via the Share infrastructure instead of waiting for a
+/// direct P2P binary stream.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShareRef {
+    /// Root hash of the share manifest (hex, 64 chars).
+    #[serde(default)]
+    pub root_hash: String,
+    /// AES-256-GCM encryption key for the share chunks (hex, 64 chars).
+    #[serde(default)]
+    pub key: String,
 }
 
 /// A link preview for a URL embedded in a message.

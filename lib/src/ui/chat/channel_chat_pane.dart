@@ -562,21 +562,6 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   /// Stages a file dropped from the OS via desktop_drop.
   Future<void> _handleDroppedFile(String path, String name, int sizeBytes) async {
     if (!mounted) return;
-
-    const maxBytes = 34 * 1024 * 1024;
-    if (sizeBytes > maxBytes) {
-      if (mounted) {
-        final fileMb = (sizeBytes / (1024 * 1024)).toStringAsFixed(1);
-        HollowToast.show(
-          context,
-          'File too large (${fileMb}MB). Limit is 34 MB.',
-          type: HollowToastType.error,
-          duration: const Duration(seconds: 4),
-        );
-      }
-      return;
-    }
-
     if (!mounted) return;
     final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
     setState(() {
@@ -596,21 +581,6 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
       if (result == null || result.files.isEmpty) { _isPicking = false; return; }
       final file = result.files.first;
       if (file.path == null) { _isPicking = false; return; }
-
-      const maxBytes = 34 * 1024 * 1024;
-      if (file.size > maxBytes) {
-        if (mounted) {
-          final fileMb = (file.size / (1024 * 1024)).toStringAsFixed(1);
-          HollowToast.show(
-            context,
-            'File too large (${fileMb}MB). Limit is 34 MB.',
-            type: HollowToastType.error,
-            duration: const Duration(seconds: 4),
-          );
-        }
-        _isPicking = false;
-        return;
-      }
 
       final ext = file.name.contains('.')
           ? file.name.split('.').last.toLowerCase()

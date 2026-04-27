@@ -695,6 +695,16 @@ pub fn get_incomplete_files() -> Result<Vec<StoredFileInfo>, String> {
         .collect())
 }
 
+/// Mark a file as complete with its disk path (used for share-backed files).
+#[frb]
+pub fn mark_file_complete(file_id: String, disk_path: String) -> Result<(), String> {
+    let store = get_store();
+    let guard = store.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let ms = guard.as_ref().ok_or("Message store is not open")?;
+    ms.mark_file_complete(&file_id, &disk_path);
+    Ok(())
+}
+
 /// Get file_ids from messages that have no completed file on disk.
 /// Used to find files that need downloading after message sync.
 #[frb]

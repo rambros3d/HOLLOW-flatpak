@@ -264,7 +264,7 @@ class _PasteLinkDialogState extends ConsumerState<PasteLinkDialog> {
     if (_rootHash == null) return;
     final saveDir = ref.read(shareDownloadPathProvider).valueOrNull ?? '';
     ref.read(shareTabProvider.notifier).startDownload(_rootHash!, _shareLink ?? '');
-    await share_api.shareStartDownload(rootHash: _rootHash!, saveDir: saveDir, link: _shareLink ?? '');
+    await share_api.shareStartDownload(rootHash: _rootHash!, saveDir: saveDir, link: _shareLink ?? '', sequential: false);
     if (mounted) Navigator.pop(context);
   }
 

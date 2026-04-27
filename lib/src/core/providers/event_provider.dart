@@ -39,6 +39,7 @@ import 'package:hollow/src/ui/app.dart' show hollowNavigatorKey;
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:hollow/src/rust/api/network.dart';
+import 'package:hollow/src/rust/api/share.dart' as share_api;
 import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 
 /// Listens to the Rust event stream and dispatches events
@@ -46,6 +47,13 @@ import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 class EventStreamNotifier extends Notifier<bool> {
   StreamSubscription<NetworkEvent>? _subscription;
   final Map<String, Timer> _syncTimeouts = {};
+
+  /// Tracks shares initiated by share_ref (auto-download on manifest ready).
+  /// Key: rootHash, Value: {sequential, link, fileId}
+  final Map<String, ({bool sequential, String link, String fileId})> _pendingAutoDownloads = {};
+
+  /// Maps share rootHash → file ID for bridging Share events to file transfer state.
+  final Map<String, String> _shareToFileId = {};
 
   @override
   bool build() => false; // streaming?
@@ -572,8 +580,9 @@ class EventStreamNotifier extends Notifier<bool> {
             :final isImage, :final width, :final height,
             messageId: _, senderId: _,
             :final serverId, channelId: _,
-            :final videoThumb):
-        debugPrint('[HOLLOW] File header: $fileId ($fileName, $sizeBytes bytes)');
+            :final videoThumb,
+            :final shareRootHash, :final shareKeyHex):
+        debugPrint('[HOLLOW] File header: $fileId ($fileName, $sizeBytes bytes)${shareRootHash != null ? ' [share-backed]' : ''}');
         // In erasure coding mode (6+ members), file data comes via vault shards,
         // not P2P streaming — so don't mark as "downloading".
         final isVaultMode = serverId != null &&
@@ -588,9 +597,36 @@ class EventStreamNotifier extends Notifier<bool> {
               isVaultMode: isVaultMode,
               videoThumb: videoThumb,
             );
-        // Reload chat so the message gets its fileAttachment from DB
-        // (replacing the raw [file:xxx] text with the file card).
         _reloadChatForFile(fileId);
+
+        if (shareRootHash != null && shareKeyHex != null) {
+          const autoDownloadThreshold = 169 * 1024 * 1024; // 169 MB
+          final autoDownload = sizeBytes.toInt() <= autoDownloadThreshold;
+          final isVideo = const {'mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v'}
+              .contains(fileName.split('.').last.toLowerCase());
+
+          _shareToFileId[shareRootHash] = fileId;
+
+          if (autoDownload) {
+            debugPrint('[HOLLOW] Share-backed file <169 MB — auto-downloading $fileId');
+            _pendingAutoDownloads[shareRootHash] = (
+              sequential: isVideo,
+              link: 'hollow://share/$shareRootHash',
+              fileId: fileId,
+            );
+            share_api.shareStartFromRef(
+              rootHash: shareRootHash,
+              keyHex: shareKeyHex,
+              saveDir: '',
+              sequential: isVideo,
+            ).catchError((e) {
+              debugPrint('[HOLLOW] Failed to initiate share: $e');
+              _pendingAutoDownloads.remove(shareRootHash);
+            });
+          } else {
+            debugPrint('[HOLLOW] Share-backed file >169 MB — manual download required for $fileId');
+          }
+        }
 
       case NetworkEvent_FileProgress(
             :final fileId, :final chunksReceived, :final totalChunks):
@@ -833,13 +869,44 @@ class EventStreamNotifier extends Notifier<bool> {
             :final rootHash, :final fileName, :final totalSize, :final chunkCount):
         debugPrint('[HOLLOW-SHARE] manifest ready: $fileName ($totalSize bytes, $chunkCount chunks) root=$rootHash');
         ref.read(shareTabProvider.notifier).handleShareManifestReady(rootHash, fileName, totalSize.toInt(), chunkCount);
+
+        // Auto-start download if this was triggered by a share_ref (hidden share).
+        final pending = _pendingAutoDownloads.remove(rootHash);
+        if (pending != null) {
+          debugPrint('[HOLLOW-SHARE] Auto-starting download for share-backed file $rootHash');
+          share_api.shareStartDownload(
+            rootHash: rootHash,
+            saveDir: '',
+            link: pending.link,
+            sequential: pending.sequential,
+          ).catchError((e) {
+            debugPrint('[HOLLOW] Auto-download failed: $e');
+          });
+        }
       case NetworkEvent_ShareProgress(
             :final rootHash, :final chunksHave, :final chunksTotal, :final seeders, :final leechers, :final bytesPerSec):
         debugPrint('[HOLLOW-SHARE] progress $rootHash: $chunksHave/$chunksTotal chunks, $seeders seeders, $leechers leechers, $bytesPerSec B/s');
         ref.read(shareTabProvider.notifier).handleShareProgress(rootHash, chunksHave, chunksTotal, seeders, leechers, bytesPerSec.toInt());
+        // Bridge to file transfer state for share-backed files.
+        final progressFileId = _shareToFileId[rootHash];
+        if (progressFileId != null) {
+          ref.read(fileTransferProvider.notifier).onFileProgress(
+            progressFileId, chunksHave, chunksTotal,
+          );
+        }
       case NetworkEvent_ShareCompleted(:final rootHash, :final diskPath):
         debugPrint('[HOLLOW-SHARE] completed $rootHash → $diskPath');
         ref.read(shareTabProvider.notifier).handleShareCompleted(rootHash, diskPath);
+        // Bridge to file transfer state for share-backed files.
+        final completedFileId = _shareToFileId.remove(rootHash);
+        if (completedFileId != null) {
+          debugPrint('[HOLLOW-SHARE] Bridging share completion to file $completedFileId → $diskPath');
+          storage_api.markFileComplete(fileId: completedFileId, diskPath: diskPath).catchError((e) {
+            debugPrint('[HOLLOW] markFileComplete failed: $e');
+          });
+          ref.read(fileTransferProvider.notifier).onFileCompleted(completedFileId, diskPath);
+          _reloadChatForFile(completedFileId);
+        }
       case NetworkEvent_ShareFailed(:final rootHash, :final error):
         debugPrint('[HOLLOW-SHARE] failed $rootHash: $error');
         ref.read(shareTabProvider.notifier).handleShareFailed(rootHash, error);
@@ -851,13 +918,19 @@ class EventStreamNotifier extends Notifier<bool> {
             :final rootHash, :final link, :final fileName, :final totalSize):
         debugPrint('[HOLLOW-SHARE] created $fileName ($totalSize bytes) root=$rootHash link=$link');
         ref.read(shareTabProvider.notifier).handleShareCreated(rootHash, link, fileName, totalSize.toInt());
+        ref.read(fileTransferProvider.notifier).onShareCreatedForFile(link, fileName, rootHash);
+      case NetworkEvent_ShareCreatedHidden(
+            :final rootHash, :final keyHex, :final fileName, :final totalSize):
+        debugPrint('[HOLLOW-SHARE] hidden share created $fileName ($totalSize bytes) root=$rootHash key=${keyHex.substring(0, 8)}...');
       case NetworkEvent_ShareList(:final entries):
         debugPrint('[HOLLOW-SHARE] list: ${entries.length} entries');
         ref.read(shareTabProvider.notifier).handleShareList(entries);
-      case NetworkEvent_ShareNeedWebRtc(:final peerId):
+      case NetworkEvent_ShareNeedWebRtc(:final peerId, :final hidden):
         ref.read(webRtcProvider.notifier).ensureConnection(
           peerId,
-          iceConfigOverride: ref.read(shareIceConfigProvider),
+          iceConfigOverride: hidden
+              ? ref.read(streamIceConfigProvider)
+              : ref.read(shareIceConfigProvider),
         );
 
       case NetworkEvent_LicenseError(:final reason):

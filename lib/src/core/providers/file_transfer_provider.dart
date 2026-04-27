@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:hollow/src/rust/api/network.dart' as network_api;
+import 'package:hollow/src/rust/api/share.dart' as share_api;
 import 'package:path/path.dart' as p;
 
 import '../services/video_thumbnail_service.dart';
@@ -87,11 +89,36 @@ class FileTransferState {
   }
 }
 
+/// Context for a pending share-backed file send. Stored until ShareCreated
+/// fires, then the FileHeader is sent with share_ref.
+class _PendingShareSend {
+  final String serverId;
+  final String channelId;
+  final String messageText;
+  final String fileName;
+  final String messageId;
+  final String filePath;
+  final bool isVideo;
+  final VideoThumbnailResult? videoThumb;
+  _PendingShareSend({
+    required this.serverId,
+    required this.channelId,
+    required this.messageText,
+    required this.fileName,
+    required this.messageId,
+    required this.filePath,
+    required this.isVideo,
+    this.videoThumb,
+  });
+}
+
 /// Tracks active file transfers.
 class FileTransferNotifier
     extends Notifier<Map<String, FileTransferState>> {
   @override
   Map<String, FileTransferState> build() => {};
+
+  final Map<String, _PendingShareSend> _pendingShareSends = {};
 
   /// Video file extensions handled by the Phase 6.75 video preview path.
   static const _videoExtensions = {
@@ -148,10 +175,27 @@ class FileTransferNotifier
     }
 
     try {
+      // Large channel files (>34 MB): create a hidden Share for chunked P2P delivery,
+      // then send the FileHeader with share_ref so receivers download via Share.
+      final fileSize = File(filePath).lengthSync();
+      const maxDirectSize = 34 * 1024 * 1024;
+      if (fileSize > maxDirectSize && serverId != null && channelId != null) {
+        debugPrint('[HOLLOW] File >34 MB ($fileSize bytes) — creating hidden Share');
+        _pendingShareSends[filePath] = _PendingShareSend(
+          serverId: serverId,
+          channelId: channelId,
+          messageText: messageText,
+          fileName: fileName,
+          messageId: messageId,
+          filePath: filePath,
+          isVideo: isVideo,
+          videoThumb: videoThumb,
+        );
+        await share_api.shareCreateFromFile(sourcePath: filePath);
+        return;
+      }
+
       if (isVideo && isVaultMode) {
-        // Vault video path: extract WebP thumbnail, vault-upload the video,
-        // then send the thumbnail via the image P2P path with the vthumb link.
-        // See HOLLOW_PLAN.md Phase 6.75 "Video preview in chats".
         await _sendVaultVideo(
           serverId: serverId,
           channelId: channelId,
@@ -353,6 +397,46 @@ class FileTransferNotifier
         await tempDir.delete(recursive: true);
       } catch (_) {}
     }
+  }
+
+  /// Called when a ShareCreated event fires — if this share was triggered by a
+  /// large file send, send the FileHeader with share_ref via the normal file path.
+  void onShareCreatedForFile(String link, String fileName, String rootHash) {
+    final matchKey = _pendingShareSends.keys.cast<String?>().firstWhere(
+          (k) => k != null && k.endsWith(fileName),
+          orElse: () => null,
+        );
+    if (matchKey == null) return;
+    final ctx = _pendingShareSends.remove(matchKey)!;
+    debugPrint('[HOLLOW] Share ready for large file — sending FileHeader with share_ref');
+
+    final info = share_api.shareDecodeLink(link: link);
+    info.then((decoded) async {
+      final keyHex = _extractKeyHexFromLink(link);
+      await network_api.sendFile(
+        peerId: null,
+        serverId: ctx.serverId,
+        channelId: ctx.channelId,
+        filePath: ctx.filePath,
+        messageId: ctx.messageId,
+        messageText: ctx.messageText,
+        vthumb: null,
+        overrideWidth: ctx.videoThumb?.sourceWidth,
+        overrideHeight: ctx.videoThumb?.sourceHeight,
+        shareRootHash: decoded.rootHash,
+        shareKeyHex: keyHex,
+      );
+    }).catchError((e) {
+      debugPrint('[HOLLOW] Failed to send share-backed file: $e');
+    });
+  }
+
+  String _extractKeyHexFromLink(String link) {
+    final payload = link.replaceFirst('hollow://share/', '');
+    final bytes = base64Url.decode(base64Url.normalize(payload));
+    if (bytes.length != 65) return '';
+    final keyBytes = bytes.sublist(33, 65);
+    return keyBytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
   /// Handle FileHeaderReceived event.

@@ -1817,6 +1817,7 @@ pub(crate) async fn handle_envelope_channel_sync_batch(
                     sender_id: fm.sender.clone(),
                     server_id: sid.clone(), channel_id: cid.clone(),
                     video_thumb: fm.vthumb.clone(),
+                    share_ref: None,
                 }).await;
             }
             if let Some(mid) = &msg.mid {

@@ -300,6 +300,8 @@ Future<void> sendFile({
   VideoThumbRef? vthumb,
   int? overrideWidth,
   int? overrideHeight,
+  String? shareRootHash,
+  String? shareKeyHex,
 }) => RustLib.instance.api.crateApiNetworkSendFile(
   peerId: peerId,
   serverId: serverId,
@@ -310,6 +312,8 @@ Future<void> sendFile({
   vthumb: vthumb,
   overrideWidth: overrideWidth,
   overrideHeight: overrideHeight,
+  shareRootHash: shareRootHash,
+  shareKeyHex: shareKeyHex,
 );
 
 /// Request file chunks from a specific peer.
@@ -803,6 +807,10 @@ sealed class NetworkEvent with _$NetworkEvent {
     /// Video thumbnail back-reference (Phase 6.75 video preview).
     /// Present when the received FileHeader is a thumbnail for a vault video.
     VideoThumbRef? videoThumb,
+
+    /// Hidden Share back-reference for large files / progressive video streaming.
+    String? shareRootHash,
+    String? shareKeyHex,
   }) = NetworkEvent_FileHeaderReceived;
   const factory NetworkEvent.fileProgress({
     required String fileId,
@@ -1053,10 +1061,18 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String fileName,
     required BigInt totalSize,
   }) = NetworkEvent_ShareCreated;
+  const factory NetworkEvent.shareCreatedHidden({
+    required String rootHash,
+    required String keyHex,
+    required String fileName,
+    required BigInt totalSize,
+  }) = NetworkEvent_ShareCreatedHidden;
   const factory NetworkEvent.shareList({required List<ShareEntry> entries}) =
       NetworkEvent_ShareList;
-  const factory NetworkEvent.shareNeedWebRtc({required String peerId}) =
-      NetworkEvent_ShareNeedWebRtc;
+  const factory NetworkEvent.shareNeedWebRtc({
+    required String peerId,
+    required bool hidden,
+  }) = NetworkEvent_ShareNeedWebRtc;
   const factory NetworkEvent.licenseError({required String reason}) =
       NetworkEvent_LicenseError;
 }

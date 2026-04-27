@@ -93,21 +93,31 @@ class VideoThumbnailService {
 
   /// Returns the canonical local thumbnail cache path for a video file.
   ///
-  /// For a video at `~/.hollow/files/{file_id}.mp4`, this returns
-  /// `~/.hollow/files/{file_id}.thumb.webp`. Used for DM/<6 server videos
-  /// where the full file is stored locally — each peer extracts its own
-  /// thumbnail from the bytes it has, no network round-trip needed.
+  /// Always places thumbnails in `~/.hollow/files/` so they don't leak
+  /// into the user's documents/downloads folders.
   ///
   /// Returns null if [videoPath] is not a recognized video file path.
   static String? thumbCachePathFor(String videoPath) {
     try {
-      final dir = p.dirname(videoPath);
       final base = p.basenameWithoutExtension(videoPath);
       if (base.isEmpty) return null;
-      return p.join(dir, '$base.thumb.webp');
+      final filesDir = _hollowFilesDir();
+      return p.join(filesDir, '$base.thumb.webp');
     } catch (_) {
       return null;
     }
+  }
+
+  static String _hollowFilesDir() {
+    final home = Platform.environment['USERPROFILE'] ??
+        Platform.environment['HOME'] ??
+        '.';
+    final hollowDataDir = Platform.environment['HOLLOW_DATA_DIR'];
+    final dir = (hollowDataDir != null && hollowDataDir.isNotEmpty)
+        ? '$hollowDataDir/files'
+        : '$home/.hollow/files';
+    Directory(dir).createSync(recursive: true);
+    return dir;
   }
 
   /// Returns the cached thumbnail path if it already exists on disk for the

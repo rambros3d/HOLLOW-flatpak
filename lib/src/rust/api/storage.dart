@@ -235,6 +235,15 @@ Future<List<StoredFileInfo>> getFilesForMessage({required String messageId}) =>
 Future<List<StoredFileInfo>> getIncompleteFiles() =>
     RustLib.instance.api.crateApiStorageGetIncompleteFiles();
 
+/// Mark a file as complete with its disk path (used for share-backed files).
+Future<void> markFileComplete({
+  required String fileId,
+  required String diskPath,
+}) => RustLib.instance.api.crateApiStorageMarkFileComplete(
+  fileId: fileId,
+  diskPath: diskPath,
+);
+
 /// Get file_ids from messages that have no completed file on disk.
 /// Used to find files that need downloading after message sync.
 Future<List<String>> getMissingFileIds() =>

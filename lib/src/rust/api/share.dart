@@ -27,14 +27,18 @@ Future<void> shareOpenLink({required String link}) =>
     RustLib.instance.api.crateApiShareShareOpenLink(link: link);
 
 /// Begin downloading after ShareManifestReady.
+/// When `sequential` is true, chunks are fetched in order (0, 1, 2, ...)
+/// instead of rarest-first. Used for progressive video streaming.
 Future<void> shareStartDownload({
   required String rootHash,
   required String saveDir,
   required String link,
+  required bool sequential,
 }) => RustLib.instance.api.crateApiShareShareStartDownload(
   rootHash: rootHash,
   saveDir: saveDir,
   link: link,
+  sequential: sequential,
 );
 
 /// Stop an in-flight download. Keeps the partial file + bitmap so the next
@@ -59,6 +63,21 @@ Future<void> shareRemove({
 }) => RustLib.instance.api.crateApiShareShareRemove(
   rootHash: rootHash,
   deleteFile: deleteFile,
+);
+
+/// Start a hidden Share download from raw root_hash + key (no link URL parsing).
+/// Used by the receiver when a FileHeader carries a ShareRef.
+/// Joins the swarm room, fetches manifest, and starts sequential download.
+Future<void> shareStartFromRef({
+  required String rootHash,
+  required String keyHex,
+  required String saveDir,
+  required bool sequential,
+}) => RustLib.instance.api.crateApiShareShareStartFromRef(
+  rootHash: rootHash,
+  keyHex: keyHex,
+  saveDir: saveDir,
+  sequential: sequential,
 );
 
 /// Enumerate persisted shares. Result returned via NetworkEvent::ShareList.

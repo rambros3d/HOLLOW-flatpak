@@ -292,6 +292,13 @@ pub struct ShareSwarmState {
     pub manifest_requested_at: Option<Instant>,
     /// Last time we emitted a ShareSeedingChanged event (throttle to ~2s).
     pub last_seeding_emit: Instant,
+    /// When true, chunks are requested in sequential order (0, 1, 2, ...)
+    /// instead of rarest-first. Used for progressive video streaming where
+    /// playback needs bytes from the start of the file first.
+    pub sequential: bool,
+    /// When true, this share is not shown in the Share tab and uses
+    /// TURN-enabled ICE config for WebRTC connections.
+    pub hidden: bool,
 }
 
 impl ShareSwarmState {
@@ -399,6 +406,7 @@ pub async fn handle_command_share_create(
     ws_cmd_tx: &mpsc::UnboundedSender<WsCommand>,
     event_tx: &mpsc::Sender<NetworkEvent>,
     source_path: String,
+    hidden: bool,
 ) {
     let mut key = [0u8; 32];
     if let Err(e) = getrandom::fill(&mut key) {
@@ -497,11 +505,23 @@ pub async fn handle_command_share_create(
         speed_bps: 0,
         manifest_requested_at: None,
         last_seeding_emit: now_inst,
+        sequential: false,
+        hidden,
     };
     let room = state.room_id();
     registry.insert(root_hash_hex.clone(), state);
 
     let _ = ws_cmd_tx.send(WsCommand::JoinRoom { room_code: room });
+
+    if hidden {
+        let _ = event_tx.send(NetworkEvent::ShareCreatedHidden {
+            root_hash: root_hash_hex,
+            key_hex: hex::encode(key),
+            file_name: manifest.file_name.clone(),
+            total_size: manifest.total_size,
+        }).await;
+        return;
+    }
 
     let _ = event_tx.send(NetworkEvent::ShareCreated {
         root_hash: root_hash_hex,
@@ -566,6 +586,8 @@ pub async fn handle_command_share_open_link(
             speed_bps: 0,
             manifest_requested_at: Some(now_inst),
             last_seeding_emit: now_inst,
+            sequential: false,
+            hidden: false,
         });
     }
 }
@@ -614,6 +636,7 @@ pub async fn handle_command_share_list(
     }
     let entries: Vec<ShareEntryRef> = rows.into_iter()
         .filter(|s| s.state != "stale")
+        .filter(|s| !registry.get(&s.root_hash).map(|st| st.hidden).unwrap_or(false))
         .map(|s| {
         let (chunks_have, chunks_total) = if let Some(state) = registry.get(&s.root_hash) {
             (state.have.count_set(), state.have.chunk_count)
@@ -755,6 +778,7 @@ pub async fn handle_command_share_start(
     root_hash: String,
     save_dir: String,
     link: String,
+    sequential: bool,
 ) {
     // The probe (ShareOpenLink) already cached the manifest in the registry.
     let Some(state) = registry.get(&root_hash) else {
@@ -836,6 +860,7 @@ pub async fn handle_command_share_start(
         state.save_dir = save_dir;
         state.have = ChunkBitmap::empty(manifest.chunk_count);
         state.manifest_requested_at = None;
+        state.sequential = sequential;
     }
     let room = format!("{SHARE_ROOM_PREFIX}{root_hash}");
     let _ = ws_cmd_tx.send(WsCommand::JoinRoom { room_code: room });
@@ -928,6 +953,8 @@ pub fn auto_rejoin_seeders(
             speed_bps: 0,
             manifest_requested_at: None,
             last_seeding_emit: now_inst,
+            sequential: false,
+            hidden: false,
         };
         let room = state.room_id();
         registry.insert(stored.root_hash.clone(), state);
@@ -1085,19 +1112,29 @@ pub async fn tick(
         if state.peer_have.is_empty() { continue; }
 
         // Request WebRTC connections for peers we know about but aren't connected to.
+        let is_hidden = state.hidden;
         for peer_id in state.peer_have.keys() {
             if !webrtc_peers.contains(peer_id.as_str()) {
                 let _ = event_tx.send(NetworkEvent::ShareNeedWebRtc {
                     peer_id: peer_id.clone(),
+                    hidden: is_hidden,
                 }).await;
             }
         }
 
         // Build (chunk_idx → Vec<peer_id_who_has_it>) for chunks we need.
-        // Sort by Vec.len() ascending = rarest first.
         let chunk_count = manifest.chunk_count;
+        let is_sequential = state.sequential;
+
+        // Sequential mode: find the lowest missing chunk and only look ahead
+        // a limited window so we don't request far-future chunks.
+        let seq_start = if is_sequential {
+            (0..chunk_count).find(|&i| !state.have.has(i)).unwrap_or(chunk_count)
+        } else { 0 };
+        let seq_end = if is_sequential { (seq_start + 64).min(chunk_count) } else { chunk_count };
+
         let mut needed: Vec<(u32, Vec<String>)> = Vec::with_capacity(chunk_count as usize);
-        for idx in 0..chunk_count {
+        for idx in seq_start..seq_end {
             if state.have.has(idx) { continue; }
             if state.inflight.contains_key(&idx) { continue; }
             let mut owners: Vec<String> = state.peer_have.iter()
@@ -1106,13 +1143,14 @@ pub async fn tick(
                 })
                 .collect();
             if !owners.is_empty() {
-                // Stable peer order so the same chunk goes to the same peer when
-                // re-requested in the same tick (no thundering-herd duplicates).
                 owners.sort();
                 needed.push((idx, owners));
             }
         }
-        needed.sort_by_key(|(_, owners)| owners.len());
+        // Rarest-first for normal shares; sequential keeps ascending idx order.
+        if !is_sequential {
+            needed.sort_by_key(|(_, owners)| owners.len());
+        }
 
         // Pick chunks until each peer is at MAX_INFLIGHT_PER_PEER.
         let room = state.room_id();

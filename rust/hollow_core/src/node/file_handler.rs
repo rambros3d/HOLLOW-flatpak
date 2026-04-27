@@ -30,6 +30,7 @@ pub(crate) async fn handle_send_file(
     vthumb: Option<VideoThumbRef>,
     override_width: Option<u32>,
     override_height: Option<u32>,
+    share_ref: Option<super::types::ShareRef>,
     event_tx: &mpsc::Sender<NetworkEvent>,
     server_states: &HashMap<String, ServerState>,
     bundle_keypair: &crate::identity::native_identity::NativeKeypair,
@@ -79,7 +80,7 @@ pub(crate) async fn handle_send_file(
     } else {
         file_transfer::DEFAULT_MAX_FILE_SIZE
     };
-    if file_data.len() as u64 > max_size {
+    if share_ref.is_none() && file_data.len() as u64 > max_size {
         hollow_log!("[HOLLOW-FILE] File too large: {} > {}", file_data.len(), max_size);
         let _ = event_tx.send(NetworkEvent::FileFailed {
             file_id: message_id.clone(),
@@ -342,6 +343,7 @@ pub(crate) async fn handle_send_file(
                         aes_nonce: Some(aes_nonce_hex),
                         target: None,
                         vthumb: vthumb.clone(),
+                        share_ref: None,
                     };
                     let header_json = serde_json::to_string(&header).unwrap_or_default();
                     send_encrypted_message(
@@ -454,13 +456,19 @@ pub(crate) async fn handle_send_file(
                 aes_nonce: Some(aes_nonce_hex),
                 target: None,
                 vthumb: vthumb.clone(),
+                share_ref: share_ref.clone(),
             };
             let header_json = serde_json::to_string(&header).unwrap_or_default();
 
+            let has_share_ref = share_ref.is_some();
+
             // Write ciphertext to temp file (shared across all members).
+            // Skip for share-backed files — Share handles delivery.
             let temp_path = file_transfer::files_dir().join(format!(".stream_send_{file_id}.tmp"));
-            let _ = std::fs::write(&temp_path, &enc.ciphertext);
-            let ct_size = enc.ciphertext.len() as u64;
+            if !has_share_ref {
+                let _ = std::fs::write(&temp_path, &enc.ciphertext);
+            }
+            let ct_size = if has_share_ref { 0 } else { enc.ciphertext.len() as u64 };
 
             if let Some(state) = server_states.get(&sid) {
                 // Broadcast FileHeader via MLS (single encrypt, relay fans out).
@@ -483,7 +491,9 @@ pub(crate) async fn handle_send_file(
                     }
                 }
 
-                if use_vault_only {
+                if has_share_ref {
+                    hollow_log!("[HOLLOW-FILE] Share-backed file {file_id} — skipping binary streaming");
+                } else if use_vault_only {
                     hollow_log!("[HOLLOW-FILE] Erasure coding active ({member_count} members) — skipping full-file streaming, vault handles shard distribution");
                 } else if let Some(overlay) = gossip_overlays.get_mut(&sid) {
                     // Gossip broadcast: send to gossip neighbors only (they relay further).
@@ -961,18 +971,21 @@ pub(crate) async fn handle_envelope_file_header(
     aes_key: Option<String>,
     aes_nonce: Option<String>,
     vthumb: Option<VideoThumbRef>,
+    share_ref: Option<super::types::ShareRef>,
 ) {
-    hollow_log!("[HOLLOW-FILE] MLS FileHeader: {fid} ({name}, {size} bytes, {chunks} chunks)");
+    hollow_log!("[HOLLOW-FILE] MLS FileHeader: {fid} ({name}, {size} bytes, {chunks} chunks, share_ref={})", share_ref.is_some());
 
-    let max_mb_str = if let Some(state) = server_states.get(server_id) {
-        state.settings.get("max_file_size_mb")
-            .map(|r| r.read().clone())
-            .unwrap_or_else(|| "34".to_string())
-    } else { "34".to_string() };
-    let max_bytes = max_mb_str.parse::<u64>().unwrap_or(34) * 1024 * 1024;
-    if size > max_bytes {
-        hollow_log!("[HOLLOW-SECURITY] REJECTED MLS FileHeader from {sender_peer_id} — size {size} exceeds max {max_bytes}");
-        return;
+    if share_ref.is_none() {
+        let max_mb_str = if let Some(state) = server_states.get(server_id) {
+            state.settings.get("max_file_size_mb")
+                .map(|r| r.read().clone())
+                .unwrap_or_else(|| "34".to_string())
+        } else { "34".to_string() };
+        let max_bytes = max_mb_str.parse::<u64>().unwrap_or(34) * 1024 * 1024;
+        if size > max_bytes {
+            hollow_log!("[HOLLOW-SECURITY] REJECTED MLS FileHeader from {sender_peer_id} — size {size} exceeds max {max_bytes}");
+            return;
+        }
     }
 
     let ctx_type = "channel";
@@ -997,7 +1010,8 @@ pub(crate) async fn handle_envelope_file_header(
     }
 
     // Register pending stream so binary file bytes can be decrypted on arrival.
-    if let (Some(ak), Some(an)) = (aes_key, aes_nonce) {
+    // Skip for share-backed files — no binary data arrives via P2P, Share handles delivery.
+    if share_ref.is_none() && let (Some(ak), Some(an)) = (aes_key, aes_nonce) {
         pending_file_streams.insert(fid.clone(), PendingFileStream {
             aes_key: ak,
             aes_nonce: an,
@@ -1044,6 +1058,7 @@ pub(crate) async fn handle_envelope_file_header(
         server_id: sid.unwrap_or_else(|| server_id.to_string()),
         channel_id: cid.unwrap_or_default(),
         video_thumb: vthumb,
+        share_ref,
     }).await;
 }
 

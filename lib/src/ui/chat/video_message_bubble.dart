@@ -120,14 +120,11 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
     }
   }
 
-  /// For DM/<6 server videos: check if a local thumbnail cache file exists,
-  /// and if not, kick off a background extraction. Vault videos already have
-  /// a thumbnail image at attachment.diskPath and skip this entirely.
   Future<void> _maybeExtractLocalThumb() async {
     if (_thumbExtractStarted) return;
-    if (_vthumb != null) return; // vault path — diskPath is already a thumbnail
-    final videoPath = widget.attachment.diskPath;
-    if (videoPath == null || !File(videoPath).existsSync()) return;
+    if (_vthumb != null) return;
+    final videoPath = _resolveVideoPath();
+    if (videoPath == null) return;
 
     _thumbExtractStarted = true;
 
@@ -160,22 +157,28 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
     return _localThumbPath;
   }
 
-  /// True iff we have enough info to actually start playing.
+  String? _resolveVideoPath() {
+    if (_vthumb != null) return null;
+    final attachPath = widget.attachment.diskPath;
+    if (attachPath != null && File(attachPath).existsSync()) return attachPath;
+    final transfer = ref.read(fileTransferProvider)[widget.attachment.fileId];
+    final transferPath = transfer?.diskPath;
+    if (transferPath != null && File(transferPath).existsSync()) return transferPath;
+    return null;
+  }
+
   bool _canPlay() {
-    if (_vthumb != null) return true; // vault — can fetch on demand
-    final path = widget.attachment.diskPath;
-    return path != null && File(path).existsSync();
+    if (_vthumb != null) return true;
+    return _resolveVideoPath() != null;
   }
 
   Future<void> _onPlayTapped({bool fullscreen = false}) async {
     if (!_canPlay()) return;
-    // Take ownership of the "currently playing" slot.
     ref.read(currentlyPlayingVideoProvider.notifier).state = _playKey;
 
     final vthumb = _vthumb;
     String? videoPath;
     if (vthumb != null) {
-      // Vault path — get/fetch the cached video file.
       setState(() => _state = _PlaybackState.preparing);
       videoPath = await _resolveVaultVideoPath(vthumb);
       if (videoPath == null) {
@@ -183,7 +186,7 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
         return;
       }
     } else {
-      videoPath = widget.attachment.diskPath;
+      videoPath = _resolveVideoPath();
     }
 
     if (videoPath == null) return;
@@ -374,6 +377,13 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
     final thumbPath = _resolveThumbnailImagePath();
     final canPlay = _canPlay();
 
+    final allTransfers = ref.watch(fileTransferProvider);
+    final transfer = allTransfers[widget.attachment.fileId];
+    final isDownloading = transfer != null &&
+        !transfer.isComplete &&
+        transfer.totalChunks > 0;
+    final progress = isDownloading ? transfer.progress : 0.0;
+
     return MouseRegion(
       cursor: canPlay ? SystemMouseCursors.click : MouseCursor.defer,
       child: GestureDetector(
@@ -381,7 +391,6 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // Background.
             if (thumbPath != null)
               Image.file(
                 File(thumbPath),
@@ -390,34 +399,54 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
               )
             else
               Container(color: Colors.black),
-            // Center play button.
-            Center(
-              child: Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.55),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.85),
-                    width: 2,
+            if (isDownloading)
+              Center(
+                child: SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: CircularProgressIndicator(
+                    value: progress > 0 ? progress : null,
+                    strokeWidth: 3,
+                    color: hollow.accent,
+                    backgroundColor: Colors.white.withValues(alpha: 0.2),
                   ),
                 ),
-                child: const Icon(
-                  LucideIcons.play,
-                  color: Colors.white,
-                  size: 28,
+              )
+            else
+              Center(
+                child: Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.85),
+                      width: 2,
+                    ),
+                  ),
+                  child: const Icon(
+                    LucideIcons.play,
+                    color: Colors.white,
+                    size: 28,
+                  ),
                 ),
               ),
-            ),
-            // Duration badge (bottom-left) — only when we know it.
-            if (_vthumb != null && _vthumb!.durMs > 0)
+            if (isDownloading)
+              Positioned(
+                left: HollowSpacing.sm,
+                bottom: HollowSpacing.sm,
+                child: _Badge(
+                  text: '${(progress * 100).toInt()}%',
+                  hollow: hollow,
+                ),
+              )
+            else if (_vthumb != null && _vthumb!.durMs > 0)
               Positioned(
                 left: HollowSpacing.sm,
                 bottom: HollowSpacing.sm,
                 child: _Badge(text: _formatDuration(_vthumb!.durMs), hollow: hollow),
               ),
-            // File size badge (bottom-right).
             Positioned(
               right: HollowSpacing.sm,
               bottom: HollowSpacing.sm,

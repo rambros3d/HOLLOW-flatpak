@@ -133,6 +133,7 @@ All UI uses custom Hollow widgets — no Material defaults.
 - **CRITICAL — message signing must use `message_signing_payload()` + timestamp parity.** ALL signing sites must use the canonical payload. Dart timestamps MUST be hydrated from Rust's signed value (not `DateTime.now()`).
 - **CRITICAL — sender-side link previews (privacy).** Receivers MUST NEVER make HTTP requests to previewed URLs.
 - **CRITICAL — never use raw `OverlayEntry` inside `SelectionArea`.** Use `showDialog` with `barrierColor: Colors.transparent` instead.
+- **CRITICAL — Share-backed large files (>34 MB):** `FileHeader.share_ref` bypasses size checks in THREE places: `file_handler.rs:handle_send_file`, `file_handler.rs:handle_envelope_file_header`, `swarm.rs` DM FileHeader handler. Skip `PendingFileStream` registration when `share_ref.is_some()`. Auto-download requires `ShareOpenLink` → `ShareManifestReady` → `ShareStart` (two-step). Bridge `ShareProgress`/`ShareCompleted` events to `fileTransferProvider` via `_shareToFileId` map. STUN-only (no TURN).
 - **MLS coordinator model:** `is_mls_coordinator()` — deterministic election (lowest online peer_id in MLS group).
 - **HollowTooltip: always use `_dismiss()` pattern** — immediate overlay removal, no reverse animation.
 - **`scrollable_positioned_list: ^0.3.8`** — sentinel pattern with `itemCount: messages.length + 1`. Do not remove this package.
