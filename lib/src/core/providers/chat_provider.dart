@@ -398,6 +398,36 @@ class ChatNotifier extends Notifier<Map<String, List<ChatMessage>>> {
     state = map;
   }
 
+  /// Load just the last message for each given peer ID (for home dashboard
+  /// previews). Skips peers already in memory.
+  Future<void> loadLastMessagePreviews(List<String> peerIds) async {
+    final storageService = ref.read(storageServiceProvider);
+    final updated = Map.of(state);
+    var changed = false;
+    for (final peerId in peerIds) {
+      if (state.containsKey(peerId)) continue;
+      try {
+        final stored = await storageService.loadMessages(
+          peerId: peerId,
+          limit: 1,
+        );
+        if (stored.isNotEmpty) {
+          final m = stored.first;
+          updated[peerId] = [
+            ChatMessage(
+              text: m.text,
+              isMe: m.isMine,
+              timestamp: DateTime.fromMillisecondsSinceEpoch(m.timestamp),
+              messageId: m.messageId,
+            ),
+          ];
+          changed = true;
+        }
+      } catch (_) {}
+    }
+    if (changed) state = updated;
+  }
+
   /// Clear cached messages for a peer (forces reload from DB on next view).
   void clearPeerCache(String peerId) {
     final updated = Map.of(state);

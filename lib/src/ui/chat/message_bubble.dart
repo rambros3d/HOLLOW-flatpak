@@ -9,6 +9,8 @@ import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:hollow/src/ui/chat/file_attachment_widget.dart';
+import 'package:hollow/src/ui/chat/hollow_link_card.dart';
+import 'package:hollow/src/ui/chat/hollow_link_utils.dart';
 import 'package:hollow/src/ui/chat/link_preview_card.dart';
 import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/chat/message_text_parser.dart';
@@ -171,6 +173,22 @@ class MessageBubble extends ConsumerWidget {
           )
         : null;
 
+    final textForLinks = message.text.replaceAll(RegExp(r'```[\s\S]*?```'), '');
+    final hollowLinks = extractHollowLinks(textForLinks);
+    final hollowLinkWidgets = hollowLinks.isNotEmpty
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final link in hollowLinks.take(3))
+                Padding(
+                  padding: const EdgeInsets.only(top: HollowSpacing.xs),
+                  child: HollowLinkCard(link: link),
+                ),
+            ],
+          )
+        : null;
+
     final fileWidget = message.fileAttachment != null
         ? Padding(
             padding: const EdgeInsets.only(top: HollowSpacing.xs),
@@ -251,6 +269,7 @@ class MessageBubble extends ConsumerWidget {
                     ?replyWidget,
                     ?messageTextWidget,
                     ?linkPreviewWidget,
+                    ?hollowLinkWidgets,
                     ?fileWidget,
                     ?reactionBarWidget,
                   ],
@@ -280,6 +299,7 @@ class MessageBubble extends ConsumerWidget {
           ?replyWidget,
           ?messageTextWidget,
           ?linkPreviewWidget,
+          ?hollowLinkWidgets,
           ?fileWidget,
           ?reactionBarWidget,
         ],

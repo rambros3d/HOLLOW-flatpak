@@ -286,6 +286,20 @@ class _HollowShellState extends ConsumerState<HollowShell>
     // Load friends list from local DB.
     await ref.read(friendsProvider.notifier).loadAll();
 
+    // Load share entries so hollow://share cards in chat show correct state.
+    ref.read(shareTabProvider.notifier).loadAll();
+
+    // Pre-load last message per DM peer for home dashboard previews.
+    final acceptedPeerIds = ref
+        .read(friendsProvider)
+        .values
+        .where((f) => f.status == 'accepted')
+        .map((f) => f.peerId)
+        .toList();
+    if (acceptedPeerIds.isNotEmpty) {
+      ref.read(chatProvider.notifier).loadLastMessagePreviews(acceptedPeerIds);
+    }
+
     // Load favourite friends order from local DB.
     await ref.read(favouriteFriendsProvider.notifier).load();
 

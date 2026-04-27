@@ -220,6 +220,17 @@ Win32Window::MessageHandler(HWND hwnd,
       }
       return 0;
 
+    case WM_SHOWWINDOW:
+      if (wparam == TRUE) {
+        HICON hIcon = LoadIcon(GetModuleHandle(nullptr),
+                               MAKEINTRESOURCE(IDI_APP_ICON));
+        if (hIcon) {
+          SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+          SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
+        }
+      }
+      break;
+
     case WM_DWMCOLORIZATIONCOLORCHANGED:
       UpdateTheme(hwnd);
       return 0;

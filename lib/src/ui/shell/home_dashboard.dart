@@ -559,12 +559,28 @@ class _RecentConversationsColumn extends ConsumerWidget {
                               ),
                               if (conv.lastMessage != null) ...[
                                 const SizedBox(height: 2),
-                                Text(
-                                  conv.lastMessage!.text,
-                                  style:
-                                      HollowTypography.caption.copyWith(
-                                    color: hollow.textSecondary,
-                                    fontSize: 11,
+                                Text.rich(
+                                  TextSpan(
+                                    children: [
+                                      if (conv.lastMessage!.isMe)
+                                        TextSpan(
+                                          text: 'You: ',
+                                          style: HollowTypography.caption
+                                              .copyWith(
+                                            color: hollow.textSecondary,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      TextSpan(
+                                        text: conv.lastMessage!.text,
+                                        style: HollowTypography.caption
+                                            .copyWith(
+                                          color: hollow.textSecondary,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,

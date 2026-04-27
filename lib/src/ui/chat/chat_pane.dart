@@ -35,6 +35,8 @@ import 'package:hollow/src/ui/animations/hollow_curves.dart';
 import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/components/hollow_avatar.dart';
 import 'package:hollow/src/ui/components/hollow_button.dart';
+import 'package:hollow/src/ui/chat/hollow_link_utils.dart';
+import 'package:hollow/src/ui/chat/staged_hollow_link_card.dart';
 import 'package:hollow/src/ui/chat/staged_link_preview_card.dart';
 import 'package:hollow/src/ui/chat/voice_recorder_bar.dart';
 import 'package:hollow/src/core/services/voice_message_recorder.dart';
@@ -199,10 +201,9 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
   String? _stagedPreviewUrl;
   network_api.LinkPreviewRef? _stagedPreview;
   bool _stagedPreviewLoading = false;
+  HollowLink? _stagedHollowLink;
   Timer? _urlDebounce;
-  /// First http/https URL in a string. Conservative match — excludes
-  /// whitespace and common markup delimiters.
-  static final RegExp _urlRegex = RegExp(r'https?://[^\s<>"' "'" r')\]}]+');
+  static final RegExp _urlRegex = RegExp(r'(?:https?|hollow)://[^\s<>"' "'" r')\]}]+');
   Timer? _overlayHideTimer;
   bool _overlaysVisible = true;
   bool _chatOverlayPinned = false; // User explicitly toggled chat open
@@ -475,20 +476,33 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
     final text = _controller.text;
     final match = _urlRegex.firstMatch(text);
     final url = match?.group(0);
-    if (url == _stagedPreviewUrl) return; // Same URL — no work to do.
+    if (url == _stagedPreviewUrl) return;
     if (url == null) {
-      // URL removed from text → drop staged preview.
       setState(() {
         _stagedPreviewUrl = null;
         _stagedPreview = null;
         _stagedPreviewLoading = false;
+        _stagedHollowLink = null;
       });
       return;
     }
+
+    final hollowLinks = extractHollowLinks(url);
+    if (hollowLinks.isNotEmpty) {
+      setState(() {
+        _stagedPreviewUrl = url;
+        _stagedPreview = null;
+        _stagedPreviewLoading = false;
+        _stagedHollowLink = hollowLinks.first;
+      });
+      return;
+    }
+
     setState(() {
       _stagedPreviewUrl = url;
       _stagedPreview = null;
       _stagedPreviewLoading = true;
+      _stagedHollowLink = null;
     });
     _fetchPreview(url);
   }
@@ -536,6 +550,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
       _stagedPreviewUrl = null;
       _stagedPreview = null;
       _stagedPreviewLoading = false;
+      _stagedHollowLink = null;
     });
     await ref
         .read(chatProvider.notifier)
@@ -1654,9 +1669,18 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
           ),
         ),
 
-      // Staged link preview (Phase 6.75).
-      // Hidden once the fetch fails (cleared back to null in _fetchPreview).
-      if (_stagedPreviewUrl != null)
+      if (_stagedHollowLink != null)
+        StagedHollowLinkCard(
+          link: _stagedHollowLink!,
+          onDismiss: () {
+            _urlDebounce?.cancel();
+            setState(() {
+              _stagedPreviewUrl = null;
+              _stagedHollowLink = null;
+            });
+          },
+        )
+      else if (_stagedPreviewUrl != null)
         StagedLinkPreviewCard(
           url: _stagedPreviewUrl!,
           preview: _stagedPreview,

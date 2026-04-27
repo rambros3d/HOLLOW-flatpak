@@ -1,6 +1,6 @@
 # Hollow Protocol Whitepaper
 
-**Version 1.0 — Alpha**
+**Version 1.0 — Alpha**\
 **Author: AnonListen**
 
 ---
@@ -828,12 +828,11 @@ The relay operator is **not trusted** with: message contents, encryption keys, f
 
 ## 18. Limitations and Future Work
 
-- **No post-quantum cryptography.** All key exchanges use Curve25519. A future migration to ML-KEM (Kyber) is planned.
-- **No traffic analysis protection.** Pluggable transports (TLS camouflage) are planned for censorship-resistant deployments.
+- **No post-quantum cryptography.** All key exchanges use Curve25519. If quantum computers eventually break elliptic curve crypto, intercepted ciphertext could theoretically be decrypted retroactively. A future migration to ML-KEM (Kyber) is a consideration but not a priority — no consumer chat app has shipped this yet.
+- **No traffic analysis protection.** The relay uses TLS (currently via Nginx, planned migration to native `tokio-rustls`), which protects message *content* from network eavesdroppers. However, message *timing and size patterns* remain visible — an observer can infer who is chatting with whom based on when messages are sent, even without reading them. Defeating this would require constant-rate padding (sending dummy traffic to hide real messages), which is impractical for a chat app.
 - **Single relay dependency.** Multi-relay support with cross-relay room gossip is designed but not yet deployed. Horizontal scaling to millions of users via a swarm of relay nodes is the planned architecture.
 - **No device linking.** Each device has an independent identity. Multi-device sync (QR code linking) is planned.
 - **No social recovery.** Shamir's Secret Sharing for key recovery via trusted contacts is designed but not implemented.
-- **No Discord import.** Migration from Discord via GDPR export parsing is designed but not yet built.
 
 ---
 

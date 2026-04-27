@@ -75,5 +75,8 @@ macOS_SnowLeopard.txt
 discord_migration_plan.md
 important/
 
+# YouTube video assets
+yt_videos/
+
 # Claude Code
 .claude/

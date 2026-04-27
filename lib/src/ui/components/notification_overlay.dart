@@ -2,12 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/providers/archive_provider.dart';
 import 'package:hollow/src/core/providers/channel_provider.dart';
-import 'package:hollow/src/ui/animations/hollow_curves.dart';
-import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/core/providers/selected_peer_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
+import 'package:hollow/src/core/providers/share_tab_provider.dart';
 import 'package:hollow/src/core/providers/system_notification_provider.dart';
+import 'package:hollow/src/core/providers/unread_provider.dart';
+import 'package:hollow/src/ui/animations/hollow_curves.dart';
+import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
@@ -139,23 +142,44 @@ class _NotificationCardWidgetState
     super.dispose();
   }
 
-  void _onTap() {
-    // Navigate to the source conversation.
-    if (widget.card.isDm && widget.card.peerId != null) {
+  void _onTap() async {
+    final card = widget.card;
+
+    if (card.isDm && card.peerId != null) {
+      ref.read(archiveTabOpenProvider.notifier).state = false;
+      ref.read(shareTabOpenProvider.notifier).state = false;
+      ref.read(selectedPeerProvider.notifier).state = card.peerId;
       ref.read(selectedServerProvider.notifier).state = null;
-      ref.read(selectedPeerProvider.notifier).state = widget.card.peerId;
-    } else if (widget.card.serverId != null &&
-        widget.card.channelId != null) {
-      ref.read(selectedServerProvider.notifier).state =
-          widget.card.serverId;
-      ref.read(selectedChannelProvider.notifier).state =
-          widget.card.channelId;
+      ref.read(channelListProvider.notifier).clear();
+      ref.read(selectedChannelProvider.notifier).state = null;
+      ref.read(serverSettingsOpenProvider.notifier).state = false;
+      ref.read(unreadProvider.notifier).markDmSeen(card.peerId!, null);
+    } else if (card.serverId != null && card.channelId != null) {
+      final channels =
+          await ChannelListNotifier.fetchChannels(card.serverId!);
+      final layout =
+          await ChannelLayoutNotifier.fetchLayout(card.serverId!);
+
+      if (!mounted) return;
+
+      ref.read(archiveTabOpenProvider.notifier).state = false;
+      ref.read(shareTabOpenProvider.notifier).state = false;
       ref.read(selectedPeerProvider.notifier).state = null;
+      ref.read(serverSettingsOpenProvider.notifier).state = false;
+      ref.read(channelListProvider.notifier).setChannels(channels);
+      ref.read(channelLayoutProvider.notifier).setLayout(layout);
+      ref.read(selectedChannelProvider.notifier).state = card.channelId;
+      ref.read(selectedServerProvider.notifier).state = card.serverId;
+
+      final map = Map<String, String>.from(
+          ref.read(lastChannelPerServerProvider));
+      map[card.serverId!] = card.channelId!;
+      ref.read(lastChannelPerServerProvider.notifier).state = map;
     }
-    // Dismiss this card.
+
     ref
         .read(systemNotificationProvider.notifier)
-        .dismissCard(widget.card.sourceKey);
+        .dismissCard(card.sourceKey);
   }
 
   @override

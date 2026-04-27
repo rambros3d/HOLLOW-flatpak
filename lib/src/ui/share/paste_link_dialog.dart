@@ -16,7 +16,8 @@ import 'package:lucide_icons/lucide_icons.dart';
 enum _DialogState { input, loading, confirm }
 
 class PasteLinkDialog extends ConsumerStatefulWidget {
-  const PasteLinkDialog({super.key});
+  final String? initialLink;
+  const PasteLinkDialog({super.key, this.initialLink});
 
   @override
   ConsumerState<PasteLinkDialog> createState() => _PasteLinkDialogState();
@@ -33,6 +34,17 @@ class _PasteLinkDialogState extends ConsumerState<PasteLinkDialog> {
   int _chunkCount = 0;
   int _loadingStartMs = 0;
   Timer? _countdownTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialLink != null) {
+      _controller.text = widget.initialLink!;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _onOpen();
+      });
+    }
+  }
 
   @override
   void dispose() {

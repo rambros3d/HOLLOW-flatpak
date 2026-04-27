@@ -35,6 +35,8 @@ import 'package:hollow/src/ui/chat/message_action_bar.dart';
 import 'package:hollow/src/ui/dialogs/message_proof_dialog.dart';
 import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/components/connection_progress.dart';
+import 'package:hollow/src/ui/chat/hollow_link_utils.dart';
+import 'package:hollow/src/ui/chat/staged_hollow_link_card.dart';
 import 'package:hollow/src/ui/chat/staged_link_preview_card.dart';
 import 'package:hollow/src/ui/chat/voice_recorder_bar.dart';
 import 'package:hollow/src/core/services/voice_message_recorder.dart';
@@ -108,10 +110,9 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   String? _stagedPreviewUrl;
   network_api.LinkPreviewRef? _stagedPreview;
   bool _stagedPreviewLoading = false;
+  HollowLink? _stagedHollowLink;
   Timer? _urlDebounce;
-  /// First http/https URL in a string. Conservative match — excludes
-  /// whitespace and common markup delimiters.
-  static final RegExp _urlRegex = RegExp(r'https?://[^\s<>"' "'" r')\]}]+');
+  static final RegExp _urlRegex = RegExp(r'(?:https?|hollow)://[^\s<>"' "'" r')\]}]+');
 
   String get _stateKey => '${widget.serverId}:${widget.channelId}';
 
@@ -473,13 +474,27 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
         _stagedPreviewUrl = null;
         _stagedPreview = null;
         _stagedPreviewLoading = false;
+        _stagedHollowLink = null;
       });
       return;
     }
+
+    final hollowLinks = extractHollowLinks(url);
+    if (hollowLinks.isNotEmpty) {
+      setState(() {
+        _stagedPreviewUrl = url;
+        _stagedPreview = null;
+        _stagedPreviewLoading = false;
+        _stagedHollowLink = hollowLinks.first;
+      });
+      return;
+    }
+
     setState(() {
       _stagedPreviewUrl = url;
       _stagedPreview = null;
       _stagedPreviewLoading = true;
+      _stagedHollowLink = null;
     });
     _fetchPreview(url);
   }
@@ -525,6 +540,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
       _stagedPreviewUrl = null;
       _stagedPreview = null;
       _stagedPreviewLoading = false;
+      _stagedHollowLink = null;
     });
     await ref
         .read(channelChatProvider.notifier)
@@ -1772,8 +1788,18 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
             ),
           ),
 
-        // Staged link preview (Phase 6.75).
-        if (_stagedPreviewUrl != null)
+        if (_stagedHollowLink != null)
+          StagedHollowLinkCard(
+            link: _stagedHollowLink!,
+            onDismiss: () {
+              _urlDebounce?.cancel();
+              setState(() {
+                _stagedPreviewUrl = null;
+                _stagedHollowLink = null;
+              });
+            },
+          )
+        else if (_stagedPreviewUrl != null)
           StagedLinkPreviewCard(
             url: _stagedPreviewUrl!,
             preview: _stagedPreview,
