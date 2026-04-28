@@ -73,15 +73,31 @@ Future<void> shareStartFromRef({
   required String keyHex,
   required String saveDir,
   required bool sequential,
+  String? serverId,
+  String? contextType,
 }) => RustLib.instance.api.crateApiShareShareStartFromRef(
   rootHash: rootHash,
   keyHex: keyHex,
   saveDir: saveDir,
   sequential: sequential,
+  serverId: serverId,
+  contextType: contextType,
 );
 
 /// Enumerate persisted shares. Result returned via NetworkEvent::ShareList.
 Future<void> shareList() => RustLib.instance.api.crateApiShareShareList();
+
+/// Evict vault cache files that exceed the 1 GB cap.
+/// `exempt_paths` lists files that should NOT be evicted (e.g. currently playing video).
+/// Returns bytes freed.
+Future<BigInt> evictVaultCache({required List<String> exemptPaths}) =>
+    RustLib.instance.api.crateApiShareEvictVaultCache(exemptPaths: exemptPaths);
+
+/// Move a completed share-backed file from vault_cache to ~/.hollow/files/
+/// and enable seeding. Returns the new file path.
+/// Used by "Keep & Seed" button on video/file cards.
+Future<String> shareKeepAndSeed({required String rootHash}) =>
+    RustLib.instance.api.crateApiShareShareKeepAndSeed(rootHash: rootHash);
 
 class ShareLinkInfo {
   final String rootHash;

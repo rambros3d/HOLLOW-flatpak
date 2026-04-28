@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:hollow/src/core/providers/share_tab_provider.dart';
 import 'package:hollow/src/rust/api/share.dart' as share_api;
 import 'package:hollow/src/theme/hollow_spacing.dart';
@@ -9,8 +10,11 @@ import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:hollow/src/ui/components/hollow_button.dart';
 import 'package:hollow/src/ui/components/hollow_dialog.dart';
+import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/ui/share/paste_link_dialog.dart';
 import 'package:hollow/src/ui/share/share_card.dart';
+
+enum _ShareSubTab { myShares, serverFiles }
 
 class ShareDashboard extends ConsumerStatefulWidget {
   const ShareDashboard({super.key});
@@ -20,6 +24,8 @@ class ShareDashboard extends ConsumerStatefulWidget {
 }
 
 class _ShareDashboardState extends ConsumerState<ShareDashboard> {
+  _ShareSubTab _subTab = _ShareSubTab.myShares;
+
   @override
   void initState() {
     super.initState();
@@ -30,25 +36,26 @@ class _ShareDashboardState extends ConsumerState<ShareDashboard> {
   Widget build(BuildContext context) {
     final hollow = HollowTheme.of(context);
     final shares = ref.watch(shareTabProvider);
-    final downloading = downloadingShares(shares);
-    final seeding = seedingShares(shares);
+
+    final userShares = shares.where((s) => s.contextType == null).toList();
+    final serverFileShares = shares.where((s) => s.serverId != null).toList();
 
     return Container(
       color: hollow.background,
       child: Column(
         children: [
-          _buildHeader(hollow),
+          _buildHeader(hollow, userShares.length, serverFileShares.length),
           Expanded(
-            child: shares.isEmpty
-                ? _buildEmptyState(hollow)
-                : _buildList(downloading, seeding, hollow),
+            child: _subTab == _ShareSubTab.myShares
+                ? _buildMyShares(userShares, hollow)
+                : _buildServerFiles(serverFileShares, hollow),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildHeader(HollowTheme hollow) {
+  Widget _buildHeader(HollowTheme hollow, int userCount, int serverCount) {
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: HollowSpacing.lg,
@@ -60,51 +67,54 @@ class _ShareDashboardState extends ConsumerState<ShareDashboard> {
       child: Row(
         children: [
           Text('Share', style: HollowTypography.heading.copyWith(color: hollow.textPrimary)),
-          const Spacer(),
-          HollowButton.ghost(
-            compact: true,
-            icon: const Icon(LucideIcons.filePlus, size: 14),
-            onPressed: _pickFile,
-            child: const Text('Share a File'),
+          const SizedBox(width: HollowSpacing.lg),
+          _SubTabPill(
+            label: 'My Shares${userCount > 0 ? ' ($userCount)' : ''}',
+            isSelected: _subTab == _ShareSubTab.myShares,
+            onTap: () => setState(() => _subTab = _ShareSubTab.myShares),
           ),
           const SizedBox(width: HollowSpacing.sm),
-          HollowButton.filled(
-            compact: true,
-            icon: const Icon(LucideIcons.link, size: 14),
-            onPressed: _showPasteDialog,
-            child: const Text('Paste Link'),
+          _SubTabPill(
+            label: 'Server Files${serverCount > 0 ? ' ($serverCount)' : ''}',
+            isSelected: _subTab == _ShareSubTab.serverFiles,
+            onTap: () => setState(() => _subTab = _ShareSubTab.serverFiles),
           ),
+          const Spacer(),
+          if (_subTab == _ShareSubTab.myShares) ...[
+            HollowButton.ghost(
+              compact: true,
+              icon: const Icon(LucideIcons.filePlus, size: 14),
+              onPressed: _pickFile,
+              child: const Text('Share a File'),
+            ),
+            const SizedBox(width: HollowSpacing.sm),
+            HollowButton.filled(
+              compact: true,
+              icon: const Icon(LucideIcons.link, size: 14),
+              onPressed: _showPasteDialog,
+              child: const Text('Paste Link'),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildEmptyState(HollowTheme hollow) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(LucideIcons.share2, size: 48, color: hollow.textSecondary),
-          const SizedBox(height: HollowSpacing.lg),
-          Text(
-            'No shares yet',
-            style: HollowTypography.subheading.copyWith(color: hollow.textSecondary),
-          ),
-          const SizedBox(height: HollowSpacing.xs),
-          Text(
-            'Paste a link or share a file to get started',
-            style: HollowTypography.bodySmall.copyWith(color: hollow.textSecondary),
-          ),
-        ],
-      ),
-    );
-  }
+  // ── My Shares tab ──
 
-  Widget _buildList(
-    List<ShareItemState> downloading,
-    List<ShareItemState> seeding,
-    HollowTheme hollow,
-  ) {
+  Widget _buildMyShares(List<ShareItemState> userShares, HollowTheme hollow) {
+    if (userShares.isEmpty) {
+      return _buildEmptyState(
+        hollow,
+        icon: LucideIcons.share2,
+        title: 'No shares yet',
+        subtitle: 'Paste a link or share a file to get started',
+      );
+    }
+
+    final downloading = userShares.where((s) => s.state == 'downloading' || s.state == 'failed').toList();
+    final seeding = userShares.where((s) => s.state == 'completed').toList();
+
     return ListView(
       padding: const EdgeInsets.all(HollowSpacing.lg),
       children: [
@@ -129,6 +139,73 @@ class _ShareDashboardState extends ConsumerState<ShareDashboard> {
     );
   }
 
+  // ── Server Files tab ──
+
+  Widget _buildServerFiles(List<ShareItemState> serverFiles, HollowTheme hollow) {
+    if (serverFiles.isEmpty) {
+      return _buildEmptyState(
+        hollow,
+        icon: LucideIcons.server,
+        title: 'No server files',
+        subtitle: 'Large files sent in server channels appear here',
+      );
+    }
+
+    final serverMap = ref.watch(serverListProvider);
+
+    // Group by server ID.
+    final grouped = <String, List<ShareItemState>>{};
+    for (final s in serverFiles) {
+      grouped.putIfAbsent(s.serverId!, () => []).add(s);
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(HollowSpacing.lg),
+      children: [
+        for (final entry in grouped.entries) ...[
+          _sectionHeader(
+            '${_serverName(entry.key, serverMap)} (${entry.value.length})',
+            hollow,
+          ),
+          const SizedBox(height: HollowSpacing.sm),
+          for (final item in entry.value) ...[
+            ShareCard(item: item),
+            const SizedBox(height: HollowSpacing.sm),
+          ],
+          const SizedBox(height: HollowSpacing.lg),
+        ],
+      ],
+    );
+  }
+
+  // ── Shared helpers ──
+
+  Widget _buildEmptyState(
+    HollowTheme hollow, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 48, color: hollow.textSecondary),
+          const SizedBox(height: HollowSpacing.lg),
+          Text(title, style: HollowTypography.subheading.copyWith(color: hollow.textSecondary)),
+          const SizedBox(height: HollowSpacing.xs),
+          Text(subtitle, style: HollowTypography.bodySmall.copyWith(color: hollow.textSecondary)),
+        ],
+      ),
+    );
+  }
+
+  String _serverName(String serverId, Map<String, dynamic> serverMap) {
+    final info = serverMap[serverId];
+    if (info != null) return info.name;
+    return 'Server';
+  }
+
   Widget _sectionHeader(String label, HollowTheme hollow) {
     return Padding(
       padding: const EdgeInsets.only(left: HollowSpacing.xs),
@@ -150,6 +227,52 @@ class _ShareDashboardState extends ConsumerState<ShareDashboard> {
     showHollowDialog(
       context: context,
       builder: (ctx) => const PasteLinkDialog(),
+    );
+  }
+}
+
+/// Pill-shaped sub-tab button — matches the Archive dashboard pattern.
+class _SubTabPill extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _SubTabPill({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+
+    return HollowPressable(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(hollow.radiusMd),
+      padding: EdgeInsets.zero,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? hollow.accent.withValues(alpha: 0.15)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(hollow.radiusMd),
+          border: Border.all(
+            color: isSelected
+                ? hollow.accent.withValues(alpha: 0.3)
+                : hollow.border,
+          ),
+        ),
+        child: Text(
+          label,
+          style: HollowTypography.body.copyWith(
+            color: isSelected ? hollow.accent : hollow.textSecondary,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+            fontSize: 13,
+          ),
+        ),
+      ),
     );
   }
 }

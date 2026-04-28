@@ -873,9 +873,9 @@ async fn run_event_loop(
                             &mut share_registry, &bundle_keypair, &ws_cmd_tx, &event_tx, source_path, true,
                         ).await;
                     }
-                    NodeCommand::ShareOpenLink { link } => {
+                    NodeCommand::ShareOpenLink { link, server_id, context_type } => {
                         super::share_handler::handle_command_share_open_link(
-                            &mut share_registry, &bundle_keypair, &ws_cmd_tx, &event_tx, link,
+                            &mut share_registry, &bundle_keypair, &ws_cmd_tx, &event_tx, link, server_id, context_type,
                         ).await;
                     }
                     NodeCommand::ShareStart { root_hash, save_dir, link, sequential } => {
@@ -2235,8 +2235,21 @@ async fn run_event_loop(
                         }
                     }
 
-                    // 4. Cache eviction (1GB default limit)
-                    if let Ok(freed) = crate::vault::pipeline::evict_cache_if_needed(1024 * 1024 * 1024) {
+                    // 4. Cache eviction (user-configurable, default 1 GB)
+                    let cache_cap = {
+                        let store_lock = crate::api::storage::get_store();
+                        store_lock.lock().ok()
+                            .and_then(|guard| guard.as_ref()
+                                .and_then(|store| store.load_setting("vault_cache_cap_mb").ok())
+                                .flatten()
+                                .and_then(|v| v.parse::<u64>().ok())
+                                .map(|mb| mb * 1024 * 1024))
+                            .unwrap_or(crate::vault::pipeline::VAULT_CACHE_CAP)
+                    };
+                    if let Ok(freed) = crate::vault::pipeline::evict_cache_if_needed(
+                        cache_cap,
+                        &std::collections::HashSet::new(),
+                    ) {
                         if freed > 0 {
                             hollow_log!("[HOLLOW-VAULT] Cache eviction freed {} bytes", freed);
                         }

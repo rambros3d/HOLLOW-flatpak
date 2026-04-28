@@ -144,6 +144,12 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
   bool _pendingDisableAnimations = false;
   bool _initialDisableAnimations = false;
   bool _animInitialized = false;
+  int _pendingAutoDownloadThreshold = 169;
+  int _initialAutoDownloadThreshold = 169;
+  bool _thresholdInitialized = false;
+  int _pendingCacheCap = 1024;
+  int _initialCacheCap = 1024;
+  bool _cacheCapInitialized = false;
   double _initialAccentHue = defaultAccentHue;
 
   @override
@@ -186,6 +192,20 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
       _pendingDisableAnimations = animAsync.value!;
       _initialDisableAnimations = _pendingDisableAnimations;
       _animInitialized = true;
+    }
+
+    final thresholdAsync = ref.read(autoDownloadThresholdProvider);
+    if (thresholdAsync.hasValue) {
+      _pendingAutoDownloadThreshold = thresholdAsync.value!;
+      _initialAutoDownloadThreshold = _pendingAutoDownloadThreshold;
+      _thresholdInitialized = true;
+    }
+
+    final cacheCapAsync = ref.read(vaultCacheCapProvider);
+    if (cacheCapAsync.hasValue) {
+      _pendingCacheCap = cacheCapAsync.value!;
+      _initialCacheCap = _pendingCacheCap;
+      _cacheCapInitialized = true;
     }
   }
 
@@ -330,6 +350,20 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
           );
     }
 
+    // Apply auto-download threshold change.
+    if (_pendingAutoDownloadThreshold != _initialAutoDownloadThreshold) {
+      await ref
+          .read(autoDownloadThresholdProvider.notifier)
+          .setThreshold(_pendingAutoDownloadThreshold);
+    }
+
+    // Apply cache cap change.
+    if (_pendingCacheCap != _initialCacheCap) {
+      await ref
+          .read(vaultCacheCapProvider.notifier)
+          .setCap(_pendingCacheCap);
+    }
+
     // Apply animation toggle.
     if (_pendingDisableAnimations != _initialDisableAnimations) {
       await ref
@@ -420,6 +454,32 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
             _pendingDisableAnimations = next.value!;
             _initialDisableAnimations = _pendingDisableAnimations;
             _animInitialized = true;
+          });
+        }
+      });
+    }
+
+    // Update pending auto-download threshold once the async value resolves.
+    if (!_thresholdInitialized) {
+      ref.listen(autoDownloadThresholdProvider, (prev, next) {
+        if (next.hasValue && !_thresholdInitialized) {
+          setState(() {
+            _pendingAutoDownloadThreshold = next.value!;
+            _initialAutoDownloadThreshold = _pendingAutoDownloadThreshold;
+            _thresholdInitialized = true;
+          });
+        }
+      });
+    }
+
+    // Update pending cache cap once the async value resolves.
+    if (!_cacheCapInitialized) {
+      ref.listen(vaultCacheCapProvider, (prev, next) {
+        if (next.hasValue && !_cacheCapInitialized) {
+          setState(() {
+            _pendingCacheCap = next.value!;
+            _initialCacheCap = _pendingCacheCap;
+            _cacheCapInitialized = true;
           });
         }
       });
@@ -930,6 +990,142 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
             ),
             const SizedBox(height: HollowSpacing.md),
           ],
+
+          const SizedBox(height: HollowSpacing.xl),
+
+          // ── Files ──
+          _SectionLabel(label: 'FILES'),
+          const SizedBox(height: HollowSpacing.sm),
+
+          Row(
+            children: [
+              Icon(LucideIcons.download, size: 16,
+                  color: hollow.textSecondary),
+              const SizedBox(width: HollowSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Auto-Download Threshold',
+                      style: HollowTypography.body
+                          .copyWith(color: hollow.textPrimary),
+                    ),
+                    Text(
+                      'Files up to $_pendingAutoDownloadThreshold MB auto-download',
+                      style: HollowTypography.caption.copyWith(
+                        color: hollow.textSecondary,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: HollowSpacing.xs),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: hollow.accent,
+              inactiveTrackColor: hollow.border,
+              thumbColor: hollow.accent,
+              overlayColor: hollow.accent.withValues(alpha: 0.1),
+              trackHeight: 3,
+              thumbShape: const RoundSliderThumbShape(
+                  enabledThumbRadius: 6),
+            ),
+            child: Slider(
+              value: _pendingAutoDownloadThreshold.toDouble(),
+              min: 34,
+              max: 2048,
+              divisions: 50,
+              label: '$_pendingAutoDownloadThreshold MB',
+              onChanged: (value) => setState(() =>
+                  _pendingAutoDownloadThreshold = value.round()),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: HollowSpacing.xs),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('34 MB',
+                    style: HollowTypography.caption.copyWith(
+                        color: hollow.textSecondary, fontSize: 9)),
+                Text('2 GB',
+                    style: HollowTypography.caption.copyWith(
+                        color: hollow.textSecondary, fontSize: 9)),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: HollowSpacing.lg),
+
+          Row(
+            children: [
+              Icon(LucideIcons.hardDrive, size: 16,
+                  color: hollow.textSecondary),
+              const SizedBox(width: HollowSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Cache Size Limit',
+                      style: HollowTypography.body
+                          .copyWith(color: hollow.textPrimary),
+                    ),
+                    Text(
+                      '${(_pendingCacheCap / 1024).toStringAsFixed(1)} GB — server file downloads are evicted when cache exceeds this',
+                      style: HollowTypography.caption.copyWith(
+                        color: hollow.textSecondary,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: HollowSpacing.xs),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: hollow.accent,
+              inactiveTrackColor: hollow.border,
+              thumbColor: hollow.accent,
+              overlayColor: hollow.accent.withValues(alpha: 0.1),
+              trackHeight: 3,
+              thumbShape: const RoundSliderThumbShape(
+                  enabledThumbRadius: 6),
+            ),
+            child: Slider(
+              value: _pendingCacheCap.toDouble(),
+              min: 256,
+              max: 10240,
+              divisions: 40,
+              label: _pendingCacheCap >= 1024
+                  ? '${(_pendingCacheCap / 1024).toStringAsFixed(1)} GB'
+                  : '$_pendingCacheCap MB',
+              onChanged: (value) => setState(() =>
+                  _pendingCacheCap = value.round()),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: HollowSpacing.xs),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('256 MB',
+                    style: HollowTypography.caption.copyWith(
+                        color: hollow.textSecondary, fontSize: 9)),
+                Text('10 GB',
+                    style: HollowTypography.caption.copyWith(
+                        color: hollow.textSecondary, fontSize: 9)),
+              ],
+            ),
+          ),
 
           const SizedBox(height: HollowSpacing.xl),
 

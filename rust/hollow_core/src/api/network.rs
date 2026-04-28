@@ -305,6 +305,8 @@ pub struct ShareEntry {
     pub bytes_uploaded: u64,
     pub share_link: String,
     pub created_at: i64,
+    pub server_id: Option<String>,
+    pub context_type: Option<String>,
 }
 
 /// Holds all mutable state for the running node.
@@ -800,6 +802,8 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
                     bytes_uploaded: e.bytes_uploaded,
                     share_link: e.share_link,
                     created_at: e.created_at,
+                    server_id: e.server_id,
+                    context_type: e.context_type,
                 }).collect(),
             }
         }

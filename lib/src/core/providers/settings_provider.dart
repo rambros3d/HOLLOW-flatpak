@@ -320,6 +320,61 @@ class RingtoneEndNotifier extends AsyncNotifier<double> {
   }
 }
 
+/// Auto-download threshold for share-backed files (in MB).
+/// Files up to this size auto-download; larger ones require manual action.
+/// Minimum: 34 MB (the share-backed file threshold). Default: 169 MB.
+final autoDownloadThresholdProvider =
+    AsyncNotifierProvider<AutoDownloadThresholdNotifier, int>(
+        AutoDownloadThresholdNotifier.new);
+
+class AutoDownloadThresholdNotifier extends AsyncNotifier<int> {
+  @override
+  Future<int> build() async {
+    final val = await storage_api.loadSetting(key: 'auto_download_threshold_mb');
+    if (val != null && val.isNotEmpty) {
+      final mb = int.tryParse(val);
+      if (mb != null && mb >= 34) return mb;
+    }
+    return 169;
+  }
+
+  Future<void> setThreshold(int mb) async {
+    final clamped = mb.clamp(34, 2048);
+    await storage_api.saveSetting(
+      key: 'auto_download_threshold_mb',
+      value: clamped.toString(),
+    );
+    state = AsyncData(clamped);
+  }
+}
+
+/// Vault cache size cap in MB. Files downloaded from server channels are
+/// LRU-evicted when the cache exceeds this limit. Default: 1024 MB (1 GB).
+final vaultCacheCapProvider =
+    AsyncNotifierProvider<VaultCacheCapNotifier, int>(
+        VaultCacheCapNotifier.new);
+
+class VaultCacheCapNotifier extends AsyncNotifier<int> {
+  @override
+  Future<int> build() async {
+    final val = await storage_api.loadSetting(key: 'vault_cache_cap_mb');
+    if (val != null && val.isNotEmpty) {
+      final mb = int.tryParse(val);
+      if (mb != null && mb >= 256) return mb;
+    }
+    return 1024;
+  }
+
+  Future<void> setCap(int mb) async {
+    final clamped = mb.clamp(256, 10240);
+    await storage_api.saveSetting(
+      key: 'vault_cache_cap_mb',
+      value: clamped.toString(),
+    );
+    state = AsyncData(clamped);
+  }
+}
+
 /// Whether the Shadowsocks proxy is enabled (for censored networks).
 /// Loaded from the local DB at startup.
 final proxyEnabledProvider =

@@ -22,6 +22,8 @@ class ShareItemState {
   final String? diskPath;
   final String? error;
   final int createdAt;
+  final String? serverId;
+  final String? contextType;
 
   const ShareItemState({
     required this.rootHash,
@@ -39,6 +41,8 @@ class ShareItemState {
     this.diskPath,
     this.error,
     this.createdAt = 0,
+    this.serverId,
+    this.contextType,
   });
 
   ShareItemState copyWith({
@@ -70,6 +74,8 @@ class ShareItemState {
       diskPath: diskPath ?? this.diskPath,
       error: error ?? this.error,
       createdAt: createdAt,
+      serverId: serverId,
+      contextType: contextType,
     );
   }
 }
@@ -105,6 +111,8 @@ class ShareTabNotifier extends Notifier<List<ShareItemState>> {
         bytesUploaded: prev?.bytesUploaded ?? e.bytesUploaded.toInt(),
         shareLink: e.shareLink,
         createdAt: e.createdAt.toInt(),
+        serverId: e.serverId,
+        contextType: e.contextType,
       );
     }).toList();
   }

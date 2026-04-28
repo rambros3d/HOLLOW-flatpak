@@ -48,7 +48,7 @@ pub fn share_open_link(link: String) -> Result<(), String> {
     let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
     let state = guard.as_ref().ok_or("Node is not running")?;
     let rt = get_runtime();
-    rt.block_on(state.cmd_tx.send(node::NodeCommand::ShareOpenLink { link }))
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::ShareOpenLink { link, server_id: None, context_type: None }))
         .map_err(|e| format!("Failed to send command: {e}"))?;
     Ok(())
 }
@@ -109,7 +109,7 @@ pub fn share_remove(root_hash: String, delete_file: bool) -> Result<(), String> 
 /// Used by the receiver when a FileHeader carries a ShareRef.
 /// Joins the swarm room, fetches manifest, and starts sequential download.
 #[frb]
-pub fn share_start_from_ref(root_hash: String, key_hex: String, save_dir: String, sequential: bool) -> Result<(), String> {
+pub fn share_start_from_ref(root_hash: String, key_hex: String, save_dir: String, sequential: bool, server_id: Option<String>, context_type: Option<String>) -> Result<(), String> {
     let key_bytes = hex::decode(&key_hex)
         .map_err(|e| format!("Invalid key hex: {e}"))?;
     if key_bytes.len() != 32 {
@@ -130,7 +130,7 @@ pub fn share_start_from_ref(root_hash: String, key_hex: String, save_dir: String
     let guard = node_lock.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
     let state = guard.as_ref().ok_or("Node is not running")?;
     let rt = get_runtime();
-    rt.block_on(state.cmd_tx.send(node::NodeCommand::ShareOpenLink { link: link.clone() }))
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::ShareOpenLink { link: link.clone(), server_id, context_type }))
         .map_err(|e| format!("Failed to send open command: {e}"))?;
     Ok(())
 }
@@ -145,4 +145,72 @@ pub fn share_list() -> Result<(), String> {
     rt.block_on(state.cmd_tx.send(node::NodeCommand::ShareList))
         .map_err(|e| format!("Failed to send command: {e}"))?;
     Ok(())
+}
+
+/// Evict vault cache files that exceed the 1 GB cap.
+/// `exempt_paths` lists files that should NOT be evicted (e.g. currently playing video).
+/// Returns bytes freed.
+#[frb]
+pub fn evict_vault_cache(exempt_paths: Vec<String>) -> Result<u64, String> {
+    let exempt: std::collections::HashSet<std::path::PathBuf> =
+        exempt_paths.iter().map(std::path::PathBuf::from).collect();
+    crate::vault::pipeline::evict_cache_if_needed(
+        crate::vault::pipeline::VAULT_CACHE_CAP,
+        &exempt,
+    )
+}
+
+/// Move a completed share-backed file from vault_cache to ~/.hollow/files/
+/// and enable seeding. Returns the new file path.
+/// Used by "Keep & Seed" button on video/file cards.
+#[frb]
+pub fn share_keep_and_seed(root_hash: String) -> Result<String, String> {
+    use crate::identity::data_dir;
+
+    let new_path_str = {
+        let store_lock = super::storage::get_store();
+        let store_guard = store_lock.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+        let store = store_guard.as_ref().ok_or("Message store not open")?;
+
+        let share = store.load_share(&root_hash)?
+            .ok_or("Share not found")?;
+        let old_path = share.disk_path
+            .ok_or("Share has no disk_path — not yet completed?")?;
+
+        let old = std::path::PathBuf::from(&old_path);
+        if !old.exists() {
+            return Err(format!("Source file does not exist: {old_path}"));
+        }
+
+        let files_dir = data_dir()
+            .map_err(|e| format!("data_dir: {e}"))?
+            .join("files");
+        std::fs::create_dir_all(&files_dir)
+            .map_err(|e| format!("create files dir: {e}"))?;
+
+        let file_name = old.file_name()
+            .ok_or("Invalid file path")?;
+        let new_path = files_dir.join(file_name);
+
+        std::fs::copy(&old, &new_path)
+            .map_err(|e| format!("Failed to copy file: {e}"))?;
+        let _ = std::fs::remove_file(&old);
+
+        let result = new_path.to_string_lossy().to_string();
+        store.update_share_disk_path(&root_hash, &result)?;
+        store.set_share_seeding(&root_hash, true)?;
+        result
+    };
+
+    let node_lock = get_node();
+    let guard = node_lock.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    if let Some(state) = guard.as_ref() {
+        let rt = get_runtime();
+        let _ = rt.block_on(state.cmd_tx.send(node::NodeCommand::ShareSetSeeding {
+            root_hash,
+            seeding: true,
+        }));
+    }
+
+    Ok(new_path_str)
 }

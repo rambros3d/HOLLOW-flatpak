@@ -60,6 +60,14 @@ class FileAttachmentWidget extends ConsumerWidget {
       return _buildExpiredCard(hollow);
     }
 
+    // Share-backed file with no seeders and not yet downloaded.
+    if (transfer?.shareRootHash != null &&
+        !isComplete &&
+        (transfer?.seeders ?? -1) == 0 &&
+        (transfer?.chunksReceived ?? 0) == 0) {
+      return _buildUnavailableCard(hollow);
+    }
+
     // Phase 6.75: Video preview takes priority over generic file rendering.
     // Two cases handled by VideoMessageBubble:
     //  (a) vault video — videoThumb is set, attachment is the .webp thumbnail
@@ -128,6 +136,53 @@ class FileAttachmentWidget extends ConsumerWidget {
                   const SizedBox(height: HollowSpacing.xxs),
                   Text(
                     'File expired · ${attachment.formattedSize}',
+                    style: HollowTypography.caption.copyWith(
+                      color: hollow.textSecondary,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUnavailableCard(HollowTheme hollow) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 280),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: hollow.surface,
+        borderRadius: BorderRadius.circular(HollowSpacing.sm),
+        border: Border.all(color: hollow.border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(HollowSpacing.md),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(LucideIcons.cloudOff, size: 24, color: hollow.textSecondary),
+            const SizedBox(width: HollowSpacing.md),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    attachment.fileName,
+                    style: HollowTypography.body.copyWith(
+                      color: hollow.textSecondary,
+                      fontSize: 13,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: HollowSpacing.xxs),
+                  Text(
+                    'No seeders · ${attachment.formattedSize}',
                     style: HollowTypography.caption.copyWith(
                       color: hollow.textSecondary,
                       fontStyle: FontStyle.italic,

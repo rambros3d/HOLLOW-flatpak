@@ -35,6 +35,10 @@ class FileTransferState {
   /// identified by `videoThumb.cid`. The UI renders a play button overlay and
   /// triggers a vault download on tap.
   final network_api.VideoThumbRef? videoThumb;
+  /// Share root hash — set for share-backed files (>34 MB channel files).
+  final String? shareRootHash;
+  /// Number of active seeders — updated from ShareProgress events.
+  final int? seeders;
 
   const FileTransferState({
     required this.fileId,
@@ -53,6 +57,8 @@ class FileTransferState {
     this.width,
     this.height,
     this.videoThumb,
+    this.shareRootHash,
+    this.seeders,
   });
 
   double get progress =>
@@ -67,6 +73,7 @@ class FileTransferState {
     String? error,
     String? diskPath,
     network_api.VideoThumbRef? videoThumb,
+    int? seeders,
   }) {
     return FileTransferState(
       fileId: fileId,
@@ -85,6 +92,8 @@ class FileTransferState {
       width: width,
       height: height,
       videoThumb: videoThumb ?? this.videoThumb,
+      shareRootHash: shareRootHash,
+      seeders: seeders ?? this.seeders,
     );
   }
 }
@@ -206,6 +215,16 @@ class FileTransferNotifier
           messageText: messageText,
           preExtractedThumb: videoThumb,
         );
+        return;
+      }
+
+      // Cap DM file size at 34 MB — no Share system for DMs yet, so large
+      // files would stream raw over P2P with no chunking/resume. Reject early.
+      if (serverId == null && fileSize > maxDirectSize) {
+        debugPrint('[HOLLOW] DM file too large: ${fileSize} bytes (max $maxDirectSize)');
+        final updated = Map<String, FileTransferState>.from(state);
+        updated.remove(messageId);
+        state = updated;
         return;
       }
 
@@ -453,6 +472,7 @@ class FileTransferNotifier
     int? height,
     bool isVaultMode = false,
     network_api.VideoThumbRef? videoThumb,
+    String? shareRootHash,
   }) {
     // Don't overwrite an existing entry (e.g., from a sync batch that already
     // set isComplete, or a prior live transfer). Only create new entries.
@@ -471,6 +491,7 @@ class FileTransferNotifier
       // This prevents synced file metadata from showing "Downloading..." forever.
       isDownloading: false,
       videoThumb: videoThumb,
+      shareRootHash: shareRootHash,
     );
     state = updated;
   }
@@ -534,6 +555,15 @@ class FileTransferNotifier
         diskPath: diskPath,
       );
     }
+    state = updated;
+  }
+
+  /// Update seeder count from ShareProgress events.
+  void onSeedersUpdate(String fileId, int seeders) {
+    final current = state[fileId];
+    if (current == null) return;
+    final updated = Map<String, FileTransferState>.from(state);
+    updated[fileId] = current.copyWith(seeders: seeders);
     state = updated;
   }
 

@@ -252,6 +252,6 @@ final activeTransferCountProvider = Provider<int>((ref) {
   final owned = ref.watch(downloadManagerStateProvider);
   final shares = ref.watch(shareTabProvider);
   final activeRebalances = owned.rebalances.values.where((r) => !r.completed).length;
-  final activeShares = shares.where((s) => s.state == 'downloading').length;
+  final activeShares = shares.where((s) => s.state == 'downloading' && s.contextType == null).length;
   return activeRebalances + activeShares;
 });

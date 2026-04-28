@@ -91,8 +91,9 @@ class _DownloadManagerOverlayState
     final hollow = HollowTheme.of(context);
     final entries = ref.watch(downloadManagerEntriesProvider);
     final allShares = ref.watch(shareTabProvider);
-    final activeShareDownloads = downloadingShares(allShares);
-    final shareItems = activeShareDownloads;
+    final shareItems = downloadingShares(allShares)
+        .where((s) => s.contextType == null)
+        .toList();
 
     const cardWidth = 340.0;
     const maxHeight = 420.0;

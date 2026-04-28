@@ -559,10 +559,10 @@ impl MessageStore {
             [],
         )
         .map_err(|e| format!("Failed to create shares table: {e}"))?;
-        // Idempotent migration for existing dbs from before save_dir was added.
-        conn.execute_batch(
-            "ALTER TABLE shares ADD COLUMN save_dir TEXT;"
-        ).unwrap_or(());
+        // Idempotent migrations for existing dbs.
+        conn.execute_batch("ALTER TABLE shares ADD COLUMN save_dir TEXT;").unwrap_or(());
+        conn.execute_batch("ALTER TABLE shares ADD COLUMN server_id TEXT;").unwrap_or(());
+        conn.execute_batch("ALTER TABLE shares ADD COLUMN context_type TEXT;").unwrap_or(());
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_shares_state ON shares(state)",
             [],
@@ -2964,22 +2964,25 @@ impl MessageStore {
         disk_path: Option<&str>,
         save_dir: Option<&str>,
         created_at: i64,
+        server_id: Option<&str>,
+        context_type: Option<&str>,
     ) -> Result<(), String> {
         self.conn.execute(
             "INSERT OR REPLACE INTO shares (
                 root_hash, file_name, file_ext, mime, total_size, chunk_size, chunk_count,
                 manifest_json, encryption_key, share_link, state, seeding, disk_path, save_dir,
-                bytes_uploaded, created_at, completed_at
+                bytes_uploaded, created_at, completed_at, server_id, context_type
             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,
                 COALESCE((SELECT bytes_uploaded FROM shares WHERE root_hash = ?1), 0),
                 ?15,
-                (SELECT completed_at FROM shares WHERE root_hash = ?1)
+                (SELECT completed_at FROM shares WHERE root_hash = ?1),
+                ?16, ?17
             )",
             params![
                 root_hash, file_name, file_ext, mime,
                 total_size as i64, chunk_size as i64, chunk_count as i64,
                 manifest_json, encryption_key, share_link, state, seeding as i32,
-                disk_path, save_dir, created_at,
+                disk_path, save_dir, created_at, server_id, context_type,
             ],
         ).map_err(|e| format!("Failed to upsert share: {e}"))?;
         Ok(())
@@ -2999,7 +3002,7 @@ impl MessageStore {
         let mut stmt = self.conn.prepare(
             "SELECT root_hash, file_name, file_ext, mime, total_size, chunk_size, chunk_count,
                     manifest_json, encryption_key, share_link, state, seeding, disk_path,
-                    bytes_uploaded, created_at, completed_at, save_dir
+                    bytes_uploaded, created_at, completed_at, save_dir, server_id, context_type
              FROM shares WHERE root_hash = ?1",
         ).map_err(|e| format!("Failed to prepare load_share: {e}"))?;
         let mut rows = stmt.query(params![root_hash])
@@ -3015,7 +3018,7 @@ impl MessageStore {
         let mut stmt = self.conn.prepare(
             "SELECT root_hash, file_name, file_ext, mime, total_size, chunk_size, chunk_count,
                     manifest_json, encryption_key, share_link, state, seeding, disk_path,
-                    bytes_uploaded, created_at, completed_at, save_dir
+                    bytes_uploaded, created_at, completed_at, save_dir, server_id, context_type
              FROM shares ORDER BY created_at DESC",
         ).map_err(|e| format!("Failed to prepare load_shares: {e}"))?;
         let mut rows = stmt.query([])
@@ -3032,6 +3035,14 @@ impl MessageStore {
             "UPDATE shares SET state = 'completed', disk_path = ?2, completed_at = ?3 WHERE root_hash = ?1",
             params![root_hash, disk_path, completed_at],
         ).map_err(|e| format!("Failed to mark share complete: {e}"))?;
+        Ok(())
+    }
+
+    pub fn update_share_disk_path(&self, root_hash: &str, disk_path: &str) -> Result<(), String> {
+        self.conn.execute(
+            "UPDATE shares SET disk_path = ?2 WHERE root_hash = ?1",
+            params![root_hash, disk_path],
+        ).map_err(|e| format!("Failed to update share disk_path: {e}"))?;
         Ok(())
     }
 
@@ -3113,6 +3124,8 @@ pub struct StoredShare {
     pub created_at: i64,
     pub completed_at: Option<i64>,
     pub save_dir: Option<String>,
+    pub server_id: Option<String>,
+    pub context_type: Option<String>,
 }
 
 fn stored_share_from_row(row: &rusqlite::Row<'_>) -> Result<StoredShare, String> {
@@ -3134,5 +3147,7 @@ fn stored_share_from_row(row: &rusqlite::Row<'_>) -> Result<StoredShare, String>
         created_at:     row.get(14).map_err(|e| format!("col 14: {e}"))?,
         completed_at:   row.get::<_, Option<i64>>(15).map_err(|e| format!("col 15: {e}"))?,
         save_dir:       row.get::<_, Option<String>>(16).map_err(|e| format!("col 16: {e}"))?,
+        server_id:      row.get::<_, Option<String>>(17).unwrap_or(None),
+        context_type:   row.get::<_, Option<String>>(18).unwrap_or(None),
     })
 }

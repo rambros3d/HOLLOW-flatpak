@@ -32,6 +32,7 @@ import 'package:hollow/src/core/providers/webrtc_provider.dart';
 import 'package:hollow/src/core/providers/call_provider.dart';
 import 'package:hollow/src/core/providers/voice_channel_provider.dart';
 import 'package:hollow/src/core/providers/recovery_pool_provider.dart';
+import 'package:hollow/src/core/providers/settings_provider.dart';
 import 'package:hollow/src/core/providers/share_tab_provider.dart';
 import 'package:hollow/src/core/providers/ice_config_provider.dart';
 import 'package:hollow/src/core/providers/license_key_provider.dart';
@@ -54,6 +55,12 @@ class EventStreamNotifier extends Notifier<bool> {
 
   /// Maps share rootHash → file ID for bridging Share events to file transfer state.
   final Map<String, String> _shareToFileId = {};
+
+  /// Servers that have completed their initial message sync.
+  /// Share-backed files are only auto-downloaded for live messages (post-sync),
+  /// not during the sync burst — prevents cache thrash on reconnection.
+  final Set<String> _serverSyncDone = {};
+
 
   @override
   bool build() => false; // streaming?
@@ -362,6 +369,7 @@ class EventStreamNotifier extends Notifier<bool> {
             :final serverId, :final newMessageCount):
         debugPrint(
             '[HOLLOW] Message sync: $newMessageCount new messages for $serverId');
+        _serverSyncDone.add(serverId);
         _syncTimeouts[serverId]?.cancel();
         _syncTimeouts.remove(serverId);
         ref.read(syncingPeersProvider.notifier).clearServer(serverId);
@@ -596,11 +604,16 @@ class EventStreamNotifier extends Notifier<bool> {
               height: height?.toInt(),
               isVaultMode: isVaultMode,
               videoThumb: videoThumb,
+              shareRootHash: shareRootHash,
             );
         _reloadChatForFile(fileId);
 
         if (shareRootHash != null && shareKeyHex != null) {
-          const autoDownloadThreshold = 169 * 1024 * 1024; // 169 MB
+          if (!_serverSyncDone.contains(serverId)) {
+            debugPrint('[HOLLOW] Share-backed file during sync — skipping auto-download for $fileId');
+          } else {
+          final thresholdMb = ref.read(autoDownloadThresholdProvider).valueOrNull ?? 169;
+          final autoDownloadThreshold = thresholdMb * 1024 * 1024;
           final autoDownload = sizeBytes.toInt() <= autoDownloadThreshold;
           final isVideo = const {'mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v'}
               .contains(fileName.split('.').last.toLowerCase());
@@ -608,7 +621,7 @@ class EventStreamNotifier extends Notifier<bool> {
           _shareToFileId[shareRootHash] = fileId;
 
           if (autoDownload) {
-            debugPrint('[HOLLOW] Share-backed file <169 MB — auto-downloading $fileId');
+            debugPrint('[HOLLOW] Share-backed file <=${thresholdMb}MB — auto-downloading $fileId');
             _pendingAutoDownloads[shareRootHash] = (
               sequential: isVideo,
               link: 'hollow://share/$shareRootHash',
@@ -619,13 +632,16 @@ class EventStreamNotifier extends Notifier<bool> {
               keyHex: shareKeyHex,
               saveDir: '',
               sequential: isVideo,
+              serverId: serverId,
+              contextType: 'channel',
             ).catchError((e) {
               debugPrint('[HOLLOW] Failed to initiate share: $e');
               _pendingAutoDownloads.remove(shareRootHash);
             });
           } else {
-            debugPrint('[HOLLOW] Share-backed file >169 MB — manual download required for $fileId');
+            debugPrint('[HOLLOW] Share-backed file >${thresholdMb}MB — manual download required for $fileId');
           }
+          } // end sync-done else
         }
 
       case NetworkEvent_FileProgress(
@@ -892,6 +908,9 @@ class EventStreamNotifier extends Notifier<bool> {
         if (progressFileId != null) {
           ref.read(fileTransferProvider.notifier).onFileProgress(
             progressFileId, chunksHave, chunksTotal,
+          );
+          ref.read(fileTransferProvider.notifier).onSeedersUpdate(
+            progressFileId, seeders,
           );
         }
       case NetworkEvent_ShareCompleted(:final rootHash, :final diskPath):

@@ -245,7 +245,11 @@ pub fn reconstruct_file(
 
 // ── Vault cache ──────────────────────────────────────────────
 
+use std::collections::HashSet;
 use std::path::PathBuf;
+
+/// Default vault cache cap: 1 GB.
+pub const VAULT_CACHE_CAP: u64 = 1_073_741_824;
 
 /// Get the vault cache directory path.
 pub fn vault_cache_dir() -> PathBuf {
@@ -280,8 +284,9 @@ pub fn write_to_cache(content_id: &str, ext: &str, data: &[u8]) -> Result<PathBu
 }
 
 /// Evict oldest cache files until total size is under max_bytes * 0.8.
+/// Files in `exempt_paths` are skipped (e.g. currently playing video).
 /// Returns bytes freed. Does nothing if already under limit.
-pub fn evict_cache_if_needed(max_bytes: u64) -> Result<u64, String> {
+pub fn evict_cache_if_needed(max_bytes: u64, exempt_paths: &HashSet<PathBuf>) -> Result<u64, String> {
     let dir = vault_cache_dir();
     let entries = std::fs::read_dir(&dir).map_err(|e| format!("Failed to read cache dir: {e}"))?;
 
@@ -312,6 +317,9 @@ pub fn evict_cache_if_needed(max_bytes: u64) -> Result<u64, String> {
     for (path, size, _) in &files {
         if total_size - freed <= target {
             break;
+        }
+        if exempt_paths.contains(path) {
+            continue;
         }
         if std::fs::remove_file(path).is_ok() {
             freed += size;

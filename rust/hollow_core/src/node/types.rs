@@ -244,6 +244,8 @@ pub(crate) struct ShareEntryRef {
     pub bytes_uploaded: u64,
     pub share_link: String,
     pub created_at: i64,
+    pub server_id: Option<String>,
+    pub context_type: Option<String>,
 }
 
 /// Commands the FFI layer can send into the swarm event loop.
@@ -399,7 +401,7 @@ pub(crate) enum NodeCommand {
     ShareCreateHidden { source_path: String },
     /// Decode a hollow://share/ link, join the swarm room, fetch the manifest from any peer.
     /// Emits ShareManifestReady or ShareFailed.
-    ShareOpenLink { link: String },
+    ShareOpenLink { link: String, server_id: Option<String>, context_type: Option<String> },
     /// After ShareManifestReady, begin downloading chunks into save_dir.
     /// When `sequential` is true, chunks are fetched in order (for video streaming).
     ShareStart { root_hash: String, save_dir: String, link: String, sequential: bool },

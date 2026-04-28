@@ -12,9 +12,11 @@ import 'package:hollow/src/core/providers/audio_playback_provider.dart';
 import 'package:hollow/src/core/providers/file_transfer_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:hollow/src/core/providers/video_playback_provider.dart';
+import 'package:hollow/src/core/providers/share_tab_provider.dart';
 import 'package:hollow/src/core/services/video_thumbnail_service.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:hollow/src/rust/api/network.dart' as network_api;
+import 'package:hollow/src/rust/api/share.dart' as share_api;
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
@@ -192,8 +194,6 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
     if (videoPath == null) return;
 
     if (fullscreen) {
-      // Open the fullscreen viewer; init its own controller from the same path.
-      // Tear down our inline state so we don't double-play.
       _disposeController();
       if (mounted) setState(() => _state = _PlaybackState.thumbnail);
       if (!mounted) return;
@@ -251,6 +251,16 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
     _vaultListener?.close();
     _vaultListener = null;
     return result;
+  }
+
+  /// Find the share root hash for a file by matching its disk path against
+  /// the share tab entries.
+  String? _findShareRootHash(String diskPath) {
+    final shares = ref.read(shareTabProvider);
+    for (final s in shares) {
+      if (s.diskPath == diskPath) return s.rootHash;
+    }
+    return null;
   }
 
   Future<void> _initController(String videoPath) async {
@@ -379,10 +389,22 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
 
     final allTransfers = ref.watch(fileTransferProvider);
     final transfer = allTransfers[widget.attachment.fileId];
+    final isShareBacked = transfer?.shareRootHash != null;
     final isDownloading = transfer != null &&
         !transfer.isComplete &&
         transfer.totalChunks > 0;
     final progress = isDownloading ? transfer.progress : 0.0;
+    final noSeeders = isShareBacked &&
+        !transfer!.isComplete &&
+        (transfer.seeders ?? -1) == 0 &&
+        transfer.chunksReceived == 0;
+    // Show "Keep & Seed" if the file lives in vault_cache/ (cached channel download).
+    final resolvedDiskPath = transfer?.diskPath ?? widget.attachment.diskPath;
+    final isInVaultCache = resolvedDiskPath != null &&
+        resolvedDiskPath.contains('vault_cache');
+    final shareRoot = transfer?.shareRootHash ??
+        (isInVaultCache ? _findShareRootHash(resolvedDiskPath!) : null);
+    final showKeepAndSeed = shareRoot != null && isInVaultCache;
 
     return MouseRegion(
       cursor: canPlay ? SystemMouseCursors.click : MouseCursor.defer,
@@ -399,20 +421,24 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
               )
             else
               Container(color: Colors.black),
-            if (isDownloading)
-              Center(
-                child: SizedBox(
-                  width: 56,
-                  height: 56,
-                  child: CircularProgressIndicator(
-                    value: progress > 0 ? progress : null,
-                    strokeWidth: 3,
-                    color: hollow.accent,
-                    backgroundColor: Colors.white.withValues(alpha: 0.2),
+            if (noSeeders)
+              Container(
+                color: Colors.black.withValues(alpha: 0.65),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(LucideIcons.cloudOff, color: hollow.textSecondary, size: 32),
+                      const SizedBox(height: HollowSpacing.xs),
+                      Text('No seeders',
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.textSecondary, fontSize: 11)),
+                    ],
                   ),
                 ),
               )
             else
+              // Play button — always visible (during download = tap to stream).
               Center(
                 child: Container(
                   width: 64,
@@ -432,10 +458,23 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
                   ),
                 ),
               ),
+            // Thin progress bar at bottom during share download.
+            if (isDownloading)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: LinearProgressIndicator(
+                  value: progress > 0 ? progress : null,
+                  minHeight: 3,
+                  color: hollow.accent,
+                  backgroundColor: Colors.white.withValues(alpha: 0.1),
+                ),
+              ),
             if (isDownloading)
               Positioned(
                 left: HollowSpacing.sm,
-                bottom: HollowSpacing.sm,
+                bottom: HollowSpacing.sm + 3,
                 child: _Badge(
                   text: '${(progress * 100).toInt()}%',
                   hollow: hollow,
@@ -459,6 +498,16 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
                 hollow: hollow,
               ),
             ),
+            // "Keep & Seed" button for completed share-backed videos in vault_cache.
+            if (showKeepAndSeed && _state == _PlaybackState.thumbnail)
+              Positioned(
+                right: HollowSpacing.sm,
+                top: HollowSpacing.sm,
+                child: _KeepAndSeedButton(
+                  rootHash: shareRoot!,
+                  hollow: hollow,
+                ),
+              ),
           ],
         ),
       ),
@@ -950,6 +999,109 @@ class _FullscreenVideoViewState extends State<_FullscreenVideoView> {
                   ),
                 ),
               ),
+        ),
+      ),
+    );
+  }
+}
+
+// ════ Keep & Seed toggle ═════════════════════════════════════════════════
+
+class _KeepAndSeedButton extends ConsumerStatefulWidget {
+  final String rootHash;
+  final HollowTheme hollow;
+
+  const _KeepAndSeedButton({required this.rootHash, required this.hollow});
+
+  @override
+  ConsumerState<_KeepAndSeedButton> createState() => _KeepAndSeedButtonState();
+}
+
+class _KeepAndSeedButtonState extends ConsumerState<_KeepAndSeedButton> {
+  bool _loading = false;
+  bool? _kept;
+
+  bool _isSeeding() {
+    final shares = ref.read(shareTabProvider);
+    for (final s in shares) {
+      if (s.rootHash == widget.rootHash) return s.seeding;
+    }
+    return false;
+  }
+
+  bool _isKept() {
+    if (_kept != null) return _kept!;
+    final shares = ref.read(shareTabProvider);
+    for (final s in shares) {
+      if (s.rootHash == widget.rootHash) {
+        final dp = s.diskPath;
+        if (dp != null && !dp.contains('vault_cache')) return true;
+      }
+    }
+    return false;
+  }
+
+  Future<void> _onTap() async {
+    if (_loading) return;
+    setState(() => _loading = true);
+    try {
+      if (!_isKept()) {
+        await share_api.shareKeepAndSeed(rootHash: widget.rootHash);
+        _kept = true;
+      } else {
+        final nowSeeding = _isSeeding();
+        await share_api.shareSetSeeding(
+            rootHash: widget.rootHash, seeding: !nowSeeding);
+      }
+    } catch (e) {
+      debugPrint('[VideoBubble] Keep & Seed toggle failed: $e');
+    }
+    if (mounted) setState(() => _loading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final shares = ref.watch(shareTabProvider);
+    final seeding = shares
+        .where((s) => s.rootHash == widget.rootHash)
+        .map((s) => s.seeding)
+        .firstOrNull ?? false;
+    final kept = _isKept();
+
+    return GestureDetector(
+      onTap: _onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: HollowSpacing.sm,
+          vertical: HollowSpacing.xxs,
+        ),
+        decoration: BoxDecoration(
+          color: seeding
+              ? widget.hollow.accent.withValues(alpha: 0.8)
+              : Colors.black.withValues(alpha: 0.65),
+          borderRadius: BorderRadius.circular(widget.hollow.radiusSm),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_loading)
+              const SizedBox(
+                width: 12, height: 12,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.5, color: Colors.white),
+              )
+            else
+              Icon(
+                seeding ? LucideIcons.check : (kept ? LucideIcons.pause : LucideIcons.hardDrive),
+                color: Colors.white, size: 12,
+              ),
+            const SizedBox(width: 4),
+            Text(
+              seeding ? 'Seeding' : (kept ? 'Paused' : 'Keep & Seed'),
+              style: HollowTypography.caption.copyWith(
+                color: Colors.white, fontSize: 10),
+            ),
+          ],
         ),
       ),
     );

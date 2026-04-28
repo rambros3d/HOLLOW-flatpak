@@ -1090,6 +1090,8 @@ class ShareEntry {
   final BigInt bytesUploaded;
   final String shareLink;
   final PlatformInt64 createdAt;
+  final String? serverId;
+  final String? contextType;
 
   const ShareEntry({
     required this.rootHash,
@@ -1103,6 +1105,8 @@ class ShareEntry {
     required this.bytesUploaded,
     required this.shareLink,
     required this.createdAt,
+    this.serverId,
+    this.contextType,
   });
 
   @override
@@ -1117,7 +1121,9 @@ class ShareEntry {
       diskPath.hashCode ^
       bytesUploaded.hashCode ^
       shareLink.hashCode ^
-      createdAt.hashCode;
+      createdAt.hashCode ^
+      serverId.hashCode ^
+      contextType.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1134,7 +1140,9 @@ class ShareEntry {
           diskPath == other.diskPath &&
           bytesUploaded == other.bytesUploaded &&
           shareLink == other.shareLink &&
-          createdAt == other.createdAt;
+          createdAt == other.createdAt &&
+          serverId == other.serverId &&
+          contextType == other.contextType;
 }
 
 /// FFI-facing video thumbnail back-reference.

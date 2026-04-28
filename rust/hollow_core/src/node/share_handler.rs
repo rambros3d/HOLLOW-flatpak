@@ -299,6 +299,10 @@ pub struct ShareSwarmState {
     /// When true, this share is not shown in the Share tab and uses
     /// TURN-enabled ICE config for WebRTC connections.
     pub hidden: bool,
+    /// Server ID for channel file shares (for grouping in Share tab).
+    pub server_id: Option<String>,
+    /// Context type: "channel", "dm", or None for user-initiated shares.
+    pub context_type: Option<String>,
 }
 
 impl ShareSwarmState {
@@ -477,6 +481,8 @@ pub async fn handle_command_share_create(
             Some(&source_path),
             save_dir_str.as_deref(),
             now,
+            None,
+            None,
         ) {
             hollow_log!("[SHARE] upsert_share failed: {e}");
         }
@@ -507,6 +513,8 @@ pub async fn handle_command_share_create(
         last_seeding_emit: now_inst,
         sequential: false,
         hidden,
+        server_id: None,
+        context_type: None,
     };
     let room = state.room_id();
     registry.insert(root_hash_hex.clone(), state);
@@ -543,6 +551,8 @@ pub async fn handle_command_share_open_link(
     ws_cmd_tx: &mpsc::UnboundedSender<WsCommand>,
     event_tx: &mpsc::Sender<NetworkEvent>,
     link: String,
+    server_id: Option<String>,
+    context_type: Option<String>,
 ) {
     let info = match decode_link(&link) {
         Ok(i) => i,
@@ -587,7 +597,9 @@ pub async fn handle_command_share_open_link(
             manifest_requested_at: Some(now_inst),
             last_seeding_emit: now_inst,
             sequential: false,
-            hidden: false,
+            hidden: server_id.is_some(),
+            server_id,
+            context_type,
         });
     }
 }
@@ -636,7 +648,6 @@ pub async fn handle_command_share_list(
     }
     let entries: Vec<ShareEntryRef> = rows.into_iter()
         .filter(|s| s.state != "stale")
-        .filter(|s| !registry.get(&s.root_hash).map(|st| st.hidden).unwrap_or(false))
         .map(|s| {
         let (chunks_have, chunks_total) = if let Some(state) = registry.get(&s.root_hash) {
             (state.have.count_set(), state.have.chunk_count)
@@ -658,6 +669,8 @@ pub async fn handle_command_share_list(
             bytes_uploaded: s.bytes_uploaded,
             share_link: s.share_link,
             created_at: s.created_at,
+            server_id: s.server_id,
+            context_type: s.context_type,
         }
     }).collect();
     let _ = event_tx.send(NetworkEvent::ShareList { entries }).await;
@@ -797,8 +810,12 @@ pub async fn handle_command_share_start(
     let file_ext = state.file_ext.clone();
 
     // Resolve save_dir.
+    // Hidden shares (channel file downloads) go to vault_cache for LRU management.
+    // User-initiated shares go to ~/.hollow/shares/.
     let resolved_dir: PathBuf = if !save_dir.trim().is_empty() {
         PathBuf::from(save_dir.trim())
+    } else if state.hidden {
+        crate::vault::pipeline::vault_cache_dir()
     } else {
         match shares_dir() {
             Ok(d) => d,
@@ -835,6 +852,8 @@ pub async fn handle_command_share_start(
             None,
             Some(&resolved_dir.to_string_lossy()),
             now,
+            state.server_id.as_deref(),
+            state.context_type.as_deref(),
         );
     }
 
@@ -955,6 +974,8 @@ pub fn auto_rejoin_seeders(
             last_seeding_emit: now_inst,
             sequential: false,
             hidden: false,
+            server_id: stored.server_id,
+            context_type: stored.context_type,
         };
         let room = state.room_id();
         registry.insert(stored.root_hash.clone(), state);
@@ -1422,13 +1443,17 @@ async fn finalize_completed_download(
         hollow_log!("[SHARE] rename .partial -> final failed: {e}");
         return;
     }
+    let is_hidden = registry.get(root_hash).map(|s| s.hidden).unwrap_or(false);
     if let Some(store) = open_message_store(bundle_keypair) {
         let _ = store.mark_share_complete(root_hash, &final_p.to_string_lossy(), now_unix_secs() as i64);
-        let _ = store.set_share_seeding(root_hash, true);
+        // Hidden shares (channel files) don't auto-seed — receiver opts in via "Keep & Seed".
+        if !is_hidden {
+            let _ = store.set_share_seeding(root_hash, true);
+        }
     }
     if let Some(s) = registry.get_mut(root_hash) {
         s.data_file = OpenOptions::new().read(true).open(&final_p).ok();
-        s.seeding = true;
+        s.seeding = !is_hidden;
     }
     let _ = event_tx.send(NetworkEvent::ShareCompleted {
         root_hash: root_hash.to_string(),
