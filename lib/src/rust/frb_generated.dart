@@ -10,6 +10,7 @@ import 'api/network.dart';
 import 'api/share.dart';
 import 'api/simple.dart';
 import 'api/storage.dart';
+import 'api/twitch.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'frb_generated.dart';
@@ -72,7 +73,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 657175168;
+  int get rustContentHash => -226672880;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -319,7 +320,10 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiNetworkJoinRoom({required String roomCode});
 
-  Future<void> crateApiCrdtJoinServer({required String serverId});
+  Future<void> crateApiCrdtJoinServer({
+    required String serverId,
+    String? twitchProofJson,
+  });
 
   Future<void> crateApiCrdtKickMember({
     required String serverId,
@@ -578,6 +582,25 @@ abstract class RustLibApi extends BaseApi {
   Future<void> crateApiNetworkStopNode();
 
   Future<void> crateApiCrdtStopRecoveryPool({required String serverId});
+
+  Future<void> crateApiTwitchTwitchDisconnect();
+
+  Future<bool> crateApiTwitchTwitchEnsureToken();
+
+  Future<String> crateApiTwitchTwitchGenerateProof({
+    required String broadcasterId,
+  });
+
+  Future<String?> crateApiTwitchTwitchGetUserId();
+
+  Future<bool> crateApiTwitchTwitchIsConnected();
+
+  Future<String> crateApiTwitchTwitchPollForToken({
+    required String deviceCode,
+    required BigInt intervalSecs,
+  });
+
+  Future<TwitchDeviceFlowResult> crateApiTwitchTwitchStartDeviceFlow();
 
   Future<void> crateApiCrdtUnpinMessage({
     required String serverId,
@@ -2766,12 +2789,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "join_room", argNames: ["roomCode"]);
 
   @override
-  Future<void> crateApiCrdtJoinServer({required String serverId}) {
+  Future<void> crateApiCrdtJoinServer({
+    required String serverId,
+    String? twitchProofJson,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(serverId, serializer);
+          sse_encode_opt_String(twitchProofJson, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -2784,14 +2811,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiCrdtJoinServerConstMeta,
-        argValues: [serverId],
+        argValues: [serverId, twitchProofJson],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiCrdtJoinServerConstMeta =>
-      const TaskConstMeta(debugName: "join_server", argNames: ["serverId"]);
+  TaskConstMeta get kCrateApiCrdtJoinServerConstMeta => const TaskConstMeta(
+    debugName: "join_server",
+    argNames: ["serverId", "twitchProofJson"],
+  );
 
   @override
   Future<void> crateApiCrdtKickMember({
@@ -4865,6 +4894,209 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<void> crateApiTwitchTwitchDisconnect() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 126,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiTwitchTwitchDisconnectConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiTwitchTwitchDisconnectConstMeta =>
+      const TaskConstMeta(debugName: "twitch_disconnect", argNames: []);
+
+  @override
+  Future<bool> crateApiTwitchTwitchEnsureToken() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 127,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiTwitchTwitchEnsureTokenConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiTwitchTwitchEnsureTokenConstMeta =>
+      const TaskConstMeta(debugName: "twitch_ensure_token", argNames: []);
+
+  @override
+  Future<String> crateApiTwitchTwitchGenerateProof({
+    required String broadcasterId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(broadcasterId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 128,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiTwitchTwitchGenerateProofConstMeta,
+        argValues: [broadcasterId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiTwitchTwitchGenerateProofConstMeta =>
+      const TaskConstMeta(
+        debugName: "twitch_generate_proof",
+        argNames: ["broadcasterId"],
+      );
+
+  @override
+  Future<String?> crateApiTwitchTwitchGetUserId() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 129,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_opt_String,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiTwitchTwitchGetUserIdConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiTwitchTwitchGetUserIdConstMeta =>
+      const TaskConstMeta(debugName: "twitch_get_user_id", argNames: []);
+
+  @override
+  Future<bool> crateApiTwitchTwitchIsConnected() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 130,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiTwitchTwitchIsConnectedConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiTwitchTwitchIsConnectedConstMeta =>
+      const TaskConstMeta(debugName: "twitch_is_connected", argNames: []);
+
+  @override
+  Future<String> crateApiTwitchTwitchPollForToken({
+    required String deviceCode,
+    required BigInt intervalSecs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(deviceCode, serializer);
+          sse_encode_u_64(intervalSecs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 131,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiTwitchTwitchPollForTokenConstMeta,
+        argValues: [deviceCode, intervalSecs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiTwitchTwitchPollForTokenConstMeta =>
+      const TaskConstMeta(
+        debugName: "twitch_poll_for_token",
+        argNames: ["deviceCode", "intervalSecs"],
+      );
+
+  @override
+  Future<TwitchDeviceFlowResult> crateApiTwitchTwitchStartDeviceFlow() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 132,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_twitch_device_flow_result,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiTwitchTwitchStartDeviceFlowConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiTwitchTwitchStartDeviceFlowConstMeta =>
+      const TaskConstMeta(debugName: "twitch_start_device_flow", argNames: []);
+
+  @override
   Future<void> crateApiCrdtUnpinMessage({
     required String serverId,
     required String channelId,
@@ -4880,7 +5112,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 126,
+            funcId: 133,
             port: port_,
           );
         },
@@ -4914,7 +5146,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 127,
+            funcId: 134,
             port: port_,
           );
         },
@@ -4955,7 +5187,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 128,
+            funcId: 135,
             port: port_,
           );
         },
@@ -4998,7 +5230,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 129,
+            funcId: 136,
             port: port_,
           );
         },
@@ -5033,7 +5265,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 130,
+            funcId: 137,
             port: port_,
           );
         },
@@ -5072,7 +5304,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 131,
+            funcId: 138,
             port: port_,
           );
         },
@@ -5105,7 +5337,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 132,
+            funcId: 139,
             port: port_,
           );
         },
@@ -5144,7 +5376,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 133,
+            funcId: 140,
             port: port_,
           );
         },
@@ -5184,7 +5416,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 134,
+            funcId: 141,
             port: port_,
           );
         },
@@ -5219,7 +5451,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 135,
+            funcId: 142,
             port: port_,
           );
         },
@@ -5260,7 +5492,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 136,
+            funcId: 143,
             port: port_,
           );
         },
@@ -5293,7 +5525,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 137,
+              funcId: 144,
               port: port_,
             );
           },
@@ -5344,7 +5576,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 138,
+            funcId: 145,
             port: port_,
           );
         },
@@ -5395,7 +5627,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 139,
+            funcId: 146,
             port: port_,
           );
         },
@@ -5426,7 +5658,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 140,
+            funcId: 147,
             port: port_,
           );
         },
@@ -5461,7 +5693,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 141,
+            funcId: 148,
             port: port_,
           );
         },
@@ -5492,7 +5724,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 142,
+            funcId: 149,
             port: port_,
           );
         },
@@ -5531,7 +5763,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 143,
+            funcId: 150,
             port: port_,
           );
         },
@@ -5570,7 +5802,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 144,
+            funcId: 151,
             port: port_,
           );
         },
@@ -5611,7 +5843,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 145,
+            funcId: 152,
             port: port_,
           );
         },
@@ -5654,7 +5886,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 146,
+            funcId: 153,
             port: port_,
           );
         },
@@ -6796,6 +7028,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         );
       case 96:
         return NetworkEvent_LicenseError(reason: dco_decode_String(raw[1]));
+      case 97:
+        return NetworkEvent_TwitchJoinRejected(
+          serverId: dco_decode_String(raw[1]),
+          reason: dco_decode_String(raw[2]),
+        );
       default:
         throw Exception("unreachable");
     }
@@ -7059,6 +7296,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       emoji: dco_decode_String(arr[1]),
       peerId: dco_decode_String(arr[2]),
       addedAt: dco_decode_i_64(arr[3]),
+    );
+  }
+
+  @protected
+  TwitchDeviceFlowResult dco_decode_twitch_device_flow_result(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return TwitchDeviceFlowResult(
+      userCode: dco_decode_String(arr[0]),
+      verificationUri: dco_decode_String(arr[1]),
+      deviceCode: dco_decode_String(arr[2]),
+      intervalSecs: dco_decode_u_64(arr[3]),
     );
   }
 
@@ -8793,6 +9044,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case 96:
         var var_reason = sse_decode_String(deserializer);
         return NetworkEvent_LicenseError(reason: var_reason);
+      case 97:
+        var var_serverId = sse_decode_String(deserializer);
+        var var_reason = sse_decode_String(deserializer);
+        return NetworkEvent_TwitchJoinRejected(
+          serverId: var_serverId,
+          reason: var_reason,
+        );
       default:
         throw UnimplementedError('');
     }
@@ -9186,6 +9444,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       emoji: var_emoji,
       peerId: var_peerId,
       addedAt: var_addedAt,
+    );
+  }
+
+  @protected
+  TwitchDeviceFlowResult sse_decode_twitch_device_flow_result(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_userCode = sse_decode_String(deserializer);
+    var var_verificationUri = sse_decode_String(deserializer);
+    var var_deviceCode = sse_decode_String(deserializer);
+    var var_intervalSecs = sse_decode_u_64(deserializer);
+    return TwitchDeviceFlowResult(
+      userCode: var_userCode,
+      verificationUri: var_verificationUri,
+      deviceCode: var_deviceCode,
+      intervalSecs: var_intervalSecs,
     );
   }
 
@@ -10812,6 +11087,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       case NetworkEvent_LicenseError(reason: final reason):
         sse_encode_i_32(96, serializer);
         sse_encode_String(reason, serializer);
+      case NetworkEvent_TwitchJoinRejected(
+        serverId: final serverId,
+        reason: final reason,
+      ):
+        sse_encode_i_32(97, serializer);
+        sse_encode_String(serverId, serializer);
+        sse_encode_String(reason, serializer);
     }
   }
 
@@ -11106,6 +11388,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.emoji, serializer);
     sse_encode_String(self.peerId, serializer);
     sse_encode_i_64(self.addedAt, serializer);
+  }
+
+  @protected
+  void sse_encode_twitch_device_flow_result(
+    TwitchDeviceFlowResult self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.userCode, serializer);
+    sse_encode_String(self.verificationUri, serializer);
+    sse_encode_String(self.deviceCode, serializer);
+    sse_encode_u_64(self.intervalSecs, serializer);
   }
 
   @protected

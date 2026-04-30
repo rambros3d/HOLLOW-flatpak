@@ -11,6 +11,7 @@ pub(crate) mod share_handler;
 pub(crate) mod signaling;
 pub(crate) mod social;
 pub(crate) mod sync_handler;
+pub(crate) mod twitch;
 pub(crate) mod types;
 pub(crate) mod vault_ops;
 pub(crate) mod voice_handler;

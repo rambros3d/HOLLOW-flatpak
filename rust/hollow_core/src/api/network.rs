@@ -290,6 +290,8 @@ pub enum NetworkEvent {
     ShareNeedWebRtc { peer_id: String, hidden: bool },
     // -- License key events --
     LicenseError { reason: String },
+    // -- Twitch verification events --
+    TwitchJoinRejected { server_id: String, reason: String },
 }
 
 /// Lightweight FFI mirror of node::types::ShareEntryRef.
@@ -815,6 +817,10 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::LicenseError { reason } => {
             NetworkEvent::LicenseError { reason }
+        }
+        node::NetworkEvent::TwitchJoinRejected { server_id, reason } => {
+            hollow_log!("[HOLLOW] Twitch join rejected for {server_id}: {reason}");
+            NetworkEvent::TwitchJoinRejected { server_id, reason }
         }
     }
 }

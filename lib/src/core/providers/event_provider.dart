@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/connection_status_provider.dart';
 import 'package:hollow/src/core/providers/channel_chat_provider.dart';
@@ -42,6 +43,7 @@ import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:hollow/src/rust/api/network.dart';
 import 'package:hollow/src/rust/api/share.dart' as share_api;
 import 'package:hollow/src/rust/api/storage.dart' as storage_api;
+import 'package:hollow/src/ui/dialogs/twitch_join_dialog.dart' show showTwitchJoinDialog, handleTwitchJoinResult;
 
 /// Listens to the Rust event stream and dispatches events
 /// to the appropriate providers.
@@ -310,6 +312,7 @@ class EventStreamNotifier extends Notifier<bool> {
 
       case NetworkEvent_ServerJoined(:final serverId, :final name):
         debugPrint('[HOLLOW] Server joined: $name ($serverId)');
+        handleTwitchJoinResult(success: true);
         ref.read(serverListProvider.notifier).onServerCreated(serverId, name);
         ref.read(serverStripLayoutProvider.notifier).onServerCreated(serverId);
         // Auto-select the newly joined server and load its channels
@@ -327,7 +330,7 @@ class EventStreamNotifier extends Notifier<bool> {
                     ?? joinedChannels.keys.first;
           }
         });
-        // Toast feedback
+        // Toast feedback (skip if Twitch dialog already showing success)
         final joinCtx = hollowNavigatorKey.currentContext;
         if (joinCtx != null) {
           HollowToast.show(joinCtx, 'Joined $name',
@@ -954,6 +957,56 @@ class EventStreamNotifier extends Notifier<bool> {
 
       case NetworkEvent_LicenseError(:final reason):
         ref.read(licenseErrorProvider.notifier).state = reason;
+
+      case NetworkEvent_TwitchJoinRejected(:final serverId, :final reason):
+        debugPrint('[HOLLOW] Twitch join rejected for $serverId: $reason');
+        final ctx = hollowNavigatorKey.currentContext;
+        if (ctx == null) break;
+
+        if (reason.startsWith('twitch_required:')) {
+          // Format: "twitch_required:{channel_id}:{channel_name}:{server_name}:{min_follow_days}:{require_sub}"
+          final parts = reason.split(':');
+          final channelId = parts.length > 1 ? parts[1] : '';
+          final channelName = parts.length > 2 ? parts[2] : '';
+          final serverName = parts.length > 3 ? parts[3] : 'this server';
+          final minFollowDays = parts.length > 4 ? int.tryParse(parts[4]) ?? 0 : 0;
+          final requireSub = parts.length > 5 && parts[5] == 'true';
+          // If dialog is already open (retry failed), route to it instead of opening a new one.
+          final handled = handleTwitchJoinResult(success: false, error: 'Twitch verification required');
+          if (!handled) {
+            showTwitchJoinDialog(
+              ctx,
+              serverId: serverId,
+              channelId: channelId,
+              channelName: channelName,
+              serverName: serverName,
+              minFollowDays: minFollowDays,
+              requireSub: requireSub,
+            );
+          }
+        } else if (reason.startsWith('twitch_failed:')) {
+          // Format: "twitch_failed:{channel_name}:{server_name}:{human reason}"
+          final parts = reason.split(':');
+          final humanReason = parts.length > 3 ? parts.sublist(3).join(':') : reason;
+          final handled = handleTwitchJoinResult(success: false, error: humanReason);
+          if (!handled) {
+            showTwitchJoinDialog(
+              ctx,
+              serverId: serverId,
+              channelId: '',
+              channelName: parts.length > 1 ? parts[1] : '',
+              serverName: parts.length > 2 ? parts[2] : 'this server',
+              minFollowDays: 0,
+              requireSub: false,
+              failureReason: humanReason,
+            );
+          }
+        } else {
+          final handled = handleTwitchJoinResult(success: false, error: reason);
+          if (!handled) {
+            HollowToast.show(ctx, reason, type: HollowToastType.error);
+          }
+        }
 
     }
     } catch (e, st) {

@@ -10,6 +10,7 @@ import 'api/network.dart';
 import 'api/share.dart';
 import 'api/simple.dart';
 import 'api/storage.dart';
+import 'api/twitch.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' as ffi;
@@ -273,6 +274,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   StoredReaction dco_decode_stored_reaction(dynamic raw);
+
+  @protected
+  TwitchDeviceFlowResult dco_decode_twitch_device_flow_result(dynamic raw);
 
   @protected
   int dco_decode_u_16(dynamic raw);
@@ -612,6 +616,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   StoredReaction sse_decode_stored_reaction(SseDeserializer deserializer);
+
+  @protected
+  TwitchDeviceFlowResult sse_decode_twitch_device_flow_result(
+    SseDeserializer deserializer,
+  );
 
   @protected
   int sse_decode_u_16(SseDeserializer deserializer);
@@ -1053,6 +1062,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_stored_reaction(
     StoredReaction self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_twitch_device_flow_result(
+    TwitchDeviceFlowResult self,
     SseSerializer serializer,
   );
 

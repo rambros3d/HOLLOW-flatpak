@@ -11,7 +11,7 @@ void _iceLog(String msg) {
   network_api.logFromDart(message: msg);
 }
 
-const _kSignalingUrl = 'http://141.227.186.209:8080';
+const _kSignalingUrl = 'https://relay.anonlisten.com';
 const _kRefreshInterval = Duration(minutes: 50); // credentials last 1 hour
 
 /// ICE server configuration with STUN and TURN servers.

@@ -573,16 +573,17 @@ pub(crate) async fn handle_delete_server(
 // ── 8. JoinServer ─────────────────────────────────────────────────────
 
 pub(crate) async fn handle_join_server(
-    pending_server_joins: &mut std::collections::HashSet<String>,
+    pending_server_joins: &mut HashMap<String, Option<String>>,
     mls: &Option<MlsManager>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
     sig_cmd_tx: &mpsc::Sender<SignalingCmd>,
     cmd_tx: &mpsc::Sender<NodeCommand>,
     server_id: String,
+    twitch_proof_json: Option<String>,
 ) {
     hollow_log!("[HOLLOW-CRDT] Joining server {server_id}");
-    pending_server_joins.insert(server_id.clone());
+    pending_server_joins.insert(server_id.clone(), twitch_proof_json.clone());
 
     // Join the signaling room with room_code = server_id.
 
@@ -613,6 +614,7 @@ pub(crate) async fn handle_join_server(
                 ws_cmd_tx, ws_room_peers,
                 peer, HavenMessage::ServerJoinRequest {
                     server_id: server_id.clone(),
+                    twitch_proof_json: twitch_proof_json.clone(),
                 },
             );
             hollow_log!("[HOLLOW-CRDT] Sent join request to {peer} for {server_id}");
@@ -1206,12 +1208,12 @@ pub(crate) async fn handle_set_storage_pledge(
 // ── 17. CheckPendingJoinTimeout ───────────────────────────────────────
 
 pub(crate) async fn handle_check_pending_join_timeout(
-    pending_server_joins: &mut std::collections::HashSet<String>,
+    pending_server_joins: &mut HashMap<String, Option<String>>,
     event_tx: &mpsc::Sender<NetworkEvent>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     server_id: String,
 ) {
-    if pending_server_joins.remove(&server_id) {
+    if pending_server_joins.remove(&server_id).is_some() {
         hollow_log!("[HOLLOW-CRDT] Server join timed out for {server_id}");
         let _ = event_tx.send(NetworkEvent::ServerJoinFailed {
             server_id: server_id.clone(),

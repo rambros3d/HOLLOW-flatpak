@@ -1075,6 +1075,10 @@ sealed class NetworkEvent with _$NetworkEvent {
   }) = NetworkEvent_ShareNeedWebRtc;
   const factory NetworkEvent.licenseError({required String reason}) =
       NetworkEvent_LicenseError;
+  const factory NetworkEvent.twitchJoinRejected({
+    required String serverId,
+    required String reason,
+  }) = NetworkEvent_TwitchJoinRejected;
 }
 
 /// Lightweight FFI mirror of node::types::ShareEntryRef.

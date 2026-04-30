@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
 
-const SIGNALING_URL: &str = "http://141.227.186.209:8080";
+const SIGNALING_URL: &str = "https://relay.anonlisten.com";
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(120); // 2 minutes (must be < stale threshold of 3 min)
 
 // -- Commands & Events --

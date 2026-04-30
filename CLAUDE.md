@@ -27,7 +27,7 @@ HOLLOW/
 │           ├── settings/ # ServerSettingsPanel, OverviewTab, ChannelsTab, MembersTab, DangerZoneTab
 │           ├── sidebar/  # PeerCard, EmptyPeerList
 │           ├── components/ # HollowPressable, HollowButton, HollowTextField, HollowDialog, HollowTooltip, HollowToast, HollowToggle, HollowAvatar, HollowCard, StatusDot
-│           ├── dialogs/  # InviteDialog, MnemonicDialog, CreateServerDialog, CreateChannelDialog
+│           ├── dialogs/  # InviteDialog, MnemonicDialog, CreateServerDialog, CreateChannelDialog, TwitchJoinDialog
 │           └── animations/ # HollowCurves, HollowDurations, FadeSlideTransition, ScaleFadeTransition, SelectionShimmer, AmbientBackground, StartupRevealScope, RevealWidgets
 ├── rust/hollow_core/      # Rust library crate (networking, crypto, storage)
 │   └── src/
@@ -49,6 +49,7 @@ HOLLOW/
 │       │   ├── signaling.rs     # Bootstrap peer discovery
 │       │   ├── file_transfer.rs # File chunking utilities
 │       │   ├── recovery_pool.rs # Recovery pool state management
+│       │   ├── twitch.rs         # Twitch OAuth (Device Code Grant), follow/sub checks, proof validation
 │       │   ├── image_convert.rs # WebP conversion
 │       │   └── link_preview.rs  # URL link preview fetching
 │       ├── crypto/       # Olm encryption + MLS + persistence

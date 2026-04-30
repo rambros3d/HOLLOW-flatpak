@@ -39,6 +39,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:simple_icons/simple_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:hollow/src/rust/api/twitch.dart' as twitch_api;
 
 /// Tracks whether the settings dialog is currently open.
 bool _settingsDialogOpen = false;
@@ -656,7 +657,11 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
 
     return SingleChildScrollView(
       key: const ValueKey('profile'),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+      Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Profile preview card + image buttons
@@ -911,6 +916,17 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
             ),
           ),
         ],
+      ),
+
+      const SizedBox(height: HollowSpacing.xl),
+      Container(height: 1, color: hollow.border),
+      const SizedBox(height: HollowSpacing.xl),
+
+      // ── Connections ──
+      _FieldLabel(label: 'CONNECTIONS'),
+      const SizedBox(height: HollowSpacing.sm),
+      _TwitchConnectionRow(hollow: hollow),
+      ],
       ),
     );
   }
@@ -4268,6 +4284,330 @@ class _KickBotIconState extends State<_KickBotIcon> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── Twitch Connection Widget ──────────────────────────────────────
+
+class _TwitchConnectionRow extends StatefulWidget {
+  final HollowTheme hollow;
+
+  const _TwitchConnectionRow({required this.hollow});
+
+  @override
+  State<_TwitchConnectionRow> createState() => _TwitchConnectionRowState();
+}
+
+class _TwitchConnectionRowState extends State<_TwitchConnectionRow> {
+  bool _connected = false;
+  String? _userId;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkConnection();
+  }
+
+  Future<void> _checkConnection() async {
+    try {
+      final connected = await twitch_api.twitchIsConnected();
+      final userId = connected ? await twitch_api.twitchGetUserId() : null;
+      if (mounted) {
+        setState(() {
+          _connected = connected;
+          _userId = userId;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _connect() async {
+    if (!mounted) return;
+    showTwitchDeviceCodeDialog(context, onSuccess: () {
+      _checkConnection();
+    });
+  }
+
+  Future<void> _disconnect() async {
+    try {
+      await twitch_api.twitchDisconnect();
+      if (mounted) {
+        setState(() {
+          _connected = false;
+          _userId = null;
+        });
+        HollowToast.show(context, 'Twitch disconnected',
+            type: HollowToastType.info);
+      }
+    } catch (e) {
+      if (mounted) {
+        HollowToast.show(context, 'Failed to disconnect: $e',
+            type: HollowToastType.error);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = widget.hollow;
+
+    if (_loading) {
+      return const SizedBox(height: 36);
+    }
+
+    return Row(
+      children: [
+        Icon(SimpleIcons.twitch, size: 18, color: const Color(0xFF9146FF)),
+        const SizedBox(width: HollowSpacing.sm),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Twitch',
+                style: HollowTypography.body
+                    .copyWith(color: hollow.textPrimary),
+              ),
+              if (_connected && _userId != null)
+                Text(
+                  'Connected (ID: ${_userId!.length > 12 ? '${_userId!.substring(0, 12)}...' : _userId!})',
+                  style: HollowTypography.caption.copyWith(
+                    color: hollow.textSecondary,
+                    fontSize: 10,
+                  ),
+                )
+              else
+                Text(
+                  'Connect to join Twitch-verified servers',
+                  style: HollowTypography.caption.copyWith(
+                    color: hollow.textSecondary,
+                    fontSize: 10,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        if (_connected)
+          HollowButton.ghost(
+            onPressed: _disconnect,
+            compact: true,
+            child: const Text('Disconnect'),
+          )
+        else
+          HollowButton.outline(
+            onPressed: _connect,
+            compact: true,
+            child: const Text('Connect'),
+          ),
+      ],
+    );
+  }
+}
+
+// ── Twitch Device Code Dialog ─────────────────────────────────────
+
+void showTwitchDeviceCodeDialog(BuildContext context, {VoidCallback? onSuccess}) {
+  showHollowDialog(
+    context: context,
+    builder: (dialogContext) {
+      return _TwitchDeviceCodeDialog(onSuccess: onSuccess);
+    },
+  );
+}
+
+class _TwitchDeviceCodeDialog extends StatefulWidget {
+  final VoidCallback? onSuccess;
+
+  const _TwitchDeviceCodeDialog({this.onSuccess});
+
+  @override
+  State<_TwitchDeviceCodeDialog> createState() =>
+      _TwitchDeviceCodeDialogState();
+}
+
+class _TwitchDeviceCodeDialogState extends State<_TwitchDeviceCodeDialog> {
+  String? _userCode;
+  String? _verificationUri;
+  String? _error;
+  bool _polling = false;
+  bool _done = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _startFlow();
+  }
+
+  Future<void> _startFlow() async {
+    try {
+      final result = await twitch_api.twitchStartDeviceFlow();
+      if (!mounted) return;
+      setState(() {
+        _userCode = result.userCode;
+        _verificationUri = result.verificationUri;
+      });
+      _pollForToken(result.deviceCode, result.intervalSecs.toInt());
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
+  }
+
+  Future<void> _pollForToken(String deviceCode, int intervalSecs) async {
+    setState(() => _polling = true);
+    try {
+      await twitch_api.twitchPollForToken(
+        deviceCode: deviceCode,
+        intervalSecs: BigInt.from(intervalSecs),
+      );
+      if (!mounted) return;
+      setState(() {
+        _done = true;
+        _polling = false;
+      });
+      widget.onSuccess?.call();
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _polling = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+
+    return HollowDialog(
+      title: 'Connect Twitch',
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_error != null) ...[
+            Icon(LucideIcons.alertCircle, size: 32, color: hollow.error),
+            const SizedBox(height: HollowSpacing.md),
+            Text(
+              _error!,
+              style: HollowTypography.body
+                  .copyWith(color: hollow.error),
+              textAlign: TextAlign.center,
+            ),
+          ] else if (_done) ...[
+            Icon(LucideIcons.checkCircle, size: 32,
+                color: hollow.accent),
+            const SizedBox(height: HollowSpacing.md),
+            Text(
+              'Twitch connected!',
+              style: HollowTypography.body
+                  .copyWith(color: hollow.accent),
+            ),
+          ] else if (_userCode != null) ...[
+            Text(
+              'Enter this code on Twitch:',
+              style: HollowTypography.body
+                  .copyWith(color: hollow.textSecondary),
+            ),
+            const SizedBox(height: HollowSpacing.lg),
+            GestureDetector(
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: _userCode!));
+                HollowToast.show(context, 'Code copied!');
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: HollowSpacing.xl,
+                  vertical: HollowSpacing.md,
+                ),
+                decoration: BoxDecoration(
+                  color: hollow.elevated,
+                  borderRadius: BorderRadius.circular(hollow.radiusMd),
+                  border: Border.all(
+                      color: hollow.accent.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _userCode!,
+                      style: HollowTypography.heading.copyWith(
+                        color: hollow.textPrimary,
+                        letterSpacing: 4,
+                        fontSize: 24,
+                      ),
+                    ),
+                    const SizedBox(width: HollowSpacing.md),
+                    Icon(LucideIcons.copy, size: 16,
+                        color: hollow.textSecondary),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: HollowSpacing.lg),
+            if (_polling)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: hollow.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(width: HollowSpacing.sm),
+                  Text(
+                    'Waiting for authorization...',
+                    style: HollowTypography.caption
+                        .copyWith(color: hollow.textSecondary),
+                  ),
+                ],
+              ),
+          ] else ...[
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: hollow.textSecondary,
+              ),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        if (_error != null)
+          HollowButton.ghost(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          )
+        else if (_done)
+          const SizedBox.shrink()
+        else ...[
+          HollowButton.ghost(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          if (_verificationUri != null)
+            HollowButton.filled(
+              onPressed: () {
+                final uri = Uri.tryParse(_verificationUri!);
+                if (uri != null) launchUrl(uri);
+              },
+              icon: Icon(SimpleIcons.twitch, size: 14,
+                  color: hollow.textPrimary),
+              child: const Text('Open Twitch'),
+            ),
+        ],
+      ],
     );
   }
 }

@@ -14,10 +14,13 @@ import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:hollow/src/ui/components/hollow_button.dart';
 import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
+import 'package:hollow/src/ui/components/hollow_toggle.dart';
+import 'package:hollow/src/rust/api/twitch.dart' as twitch_api;
 import 'package:hollow/src/ui/dialogs/image_crop_dialog.dart';
 import 'package:hollow/src/ui/settings/server_template.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:simple_icons/simple_icons.dart';
 
 /// Overview tab — server settings (admin+) and server identity (all members).
 class OverviewTab extends ConsumerStatefulWidget {
@@ -38,16 +41,28 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
   late final TextEditingController _nameController;
   late final TextEditingController _descController;
   late final TextEditingController _nicknameController;
+  late final TextEditingController _twitchChannelController;
+  late final TextEditingController _twitchChannelIdController;
+  late final TextEditingController _twitchMinDaysController;
   bool _saving = false;
   bool _savingNickname = false;
+
+  bool _twitchEnabled = false;
+  bool _twitchRequireSub = false;
+  bool _savingTwitch = false;
+
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.server.name);
     _descController = TextEditingController();
     _nicknameController = TextEditingController();
+    _twitchChannelController = TextEditingController();
+    _twitchChannelIdController = TextEditingController();
+    _twitchMinDaysController = TextEditingController(text: '0');
     _loadDescription();
     _loadNickname();
+    _loadTwitchSettings();
   }
 
   Future<void> _loadDescription() async {
@@ -89,6 +104,9 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
     _nameController.dispose();
     _descController.dispose();
     _nicknameController.dispose();
+    _twitchChannelController.dispose();
+    _twitchChannelIdController.dispose();
+    _twitchMinDaysController.dispose();
     super.dispose();
   }
 
@@ -195,6 +213,65 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
         HollowToast.show(context, 'Failed to update icon: $e',
             type: HollowToastType.error);
       }
+    }
+  }
+
+  Future<void> _loadTwitchSettings() async {
+    try {
+      final sid = widget.server.serverId;
+      final enabled = await crdt_api.getServerSetting(serverId: sid, key: 'twitch_verification_enabled');
+      final channel = await crdt_api.getServerSetting(serverId: sid, key: 'twitch_channel_name');
+      final channelId = await crdt_api.getServerSetting(serverId: sid, key: 'twitch_channel_id');
+      final minDays = await crdt_api.getServerSetting(serverId: sid, key: 'twitch_min_follow_days');
+      final requireSub = await crdt_api.getServerSetting(serverId: sid, key: 'twitch_require_sub');
+      if (mounted) {
+        setState(() {
+          _twitchEnabled = enabled == 'true';
+          _twitchChannelController.text = channel;
+          _twitchChannelIdController.text = channelId;
+          _twitchMinDaysController.text = minDays.isEmpty ? '0' : minDays;
+          _twitchRequireSub = requireSub == 'true';
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _fillTwitchFromAccount() async {
+    try {
+      final userId = await twitch_api.twitchGetUserId();
+      if (userId != null && mounted) {
+        setState(() {
+          _twitchChannelIdController.text = userId;
+        });
+        HollowToast.show(context, 'Twitch ID filled from your account', type: HollowToastType.success);
+      } else if (mounted) {
+        HollowToast.show(context, 'Connect your Twitch account in user settings first', type: HollowToastType.error);
+      }
+    } catch (e) {
+      if (mounted) {
+        HollowToast.show(context, 'Failed: $e', type: HollowToastType.error);
+      }
+    }
+  }
+
+  Future<void> _saveTwitchSettings() async {
+    setState(() => _savingTwitch = true);
+    try {
+      final sid = widget.server.serverId;
+      await crdt_api.updateServerSetting(serverId: sid, key: 'twitch_verification_enabled', value: _twitchEnabled ? 'true' : 'false');
+      await crdt_api.updateServerSetting(serverId: sid, key: 'twitch_channel_name', value: _twitchChannelController.text.trim());
+      await crdt_api.updateServerSetting(serverId: sid, key: 'twitch_channel_id', value: _twitchChannelIdController.text.trim());
+      await crdt_api.updateServerSetting(serverId: sid, key: 'twitch_min_follow_days', value: _twitchMinDaysController.text.trim());
+      await crdt_api.updateServerSetting(serverId: sid, key: 'twitch_require_sub', value: _twitchRequireSub ? 'true' : 'false');
+      if (mounted) {
+        HollowToast.show(context, 'Twitch settings saved', type: HollowToastType.success);
+      }
+    } catch (e) {
+      if (mounted) {
+        HollowToast.show(context, 'Failed to save: $e', type: HollowToastType.error);
+      }
+    } finally {
+      if (mounted) setState(() => _savingTwitch = false);
     }
   }
 
@@ -415,6 +492,170 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
               ],
             ),
           ),
+
+          const SizedBox(height: HollowSpacing.xl),
+          Divider(color: hollow.border),
+          const SizedBox(height: HollowSpacing.xl),
+
+          // ── Twitch Verification ──
+          Text(
+            'TWITCH VERIFICATION',
+            style: HollowTypography.caption.copyWith(
+              color: hollow.textSecondary,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: HollowSpacing.sm),
+          Text(
+            'Gate join requests behind Twitch follow or subscription checks.',
+            style: HollowTypography.caption.copyWith(
+              color: hollow.textSecondary,
+            ),
+          ),
+          const SizedBox(height: HollowSpacing.md),
+
+          // Enable toggle
+          Row(
+            children: [
+              Icon(SimpleIcons.twitch, size: 16, color: const Color(0xFF9146FF)),
+              const SizedBox(width: HollowSpacing.sm),
+              Expanded(
+                child: Text(
+                  'Require Twitch Verification',
+                  style: HollowTypography.body.copyWith(color: hollow.textPrimary),
+                ),
+              ),
+              HollowToggle(
+                value: _twitchEnabled,
+                onChanged: (v) => setState(() => _twitchEnabled = v),
+              ),
+            ],
+          ),
+
+          if (_twitchEnabled) ...[
+            const SizedBox(height: HollowSpacing.lg),
+
+            Text(
+              'Twitch Channel ID',
+              style: HollowTypography.label.copyWith(color: hollow.textSecondary),
+            ),
+            const SizedBox(height: HollowSpacing.xs),
+            Text(
+              'Your numeric Twitch user ID. Use "Fill from account" if you\'ve connected Twitch in user settings.',
+              style: HollowTypography.caption.copyWith(
+                color: hollow.textSecondary,
+                fontSize: 10,
+              ),
+            ),
+            const SizedBox(height: HollowSpacing.sm),
+            Row(
+              children: [
+                Expanded(
+                  child: HollowTextField(
+                    controller: _twitchChannelIdController,
+                    hintText: 'e.g. 123456789',
+                    maxLength: 32,
+                  ),
+                ),
+                const SizedBox(width: HollowSpacing.sm),
+                HollowButton.ghost(
+                  onPressed: _fillTwitchFromAccount,
+                  compact: true,
+                  icon: const Icon(LucideIcons.userCheck, size: 14),
+                  child: const Text('Fill from account'),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: HollowSpacing.lg),
+
+            Text(
+              'Channel Display Name',
+              style: HollowTypography.label.copyWith(color: hollow.textSecondary),
+            ),
+            const SizedBox(height: HollowSpacing.xs),
+            Text(
+              'Shown to joiners in verification messages.',
+              style: HollowTypography.caption.copyWith(
+                color: hollow.textSecondary,
+                fontSize: 10,
+              ),
+            ),
+            const SizedBox(height: HollowSpacing.sm),
+            HollowTextField(
+              controller: _twitchChannelController,
+              hintText: 'e.g. coolStreamer123',
+              maxLength: 64,
+            ),
+
+            const SizedBox(height: HollowSpacing.lg),
+
+            Text(
+              'Minimum Follow Days',
+              style: HollowTypography.label.copyWith(color: hollow.textSecondary),
+            ),
+            const SizedBox(height: HollowSpacing.xs),
+            Text(
+              'How many days someone must have been following before they can join. 0 = just following.',
+              style: HollowTypography.caption.copyWith(
+                color: hollow.textSecondary,
+                fontSize: 10,
+              ),
+            ),
+            const SizedBox(height: HollowSpacing.sm),
+            SizedBox(
+              width: 100,
+              child: HollowTextField(
+                controller: _twitchMinDaysController,
+                hintText: '0',
+                maxLength: 4,
+              ),
+            ),
+
+            const SizedBox(height: HollowSpacing.lg),
+
+            // Require sub toggle
+            Row(
+              children: [
+                Icon(LucideIcons.crown, size: 16, color: hollow.textSecondary),
+                const SizedBox(width: HollowSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Require Subscription',
+                        style: HollowTypography.body.copyWith(color: hollow.textPrimary),
+                      ),
+                      Text(
+                        'Members must be subscribed to your channel',
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.textSecondary,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                HollowToggle(
+                  value: _twitchRequireSub,
+                  onChanged: (v) => setState(() => _twitchRequireSub = v),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: HollowSpacing.lg),
+
+            Align(
+              alignment: Alignment.centerRight,
+              child: HollowButton.filled(
+                onPressed: _savingTwitch ? null : _saveTwitchSettings,
+                compact: true,
+                child: const Text('Save Twitch Settings'),
+              ),
+            ),
+          ],
 
           const SizedBox(height: HollowSpacing.xl),
           Divider(color: hollow.border),

@@ -25,6 +25,7 @@ use super::message_ops;
 use super::social;
 use super::sync_handler;
 use super::vault_ops;
+use super::twitch;
 use super::voice_handler;
 
 /// Build and spawn the networking layer. Returns the local peer ID and a join handle.
@@ -273,7 +274,8 @@ async fn run_event_loop(
     }
 
     // Track server_ids we're trying to join (waiting for SyncResponse from existing members).
-    let mut pending_server_joins: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Value is the optional Twitch proof JSON to attach to join requests.
+    let mut pending_server_joins: HashMap<String, Option<String>> = HashMap::new();
     // Pending friend requests: peer_id → requested_at timestamp.
     // Queued when peer isn't reachable (no shared rooms), sent when they appear.
     let mut pending_friend_requests: HashMap<String, i64> = HashMap::new();
@@ -458,11 +460,11 @@ async fn run_event_loop(
                         ).await { continue; }
                     }
 
-                    NodeCommand::JoinServer { server_id } => {
+                    NodeCommand::JoinServer { server_id, twitch_proof_json } => {
                         sync_handler::handle_join_server(
                             &mut pending_server_joins, &mls, &ws_cmd_tx,
                             &ws_room_peers, &sig_cmd_tx, &cmd_tx,
-                            server_id,
+                            server_id, twitch_proof_json,
                         ).await;
                     }
 
@@ -1260,11 +1262,12 @@ async fn run_event_loop(
 
                                 // Send join request if this room matches a pending server join.
                                 // Outside is_new guard — peer may already be synced from another room.
-                                if pending_server_joins.contains(&room) {
+                                if pending_server_joins.contains_key(&room) {
                                     send_message_to_peer(
                                         &ws_cmd_tx, &ws_room_peers,
                                         &peer_id, HavenMessage::ServerJoinRequest {
                                             server_id: room.clone(),
+                                            twitch_proof_json: pending_server_joins.get(&room).cloned().flatten(),
                                         },
                                     );
                                     hollow_log!("[HOLLOW-CRDT] Sent pending join request to {peer_id} for {room}");
@@ -1537,11 +1540,12 @@ async fn run_event_loop(
                                 // Send join request if this room matches a pending server join.
                                 // Outside is_new guard — peer may already be in synced_peers
                                 // from a DM room but we still need to send the join request.
-                                if pending_server_joins.contains(&room) {
+                                if pending_server_joins.contains_key(&room) {
                                     send_message_to_peer(
                                         &ws_cmd_tx, &ws_room_peers,
                                         pid_str, HavenMessage::ServerJoinRequest {
                                             server_id: room.clone(),
+                                            twitch_proof_json: pending_server_joins.get(&room).cloned().flatten(),
                                         },
                                     );
                                     hollow_log!("[HOLLOW-CRDT] Sent pending join request to {pid_str} for {room}");
@@ -2443,7 +2447,7 @@ async fn handle_incoming_request(
     key_request_in_flight: &mut std::collections::HashSet<String>,
     server_states: &mut HashMap<String, ServerState>,
     bundle_keypair: &crate::identity::native_identity::NativeKeypair,
-    pending_server_joins: &mut std::collections::HashSet<String>,
+    pending_server_joins: &mut HashMap<String, Option<String>>,
     pending_sync_requests: &mut HashMap<String, Vec<(String, String, i64)>>,
     mls: &mut Option<MlsManager>,
     mls_bootstrap_requested: &mut std::collections::HashSet<String>,
@@ -4230,7 +4234,7 @@ async fn handle_incoming_request(
             // Room gating: only accept sync for servers we already know about
             // or are actively trying to join.
             let is_known = server_states.contains_key(&server_id);
-            let is_pending_join = pending_server_joins.contains(&server_id);
+            let is_pending_join = pending_server_joins.contains_key(&server_id);
             if !is_known && !is_pending_join {
                 hollow_log!("[HOLLOW-CRDT] Ignoring SyncResponse for unknown server {server_id} (not joined)");
                 return;
@@ -4259,7 +4263,7 @@ async fn handle_incoming_request(
                         }
 
                         // Check if this completes a pending server join
-                        if pending_server_joins.remove(&server_id) {
+                        if pending_server_joins.remove(&server_id).is_some() {
                             let server_name = state.name().to_string();
                             hollow_log!("[HOLLOW-CRDT] Server join completed: {server_id} ({server_name})");
 
@@ -4577,11 +4581,52 @@ async fn handle_incoming_request(
             }
         }
 
-        HavenMessage::ServerJoinRequest { server_id } => {
+        HavenMessage::ServerJoinRequest { server_id, twitch_proof_json } => {
             hollow_log!("[HOLLOW-CRDT] ServerJoinRequest from {peer_str} for server {server_id}");
-            
 
             if let Some(state) = server_states.get_mut(&server_id) {
+                // Twitch verification gate: check CRDT settings before accepting.
+                if let Some(twitch_settings) = twitch::TwitchServerSettings::from_server_state(state) {
+                    let reject_reason = match &twitch_proof_json {
+                        None => Some("twitch_required".to_string()),
+                        Some(proof_json) => {
+                            match serde_json::from_str::<twitch::TwitchProof>(proof_json) {
+                                Ok(proof) => twitch::validate_proof(&proof, &twitch_settings).err(),
+                                Err(e) => Some(format!("Invalid Twitch proof: {e}")),
+                            }
+                        }
+                    };
+                    if let Some(reason) = reject_reason {
+                        // Include full info so the joiner's client can display requirements and auto-retry.
+                        // Format: "twitch_required:{channel_id}:{channel_name}:{server_name}:{min_follow_days}:{require_sub}"
+                        let server_name = state.name().to_string();
+                        let enriched_reason = if reason == "twitch_required" {
+                            format!("twitch_required:{}:{}:{}:{}:{}",
+                                twitch_settings.channel_id,
+                                twitch_settings.channel_name,
+                                server_name,
+                                twitch_settings.min_follow_days,
+                                twitch_settings.require_sub,
+                            )
+                        } else {
+                            format!("twitch_failed:{}:{}:{}",
+                                twitch_settings.channel_name,
+                                server_name,
+                                reason,
+                            )
+                        };
+                        hollow_log!("[HOLLOW-CRDT] Rejecting join from {peer_str}: {reason}");
+                        send_message_to_peer(
+                            ws_cmd_tx, ws_room_peers,
+                            peer_str, HavenMessage::ServerJoinRejected {
+                                server_id,
+                                reason: enriched_reason,
+                            },
+                        );
+                        return;
+                    }
+                }
+
                 // Check if peer is already a member
                 let already_member = state.members_list().iter().any(|m| m.peer_id == peer_str);
 
@@ -4675,6 +4720,15 @@ async fn handle_incoming_request(
             } else {
                 hollow_log!("[HOLLOW-CRDT] ServerJoinRequest for unknown server {server_id}");
             }
+        }
+
+        HavenMessage::ServerJoinRejected { server_id, reason } => {
+            hollow_log!("[HOLLOW-CRDT] Join rejected for {server_id}: {reason}");
+            pending_server_joins.remove(&server_id);
+            let _ = event_tx.send(NetworkEvent::TwitchJoinRejected {
+                server_id,
+                reason,
+            }).await;
         }
 
         HavenMessage::ServerDeleteBroadcast { server_id } => {

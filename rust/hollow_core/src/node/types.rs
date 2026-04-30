@@ -227,6 +227,8 @@ pub(crate) enum NetworkEvent {
     ShareNeedWebRtc { peer_id: String, hidden: bool },
     // -- License key events --
     LicenseError { reason: String },
+    // -- Twitch verification events --
+    TwitchJoinRejected { server_id: String, reason: String },
 }
 
 /// Lightweight ShareEntry for streaming lists to Dart. The persisted row is wider
@@ -261,7 +263,7 @@ pub(crate) enum NodeCommand {
     RenameChannel { server_id: String, channel_id: String, new_name: String },
     UpdateServerSetting { server_id: String, key: String, value: String },
     DeleteServer { server_id: String },
-    JoinServer { server_id: String },
+    JoinServer { server_id: String, twitch_proof_json: Option<String> },
     RequestChannelSync { server_id: String, channel_id: String },
     ChangeRole { server_id: String, peer_id: String, new_role: String },
     KickMember { server_id: String, peer_id: String },
@@ -464,6 +466,14 @@ pub(crate) enum HavenMessage {
     #[serde(rename = "join_request")]
     ServerJoinRequest {
         server_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        twitch_proof_json: Option<String>,
+    },
+
+    #[serde(rename = "join_rejected")]
+    ServerJoinRejected {
+        server_id: String,
+        reason: String,
     },
 
     #[serde(rename = "server_delete")]
