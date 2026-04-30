@@ -66,8 +66,6 @@ enum ClientMsg {
     },
     Join { room: String },
     Leave { room: String },
-    Msg { room: String, data: String },
-    Direct { room: String, target: String, data: String },
 }
 
 #[derive(Deserialize)]
@@ -79,8 +77,6 @@ enum ServerMsg {
     PeerJoined { room: String, peer_id: String },
     PeerLeft { room: String, peer_id: String },
     Members { room: String, peers: Vec<String> },
-    Msg { room: String, from: String, data: String },
-    Direct { room: String, from: String, data: String },
     Error { error: String },
 }
 
@@ -172,28 +168,30 @@ async fn ws_client_loop(
                                     }
                                 }
                                 Some(Ok(Message::Binary(data))) => {
-                                    if data.len() > 3 && data[0] == 0x02 {
-                                        // BinaryDirect: [0x02][room_code\0][sender\0][payload]
-                                        let room_start = 1;
-                                        if let Some(room_nul_off) = data[room_start..].iter().position(|&b| b == 0) {
-                                            let room_nul = room_start + room_nul_off;
-                                            if let Ok(room_code) = std::str::from_utf8(&data[room_start..room_nul]) {
-                                                let peer_start = room_nul + 1;
-                                                if peer_start < data.len() {
-                                                    if let Some(peer_nul_off) = data[peer_start..].iter().position(|&b| b == 0) {
-                                                        let peer_nul = peer_start + peer_nul_off;
-                                                        if let Ok(from_peer) = std::str::from_utf8(&data[peer_start..peer_nul]) {
-                                                            let payload_start = peer_nul + 1;
-                                                            let payload = data[payload_start..].to_vec();
-                                                            let _ = event_tx.send(WsEvent::BinaryDirect {
-                                                                room: room_code.to_string(),
-                                                                from: from_peer.to_string(),
-                                                                data: payload,
-                                                            });
-                                                        }
-                                                    }
+                                    if data.len() > 3 {
+                                        match data[0] {
+                                            0x02 => {
+                                                if let Some((room, from, payload)) = parse_binary_relay_frame(&data[1..]) {
+                                                    let _ = event_tx.send(WsEvent::BinaryDirect {
+                                                        room, from, data: payload,
+                                                    });
                                                 }
                                             }
+                                            0x05 => {
+                                                if let Some((room, from, payload)) = parse_binary_relay_frame(&data[1..]) {
+                                                    let _ = event_tx.send(WsEvent::Message {
+                                                        room, from, data: payload,
+                                                    });
+                                                }
+                                            }
+                                            0x06 => {
+                                                if let Some((room, from, payload)) = parse_binary_relay_frame(&data[1..]) {
+                                                    let _ = event_tx.send(WsEvent::DirectMessage {
+                                                        room, from, data: payload,
+                                                    });
+                                                }
+                                            }
+                                            _ => {}
                                         }
                                     }
                                 }
@@ -320,20 +318,50 @@ type WsSink = futures_util::stream::SplitSink<WsStream, Message>;
 
 async fn send_command(write: &mut WsSink, cmd: &WsCommand) {
     // Binary commands send raw binary frames, not JSON.
-    if let WsCommand::SendBinaryDirect { room_code, target_peer, data } = cmd {
-        let room_bytes = room_code.as_bytes();
-        let target_bytes = target_peer.as_bytes();
-        let mut frame = Vec::with_capacity(1 + room_bytes.len() + 1 + target_bytes.len() + 1 + data.len());
-        frame.push(0x02); // BinaryDirect type
-        frame.extend_from_slice(room_bytes); // room code
-        frame.push(0x00); // \0 terminator
-        frame.extend_from_slice(target_bytes); // target peer ID
-        frame.push(0x00); // \0 terminator
-        frame.extend_from_slice(data); // payload
-        if let Err(e) = write.send(Message::Binary(frame.into())).await {
-            hollow_log!("[HOLLOW-WS] Binary send failed: {e}");
+    match cmd {
+        WsCommand::SendBinaryDirect { room_code, target_peer, data } => {
+            let room = room_code.as_bytes();
+            let target = target_peer.as_bytes();
+            let mut frame = Vec::with_capacity(1 + room.len() + 1 + target.len() + 1 + data.len());
+            frame.push(0x02);
+            frame.extend_from_slice(room);
+            frame.push(0x00);
+            frame.extend_from_slice(target);
+            frame.push(0x00);
+            frame.extend_from_slice(data);
+            if let Err(e) = write.send(Message::Binary(frame.into())).await {
+                hollow_log!("[HOLLOW-WS] Binary send failed: {e}");
+            }
+            return;
         }
-        return;
+        WsCommand::SendToRoom { room_code, data } => {
+            let room = room_code.as_bytes();
+            let mut frame = Vec::with_capacity(1 + room.len() + 1 + data.len());
+            frame.push(0x03);
+            frame.extend_from_slice(room);
+            frame.push(0x00);
+            frame.extend_from_slice(data);
+            if let Err(e) = write.send(Message::Binary(frame.into())).await {
+                hollow_log!("[HOLLOW-WS] Binary send failed: {e}");
+            }
+            return;
+        }
+        WsCommand::SendDirect { room_code, target_peer, data } => {
+            let room = room_code.as_bytes();
+            let target = target_peer.as_bytes();
+            let mut frame = Vec::with_capacity(1 + room.len() + 1 + target.len() + 1 + data.len());
+            frame.push(0x04);
+            frame.extend_from_slice(room);
+            frame.push(0x00);
+            frame.extend_from_slice(target);
+            frame.push(0x00);
+            frame.extend_from_slice(data);
+            if let Err(e) = write.send(Message::Binary(frame.into())).await {
+                hollow_log!("[HOLLOW-WS] Binary send failed: {e}");
+            }
+            return;
+        }
+        _ => {}
     }
 
     let json = match cmd {
@@ -343,19 +371,7 @@ async fn send_command(write: &mut WsSink, cmd: &WsCommand) {
         WsCommand::LeaveRoom { room_code } => {
             serde_json::to_string(&ClientMsg::Leave { room: room_code.clone() })
         }
-        WsCommand::SendToRoom { room_code, data } => {
-            let data_b64 = base64::engine::general_purpose::STANDARD.encode(data);
-            serde_json::to_string(&ClientMsg::Msg { room: room_code.clone(), data: data_b64 })
-        }
-        WsCommand::SendDirect { room_code, target_peer, data } => {
-            let data_b64 = base64::engine::general_purpose::STANDARD.encode(data);
-            serde_json::to_string(&ClientMsg::Direct {
-                room: room_code.clone(),
-                target: target_peer.clone(),
-                data: data_b64,
-            })
-        }
-        WsCommand::SendBinaryDirect { .. } => unreachable!(), // handled above
+        _ => return,
     };
 
     if let Ok(json) = json {
@@ -377,6 +393,19 @@ async fn track_room_change(state: &WsClientState, cmd: &WsCommand) {
     }
 }
 
+// -- Binary frame parsing --
+
+fn parse_binary_relay_frame(data: &[u8]) -> Option<(String, String, Vec<u8>)> {
+    let room_nul = data.iter().position(|&b| b == 0)?;
+    let room = std::str::from_utf8(&data[..room_nul]).ok()?.to_string();
+    let peer_start = room_nul + 1;
+    if peer_start >= data.len() { return None; }
+    let peer_nul = data[peer_start..].iter().position(|&b| b == 0)? + peer_start;
+    let from = std::str::from_utf8(&data[peer_start..peer_nul]).ok()?.to_string();
+    let payload = data[peer_nul + 1..].to_vec();
+    Some((room, from, payload))
+}
+
 // -- Server message handling --
 
 fn handle_server_message(event_tx: &mpsc::UnboundedSender<WsEvent>, msg: ServerMsg) {
@@ -392,22 +421,6 @@ fn handle_server_message(event_tx: &mpsc::UnboundedSender<WsEvent>, msg: ServerM
         ServerMsg::Members { room, peers } => {
             hollow_log!("[HOLLOW-WS] Room {room} members: {} peers", peers.len());
             WsEvent::RoomMembers { room, peers }
-        }
-        ServerMsg::Msg { room, from, data } => {
-            if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&data) {
-                WsEvent::Message { room, from, data: bytes }
-            } else {
-                hollow_log!("[HOLLOW-WS] Failed to decode message data from {from}");
-                return;
-            }
-        }
-        ServerMsg::Direct { room, from, data } => {
-            if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&data) {
-                WsEvent::DirectMessage { room, from, data: bytes }
-            } else {
-                hollow_log!("[HOLLOW-WS] Failed to decode direct data from {from}");
-                return;
-            }
         }
         ServerMsg::Error { error } => {
             hollow_log!("[HOLLOW-WS] Server error: {error}");
@@ -432,6 +445,7 @@ mod tests {
             public_key: "AQID".into(),
             timestamp: 1234567890,
             signature: "c2lnbmF0dXJl".into(),
+            license_key: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("\"type\":\"auth\""));
@@ -448,14 +462,32 @@ mod tests {
     }
 
     #[test]
-    fn test_msg_message_format() {
-        let msg = ClientMsg::Msg {
-            room: "room1".into(),
-            data: "aGVsbG8=".into(),
-        };
-        let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains("\"type\":\"msg\""));
-        assert!(json.contains("\"data\":\"aGVsbG8=\""));
+    fn test_binary_msg_frame() {
+        let room = "server:main";
+        let payload = vec![0xDE, 0xAD, 0xBE, 0xEF];
+        let mut frame = Vec::new();
+        frame.push(0x03);
+        frame.extend_from_slice(room.as_bytes());
+        frame.push(0x00);
+        frame.extend_from_slice(&payload);
+        assert_eq!(frame[0], 0x03);
+        assert_eq!(&frame[1..12], b"server:main");
+        assert_eq!(frame[12], 0x00);
+        assert_eq!(&frame[13..], &[0xDE, 0xAD, 0xBE, 0xEF]);
+    }
+
+    #[test]
+    fn test_parse_binary_relay_frame() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"server:main");
+        data.push(0x00);
+        data.extend_from_slice(b"12D3KooWPeer");
+        data.push(0x00);
+        data.extend_from_slice(&[0xCA, 0xFE]);
+        let (room, from, payload) = parse_binary_relay_frame(&data).unwrap();
+        assert_eq!(room, "server:main");
+        assert_eq!(from, "12D3KooWPeer");
+        assert_eq!(payload, vec![0xCA, 0xFE]);
     }
 
     #[test]
@@ -484,17 +516,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_server_msg_parse_msg() {
-        let json = r#"{"type":"msg","room":"r1","from":"peer_a","data":"aGVsbG8="}"#;
-        let msg: ServerMsg = serde_json::from_str(json).unwrap();
-        match msg {
-            ServerMsg::Msg { room, from, data } => {
-                assert_eq!(room, "r1");
-                assert_eq!(from, "peer_a");
-                assert_eq!(data, "aGVsbG8=");
-            }
-            _ => panic!("Wrong variant"),
-        }
-    }
 }
