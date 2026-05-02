@@ -1079,6 +1079,12 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String serverId,
     required String reason,
   }) = NetworkEvent_TwitchJoinRejected;
+  const factory NetworkEvent.roomBudgetUpdate({
+    required int joined,
+    required int limit,
+  }) = NetworkEvent_RoomBudgetUpdate;
+  const factory NetworkEvent.roomCapHit({required String room}) =
+      NetworkEvent_RoomCapHit;
 }
 
 /// Lightweight FFI mirror of node::types::ShareEntryRef.

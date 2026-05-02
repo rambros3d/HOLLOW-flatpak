@@ -292,6 +292,9 @@ pub enum NetworkEvent {
     LicenseError { reason: String },
     // -- Twitch verification events --
     TwitchJoinRejected { server_id: String, reason: String },
+    // -- Room budget events --
+    RoomBudgetUpdate { joined: u32, limit: u32 },
+    RoomCapHit { room: String },
 }
 
 /// Lightweight FFI mirror of node::types::ShareEntryRef.
@@ -821,6 +824,13 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::TwitchJoinRejected { server_id, reason } => {
             hollow_log!("[HOLLOW] Twitch join rejected for {server_id}: {reason}");
             NetworkEvent::TwitchJoinRejected { server_id, reason }
+        }
+        node::NetworkEvent::RoomBudgetUpdate { joined, limit } => {
+            NetworkEvent::RoomBudgetUpdate { joined, limit }
+        }
+        node::NetworkEvent::RoomCapHit { room } => {
+            hollow_log!("[HOLLOW] Room cap hit — failed to join: {room}");
+            NetworkEvent::RoomCapHit { room }
         }
     }
 }

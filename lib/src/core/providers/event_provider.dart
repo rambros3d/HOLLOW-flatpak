@@ -37,6 +37,7 @@ import 'package:hollow/src/core/providers/settings_provider.dart';
 import 'package:hollow/src/core/providers/share_tab_provider.dart';
 import 'package:hollow/src/core/providers/ice_config_provider.dart';
 import 'package:hollow/src/core/providers/license_key_provider.dart';
+import 'package:hollow/src/core/providers/room_budget_provider.dart';
 import 'package:hollow/src/ui/app.dart' show hollowNavigatorKey;
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
@@ -957,6 +958,26 @@ class EventStreamNotifier extends Notifier<bool> {
 
       case NetworkEvent_LicenseError(:final reason):
         ref.read(licenseErrorProvider.notifier).state = reason;
+
+      case NetworkEvent_RoomBudgetUpdate(:final joined, :final limit):
+        ref.read(roomBudgetProvider.notifier).state =
+            RoomBudget(joined: joined, limit: limit);
+
+      case NetworkEvent_RoomCapHit(:final room):
+        debugPrint('[HOLLOW] Room cap hit: $room');
+        final ctx = hollowNavigatorKey.currentContext;
+        if (ctx != null) {
+          final kind = room.startsWith('share:')
+              ? 'Share'
+              : room.startsWith('inbox:')
+                  ? 'Inbox'
+                  : 'Connection';
+          HollowToast.show(
+            ctx,
+            '$kind limit reached. Try leaving unused servers or stopping share seeds.',
+            type: HollowToastType.error,
+          );
+        }
 
       case NetworkEvent_TwitchJoinRejected(:final serverId, :final reason):
         debugPrint('[HOLLOW] Twitch join rejected for $serverId: $reason');

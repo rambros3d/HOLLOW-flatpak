@@ -1581,6 +1581,13 @@ async fn run_event_loop(
                         hollow_log!("[HOLLOW-WS] License error: {reason}");
                         let _ = event_tx.send(NetworkEvent::LicenseError { reason }).await;
                     }
+                    WsEvent::RoomBudgetUpdate { joined, limit } => {
+                        let _ = event_tx.send(NetworkEvent::RoomBudgetUpdate { joined, limit }).await;
+                    }
+                    WsEvent::RoomCapHit { room } => {
+                        hollow_log!("[HOLLOW] Room cap hit for room: {room}");
+                        let _ = event_tx.send(NetworkEvent::RoomCapHit { room }).await;
+                    }
                     WsEvent::Message { room, from, data } | WsEvent::DirectMessage { room, from, data } => {
                         // Route incoming WS messages through the same handler as libp2p.
                         if let Ok(text) = String::from_utf8(data) {

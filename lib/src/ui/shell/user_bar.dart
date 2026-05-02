@@ -5,6 +5,7 @@ import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/providers/node_provider.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
+import 'package:hollow/src/core/providers/room_budget_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
@@ -93,7 +94,14 @@ class UserBar extends ConsumerWidget {
       statusPulse = nodeState.status == NodeStatus.connected;
     }
 
-    return Container(
+    final roomBudget = ref.watch(roomBudgetProvider);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (roomBudget.usage > 0.5)
+          _RoomBudgetBar(budget: roomBudget),
+        Container(
       height: 52,
       padding: const EdgeInsets.symmetric(horizontal: HollowSpacing.sm + 2),
       decoration: BoxDecoration(
@@ -214,6 +222,8 @@ class UserBar extends ConsumerWidget {
             ),
         ],
       ),
+    ),
+      ],
     );
   }
 
@@ -233,5 +243,43 @@ class UserBar extends ConsumerWidget {
       NodeStatus.loading => 'Loading...',
       NodeStatus.error => 'Error',
     };
+  }
+}
+
+class _RoomBudgetBar extends StatelessWidget {
+  final RoomBudget budget;
+  const _RoomBudgetBar({required this.budget});
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+    final color = budget.isAtLimit
+        ? hollow.error
+        : budget.isNearLimit
+            ? hollow.warning
+            : hollow.accent;
+
+    return HollowTooltip(
+      message: '${budget.joined} / ${budget.limit} connections used',
+      child: Container(
+        height: 3,
+        decoration: BoxDecoration(
+          color: hollow.border,
+        ),
+        alignment: Alignment.centerLeft,
+        child: FractionallySizedBox(
+          widthFactor: budget.usage.clamp(0.0, 1.0),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: const BorderRadius.horizontal(
+                right: Radius.circular(2),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

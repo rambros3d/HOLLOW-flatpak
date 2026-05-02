@@ -7275,6 +7275,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           serverId: dco_decode_String(raw[1]),
           reason: dco_decode_String(raw[2]),
         );
+      case 98:
+        return NetworkEvent_RoomBudgetUpdate(
+          joined: dco_decode_u_32(raw[1]),
+          limit: dco_decode_u_32(raw[2]),
+        );
+      case 99:
+        return NetworkEvent_RoomCapHit(room: dco_decode_String(raw[1]));
       default:
         throw Exception("unreachable");
     }
@@ -9314,6 +9321,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           serverId: var_serverId,
           reason: var_reason,
         );
+      case 98:
+        var var_joined = sse_decode_u_32(deserializer);
+        var var_limit = sse_decode_u_32(deserializer);
+        return NetworkEvent_RoomBudgetUpdate(
+          joined: var_joined,
+          limit: var_limit,
+        );
+      case 99:
+        var var_room = sse_decode_String(deserializer);
+        return NetworkEvent_RoomCapHit(room: var_room);
       default:
         throw UnimplementedError('');
     }
@@ -11385,6 +11402,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_i_32(97, serializer);
         sse_encode_String(serverId, serializer);
         sse_encode_String(reason, serializer);
+      case NetworkEvent_RoomBudgetUpdate(
+        joined: final joined,
+        limit: final limit,
+      ):
+        sse_encode_i_32(98, serializer);
+        sse_encode_u_32(joined, serializer);
+        sse_encode_u_32(limit, serializer);
+      case NetworkEvent_RoomCapHit(room: final room):
+        sse_encode_i_32(99, serializer);
+        sse_encode_String(room, serializer);
     }
   }
 

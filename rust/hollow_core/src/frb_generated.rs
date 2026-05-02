@@ -7454,6 +7454,18 @@ impl SseDecode for crate::api::network::NetworkEvent {
                     reason: var_reason,
                 };
             }
+            98 => {
+                let mut var_joined = <u32>::sse_decode(deserializer);
+                let mut var_limit = <u32>::sse_decode(deserializer);
+                return crate::api::network::NetworkEvent::RoomBudgetUpdate {
+                    joined: var_joined,
+                    limit: var_limit,
+                };
+            }
+            99 => {
+                let mut var_room = <String>::sse_decode(deserializer);
+                return crate::api::network::NetworkEvent::RoomCapHit { room: var_room };
+            }
             _ => {
                 unimplemented!("");
             }
@@ -9755,6 +9767,15 @@ impl flutter_rust_bridge::IntoDart for crate::api::network::NetworkEvent {
                 reason.into_into_dart().into_dart(),
             ]
             .into_dart(),
+            crate::api::network::NetworkEvent::RoomBudgetUpdate { joined, limit } => [
+                98.into_dart(),
+                joined.into_into_dart().into_dart(),
+                limit.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
+            crate::api::network::NetworkEvent::RoomCapHit { room } => {
+                [99.into_dart(), room.into_into_dart().into_dart()].into_dart()
+            }
             _ => {
                 unimplemented!("");
             }
@@ -11590,6 +11611,15 @@ impl SseEncode for crate::api::network::NetworkEvent {
                 <i32>::sse_encode(97, serializer);
                 <String>::sse_encode(server_id, serializer);
                 <String>::sse_encode(reason, serializer);
+            }
+            crate::api::network::NetworkEvent::RoomBudgetUpdate { joined, limit } => {
+                <i32>::sse_encode(98, serializer);
+                <u32>::sse_encode(joined, serializer);
+                <u32>::sse_encode(limit, serializer);
+            }
+            crate::api::network::NetworkEvent::RoomCapHit { room } => {
+                <i32>::sse_encode(99, serializer);
+                <String>::sse_encode(room, serializer);
             }
             _ => {
                 unimplemented!("");

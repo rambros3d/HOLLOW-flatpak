@@ -229,6 +229,9 @@ pub(crate) enum NetworkEvent {
     LicenseError { reason: String },
     // -- Twitch verification events --
     TwitchJoinRejected { server_id: String, reason: String },
+    // -- Room budget events --
+    RoomBudgetUpdate { joined: u32, limit: u32 },
+    RoomCapHit { room: String },
 }
 
 /// Lightweight ShareEntry for streaming lists to Dart. The persisted row is wider

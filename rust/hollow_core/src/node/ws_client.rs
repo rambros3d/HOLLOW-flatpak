@@ -48,6 +48,10 @@ pub enum WsEvent {
     BinaryDirect { room: String, from: String, data: Vec<u8> },
     /// License key validation failed — do not auto-reconnect.
     LicenseError { reason: String },
+    /// Room budget update — current count and server-side cap.
+    RoomBudgetUpdate { joined: u32, limit: u32 },
+    /// Server rejected a room join (cap hit).
+    RoomCapHit { room: String },
 }
 
 // -- Wire protocol (matches relay/src/ws_router.rs) --
@@ -82,9 +86,13 @@ enum ServerMsg {
 
 // -- State --
 
+const ROOM_BUDGET_LIMIT: u32 = 2000;
+
 struct WsClientState {
     /// Rooms we've joined (for re-join on reconnect).
     joined_rooms: Arc<RwLock<HashSet<String>>>,
+    /// Last room we attempted to join (for error rollback).
+    last_join_attempt: Arc<RwLock<Option<String>>>,
 }
 
 // -- Public API --
@@ -116,6 +124,7 @@ async fn ws_client_loop(
 ) {
     let state = WsClientState {
         joined_rooms: Arc::new(RwLock::new(HashSet::new())),
+        last_join_attempt: Arc::new(RwLock::new(None)),
     };
 
     let mut backoff_secs = 1u64;
@@ -139,12 +148,13 @@ async fn ws_client_loop(
                             .unwrap_or_default();
                         let _ = ws_write.send(Message::Text(join_msg.into())).await;
                     }
+                    let _ = event_tx.send(WsEvent::RoomBudgetUpdate { joined: rooms.len() as u32, limit: ROOM_BUDGET_LIMIT });
                 }
 
                 // Send any commands that arrived while disconnected.
                 for cmd in pending_commands.drain(..) {
                     send_command(&mut ws_write, &cmd).await;
-                    track_room_change(&state, &cmd).await;
+                    track_room_change(&state, &cmd, &event_tx).await;
                 }
 
                 // Main message loop with periodic keepalive ping.
@@ -164,7 +174,7 @@ async fn ws_client_loop(
                             match msg {
                                 Some(Ok(Message::Text(text))) => {
                                     if let Ok(server_msg) = serde_json::from_str::<ServerMsg>(&text) {
-                                        handle_server_message(&event_tx, server_msg);
+                                        handle_server_message(&event_tx, server_msg, &state).await;
                                     }
                                 }
                                 Some(Ok(Message::Binary(data))) => {
@@ -212,7 +222,7 @@ async fn ws_client_loop(
                         // Commands from the swarm.
                         Some(cmd) = cmd_rx.recv() => {
                             send_command(&mut ws_write, &cmd).await;
-                            track_room_change(&state, &cmd).await;
+                            track_room_change(&state, &cmd, &event_tx).await;
                         }
                     }
                 }
@@ -232,7 +242,7 @@ async fn ws_client_loop(
 
         // Drain any commands that arrived during the failed connection attempt.
         while let Ok(cmd) = cmd_rx.try_recv() {
-            track_room_change(&state, &cmd).await;
+            track_room_change(&state, &cmd, &event_tx).await;
             pending_commands.push(cmd);
         }
 
@@ -381,16 +391,22 @@ async fn send_command(write: &mut WsSink, cmd: &WsCommand) {
     }
 }
 
-async fn track_room_change(state: &WsClientState, cmd: &WsCommand) {
-    match cmd {
+async fn track_room_change(state: &WsClientState, cmd: &WsCommand, event_tx: &mpsc::UnboundedSender<WsEvent>) {
+    let count = match cmd {
         WsCommand::JoinRoom { room_code } => {
-            state.joined_rooms.write().await.insert(room_code.clone());
+            *state.last_join_attempt.write().await = Some(room_code.clone());
+            let mut rooms = state.joined_rooms.write().await;
+            rooms.insert(room_code.clone());
+            rooms.len() as u32
         }
         WsCommand::LeaveRoom { room_code } => {
-            state.joined_rooms.write().await.remove(room_code);
+            let mut rooms = state.joined_rooms.write().await;
+            rooms.remove(room_code);
+            rooms.len() as u32
         }
-        _ => {}
-    }
+        _ => return,
+    };
+    let _ = event_tx.send(WsEvent::RoomBudgetUpdate { joined: count, limit: ROOM_BUDGET_LIMIT });
 }
 
 // -- Binary frame parsing --
@@ -408,7 +424,7 @@ fn parse_binary_relay_frame(data: &[u8]) -> Option<(String, String, Vec<u8>)> {
 
 // -- Server message handling --
 
-fn handle_server_message(event_tx: &mpsc::UnboundedSender<WsEvent>, msg: ServerMsg) {
+async fn handle_server_message(event_tx: &mpsc::UnboundedSender<WsEvent>, msg: ServerMsg, state: &WsClientState) {
     let event = match msg {
         ServerMsg::PeerJoined { room, peer_id } => {
             hollow_log!("[HOLLOW-WS] Peer joined {room}: {peer_id}");
@@ -424,6 +440,18 @@ fn handle_server_message(event_tx: &mpsc::UnboundedSender<WsEvent>, msg: ServerM
         }
         ServerMsg::Error { error } => {
             hollow_log!("[HOLLOW-WS] Server error: {error}");
+            if error.contains("Too many rooms") {
+                let room = state.last_join_attempt.write().await.take().unwrap_or_default();
+                if !room.is_empty() {
+                    let count = {
+                        let mut rooms = state.joined_rooms.write().await;
+                        rooms.remove(&room);
+                        rooms.len() as u32
+                    };
+                    let _ = event_tx.send(WsEvent::RoomBudgetUpdate { joined: count, limit: ROOM_BUDGET_LIMIT });
+                    let _ = event_tx.send(WsEvent::RoomCapHit { room });
+                }
+            }
             return;
         }
         ServerMsg::AuthOk | ServerMsg::AuthFailed { .. } => return,
