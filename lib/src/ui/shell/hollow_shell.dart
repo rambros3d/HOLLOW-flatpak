@@ -688,7 +688,7 @@ class _HollowShellState extends ConsumerState<HollowShell>
     // Server/channel state
     final servers = ref.watch(serverListProvider);
     final selectedServerId = ref.watch(selectedServerProvider);
-    final channels = ref.watch(channelListProvider);
+    final channels = ref.watch(visibleChannelsProvider);
     final selectedChannelId = ref.watch(selectedChannelProvider);
     final selectedServer =
         selectedServerId != null ? servers[selectedServerId] : null;

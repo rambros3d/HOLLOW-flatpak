@@ -95,6 +95,53 @@ pub enum CrdtPayload {
         peer_id: String,
         pledge_bytes: u64,
     },
+
+    // Role permissions customization (Phase 6.75)
+    RolePermissionsChanged {
+        role: String,
+        permissions: u32,
+    },
+
+    // Labels — cosmetic roles (Phase 6.75)
+    LabelCreated {
+        label_id: String,
+        name: String,
+        color: String,
+    },
+    LabelDeleted {
+        label_id: String,
+    },
+    LabelUpdated {
+        label_id: String,
+        name: String,
+        color: String,
+    },
+    LabelAssigned {
+        label_id: String,
+        peer_id: String,
+    },
+    LabelUnassigned {
+        label_id: String,
+        peer_id: String,
+    },
+
+    // Channel access control (Phase 6.75)
+    ChannelVisibilityChanged {
+        channel_id: String,
+        visibility: String,
+    },
+    ChannelPostingChanged {
+        channel_id: String,
+        posting: String,
+    },
+
+    // Ban system (Phase 6.75)
+    MemberBanned {
+        peer_id: String,
+    },
+    MemberUnbanned {
+        peer_id: String,
+    },
 }
 
 /// Member roles with hierarchical priority.
@@ -144,7 +191,6 @@ impl MemberRole {
             Self::Owner => Permission::ALL,
             Self::Admin => Permission::MANAGE_CHANNELS
                 | Permission::MANAGE_ROLES
-                | Permission::MANAGE_INVITES
                 | Permission::KICK_MEMBERS
                 | Permission::SEND_MESSAGES
                 | Permission::READ_MESSAGES,
@@ -168,7 +214,6 @@ impl Permission {
     pub const MANAGE_SERVER: u32 = 1 << 0;
     pub const MANAGE_CHANNELS: u32 = 1 << 1;
     pub const MANAGE_ROLES: u32 = 1 << 2;
-    pub const MANAGE_INVITES: u32 = 1 << 3;
     pub const KICK_MEMBERS: u32 = 1 << 4;
     pub const SEND_MESSAGES: u32 = 1 << 5;
     pub const READ_MESSAGES: u32 = 1 << 6;
@@ -177,7 +222,6 @@ impl Permission {
     pub const ALL: u32 = Self::MANAGE_SERVER
         | Self::MANAGE_CHANNELS
         | Self::MANAGE_ROLES
-        | Self::MANAGE_INVITES
         | Self::KICK_MEMBERS
         | Self::SEND_MESSAGES
         | Self::READ_MESSAGES;

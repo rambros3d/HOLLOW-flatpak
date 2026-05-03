@@ -49,21 +49,23 @@ class MembersTab extends ConsumerWidget {
           });
 
         final myRole = myRoleAsync.valueOrNull ?? 'member';
+        final canKick = myRole == 'owner' || myRole == 'admin';
 
-        return ListView.builder(
+        return ListView(
           padding: const EdgeInsets.all(HollowSpacing.lg),
-          itemCount: sorted.length,
-          itemBuilder: (context, index) {
-            final member = sorted[index];
-            return _MemberRow(
-              serverId: serverId,
-              displayName: member.displayName,
-              peerId: member.peerId,
-              role: member.role,
-              nickname: member.nickname,
-              myRole: myRole,
-            );
-          },
+          children: [
+            for (final member in sorted)
+              _MemberRow(
+                serverId: serverId,
+                displayName: member.displayName,
+                peerId: member.peerId,
+                role: member.role,
+                nickname: member.nickname,
+                myRole: myRole,
+              ),
+            if (canKick)
+              _BannedMembersSection(serverId: serverId),
+          ],
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -276,6 +278,25 @@ class _MemberRow extends ConsumerWidget {
                         ],
                       ),
                     ),
+                    PopupMenuItem(
+                      value: 'ban',
+                      child: Row(
+                        children: [
+                          Icon(
+                            LucideIcons.ban,
+                            size: 14,
+                            color: hollow.error,
+                          ),
+                          const SizedBox(width: HollowSpacing.sm),
+                          Text(
+                            'Ban Member',
+                            style: HollowTypography.body.copyWith(
+                              color: hollow.error,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ];
                 },
                 onSelected: (value) {
@@ -284,6 +305,8 @@ class _MemberRow extends ConsumerWidget {
                     _changeRole(context, ref, newRole);
                   } else if (value == 'kick') {
                     _confirmKick(context, ref);
+                  } else if (value == 'ban') {
+                    _confirmBan(context, ref);
                   }
                 },
               ),
@@ -366,6 +389,163 @@ class _MemberRow extends ConsumerWidget {
           }
         },
       ),
+    );
+  }
+
+  void _confirmBan(BuildContext context, WidgetRef ref) {
+    showHollowDialog(
+      context: context,
+      builder: (context) => _ConfirmDialog(
+        title: 'Ban Member',
+        message:
+            'Are you sure you want to ban $displayName? They will be removed and unable to rejoin.',
+        confirmLabel: 'Ban',
+        isDanger: true,
+        onConfirm: () async {
+          Navigator.of(context).pop();
+          try {
+            await crdt_api.banMember(
+              serverId: serverId,
+              peerId: peerId,
+            );
+            if (context.mounted) {
+              HollowToast.show(
+                context,
+                '$displayName has been banned',
+                type: HollowToastType.success,
+              );
+            }
+          } catch (e) {
+            if (context.mounted) {
+              HollowToast.show(
+                context,
+                'Failed to ban member: $e',
+                type: HollowToastType.error,
+              );
+            }
+          }
+        },
+      ),
+    );
+  }
+}
+
+class _BannedMembersSection extends ConsumerStatefulWidget {
+  final String serverId;
+
+  const _BannedMembersSection({required this.serverId});
+
+  @override
+  ConsumerState<_BannedMembersSection> createState() =>
+      _BannedMembersSectionState();
+}
+
+class _BannedMembersSectionState extends ConsumerState<_BannedMembersSection> {
+  List<String>? _banned;
+  bool _expanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBanned();
+  }
+
+  Future<void> _loadBanned() async {
+    try {
+      final list = await crdt_api.getBannedMembers(serverId: widget.serverId);
+      if (mounted) setState(() => _banned = list);
+    } catch (_) {
+      if (mounted) setState(() => _banned = []);
+    }
+  }
+
+  Future<void> _unban(String peerId) async {
+    try {
+      await crdt_api.unbanMember(serverId: widget.serverId, peerId: peerId);
+      if (mounted) {
+        HollowToast.show(context, 'Member unbanned', type: HollowToastType.success);
+        _loadBanned();
+      }
+    } catch (e) {
+      if (mounted) {
+        HollowToast.show(context, 'Failed to unban: $e', type: HollowToastType.error);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+    final banned = _banned;
+    if (banned == null || banned.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: HollowSpacing.lg),
+        GestureDetector(
+          onTap: () => setState(() => _expanded = !_expanded),
+          child: Row(
+            children: [
+              Icon(
+                _expanded ? LucideIcons.chevronDown : LucideIcons.chevronRight,
+                size: 14,
+                color: hollow.textSecondary,
+              ),
+              const SizedBox(width: HollowSpacing.xs),
+              Icon(LucideIcons.ban, size: 14, color: hollow.error),
+              const SizedBox(width: HollowSpacing.xs),
+              Text(
+                'Banned (${banned.length})',
+                style: HollowTypography.label.copyWith(
+                  color: hollow.error,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_expanded) ...[
+          const SizedBox(height: HollowSpacing.sm),
+          for (final peerId in banned)
+            Padding(
+              padding: const EdgeInsets.only(bottom: HollowSpacing.xs),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: HollowSpacing.md,
+                  vertical: HollowSpacing.sm,
+                ),
+                decoration: BoxDecoration(
+                  color: hollow.elevated,
+                  borderRadius: BorderRadius.circular(hollow.radiusMd),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        peerId,
+                        style: HollowTypography.caption.copyWith(
+                          color: hollow.textSecondary,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    HollowButton.ghost(
+                      compact: true,
+                      onPressed: () => _unban(peerId),
+                      child: Text(
+                        'Unban',
+                        style: HollowTypography.bodySmall.copyWith(
+                          color: hollow.accent,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ],
     );
   }
 }

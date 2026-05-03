@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/models/channel_chat_message.dart';
 import 'package:hollow/src/core/models/file_attachment.dart';
 import 'package:hollow/src/core/providers/channel_chat_provider.dart';
+import 'package:hollow/src/core/providers/channel_provider.dart';
 import 'package:hollow/src/core/providers/chat_provider.dart' show generateMessageId;
 import 'package:hollow/src/core/providers/download_manager_provider.dart';
 import 'package:hollow/src/core/providers/file_transfer_provider.dart';
@@ -1250,6 +1251,23 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
           ),
 
         // Messages list + unread pill overlay
+        if ((ref.watch(myPermissionsProvider(widget.serverId)).valueOrNull ?? Permission.all) & Permission.readMessages == 0)
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(LucideIcons.eyeOff, size: 48, color: hollow.textSecondary.withValues(alpha: 0.3)),
+                  const SizedBox(height: HollowSpacing.md),
+                  Text(
+                    'You don\'t have permission to read messages in this channel',
+                    style: HollowTypography.body.copyWith(color: hollow.textSecondary),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
         Expanded(
           child: Stack(
             children: [
@@ -1784,7 +1802,27 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
             },
           ),
 
-        // Input bar
+        // Input bar — hidden if no posting permission
+        if (!ref.watch(canPostInChannelProvider((serverId: widget.serverId, channelId: widget.channelId))))
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: HollowSpacing.md,
+              vertical: HollowSpacing.lg,
+            ),
+            decoration: BoxDecoration(
+              color: hollow.surface,
+              border: Border(top: BorderSide(color: hollow.border)),
+            ),
+            child: Center(
+              child: Text(
+                'You don\'t have permission to send messages in this channel',
+                style: HollowTypography.bodySmall.copyWith(
+                  color: hollow.textSecondary,
+                ),
+              ),
+            ),
+          )
+        else
         Container(
           padding: const EdgeInsets.symmetric(
             horizontal: HollowSpacing.md,

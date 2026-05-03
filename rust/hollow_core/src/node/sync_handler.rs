@@ -846,6 +846,616 @@ pub(crate) async fn handle_kick_member(
     false
 }
 
+// ── 10b. LeaveServer ─────────────────────────────────────────────────
+
+pub(crate) async fn handle_leave_server(
+    server_states: &mut HashMap<String, ServerState>,
+    mls: &mut Option<MlsManager>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    sig_cmd_tx: &mpsc::Sender<SignalingCmd>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    local_peer_str: &str,
+    server_id: String,
+) -> bool {
+    if let Some(state) = server_states.get_mut(&server_id) {
+        let local_peer = local_peer_str.to_string();
+
+        // Owner cannot leave — must delete or transfer ownership first.
+        if state.get_role(&local_peer) == crate::crdt::operations::MemberRole::Owner {
+            hollow_log!("[HOLLOW-CRDT] Owner cannot leave server {server_id}");
+            let _ = event_tx.send(NetworkEvent::Error {
+                message: "Owner cannot leave the server. Delete it or transfer ownership first.".to_string(),
+            }).await;
+            return true;
+        }
+
+        hollow_log!("[HOLLOW-CRDT] Leaving server {server_id}");
+        let op = state.create_op(CrdtPayload::MemberRemoved {
+            peer_id: local_peer.clone(),
+        });
+
+        // Collect broadcast targets BEFORE apply_op removes us.
+        let broadcast_targets: Vec<String> = state.members.keys()
+            .filter(|m| *m != &local_peer)
+            .cloned()
+            .collect();
+
+        let _ = state.apply_op(&op);
+
+        // Persist state (with us removed) + op.
+        if let Ok(json) = serde_json::to_string(&state) {
+            let data_dir = crate::identity::data_dir().unwrap_or_default();
+            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                let _ = store.save_server_state(&server_id, &json);
+                let _ = store.insert_crdt_op(&op);
+            }
+        }
+
+        // Broadcast CRDT op to remaining members.
+        if let Ok(op_json) = serde_json::to_string(&op) {
+            for member_peer_str in &broadcast_targets {
+                if peer_is_reachable(ws_room_peers, member_peer_str) {
+                    send_message_to_peer(
+                        ws_cmd_tx, ws_room_peers,
+                        member_peer_str, HavenMessage::CrdtOpBroadcast {
+                            server_id: server_id.clone(),
+                            op_json: op_json.clone(),
+                        },
+                    );
+                }
+            }
+        }
+
+        // MLS: remove self from group.
+        if let Some(mls_mgr) = mls {
+            if mls_mgr.has_group(&server_id) {
+                match mls_mgr.remove_member(&server_id, &local_peer) {
+                    Ok(commit_bytes) => {
+                        match mls_mgr.merge_pending_commit(&server_id) {
+                            Ok(()) => {
+                                persist_mls_state(mls_mgr, bundle_keypair);
+                                let commit_b64 = base64::engine::general_purpose::STANDARD.encode(&commit_bytes);
+                                for member_peer_str in &broadcast_targets {
+                                    if peer_is_reachable(ws_room_peers, member_peer_str) {
+                                        send_message_to_peer(
+                                            ws_cmd_tx, ws_room_peers,
+                                            member_peer_str, HavenMessage::MlsCommit {
+                                                server_id: server_id.clone(),
+                                                commit: commit_b64.clone(),
+                                            },
+                                        );
+                                    }
+                                }
+                                hollow_log!("[HOLLOW-MLS] Left MLS group for {server_id}");
+                            }
+                            Err(e) => hollow_log!("[HOLLOW-MLS] Failed to merge leave commit: {e}"),
+                        }
+                    }
+                    Err(e) => {
+                        hollow_log!("[HOLLOW-MLS] Failed to remove self from MLS group: {e}");
+                        mls_mgr.remove_group(&server_id);
+                        persist_mls_state(mls_mgr, bundle_keypair);
+                    }
+                }
+            }
+        }
+    }
+
+    // Remove server from local state.
+    server_states.remove(&server_id);
+
+    // Unregister from signaling room.
+    let _ = sig_cmd_tx.send(SignalingCmd::Unregister {
+        room_code: server_id.clone(),
+    }).await;
+
+    // Leave the WS relay room.
+    let _ = ws_cmd_tx.send(super::ws_client::WsCommand::LeaveRoom {
+        room_code: server_id.clone(),
+    });
+
+    // Delete server state from DB.
+    let data_dir = crate::identity::data_dir().unwrap_or_default();
+    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+        let _ = store.delete_server_state(&server_id);
+    }
+
+    let _ = event_tx.send(NetworkEvent::ServerDeleted {
+        server_id,
+    }).await;
+    false
+}
+
+// ── 10c. BanMember ──────────────────────────────────────────────────
+
+pub(crate) async fn handle_ban_member(
+    server_states: &mut HashMap<String, ServerState>,
+    mls: &mut Option<MlsManager>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    local_peer_str: &str,
+    server_id: String,
+    peer_id: String,
+) -> bool {
+    if let Some(state) = server_states.get_mut(&server_id) {
+        let local_peer = local_peer_str.to_string();
+
+        if !state.can_ban(&local_peer, &peer_id) {
+            hollow_log!("[HOLLOW-CRDT] Permission denied: cannot ban {peer_id} from {server_id}");
+            let _ = event_tx.send(NetworkEvent::Error {
+                message: "Permission denied: cannot ban this member".to_string(),
+            }).await;
+            return true;
+        }
+
+        hollow_log!("[HOLLOW-CRDT] Banning member {peer_id} from {server_id}");
+        let op = state.create_op(CrdtPayload::MemberBanned {
+            peer_id: peer_id.clone(),
+        });
+
+        // Collect broadcast targets BEFORE apply_op removes the member.
+        let broadcast_targets: Vec<String> = state.members.keys()
+            .filter(|m| *m != &local_peer)
+            .cloned()
+            .collect();
+
+        let _ = state.apply_op(&op);
+
+        // Persist
+        if let Ok(json) = serde_json::to_string(&state) {
+            let data_dir = crate::identity::data_dir().unwrap_or_default();
+            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                let _ = store.save_server_state(&server_id, &json);
+                let _ = store.insert_crdt_op(&op);
+            }
+        }
+
+        let _ = event_tx.send(NetworkEvent::MemberLeft {
+            server_id: server_id.clone(),
+            peer_id: peer_id.clone(),
+        }).await;
+
+        // Broadcast CRDT op to remaining members.
+        if let Ok(op_json) = serde_json::to_string(&op) {
+            for member_peer_str in &broadcast_targets {
+                if member_peer_str == &peer_id { continue; }
+                if peer_is_reachable(ws_room_peers, member_peer_str) {
+                    send_message_to_peer(
+                        ws_cmd_tx, ws_room_peers,
+                        member_peer_str, HavenMessage::CrdtOpBroadcast {
+                            server_id: server_id.clone(),
+                            op_json: op_json.clone(),
+                        },
+                    );
+                }
+            }
+        }
+
+        // Send kick notification to the banned peer.
+        if peer_is_reachable(ws_room_peers, &peer_id) {
+            send_message_to_peer(
+                ws_cmd_tx, ws_room_peers,
+                &peer_id, HavenMessage::MemberKickBroadcast {
+                    server_id: server_id.clone(),
+                },
+            );
+        }
+
+        // MLS: remove member from group (epoch rotation).
+        if let Some(mls_mgr) = mls {
+            if mls_mgr.has_group(&server_id) {
+                match mls_mgr.remove_member(&server_id, &peer_id) {
+                    Ok(commit_bytes) => {
+                        match mls_mgr.merge_pending_commit(&server_id) {
+                            Ok(()) => {
+                                persist_mls_state(mls_mgr, bundle_keypair);
+                                if let Ok(sframe_key) = mls_mgr.export_secret(&server_id, "sframe", b"", 32) {
+                                    let epoch = mls_mgr.epoch(&server_id).unwrap_or(0);
+                                    let _ = event_tx.send(NetworkEvent::MlsEpochChanged {
+                                        server_id: server_id.clone(), epoch, sframe_key,
+                                    }).await;
+                                }
+                                let commit_b64 = base64::engine::general_purpose::STANDARD.encode(&commit_bytes);
+                                for member_peer_str in &broadcast_targets {
+                                    if member_peer_str == &peer_id { continue; }
+                                    if peer_is_reachable(ws_room_peers, member_peer_str) {
+                                        send_message_to_peer(
+                                            ws_cmd_tx, ws_room_peers,
+                                            member_peer_str, HavenMessage::MlsCommit {
+                                                server_id: server_id.clone(),
+                                                commit: commit_b64.clone(),
+                                            },
+                                        );
+                                    }
+                                }
+                                hollow_log!("[HOLLOW-MLS] Removed banned {peer_id} from MLS group");
+                            }
+                            Err(e) => hollow_log!("[HOLLOW-MLS] Failed to merge ban remove commit: {e}"),
+                        }
+                    }
+                    Err(e) => hollow_log!("[HOLLOW-MLS] Failed to remove banned member from MLS group: {e}"),
+                }
+            }
+        }
+    }
+    false
+}
+
+// ── 10d. UnbanMember ────────────────────────────────────────────────
+
+pub(crate) async fn handle_unban_member(
+    server_states: &mut HashMap<String, ServerState>,
+    mls: &mut Option<MlsManager>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    local_peer_str: &str,
+    server_id: String,
+    peer_id: String,
+) -> bool {
+    if let Some(state) = server_states.get_mut(&server_id) {
+        let local_peer = local_peer_str.to_string();
+
+        if !state.has_permission(&local_peer, Permission::KICK_MEMBERS) {
+            hollow_log!("[HOLLOW-CRDT] Permission denied: cannot unban {peer_id} in {server_id}");
+            let _ = event_tx.send(NetworkEvent::Error {
+                message: "Permission denied: cannot unban members".to_string(),
+            }).await;
+            return true;
+        }
+
+        hollow_log!("[HOLLOW-CRDT] Unbanning member {peer_id} in {server_id}");
+        let op = state.create_op(CrdtPayload::MemberUnbanned {
+            peer_id: peer_id.clone(),
+        });
+        let _ = state.apply_op(&op);
+
+        // Persist
+        if let Ok(json) = serde_json::to_string(&state) {
+            let data_dir = crate::identity::data_dir().unwrap_or_default();
+            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                let _ = store.save_server_state(&server_id, &json);
+                let _ = store.insert_crdt_op(&op);
+            }
+        }
+
+        let _ = event_tx.send(NetworkEvent::ServerUpdated {
+            server_id: server_id.clone(),
+        }).await;
+
+        // Broadcast
+        if let Ok(op_json) = serde_json::to_string(&op) {
+            let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+            if mls_ok {
+                let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
+                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                    hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
+                }
+            } else {
+                for member_peer_str in state.members.keys() {
+                    if member_peer_str == &local_peer { continue; }
+                    if peer_is_reachable(ws_room_peers, member_peer_str) {
+                        send_message_to_peer(
+                            ws_cmd_tx, ws_room_peers,
+                            member_peer_str, HavenMessage::CrdtOpBroadcast {
+                                server_id: server_id.clone(),
+                                op_json: op_json.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+// ── 10e. Label operations ────────────────────────────────────────────
+
+pub(crate) async fn handle_label_op(
+    server_states: &mut HashMap<String, ServerState>,
+    mls: &mut Option<MlsManager>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    local_peer_str: &str,
+    server_id: String,
+    payload: CrdtPayload,
+) -> bool {
+    if let Some(state) = server_states.get_mut(&server_id) {
+        let local_peer = local_peer_str.to_string();
+        if !state.has_permission(&local_peer, Permission::MANAGE_ROLES) {
+            hollow_log!("[HOLLOW-CRDT] Permission denied: cannot manage labels in {server_id}");
+            let _ = event_tx.send(NetworkEvent::Error {
+                message: "Permission denied: cannot manage labels".to_string(),
+            }).await;
+            return true;
+        }
+
+        let op = state.create_op(payload);
+        let _ = state.apply_op(&op);
+
+        if let Ok(json) = serde_json::to_string(&state) {
+            let data_dir = crate::identity::data_dir().unwrap_or_default();
+            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                let _ = store.save_server_state(&server_id, &json);
+                let _ = store.insert_crdt_op(&op);
+            }
+        }
+
+        let _ = event_tx.send(NetworkEvent::ServerUpdated {
+            server_id: server_id.clone(),
+        }).await;
+
+        if let Ok(op_json) = serde_json::to_string(&op) {
+            let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+            if mls_ok {
+                let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
+                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                    hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
+                }
+            } else {
+                for member_peer_str in state.members.keys() {
+                    if member_peer_str == &local_peer { continue; }
+                    if peer_is_reachable(ws_room_peers, member_peer_str) {
+                        send_message_to_peer(
+                            ws_cmd_tx, ws_room_peers,
+                            member_peer_str, HavenMessage::CrdtOpBroadcast {
+                                server_id: server_id.clone(),
+                                op_json: op_json.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+// ── 10f. SetChannelVisibility ───────────────────────────────────────
+
+pub(crate) async fn handle_set_channel_visibility(
+    server_states: &mut HashMap<String, ServerState>,
+    mls: &mut Option<MlsManager>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    local_peer_str: &str,
+    server_id: String,
+    channel_id: String,
+    visibility: String,
+) -> bool {
+    if let Some(state) = server_states.get_mut(&server_id) {
+        let local_peer = local_peer_str.to_string();
+        if !state.has_permission(&local_peer, Permission::MANAGE_CHANNELS) {
+            hollow_log!("[HOLLOW-CRDT] Permission denied: cannot set channel visibility in {server_id}");
+            let _ = event_tx.send(NetworkEvent::Error {
+                message: "Permission denied: cannot manage channels".to_string(),
+            }).await;
+            return true;
+        }
+
+        hollow_log!("[HOLLOW-CRDT] Setting channel {channel_id} visibility to {visibility} in {server_id}");
+        let op = state.create_op(CrdtPayload::ChannelVisibilityChanged {
+            channel_id: channel_id.clone(),
+            visibility: visibility.clone(),
+        });
+        let _ = state.apply_op(&op);
+
+        if let Ok(json) = serde_json::to_string(&state) {
+            let data_dir = crate::identity::data_dir().unwrap_or_default();
+            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                let _ = store.save_server_state(&server_id, &json);
+                let _ = store.insert_crdt_op(&op);
+            }
+        }
+
+        let _ = event_tx.send(NetworkEvent::ServerUpdated {
+            server_id: server_id.clone(),
+        }).await;
+
+        if let Ok(op_json) = serde_json::to_string(&op) {
+            let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+            if mls_ok {
+                let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
+                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                    hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
+                }
+            } else {
+                for member_peer_str in state.members.keys() {
+                    if member_peer_str == &local_peer { continue; }
+                    if peer_is_reachable(ws_room_peers, member_peer_str) {
+                        send_message_to_peer(
+                            ws_cmd_tx, ws_room_peers,
+                            member_peer_str, HavenMessage::CrdtOpBroadcast {
+                                server_id: server_id.clone(),
+                                op_json: op_json.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+// ── 10f. SetChannelPosting ──────────────────────────────────────────
+
+pub(crate) async fn handle_set_channel_posting(
+    server_states: &mut HashMap<String, ServerState>,
+    mls: &mut Option<MlsManager>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    local_peer_str: &str,
+    server_id: String,
+    channel_id: String,
+    posting: String,
+) -> bool {
+    if let Some(state) = server_states.get_mut(&server_id) {
+        let local_peer = local_peer_str.to_string();
+        if !state.has_permission(&local_peer, Permission::MANAGE_CHANNELS) {
+            hollow_log!("[HOLLOW-CRDT] Permission denied: cannot set channel posting in {server_id}");
+            let _ = event_tx.send(NetworkEvent::Error {
+                message: "Permission denied: cannot manage channels".to_string(),
+            }).await;
+            return true;
+        }
+
+        hollow_log!("[HOLLOW-CRDT] Setting channel {channel_id} posting to {posting} in {server_id}");
+        let op = state.create_op(CrdtPayload::ChannelPostingChanged {
+            channel_id: channel_id.clone(),
+            posting: posting.clone(),
+        });
+        let _ = state.apply_op(&op);
+
+        if let Ok(json) = serde_json::to_string(&state) {
+            let data_dir = crate::identity::data_dir().unwrap_or_default();
+            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                let _ = store.save_server_state(&server_id, &json);
+                let _ = store.insert_crdt_op(&op);
+            }
+        }
+
+        let _ = event_tx.send(NetworkEvent::ServerUpdated {
+            server_id: server_id.clone(),
+        }).await;
+
+        if let Ok(op_json) = serde_json::to_string(&op) {
+            let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+            if mls_ok {
+                let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
+                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                    hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
+                }
+            } else {
+                for member_peer_str in state.members.keys() {
+                    if member_peer_str == &local_peer { continue; }
+                    if peer_is_reachable(ws_room_peers, member_peer_str) {
+                        send_message_to_peer(
+                            ws_cmd_tx, ws_room_peers,
+                            member_peer_str, HavenMessage::CrdtOpBroadcast {
+                                server_id: server_id.clone(),
+                                op_json: op_json.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+// ── 10g. ChangeRolePermissions ──────────────────────────────────────
+
+pub(crate) async fn handle_change_role_permissions(
+    server_states: &mut HashMap<String, ServerState>,
+    mls: &mut Option<MlsManager>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    local_peer_str: &str,
+    server_id: String,
+    role: String,
+    permissions: u32,
+) -> bool {
+    if let Some(state) = server_states.get_mut(&server_id) {
+        let local_peer = local_peer_str.to_string();
+
+        // Must have MANAGE_ROLES and can only edit roles below own rank.
+        let actor_role = state.get_role(&local_peer);
+        let target_role = crate::crdt::operations::MemberRole::from_str(&role);
+        if !state.has_permission(&local_peer, Permission::MANAGE_ROLES) || !actor_role.outranks(&target_role) {
+            hollow_log!("[HOLLOW-CRDT] Permission denied: cannot change {role} permissions in {server_id}");
+            let _ = event_tx.send(NetworkEvent::Error {
+                message: format!("Permission denied: cannot change {role} permissions"),
+            }).await;
+            return true;
+        }
+
+        hollow_log!("[HOLLOW-CRDT] Changing {role} permissions to {permissions} in {server_id}");
+        let op = state.create_op(CrdtPayload::RolePermissionsChanged {
+            role: role.clone(),
+            permissions,
+        });
+        let _ = state.apply_op(&op);
+
+        // Persist
+        if let Ok(json) = serde_json::to_string(&state) {
+            let data_dir = crate::identity::data_dir().unwrap_or_default();
+            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+                let _ = store.save_server_state(&server_id, &json);
+                let _ = store.insert_crdt_op(&op);
+            }
+        }
+
+        let _ = event_tx.send(NetworkEvent::ServerUpdated {
+            server_id: server_id.clone(),
+        }).await;
+
+        // Broadcast to connected server members.
+        if let Ok(op_json) = serde_json::to_string(&op) {
+            let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+            if mls_ok {
+                let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
+                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                    hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
+                }
+            } else {
+                for member_peer_str in state.members.keys() {
+                    if member_peer_str == &local_peer { continue; }
+                    if peer_is_reachable(ws_room_peers, member_peer_str) {
+                        send_message_to_peer(
+                            ws_cmd_tx, ws_room_peers,
+                            member_peer_str, HavenMessage::CrdtOpBroadcast {
+                                server_id: server_id.clone(),
+                                op_json: op_json.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 // ── 11. SetNickname ───────────────────────────────────────────────────
 
 pub(crate) async fn handle_set_nickname(
@@ -1471,6 +2081,30 @@ pub(crate) async fn handle_envelope_crdt_op(
             CrdtPayload::StoragePledgeChanged { peer_id, .. } => {
                 peer_id == &op.author || sender_role == MemberRole::Owner || sender_role == MemberRole::Admin
             }
+            CrdtPayload::RolePermissionsChanged { role, .. } => {
+                let target = MemberRole::from_str(role);
+                (sender_perms & Permission::MANAGE_ROLES) != 0
+                    && sender_role.outranks(&target)
+            }
+            CrdtPayload::MemberBanned { peer_id } => {
+                let target_role = state.get_role(peer_id);
+                (sender_perms & Permission::KICK_MEMBERS) != 0
+                    && sender_role.outranks(&target_role)
+            }
+            CrdtPayload::MemberUnbanned { .. } => {
+                (sender_perms & Permission::KICK_MEMBERS) != 0
+            }
+            CrdtPayload::ChannelVisibilityChanged { .. }
+            | CrdtPayload::ChannelPostingChanged { .. } => {
+                (sender_perms & Permission::MANAGE_CHANNELS) != 0
+            }
+            CrdtPayload::LabelCreated { .. }
+            | CrdtPayload::LabelDeleted { .. }
+            | CrdtPayload::LabelUpdated { .. }
+            | CrdtPayload::LabelAssigned { .. }
+            | CrdtPayload::LabelUnassigned { .. } => {
+                (sender_perms & Permission::MANAGE_ROLES) != 0
+            }
             CrdtPayload::ServerCreated { .. } => true,
         };
         if !allowed {
@@ -1519,7 +2153,17 @@ pub(crate) async fn handle_envelope_crdt_op(
                 }).await;
             }
             CrdtPayload::ServerSettingChanged { .. }
-            | CrdtPayload::ServerRenamed { .. } => {
+            | CrdtPayload::ServerRenamed { .. }
+            | CrdtPayload::RolePermissionsChanged { .. }
+            | CrdtPayload::MemberBanned { .. }
+            | CrdtPayload::MemberUnbanned { .. }
+            | CrdtPayload::ChannelVisibilityChanged { .. }
+            | CrdtPayload::ChannelPostingChanged { .. }
+            | CrdtPayload::LabelCreated { .. }
+            | CrdtPayload::LabelDeleted { .. }
+            | CrdtPayload::LabelUpdated { .. }
+            | CrdtPayload::LabelAssigned { .. }
+            | CrdtPayload::LabelUnassigned { .. } => {
                 let _ = event_tx.send(NetworkEvent::ServerUpdated {
                     server_id: sid.clone(),
                 }).await;

@@ -160,14 +160,12 @@ class Permission {
   static const int manageServer = 1 << 0;
   static const int manageChannels = 1 << 1;
   static const int manageRoles = 1 << 2;
-  static const int manageInvites = 1 << 3;
   static const int kickMembers = 1 << 4;
   static const int sendMessages = 1 << 5;
   static const int readMessages = 1 << 6;
   static const int all = manageServer |
       manageChannels |
       manageRoles |
-      manageInvites |
       kickMembers |
       sendMessages |
       readMessages;

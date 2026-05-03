@@ -26,12 +26,14 @@ class MessageText extends StatelessWidget {
   final String text;
   final TextStyle? baseStyle;
   final List<InlineSpan>? suffixSpans;
+  final Set<String>? memberNames;
 
   const MessageText(
     this.text, {
     super.key,
     this.baseStyle,
     this.suffixSpans,
+    this.memberNames,
   });
 
   @override
@@ -46,7 +48,7 @@ class MessageText extends StatelessWidget {
           text, codeBlockPattern, style, hollow, suffixSpans);
     }
 
-    final spans = _parseInline(text, style, hollow);
+    final spans = _parseInline(text, style, hollow, memberNames: memberNames);
     if (suffixSpans != null) spans.addAll(suffixSpans!);
     return Text.rich(TextSpan(children: spans));
   }
@@ -121,8 +123,9 @@ Widget buildMessageText(
   BuildContext context, {
   TextStyle? baseStyle,
   List<InlineSpan>? suffixSpans,
+  Set<String>? memberNames,
 }) {
-  return MessageText(text, baseStyle: baseStyle, suffixSpans: suffixSpans);
+  return MessageText(text, baseStyle: baseStyle, suffixSpans: suffixSpans, memberNames: memberNames);
 }
 
 Future<void> _openUrl(String url) async {
@@ -138,6 +141,7 @@ List<InlineSpan> _parseInline(
   TextStyle style,
   HollowTheme hollow, {
   int depth = 0,
+  Set<String>? memberNames,
 }) {
   if (depth > 10) {
     return [TextSpan(text: text, style: style)];
@@ -173,6 +177,40 @@ List<InlineSpan> _parseInline(
         ));
         i = match.end;
         continue;
+      }
+    }
+
+    // @mention — @everyone or @displayName
+    if (text[i] == '@') {
+      final mentionRegex = RegExp(r'@(\S+)');
+      final match = mentionRegex.matchAsPrefix(text, i);
+      if (match != null) {
+        final mentionName = match.group(1)!;
+        final isEveryone = mentionName == 'everyone';
+        final isValidMember = memberNames?.contains(mentionName) ?? false;
+        if (isEveryone || isValidMember) {
+          _flushBuffer(buffer, spans, style);
+          spans.add(WidgetSpan(
+            alignment: PlaceholderAlignment.baseline,
+            baseline: TextBaseline.alphabetic,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: hollow.accent.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(3),
+              ),
+              child: Text(
+                match.group(0)!,
+                style: style.copyWith(
+                  color: hollow.accent,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ));
+          i = match.end;
+          continue;
+        }
       }
     }
 

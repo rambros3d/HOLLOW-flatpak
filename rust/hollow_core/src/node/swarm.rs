@@ -484,6 +484,99 @@ async fn run_event_loop(
                         ).await { continue; }
                     }
 
+                    NodeCommand::LeaveServer { server_id } => {
+                        if sync_handler::handle_leave_server(
+                            &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
+                            &ws_room_peers, &sig_cmd_tx, &bundle_keypair, &local_peer_str,
+                            server_id,
+                        ).await { continue; }
+                    }
+
+                    NodeCommand::ChangeRolePermissions { server_id, role, permissions } => {
+                        if sync_handler::handle_change_role_permissions(
+                            &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
+                            &ws_room_peers, &bundle_keypair, &local_peer_str,
+                            server_id, role, permissions,
+                        ).await { continue; }
+                    }
+
+                    NodeCommand::BanMember { server_id, peer_id } => {
+                        if sync_handler::handle_ban_member(
+                            &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
+                            &ws_room_peers, &bundle_keypair, &local_peer_str,
+                            server_id, peer_id,
+                        ).await { continue; }
+                    }
+
+                    NodeCommand::UnbanMember { server_id, peer_id } => {
+                        if sync_handler::handle_unban_member(
+                            &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
+                            &ws_room_peers, &bundle_keypair, &local_peer_str,
+                            server_id, peer_id,
+                        ).await { continue; }
+                    }
+
+                    NodeCommand::CreateLabel { server_id, name, color } => {
+                        let label_id = format!("lbl-{}", hex::encode(&{
+                            let mut buf = [0u8; 4];
+                            getrandom::fill(&mut buf).expect("RNG");
+                            buf
+                        }));
+                        if sync_handler::handle_label_op(
+                            &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
+                            &ws_room_peers, &bundle_keypair, &local_peer_str,
+                            server_id, CrdtPayload::LabelCreated { label_id, name, color },
+                        ).await { continue; }
+                    }
+
+                    NodeCommand::DeleteLabel { server_id, label_id } => {
+                        if sync_handler::handle_label_op(
+                            &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
+                            &ws_room_peers, &bundle_keypair, &local_peer_str,
+                            server_id, CrdtPayload::LabelDeleted { label_id },
+                        ).await { continue; }
+                    }
+
+                    NodeCommand::UpdateLabel { server_id, label_id, name, color } => {
+                        if sync_handler::handle_label_op(
+                            &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
+                            &ws_room_peers, &bundle_keypair, &local_peer_str,
+                            server_id, CrdtPayload::LabelUpdated { label_id, name, color },
+                        ).await { continue; }
+                    }
+
+                    NodeCommand::AssignLabel { server_id, label_id, peer_id } => {
+                        if sync_handler::handle_label_op(
+                            &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
+                            &ws_room_peers, &bundle_keypair, &local_peer_str,
+                            server_id, CrdtPayload::LabelAssigned { label_id, peer_id },
+                        ).await { continue; }
+                    }
+
+                    NodeCommand::UnassignLabel { server_id, label_id, peer_id } => {
+                        if sync_handler::handle_label_op(
+                            &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
+                            &ws_room_peers, &bundle_keypair, &local_peer_str,
+                            server_id, CrdtPayload::LabelUnassigned { label_id, peer_id },
+                        ).await { continue; }
+                    }
+
+                    NodeCommand::SetChannelVisibility { server_id, channel_id, visibility } => {
+                        if sync_handler::handle_set_channel_visibility(
+                            &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
+                            &ws_room_peers, &bundle_keypair, &local_peer_str,
+                            server_id, channel_id, visibility,
+                        ).await { continue; }
+                    }
+
+                    NodeCommand::SetChannelPosting { server_id, channel_id, posting } => {
+                        if sync_handler::handle_set_channel_posting(
+                            &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
+                            &ws_room_peers, &bundle_keypair, &local_peer_str,
+                            server_id, channel_id, posting,
+                        ).await { continue; }
+                    }
+
                     NodeCommand::SetNickname { server_id, peer_id, nickname } => {
                         if sync_handler::handle_set_nickname(
                             &mut server_states, &event_tx, &ws_cmd_tx,
@@ -4483,6 +4576,30 @@ async fn handle_incoming_request(
                         CrdtPayload::TwitchUsernameChanged { peer_id, .. } => {
                             peer_id == &peer_str || sender_role == MemberRole::Owner || sender_role == MemberRole::Admin
                         }
+                        CrdtPayload::RolePermissionsChanged { role, .. } => {
+                            let target = MemberRole::from_str(role);
+                            (sender_perms & Permission::MANAGE_ROLES) != 0
+                                && sender_role.outranks(&target)
+                        }
+                        CrdtPayload::MemberBanned { peer_id } => {
+                            let target_role = state.get_role(peer_id);
+                            (sender_perms & Permission::KICK_MEMBERS) != 0
+                                && sender_role.outranks(&target_role)
+                        }
+                        CrdtPayload::MemberUnbanned { .. } => {
+                            (sender_perms & Permission::KICK_MEMBERS) != 0
+                        }
+                        CrdtPayload::ChannelVisibilityChanged { .. }
+                        | CrdtPayload::ChannelPostingChanged { .. } => {
+                            (sender_perms & Permission::MANAGE_CHANNELS) != 0
+                        }
+                        CrdtPayload::LabelCreated { .. }
+                        | CrdtPayload::LabelDeleted { .. }
+                        | CrdtPayload::LabelUpdated { .. }
+                        | CrdtPayload::LabelAssigned { .. }
+                        | CrdtPayload::LabelUnassigned { .. } => {
+                            (sender_perms & Permission::MANAGE_ROLES) != 0
+                        }
                         CrdtPayload::ServerCreated { .. } => true,
                     };
 
@@ -4610,6 +4727,19 @@ async fn handle_incoming_request(
             hollow_log!("[HOLLOW-CRDT] ServerJoinRequest from {peer_str} for server {server_id}");
 
             if let Some(state) = server_states.get_mut(&server_id) {
+                // Ban check: reject banned peers before any other verification.
+                if state.is_banned(peer_str) {
+                    hollow_log!("[HOLLOW-CRDT] Rejecting join from banned peer {peer_str} for server {server_id}");
+                    send_message_to_peer(
+                        ws_cmd_tx, ws_room_peers,
+                        peer_str, HavenMessage::ServerJoinRejected {
+                            server_id,
+                            reason: "banned".to_string(),
+                        },
+                    );
+                    return;
+                }
+
                 // Twitch verification gate: check CRDT settings before accepting.
                 if let Some(twitch_settings) = twitch::TwitchServerSettings::from_server_state(state) {
                     let reject_reason = match &twitch_proof_json {

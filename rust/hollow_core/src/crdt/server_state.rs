@@ -33,6 +33,48 @@ pub enum ChannelLayoutItem {
     Separator,
 }
 
+/// A cosmetic label (tag) that can be assigned to members.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct LabelInfo {
+    pub label_id: String,
+    pub name: String,
+    pub color: String,
+}
+
+/// Who can see a channel.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ChannelVisibility {
+    #[serde(rename = "everyone")]
+    Everyone,
+    #[serde(rename = "moderator")]
+    ModeratorPlus,
+    #[serde(rename = "admin")]
+    AdminPlus,
+}
+
+impl Default for ChannelVisibility {
+    fn default() -> Self {
+        Self::Everyone
+    }
+}
+
+/// Who can post in a channel.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ChannelPosting {
+    #[serde(rename = "everyone")]
+    Everyone,
+    #[serde(rename = "moderator")]
+    ModeratorPlus,
+    #[serde(rename = "admin")]
+    AdminPlus,
+}
+
+impl Default for ChannelPosting {
+    fn default() -> Self {
+        Self::Everyone
+    }
+}
+
 /// Metadata for a channel within a server.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ChannelInfo {
@@ -41,6 +83,10 @@ pub struct ChannelInfo {
     pub category: Option<String>,
     #[serde(default)]
     pub channel_type: ChannelType,
+    #[serde(default)]
+    pub visibility: ChannelVisibility,
+    #[serde(default)]
+    pub posting: ChannelPosting,
 }
 
 /// Metadata for a member within a server.
@@ -72,6 +118,14 @@ pub struct ServerState {
     #[serde(default)]
     pub storage_pledges: HashMap<String, AdminLwwReg<u64>>,
     pub settings: HashMap<String, AdminLwwReg<String>>,
+    #[serde(default)]
+    pub role_permissions: HashMap<String, AdminLwwReg<u32>>,
+    #[serde(default)]
+    pub banned_members: HashMap<String, AdminLwwReg<bool>>,
+    #[serde(default)]
+    pub labels: HashMap<String, LabelInfo>,
+    #[serde(default)]
+    pub label_assignments: HashMap<String, Vec<String>>,
     pub op_log: Vec<CrdtOp>,
     #[serde(skip)]
     pub hlc: Option<Hlc>,
@@ -93,6 +147,8 @@ impl ServerState {
                 name: "general".to_string(),
                 category: None,
                 channel_type: ChannelType::Text,
+                visibility: ChannelVisibility::Everyone,
+                posting: ChannelPosting::Everyone,
             },
         );
 
@@ -123,6 +179,10 @@ impl ServerState {
             channel_layout: Vec::new(),
             storage_pledges: HashMap::new(),
             settings: HashMap::new(),
+            role_permissions: HashMap::new(),
+            banned_members: HashMap::new(),
+            labels: HashMap::new(),
+            label_assignments: HashMap::new(),
             op_log: Vec::new(),
             hlc: Some(hlc),
         }
@@ -229,6 +289,8 @@ impl ServerState {
                         name: name.clone(),
                         category: category.clone(),
                         channel_type: ct,
+                        visibility: ChannelVisibility::Everyone,
+                        posting: ChannelPosting::Everyone,
                     }
                 });
             }
@@ -271,6 +333,26 @@ impl ServerState {
                 self.nicknames.remove(peer_id);
                 self.twitch_usernames.remove(peer_id);
                 self.storage_pledges.remove(peer_id);
+            }
+
+            CrdtPayload::ChannelVisibilityChanged { channel_id, visibility } => {
+                if let Some(ch) = self.channels.get_mut(channel_id) {
+                    ch.visibility = match visibility.as_str() {
+                        "moderator" => ChannelVisibility::ModeratorPlus,
+                        "admin" => ChannelVisibility::AdminPlus,
+                        _ => ChannelVisibility::Everyone,
+                    };
+                }
+            }
+
+            CrdtPayload::ChannelPostingChanged { channel_id, posting } => {
+                if let Some(ch) = self.channels.get_mut(channel_id) {
+                    ch.posting = match posting.as_str() {
+                        "moderator" => ChannelPosting::ModeratorPlus,
+                        "admin" => ChannelPosting::AdminPlus,
+                        _ => ChannelPosting::Everyone,
+                    };
+                }
             }
 
             CrdtPayload::RoleChanged {
@@ -337,6 +419,79 @@ impl ServerState {
                 });
                 let remote = AdminLwwReg::new(*pledge_bytes, op.hlc.clone(), priority);
                 entry.merge(&remote);
+            }
+
+            CrdtPayload::RolePermissionsChanged { role, permissions } => {
+                let priority = self.author_priority(&op.author);
+                let entry = self.role_permissions.entry(role.clone()).or_insert_with(|| {
+                    AdminLwwReg::new(*permissions, op.hlc.clone(), priority)
+                });
+                let remote = AdminLwwReg::new(*permissions, op.hlc.clone(), priority);
+                entry.merge(&remote);
+            }
+
+            CrdtPayload::MemberBanned { peer_id } => {
+                let priority = self.author_priority(&op.author);
+                let entry = self.banned_members.entry(peer_id.clone()).or_insert_with(|| {
+                    AdminLwwReg::new(true, op.hlc.clone(), priority)
+                });
+                let remote = AdminLwwReg::new(true, op.hlc.clone(), priority);
+                entry.merge(&remote);
+                // Also remove from server (ban = kick + prevent rejoin)
+                self.members.remove(peer_id);
+                self.roles.remove(peer_id);
+                self.nicknames.remove(peer_id);
+                self.twitch_usernames.remove(peer_id);
+                self.storage_pledges.remove(peer_id);
+            }
+
+            CrdtPayload::MemberUnbanned { peer_id } => {
+                let priority = self.author_priority(&op.author);
+                let entry = self.banned_members.entry(peer_id.clone()).or_insert_with(|| {
+                    AdminLwwReg::new(false, op.hlc.clone(), priority)
+                });
+                let remote = AdminLwwReg::new(false, op.hlc.clone(), priority);
+                entry.merge(&remote);
+            }
+
+            CrdtPayload::LabelCreated { label_id, name, color } => {
+                self.labels.entry(label_id.clone()).or_insert_with(|| {
+                    LabelInfo {
+                        label_id: label_id.clone(),
+                        name: name.clone(),
+                        color: color.clone(),
+                    }
+                });
+            }
+
+            CrdtPayload::LabelDeleted { label_id } => {
+                self.labels.remove(label_id);
+                for assignments in self.label_assignments.values_mut() {
+                    assignments.retain(|id| id != label_id);
+                }
+            }
+
+            CrdtPayload::LabelUpdated { label_id, name, color } => {
+                if let Some(label) = self.labels.get_mut(label_id) {
+                    label.name = name.clone();
+                    label.color = color.clone();
+                }
+            }
+
+            CrdtPayload::LabelAssigned { label_id, peer_id } => {
+                let assignments = self.label_assignments.entry(peer_id.clone()).or_default();
+                if !assignments.contains(label_id) {
+                    assignments.push(label_id.clone());
+                }
+            }
+
+            CrdtPayload::LabelUnassigned { label_id, peer_id } => {
+                if let Some(assignments) = self.label_assignments.get_mut(peer_id) {
+                    assignments.retain(|id| id != label_id);
+                    if assignments.is_empty() {
+                        self.label_assignments.remove(peer_id);
+                    }
+                }
             }
         }
 
@@ -439,12 +594,27 @@ impl ServerState {
 
     /// Get the effective permissions bitmask for a peer.
     /// Owner gets ALL permissions regardless.
+    /// Checks custom role_permissions first, falls back to defaults.
     pub fn get_permissions(&self, peer_id: &str) -> u32 {
         let role = self.get_role(peer_id);
         if role == MemberRole::Owner {
             return Permission::ALL;
         }
+        if let Some(reg) = self.role_permissions.get(role.as_str()) {
+            return *reg.read();
+        }
         role.default_permissions()
+    }
+
+    /// Get the permissions bitmask for a role (custom or default).
+    pub fn get_role_permissions(&self, role: &str) -> u32 {
+        if role == "owner" {
+            return Permission::ALL;
+        }
+        if let Some(reg) = self.role_permissions.get(role) {
+            return *reg.read();
+        }
+        MemberRole::from_str(role).default_permissions()
     }
 
     /// Check if a peer has a specific permission.
@@ -490,6 +660,75 @@ impl ServerState {
         }
         let target_role = self.get_role(target);
         actor_role.outranks(&target_role)
+    }
+
+    /// Check if a peer is currently banned.
+    pub fn is_banned(&self, peer_id: &str) -> bool {
+        self.banned_members
+            .get(peer_id)
+            .map(|reg| *reg.read())
+            .unwrap_or(false)
+    }
+
+    /// Check if `actor` can ban `target`. Same hierarchy as kick.
+    pub fn can_ban(&self, actor: &str, target: &str) -> bool {
+        self.can_kick(actor, target)
+    }
+
+    /// List all currently banned peer IDs.
+    pub fn banned_list(&self) -> Vec<String> {
+        self.banned_members
+            .iter()
+            .filter(|(_, reg)| *reg.read())
+            .map(|(pid, _)| pid.clone())
+            .collect()
+    }
+
+    /// Get all label definitions.
+    pub fn labels_list(&self) -> Vec<&LabelInfo> {
+        self.labels.values().collect()
+    }
+
+    /// Get the labels assigned to a member.
+    pub fn get_member_labels(&self, peer_id: &str) -> Vec<&LabelInfo> {
+        self.label_assignments
+            .get(peer_id)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| self.labels.get(id))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Check if a peer can see a channel.
+    pub fn can_see_channel(&self, peer_id: &str, channel_id: &str) -> bool {
+        let role = self.get_role(peer_id);
+        if role == MemberRole::Owner { return true; }
+        if let Some(ch) = self.channels.get(channel_id) {
+            match ch.visibility {
+                ChannelVisibility::Everyone => true,
+                ChannelVisibility::ModeratorPlus => role.priority() >= MemberRole::Moderator.priority(),
+                ChannelVisibility::AdminPlus => role.priority() >= MemberRole::Admin.priority(),
+            }
+        } else {
+            false
+        }
+    }
+
+    /// Check if a peer can post in a channel.
+    pub fn can_post_in_channel(&self, peer_id: &str, channel_id: &str) -> bool {
+        let role = self.get_role(peer_id);
+        if role == MemberRole::Owner { return true; }
+        if let Some(ch) = self.channels.get(channel_id) {
+            match ch.posting {
+                ChannelPosting::Everyone => self.has_permission(peer_id, Permission::SEND_MESSAGES),
+                ChannelPosting::ModeratorPlus => role.priority() >= MemberRole::Moderator.priority(),
+                ChannelPosting::AdminPlus => role.priority() >= MemberRole::Admin.priority(),
+            }
+        } else {
+            false
+        }
     }
 }
 

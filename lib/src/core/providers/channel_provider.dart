@@ -33,6 +33,8 @@ class ChannelListNotifier extends Notifier<Map<String, ChannelInfo>> {
         channelType: ch.channelType == 'voice'
             ? ChannelType.voice
             : ChannelType.text,
+        visibility: ch.visibility,
+        posting: ch.posting,
       );
     }
     return map;
@@ -93,6 +95,47 @@ class ChannelListNotifier extends Notifier<Map<String, ChannelInfo>> {
 final channelListProvider =
     NotifierProvider<ChannelListNotifier, Map<String, ChannelInfo>>(
         ChannelListNotifier.new);
+
+/// Channels filtered by the user's visibility permissions.
+/// Hides channels the user's role can't see based on the channel's visibility mode.
+final visibleChannelsProvider = Provider<Map<String, ChannelInfo>>((ref) {
+  final channels = ref.watch(channelListProvider);
+  final selectedServer = ref.watch(selectedServerProvider);
+  if (selectedServer == null) return channels;
+
+  final myRole = ref.watch(myRoleProvider(selectedServer)).valueOrNull ?? 'member';
+  const rolePriority = {'owner': 3, 'admin': 2, 'moderator': 1, 'member': 0};
+  final priority = rolePriority[myRole] ?? 0;
+
+  return Map.fromEntries(channels.entries.where((e) {
+    final vis = e.value.visibility;
+    if (vis == 'everyone') return true;
+    if (vis == 'moderator') return priority >= 1;
+    if (vis == 'admin') return priority >= 2;
+    return true;
+  }));
+});
+
+/// Whether the user can post in a specific channel (checks channel posting mode + SEND_MESSAGES).
+final canPostInChannelProvider =
+    Provider.family<bool, ({String serverId, String channelId})>((ref, args) {
+  final channels = ref.watch(channelListProvider);
+  final ch = channels[args.channelId];
+  if (ch == null) return true;
+
+  final perms = ref.watch(myPermissionsProvider(args.serverId)).valueOrNull ?? Permission.all;
+  if (perms & Permission.sendMessages == 0) return false;
+
+  final myRole = ref.watch(myRoleProvider(args.serverId)).valueOrNull ?? 'member';
+  const rolePriority = {'owner': 3, 'admin': 2, 'moderator': 1, 'member': 0};
+  final priority = rolePriority[myRole] ?? 0;
+
+  final posting = ch.posting;
+  if (posting == 'everyone') return true;
+  if (posting == 'moderator') return priority >= 1;
+  if (posting == 'admin') return priority >= 2;
+  return true;
+});
 
 /// Currently selected channel ID.
 final selectedChannelProvider = StateProvider<String?>((ref) => null);

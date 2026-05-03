@@ -11,7 +11,9 @@ import 'package:hollow/src/ui/settings/channels_tab.dart';
 import 'package:hollow/src/ui/settings/danger_zone_tab.dart';
 import 'package:hollow/src/ui/settings/members_tab.dart';
 import 'package:hollow/src/ui/settings/notifications_tab.dart';
+import 'package:hollow/src/ui/settings/labels_tab.dart';
 import 'package:hollow/src/ui/settings/overview_tab.dart';
+import 'package:hollow/src/ui/settings/roles_tab.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Full server settings panel — replaces the chat pane.
@@ -31,7 +33,7 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
   int _selectedTab = 0;
 
   List<({IconData icon, String label, bool isDanger})> _visibleTabs(
-      int permissions) {
+      int permissions, String myRole) {
     final tabs = <({IconData icon, String label, bool isDanger})>[];
 
     // Overview — always visible (nickname for all, server settings for admins)
@@ -50,6 +52,24 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
       ));
     }
 
+    // Roles — for role managers (only owner can edit, others can view)
+    if (permissions & Permission.manageRoles != 0) {
+      tabs.add((
+        icon: LucideIcons.shield,
+        label: 'Roles',
+        isDanger: false,
+      ));
+    }
+
+    // Labels — for role managers
+    if (permissions & Permission.manageRoles != 0) {
+      tabs.add((
+        icon: LucideIcons.tag,
+        label: 'Labels',
+        isDanger: false,
+      ));
+    }
+
     // Members — always visible (viewing is OK, actions gated inside)
     tabs.add((
       icon: LucideIcons.users,
@@ -64,14 +84,13 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
       isDanger: false,
     ));
 
-    // Danger Zone — only for server owner
-    if (permissions & Permission.manageServer != 0) {
-      tabs.add((
-        icon: LucideIcons.alertTriangle,
-        label: 'Danger',
-        isDanger: true,
-      ));
-    }
+    // Danger Zone / Leave — always visible
+    // Owner sees "Delete Server", non-owners see "Leave Server"
+    tabs.add((
+      icon: LucideIcons.alertTriangle,
+      label: 'Danger',
+      isDanger: true,
+    ));
 
     return tabs;
   }
@@ -90,6 +109,10 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
           canManageServer: permissions & Permission.manageServer != 0),
       'Channels' => ChannelsTab(
           key: const ValueKey('channels'), serverId: server.serverId),
+      'Roles' => RolesTab(
+          key: const ValueKey('roles'), serverId: server.serverId),
+      'Labels' => LabelsTab(
+          key: const ValueKey('labels'), serverId: server.serverId),
       'Members' => MembersTab(
           key: const ValueKey('members'), serverId: server.serverId),
       'Notifications' => NotificationsTab(
@@ -110,9 +133,10 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
 
     final permissionsAsync =
         ref.watch(myPermissionsProvider(widget.server.serverId));
+    final roleAsync = ref.watch(myRoleProvider(widget.server.serverId));
 
-    // Don't render until permissions are loaded — prevents flash of wrong tabs.
-    if (!permissionsAsync.hasValue) {
+    // Don't render until permissions and role are loaded — prevents flash of wrong tabs.
+    if (!permissionsAsync.hasValue || !roleAsync.hasValue) {
       return Column(
         children: [
           Container(
@@ -156,7 +180,8 @@ class _ServerSettingsPanelState extends ConsumerState<ServerSettingsPanel> {
     }
 
     final permissions = permissionsAsync.value!;
-    final tabs = _visibleTabs(permissions);
+    final myRole = roleAsync.value ?? 'member';
+    final tabs = _visibleTabs(permissions, myRole);
 
     // Clamp selected tab if permissions changed
     if (_selectedTab >= tabs.length) {

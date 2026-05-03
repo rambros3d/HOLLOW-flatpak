@@ -17,6 +17,8 @@ pub struct ChannelFfi {
     pub name: String,
     pub category: Option<String>,
     pub channel_type: String,
+    pub visibility: String,
+    pub posting: String,
 }
 
 /// Member info for FFI (Dart-visible).
@@ -26,6 +28,14 @@ pub struct MemberFfi {
     pub role: String,
     pub nickname: String,
     pub twitch_username: String,
+    pub labels: Vec<LabelFfi>,
+}
+
+/// Label info for FFI (Dart-visible).
+pub struct LabelFfi {
+    pub label_id: String,
+    pub name: String,
+    pub color: String,
 }
 
 /// Storage stats for a server, returned to Dart via FFI.
@@ -182,7 +192,7 @@ pub fn get_server_channels(server_id: String) -> Result<Vec<ChannelFfi>, String>
         .channels_list()
         .into_iter()
         .map(|ch| {
-            use crate::crdt::server_state::ChannelType;
+            use crate::crdt::server_state::{ChannelType, ChannelVisibility, ChannelPosting};
             ChannelFfi {
                 channel_id: ch.channel_id.clone(),
                 name: ch.name.clone(),
@@ -190,6 +200,16 @@ pub fn get_server_channels(server_id: String) -> Result<Vec<ChannelFfi>, String>
                 channel_type: match ch.channel_type {
                     ChannelType::Voice => "voice".to_string(),
                     _ => "text".to_string(),
+                },
+                visibility: match ch.visibility {
+                    ChannelVisibility::Everyone => "everyone".to_string(),
+                    ChannelVisibility::ModeratorPlus => "moderator".to_string(),
+                    ChannelVisibility::AdminPlus => "admin".to_string(),
+                },
+                posting: match ch.posting {
+                    ChannelPosting::Everyone => "everyone".to_string(),
+                    ChannelPosting::ModeratorPlus => "moderator".to_string(),
+                    ChannelPosting::AdminPlus => "admin".to_string(),
                 },
             }
         })
@@ -233,6 +253,14 @@ pub fn get_server_members(server_id: String) -> Result<Vec<MemberFfi>, String> {
             role: state.get_role(&m.peer_id).as_str().to_string(),
             nickname: state.get_nickname(&m.peer_id),
             twitch_username: state.get_twitch_username(&m.peer_id),
+            labels: state.get_member_labels(&m.peer_id)
+                .into_iter()
+                .map(|l| LabelFfi {
+                    label_id: l.label_id.clone(),
+                    name: l.name.clone(),
+                    color: l.color.clone(),
+                })
+                .collect(),
         })
         .collect();
 
@@ -649,6 +677,261 @@ pub fn delete_server(server_id: String) -> Result<(), String> {
     let rt = get_runtime();
     rt.block_on(
         state.cmd_tx.send(node::NodeCommand::DeleteServer {
+            server_id,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Create a new label (cosmetic role) in a server.
+#[frb]
+pub fn create_label(server_id: String, name: String, color: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+    let rt = get_runtime();
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::CreateLabel { server_id, name, color }))
+        .map_err(|e| format!("Failed to send command: {e}"))?;
+    Ok(())
+}
+
+/// Delete a label from a server.
+#[frb]
+pub fn delete_label(server_id: String, label_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+    let rt = get_runtime();
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::DeleteLabel { server_id, label_id }))
+        .map_err(|e| format!("Failed to send command: {e}"))?;
+    Ok(())
+}
+
+/// Update a label's name and color.
+#[frb]
+pub fn update_label(server_id: String, label_id: String, name: String, color: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+    let rt = get_runtime();
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::UpdateLabel { server_id, label_id, name, color }))
+        .map_err(|e| format!("Failed to send command: {e}"))?;
+    Ok(())
+}
+
+/// Assign a label to a member.
+#[frb]
+pub fn assign_label(server_id: String, label_id: String, peer_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+    let rt = get_runtime();
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::AssignLabel { server_id, label_id, peer_id }))
+        .map_err(|e| format!("Failed to send command: {e}"))?;
+    Ok(())
+}
+
+/// Remove a label from a member.
+#[frb]
+pub fn unassign_label(server_id: String, label_id: String, peer_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+    let rt = get_runtime();
+    rt.block_on(state.cmd_tx.send(node::NodeCommand::UnassignLabel { server_id, label_id, peer_id }))
+        .map_err(|e| format!("Failed to send command: {e}"))?;
+    Ok(())
+}
+
+/// Get all labels defined in a server.
+#[frb]
+pub fn get_server_labels(server_id: String) -> Result<Vec<LabelFfi>, String> {
+    let hollow_dir = crate::identity::data_dir()?;
+    let db_path = hollow_dir.join("messages.db").to_str().ok_or("Invalid path")?.to_string();
+    let id = crate::identity::load_or_create_identity()?;
+    let proto = id.keypair.to_protobuf_encoding().map_err(|e| format!("Failed to encode keypair: {e}"))?;
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let state_json = store.load_server_state(&server_id)?.ok_or(format!("Server {server_id} not found"))?;
+    let state = serde_json::from_str::<crate::crdt::server_state::ServerState>(&state_json)
+        .map_err(|e| format!("Failed to parse server state: {e}"))?;
+
+    Ok(state.labels_list().into_iter().map(|l| LabelFfi {
+        label_id: l.label_id.clone(),
+        name: l.name.clone(),
+        color: l.color.clone(),
+    }).collect())
+}
+
+/// Set the visibility mode for a channel (everyone/moderator/admin).
+#[frb]
+pub fn set_channel_visibility(server_id: String, channel_id: String, visibility: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::SetChannelVisibility {
+            server_id,
+            channel_id,
+            visibility,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Set the posting mode for a channel (everyone/moderator/admin).
+#[frb]
+pub fn set_channel_posting(server_id: String, channel_id: String, posting: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::SetChannelPosting {
+            server_id,
+            channel_id,
+            posting,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Ban a member from the server. Prevents rejoin.
+#[frb]
+pub fn ban_member(server_id: String, peer_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::BanMember {
+            server_id,
+            peer_id,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Unban a member, allowing them to rejoin.
+#[frb]
+pub fn unban_member(server_id: String, peer_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::UnbanMember {
+            server_id,
+            peer_id,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Get the list of banned peer IDs for a server.
+#[frb]
+pub fn get_banned_members(server_id: String) -> Result<Vec<String>, String> {
+    let hollow_dir = crate::identity::data_dir()?;
+    let db_path = hollow_dir
+        .join("messages.db")
+        .to_str()
+        .ok_or("Invalid path")?
+        .to_string();
+
+    let id = crate::identity::load_or_create_identity()?;
+    let proto = id
+        .keypair
+        .to_protobuf_encoding()
+        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+
+    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let state_json = store
+        .load_server_state(&server_id)?
+        .ok_or(format!("Server {server_id} not found"))?;
+
+    let state =
+        serde_json::from_str::<crate::crdt::server_state::ServerState>(&state_json)
+            .map_err(|e| format!("Failed to parse server state: {e}"))?;
+
+    Ok(state.banned_list())
+}
+
+/// Change the permissions bitmask for a role. Owner-only.
+#[frb]
+pub fn change_role_permissions(server_id: String, role: String, permissions: u32) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::ChangeRolePermissions {
+            server_id,
+            role,
+            permissions,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Get the permissions bitmask for a role (custom or default).
+#[frb]
+pub fn get_role_permissions(server_id: String, role: String) -> Result<u32, String> {
+    let hollow_dir = crate::identity::data_dir()?;
+    let db_path = hollow_dir
+        .join("messages.db")
+        .to_str()
+        .ok_or("Invalid path")?
+        .to_string();
+
+    let id = crate::identity::load_or_create_identity()?;
+    let proto = id
+        .keypair
+        .to_protobuf_encoding()
+        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
+    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+
+    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let state_json = store
+        .load_server_state(&server_id)?
+        .ok_or(format!("Server {server_id} not found"))?;
+
+    let state =
+        serde_json::from_str::<crate::crdt::server_state::ServerState>(&state_json)
+            .map_err(|e| format!("Failed to parse server state: {e}"))?;
+
+    Ok(state.get_role_permissions(&role))
+}
+
+/// Leave a server. The local user is removed from the server.
+/// Owner cannot leave — must delete or transfer ownership first.
+#[frb]
+pub fn leave_server(server_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::LeaveServer {
             server_id,
         }),
     )

@@ -131,6 +131,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   IdentityInfo dco_decode_identity_info(dynamic raw);
 
   @protected
+  LabelFfi dco_decode_label_ffi(dynamic raw);
+
+  @protected
   LinkPreviewRef dco_decode_link_preview_ref(dynamic raw);
 
   @protected
@@ -169,6 +172,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<FriendFfi> dco_decode_list_friend_ffi(dynamic raw);
+
+  @protected
+  List<LabelFfi> dco_decode_list_label_ffi(dynamic raw);
 
   @protected
   List<MemberFfi> dco_decode_list_member_ffi(dynamic raw);
@@ -439,6 +445,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   IdentityInfo sse_decode_identity_info(SseDeserializer deserializer);
 
   @protected
+  LabelFfi sse_decode_label_ffi(SseDeserializer deserializer);
+
+  @protected
   LinkPreviewRef sse_decode_link_preview_ref(SseDeserializer deserializer);
 
   @protected
@@ -489,6 +498,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<FriendFfi> sse_decode_list_friend_ffi(SseDeserializer deserializer);
+
+  @protected
+  List<LabelFfi> sse_decode_list_label_ffi(SseDeserializer deserializer);
 
   @protected
   List<MemberFfi> sse_decode_list_member_ffi(SseDeserializer deserializer);
@@ -830,6 +842,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_identity_info(IdentityInfo self, SseSerializer serializer);
 
   @protected
+  void sse_encode_label_ffi(LabelFfi self, SseSerializer serializer);
+
+  @protected
   void sse_encode_link_preview_ref(
     LinkPreviewRef self,
     SseSerializer serializer,
@@ -897,6 +912,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     List<FriendFfi> self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_list_label_ffi(List<LabelFfi> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_member_ffi(

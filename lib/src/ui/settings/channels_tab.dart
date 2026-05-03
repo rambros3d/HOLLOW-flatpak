@@ -567,6 +567,10 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
                         isVoice: info?.channelType == ChannelType.voice,
                         indented: isUnderCategory,
                         isLast: isLastInCategory,
+                        serverId: widget.serverId,
+                        channelId: item.channelId,
+                        visibility: info?.visibility ?? 'everyone',
+                        posting: info?.posting ?? 'everyone',
                         onRename: () =>
                             _renameChannel(item.channelId, name),
                         onDelete: () =>
@@ -700,6 +704,10 @@ class _ChannelRow extends StatelessWidget {
   final bool isLast;
   final VoidCallback onRename;
   final VoidCallback onDelete;
+  final String serverId;
+  final String channelId;
+  final String visibility;
+  final String posting;
 
   const _ChannelRow({
     super.key,
@@ -710,6 +718,10 @@ class _ChannelRow extends StatelessWidget {
     this.isLast = false,
     required this.onRename,
     required this.onDelete,
+    required this.serverId,
+    required this.channelId,
+    this.visibility = 'everyone',
+    this.posting = 'everyone',
   });
 
   @override
@@ -763,6 +775,26 @@ class _ChannelRow extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  _AccessChip(
+                    icon: LucideIcons.eye,
+                    value: visibility,
+                    onChanged: (v) => crdt_api.setChannelVisibility(
+                      serverId: serverId,
+                      channelId: channelId,
+                      visibility: v,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  _AccessChip(
+                    icon: LucideIcons.messageSquare,
+                    value: posting,
+                    onChanged: (v) => crdt_api.setChannelPosting(
+                      serverId: serverId,
+                      channelId: channelId,
+                      posting: v,
+                    ),
+                  ),
+                  const SizedBox(width: HollowSpacing.xs),
                   HollowPressable(
                     onTap: onRename,
                     borderRadius: BorderRadius.circular(hollow.radiusSm),
@@ -912,6 +944,88 @@ class _ChannelTypeChip extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact dropdown chip for channel visibility or posting mode.
+class _AccessChip extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final Future<void> Function(String) onChanged;
+
+  const _AccessChip({
+    required this.icon,
+    required this.value,
+    required this.onChanged,
+  });
+
+  String get _label => switch (value) {
+        'moderator' => 'Mod+',
+        'admin' => 'Admin+',
+        _ => 'All',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+    final isRestricted = value != 'everyone';
+
+    return PopupMenuButton<String>(
+      tooltip: '',
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(),
+      color: hollow.elevated,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(hollow.radiusMd),
+        side: BorderSide(color: hollow.border),
+      ),
+      onSelected: onChanged,
+      itemBuilder: (_) => [
+        _accessItem('everyone', 'Everyone', hollow),
+        _accessItem('moderator', 'Mod+', hollow),
+        _accessItem('admin', 'Admin+', hollow),
+      ],
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: isRestricted
+              ? hollow.warning.withValues(alpha: 0.15)
+              : hollow.border.withValues(alpha: 0.3),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 10,
+                color: isRestricted ? hollow.warning : hollow.textSecondary),
+            const SizedBox(width: 3),
+            Text(
+              _label,
+              style: TextStyle(
+                fontSize: 10,
+                color: isRestricted ? hollow.warning : hollow.textSecondary,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _accessItem(
+      String val, String label, HollowTheme hollow) {
+    final selected = val == value;
+    return PopupMenuItem(
+      value: val,
+      child: Text(
+        label,
+        style: HollowTypography.body.copyWith(
+          color: selected ? hollow.accent : hollow.textPrimary,
+          fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
         ),
       ),
     );

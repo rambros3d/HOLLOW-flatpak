@@ -208,6 +208,128 @@ Future<List<String>> getPinnedMessages({
 Future<void> deleteServer({required String serverId}) =>
     RustLib.instance.api.crateApiCrdtDeleteServer(serverId: serverId);
 
+/// Create a new label (cosmetic role) in a server.
+Future<void> createLabel({
+  required String serverId,
+  required String name,
+  required String color,
+}) => RustLib.instance.api.crateApiCrdtCreateLabel(
+  serverId: serverId,
+  name: name,
+  color: color,
+);
+
+/// Delete a label from a server.
+Future<void> deleteLabel({required String serverId, required String labelId}) =>
+    RustLib.instance.api.crateApiCrdtDeleteLabel(
+      serverId: serverId,
+      labelId: labelId,
+    );
+
+/// Update a label's name and color.
+Future<void> updateLabel({
+  required String serverId,
+  required String labelId,
+  required String name,
+  required String color,
+}) => RustLib.instance.api.crateApiCrdtUpdateLabel(
+  serverId: serverId,
+  labelId: labelId,
+  name: name,
+  color: color,
+);
+
+/// Assign a label to a member.
+Future<void> assignLabel({
+  required String serverId,
+  required String labelId,
+  required String peerId,
+}) => RustLib.instance.api.crateApiCrdtAssignLabel(
+  serverId: serverId,
+  labelId: labelId,
+  peerId: peerId,
+);
+
+/// Remove a label from a member.
+Future<void> unassignLabel({
+  required String serverId,
+  required String labelId,
+  required String peerId,
+}) => RustLib.instance.api.crateApiCrdtUnassignLabel(
+  serverId: serverId,
+  labelId: labelId,
+  peerId: peerId,
+);
+
+/// Get all labels defined in a server.
+Future<List<LabelFfi>> getServerLabels({required String serverId}) =>
+    RustLib.instance.api.crateApiCrdtGetServerLabels(serverId: serverId);
+
+/// Set the visibility mode for a channel (everyone/moderator/admin).
+Future<void> setChannelVisibility({
+  required String serverId,
+  required String channelId,
+  required String visibility,
+}) => RustLib.instance.api.crateApiCrdtSetChannelVisibility(
+  serverId: serverId,
+  channelId: channelId,
+  visibility: visibility,
+);
+
+/// Set the posting mode for a channel (everyone/moderator/admin).
+Future<void> setChannelPosting({
+  required String serverId,
+  required String channelId,
+  required String posting,
+}) => RustLib.instance.api.crateApiCrdtSetChannelPosting(
+  serverId: serverId,
+  channelId: channelId,
+  posting: posting,
+);
+
+/// Ban a member from the server. Prevents rejoin.
+Future<void> banMember({required String serverId, required String peerId}) =>
+    RustLib.instance.api.crateApiCrdtBanMember(
+      serverId: serverId,
+      peerId: peerId,
+    );
+
+/// Unban a member, allowing them to rejoin.
+Future<void> unbanMember({required String serverId, required String peerId}) =>
+    RustLib.instance.api.crateApiCrdtUnbanMember(
+      serverId: serverId,
+      peerId: peerId,
+    );
+
+/// Get the list of banned peer IDs for a server.
+Future<List<String>> getBannedMembers({required String serverId}) =>
+    RustLib.instance.api.crateApiCrdtGetBannedMembers(serverId: serverId);
+
+/// Change the permissions bitmask for a role. Owner-only.
+Future<void> changeRolePermissions({
+  required String serverId,
+  required String role,
+  required int permissions,
+}) => RustLib.instance.api.crateApiCrdtChangeRolePermissions(
+  serverId: serverId,
+  role: role,
+  permissions: permissions,
+);
+
+/// Get the permissions bitmask for a role (custom or default).
+Future<int> getRolePermissions({
+  required String serverId,
+  required String role,
+}) => RustLib.instance.api.crateApiCrdtGetRolePermissions(
+  serverId: serverId,
+  role: role,
+);
+
+/// Leave a server. The local user is removed from the server.
+/// Owner cannot leave — must delete or transfer ownership first.
+Future<void> leaveServer({required String serverId}) =>
+    RustLib.instance.api.crateApiCrdtLeaveServer(serverId: serverId);
+
 /// Set the local user's storage pledge for a server (in bytes).
 Future<void> setStoragePledge({
   required String serverId,
@@ -285,12 +407,16 @@ class ChannelFfi {
   final String name;
   final String? category;
   final String channelType;
+  final String visibility;
+  final String posting;
 
   const ChannelFfi({
     required this.channelId,
     required this.name,
     this.category,
     required this.channelType,
+    required this.visibility,
+    required this.posting,
   });
 
   @override
@@ -298,7 +424,9 @@ class ChannelFfi {
       channelId.hashCode ^
       name.hashCode ^
       category.hashCode ^
-      channelType.hashCode;
+      channelType.hashCode ^
+      visibility.hashCode ^
+      posting.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -308,7 +436,34 @@ class ChannelFfi {
           channelId == other.channelId &&
           name == other.name &&
           category == other.category &&
-          channelType == other.channelType;
+          channelType == other.channelType &&
+          visibility == other.visibility &&
+          posting == other.posting;
+}
+
+/// Label info for FFI (Dart-visible).
+class LabelFfi {
+  final String labelId;
+  final String name;
+  final String color;
+
+  const LabelFfi({
+    required this.labelId,
+    required this.name,
+    required this.color,
+  });
+
+  @override
+  int get hashCode => labelId.hashCode ^ name.hashCode ^ color.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LabelFfi &&
+          runtimeType == other.runtimeType &&
+          labelId == other.labelId &&
+          name == other.name &&
+          color == other.color;
 }
 
 /// Member info for FFI (Dart-visible).
@@ -318,6 +473,7 @@ class MemberFfi {
   final String role;
   final String nickname;
   final String twitchUsername;
+  final List<LabelFfi> labels;
 
   const MemberFfi({
     required this.peerId,
@@ -325,6 +481,7 @@ class MemberFfi {
     required this.role,
     required this.nickname,
     required this.twitchUsername,
+    required this.labels,
   });
 
   @override
@@ -333,7 +490,8 @@ class MemberFfi {
       displayName.hashCode ^
       role.hashCode ^
       nickname.hashCode ^
-      twitchUsername.hashCode;
+      twitchUsername.hashCode ^
+      labels.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -344,7 +502,8 @@ class MemberFfi {
           displayName == other.displayName &&
           role == other.role &&
           nickname == other.nickname &&
-          twitchUsername == other.twitchUsername;
+          twitchUsername == other.twitchUsername &&
+          labels == other.labels;
 }
 
 /// Server info for FFI (Dart-visible).

@@ -230,6 +230,9 @@ class EventStreamNotifier extends Notifier<bool> {
         debugPrint('[HOLLOW] Server updated: $serverId');
         ref.read(serverListProvider.notifier).onServerUpdated(serverId);
         ref.read(serverAvatarProvider.notifier).loadAvatar(serverId);
+        ref.invalidate(serverMembersProvider(serverId));
+        ref.invalidate(myPermissionsProvider(serverId));
+        ref.invalidate(myRoleProvider(serverId));
         // Reload channels and layout in case they changed.
         if (ref.read(selectedServerProvider) == serverId) {
           ref.read(channelListProvider.notifier).loadForServer(serverId);

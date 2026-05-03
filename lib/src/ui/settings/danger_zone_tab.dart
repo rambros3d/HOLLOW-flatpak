@@ -12,11 +12,13 @@ import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:lucide_icons/lucide_icons.dart';
 
-/// Danger Zone tab — delete server.
+/// Danger Zone tab — owner sees Delete, non-owners see Leave.
 class DangerZoneTab extends ConsumerWidget {
   final ServerInfo server;
 
   const DangerZoneTab({super.key, required this.server});
+
+  // ── Delete Server (Owner only) ─────────────────────────────────────
 
   void _confirmDelete(BuildContext context, WidgetRef ref) {
     showHollowDialog(
@@ -81,14 +83,81 @@ class DangerZoneTab extends ConsumerWidget {
     }
   }
 
+  // ── Leave Server (non-Owner) ───────────────────────────────────────
+
+  void _confirmLeave(BuildContext context, WidgetRef ref) {
+    showHollowDialog(
+      context: context,
+      builder: (dialogContext) => HollowDialog(
+        title: 'Leave Server',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Are you sure you want to leave "${server.name}"?',
+              style: HollowTypography.body,
+            ),
+            const SizedBox(height: HollowSpacing.sm),
+            Text(
+              'You will need a new invite to rejoin this server.',
+              style: HollowTypography.bodySmall,
+            ),
+          ],
+        ),
+        actions: [
+          HollowButton.ghost(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          HollowButton.danger(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              _leaveServer(context, ref);
+            },
+            child: const Text('Leave Server'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _leaveServer(BuildContext context, WidgetRef ref) async {
+    try {
+      await crdt_api.leaveServer(serverId: server.serverId);
+      ref.read(serverSettingsOpenProvider.notifier).state = false;
+      ref.read(selectedServerProvider.notifier).state = null;
+      ref.read(selectedChannelProvider.notifier).state = null;
+      ref.read(channelListProvider.notifier).clear();
+      if (context.mounted) {
+        HollowToast.show(
+          context,
+          'Left "${server.name}"',
+          type: HollowToastType.info,
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        HollowToast.show(
+          context,
+          'Failed to leave server: $e',
+          type: HollowToastType.error,
+        );
+      }
+    }
+  }
+
+  // ── Build ──────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hollow = HollowTheme.of(context);
+    final roleAsync = ref.watch(myRoleProvider(server.serverId));
+    final isOwner = roleAsync.valueOrNull == 'owner';
 
     return ListView(
       padding: const EdgeInsets.all(HollowSpacing.xl),
       children: [
-        // Danger zone header
         Container(
           padding: const EdgeInsets.all(HollowSpacing.lg),
           decoration: BoxDecoration(
@@ -112,33 +181,63 @@ class DangerZoneTab extends ConsumerWidget {
               ),
               const SizedBox(height: HollowSpacing.lg),
 
-              // Delete server
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Delete this server',
-                          style: HollowTypography.body
-                              .copyWith(color: hollow.textPrimary),
-                        ),
-                        const SizedBox(height: HollowSpacing.xxs),
-                        Text(
-                          'Once deleted, all data is permanently removed.',
-                          style: HollowTypography.bodySmall,
-                        ),
-                      ],
+              if (!isOwner)
+                // Non-owner: Leave Server
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Leave this server',
+                            style: HollowTypography.body
+                                .copyWith(color: hollow.textPrimary),
+                          ),
+                          const SizedBox(height: HollowSpacing.xxs),
+                          Text(
+                            'You will need a new invite to rejoin.',
+                            style: HollowTypography.bodySmall,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  HollowButton.danger(
-                    onPressed: () => _confirmDelete(context, ref),
-                    icon: const Icon(LucideIcons.trash2),
-                    child: const Text('Delete Server'),
-                  ),
-                ],
-              ),
+                    HollowButton.danger(
+                      onPressed: () => _confirmLeave(context, ref),
+                      icon: const Icon(LucideIcons.logOut),
+                      child: const Text('Leave Server'),
+                    ),
+                  ],
+                ),
+
+              if (isOwner)
+                // Owner only: Delete Server
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Delete this server',
+                            style: HollowTypography.body
+                                .copyWith(color: hollow.textPrimary),
+                          ),
+                          const SizedBox(height: HollowSpacing.xxs),
+                          Text(
+                            'Once deleted, all data is permanently removed.',
+                            style: HollowTypography.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    HollowButton.danger(
+                      onPressed: () => _confirmDelete(context, ref),
+                      icon: const Icon(LucideIcons.trash2),
+                      child: const Text('Delete Server'),
+                    ),
+                  ],
+                ),
             ],
           ),
         ),

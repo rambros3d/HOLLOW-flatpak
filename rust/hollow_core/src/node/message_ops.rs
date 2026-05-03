@@ -149,6 +149,13 @@ pub(crate) async fn handle_send_channel_message(
         }
     };
 
+    if !server.can_post_in_channel(local_peer_str, &channel_id) {
+        let _ = event_tx.send(NetworkEvent::Error {
+            message: "You don't have permission to post in this channel".to_string(),
+        }).await;
+        return;
+    }
+
     let local_peer = local_peer_str.to_string();
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
