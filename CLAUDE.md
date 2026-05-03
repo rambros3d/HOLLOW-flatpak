@@ -145,6 +145,13 @@ All UI uses custom Hollow widgets — no Material defaults.
 - **`showHollowDialog` overlays need a `Material` ancestor** for `Text` widgets, otherwise yellow debug underline.
 - **Forked `flutter_webrtc` at `../flutter-webrtc-1.4.1/`** — pubspec points at the sibling folder via `path:`. The fork adds WASAPI loopback capture inside `getDisplayMedia({audio: true})` on Windows. The captured audio track must NOT be attached to the returned MediaStream (`stream->AddTrack` crashes libwebrtc's sender iteration); Dart calls `pc.addTrack(audioTrack, stream)` on the screen-share PC instead. When iterating on the fork's native C++, delete `build/windows/x64/plugins/flutter_webrtc/` before rebuilding, and **always build `--release` if testing from the Release folder** (Vitalik does).
 
+## Semantic Memory Search (hollow-memory MCP)
+- **Tool:** `memory_search(query, limit=5)` — semantic vector search across all memory files, HOLLOW_PLAN.md, WHITEPAPER.md, CLAUDE.md. Use it proactively when you need to recall decisions, patterns, or context by meaning rather than exact filename.
+- **When to use:** Fuzzy recall ("what was that thing about..."), cross-referencing decisions, finding relevant memories before making architectural choices, or when you're unsure which memory file contains the answer.
+- **Reindex:** Run `memory_reindex()` after modifying memory files, HOLLOW_PLAN.md, or CLAUDE.md (automatic during `/compush`).
+- **Save liberally:** Discovery is by meaning now, not by scanning an index. Save granular patterns, decision rationale, subtle bug causes, non-obvious code behaviors — anything useful to recall later. The threshold is "would finding this by meaning help a future session?" not "is this important enough for the index?"
+- **Location:** `tools/hollow-memory/` — local ONNX embeddings, sqlite-vec, zero API costs.
+
 ## Rules
 - Never commit secrets, keys, or credentials.
 - Rust handles: networking, crypto, CRDTs, storage engine. Dart handles: UI, app logic, state management.

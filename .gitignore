@@ -80,3 +80,7 @@ yt_videos/
 
 # Claude Code
 .claude/
+
+# Hollow Memory (semantic search tool)
+tools/hollow-memory/models/
+tools/hollow-memory/*.db
