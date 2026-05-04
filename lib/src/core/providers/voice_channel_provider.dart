@@ -210,6 +210,9 @@ class VoiceChannelState {
 }
 
 class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
+  static const int maxScreenShareOutgoing = 5;
+  static const int maxScreenShareIncoming = 3;
+
   VoiceChannelService? _service;
 
   /// Outgoing screen share services (one per peer we're sending to).
@@ -221,6 +224,11 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
   /// Early ICE candidates that arrived before the service was created.
   /// Key: "incoming:peerId" or "outgoing:peerId"
   final Map<String, List<Map<String, dynamic>>> _earlyScreenIce = {};
+
+  /// Cached SFrame key from last MLS epoch change — applied when service is (re)created.
+  int? _lastSframeEpoch;
+  Uint8List? _lastSframeKey;
+  String? _lastSframeServerId;
 
   /// Shared screen capture stream (captured once, shared across outgoing PCs).
   MediaStream? _screenCaptureStream;
@@ -357,8 +365,8 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     _service!.onPeerConnected = (peerId) {
       if (_leaving || _stoppingScreenShare) return;
       if (state.isScreenSharing && _screenCaptureStream != null) {
-        // Only send if we don't already have an outgoing service for this peer.
-        if (!_outgoingScreenShares.containsKey(peerId)) {
+        if (!_outgoingScreenShares.containsKey(peerId) &&
+            _outgoingScreenShares.length < maxScreenShareOutgoing) {
           debugPrint('[HOLLOW-VC] Peer $peerId connected — sending screen share offer');
           _sendScreenShareToPeer(peerId);
         }
@@ -380,6 +388,12 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     };
 
     await _service!.startAudio(serverId, channelId);
+
+    // Apply cached SFrame key (may have arrived before the service was created).
+    if (_lastSframeKey != null && _lastSframeEpoch != null && _lastSframeServerId == serverId) {
+      debugPrint('[HOLLOW-VC] Applying cached SFrame key (epoch=$_lastSframeEpoch) to new service');
+      await _service!.setSframeKey(_lastSframeEpoch!, Uint8List.fromList(_lastSframeKey!));
+    }
 
     // Connect to existing participants in this channel.
     final existing = state.getParticipants(serverId, channelId);
@@ -764,11 +778,15 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
       focusedScreenSharePeerId: localPeerId,
     );
 
-    // Send screen share to each peer in the channel.
+    // Send screen share to each peer in the channel (up to cap).
     final peers = state.getParticipants(
         state.currentServerId!, state.currentChannelId!);
     for (final peerId in peers) {
       if (peerId == localPeerId) continue;
+      if (_outgoingScreenShares.length >= maxScreenShareOutgoing) {
+        debugPrint('[HOLLOW-VC] Screen share outgoing cap reached ($maxScreenShareOutgoing)');
+        break;
+      }
       await _sendScreenShareToPeer(peerId);
     }
 
@@ -930,6 +948,12 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     if (sdp.isEmpty) return;
 
     debugPrint('[HOLLOW-VC] Received screen offer from $peerId');
+
+    if (!_incomingScreenShares.containsKey(peerId) &&
+        _incomingScreenShares.length >= maxScreenShareIncoming) {
+      debugPrint('[HOLLOW-VC] Rejecting screen offer from $peerId — incoming cap ($maxScreenShareIncoming) reached');
+      return;
+    }
 
     // Mark this peer as sharing and auto-focus (screen_offer may arrive before screen_state).
     final sharing = Map.of(state.peerScreenSharing);
@@ -1223,9 +1247,13 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
   /// Handle MLS epoch change — rotate SFrame key for voice E2EE.
   Future<void> onEpochChanged(
       String serverId, int epoch, Uint8List sframeKey) async {
-    if (!state.isInVoiceChannel) return;
+    // Always cache — the event may arrive before onLocalJoined sets currentServerId.
+    _lastSframeEpoch = epoch;
+    _lastSframeKey = Uint8List.fromList(sframeKey);
+    _lastSframeServerId = serverId;
+
     if (state.currentServerId != serverId) return;
-    if (_service == null) return;
+    if (!state.isInVoiceChannel || _service == null) return;
 
     debugPrint('[HOLLOW-VC] MLS epoch changed: $epoch — rotating SFrame key');
     await _service!.setSframeKey(epoch, sframeKey);
@@ -1335,7 +1363,9 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
               'screen:$peerId', receiver, kind: 'screen_$kind');
         }
       }
-      debugPrint('[HOLLOW-VC] SFrame enabled on screen share (sender=$isSender, peer=$peerId)');
+      // Set key index on newly created cryptors to match the current epoch.
+      await frameCryptor.setKeyIndexForPeer('screen:$peerId', frameCryptor.currentKeyIndex);
+      debugPrint('[HOLLOW-VC] SFrame enabled on screen share (sender=$isSender, peer=$peerId, keyIndex=${frameCryptor.currentKeyIndex})');
     } catch (e) {
       debugPrint('[HOLLOW-VC] Failed to enable SFrame on screen share: $e');
     }

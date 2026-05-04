@@ -17,6 +17,8 @@ void _vcLog(String msg) {
 /// Audio tracks are captured once (shared across all PCs).
 /// ICE candidates and SDP are exchanged via MLS-encrypted targeted messages.
 class VoiceChannelService {
+  static const int maxVoicePcs = 15;
+
   final String localPeerId;
   Map<String, dynamic> iceServers;
 
@@ -233,6 +235,11 @@ class VoiceChannelService {
     final sdp = v['sdp'] as String? ?? '';
     if (sdp.isEmpty) return;
 
+    if (!_peerConnections.containsKey(peerId) && _peerConnections.length >= maxVoicePcs) {
+      _vcLog('[HOLLOW-VC] Rejecting SDP offer from $peerId — voice PC cap ($maxVoicePcs) reached');
+      return;
+    }
+
     _vcLog('[HOLLOW-VC] Received SDP offer from $peerId');
     final pc = await _createPeerConnection(peerId);
     _addLocalAudioTracks(pc);
@@ -333,6 +340,10 @@ class VoiceChannelService {
     }
     // Already connected — skip.
     if (_peerConnections.containsKey(peerId)) return;
+    if (_peerConnections.length >= maxVoicePcs) {
+      _vcLog('[HOLLOW-VC] Voice PC cap reached ($maxVoicePcs), skipping $peerId');
+      return;
+    }
 
     // Glare prevention: lower peer_id creates the offer.
     if (localPeerId.compareTo(peerId) < 0) {
@@ -385,7 +396,6 @@ class VoiceChannelService {
   /// Enable SFrame sender encryption on outgoing audio tracks for a peer.
   Future<void> _enableSframeSender(String peerId, RTCPeerConnection pc) async {
     if (frameCryptor == null || !frameCryptor!.isEnabled) {
-      // No SFrame key set yet — will enable once key arrives via MlsEpochChanged.
       return;
     }
     try {
@@ -396,6 +406,7 @@ class VoiceChannelService {
           break;
         }
       }
+      await frameCryptor!.setKeyIndexForPeer(peerId, frameCryptor!.currentKeyIndex);
     } catch (e) {
       _vcLog('[HOLLOW-VC] Failed to enable SFrame sender: $e');
     }
@@ -412,6 +423,7 @@ class VoiceChannelService {
           break;
         }
       }
+      await frameCryptor!.setKeyIndexForPeer(peerId, frameCryptor!.currentKeyIndex);
     } catch (e) {
       _vcLog('[HOLLOW-VC] Failed to enable SFrame receiver: $e');
     }
@@ -508,7 +520,7 @@ class VoiceChannelService {
   /// Called when MLS epoch key arrives or changes.
   Future<void> setSframeKey(int epoch, Uint8List key) async {
     if (frameCryptor == null) return;
-    await frameCryptor!.setSharedKey(epoch % 16, key); // keyRingSize=16
+    await frameCryptor!.rotateKey(epoch % 16, key); // sets key + updates all cryptor indices
     // Enable on all existing peer connections.
     for (final entry in _peerConnections.entries) {
       final peerId = entry.key;

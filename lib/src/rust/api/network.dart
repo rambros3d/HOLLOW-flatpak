@@ -236,6 +236,17 @@ Future<void> sendTypingIndicator({
 Future<void> setInvisible({required bool invisible}) =>
     RustLib.instance.api.crateApiNetworkSetInvisible(invisible: invisible);
 
+/// Subscribe to specific channels in a server for topic-based relay routing.
+/// Only messages for subscribed channels are delivered in real-time.
+/// Unsubscribed channel messages are synced on-demand when navigating to them.
+Future<void> subscribeChannels({
+  required String serverId,
+  required List<String> channelIds,
+}) => RustLib.instance.api.crateApiNetworkSubscribeChannels(
+  serverId: serverId,
+  channelIds: channelIds,
+);
+
 /// Request message sync for a specific channel from all connected server members.
 /// Called when the user opens a channel to catch up on missed messages.
 Future<void> requestChannelSync({

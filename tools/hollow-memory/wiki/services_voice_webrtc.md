@@ -600,13 +600,17 @@ Wraps flutter_webrtc's `FrameCryptor` + `KeyProvider` APIs for SFrame encryption
 
 `setSharedKey(index, key)`: Sets shared key for all participants (server voice channels). SECURITY: zeros key bytes after setting.
 
-`rotateKey(newIndex, newKey)`: Sets new shared key and updates key index on ALL active sender and receiver cryptors. Used on MLS epoch change.
+`rotateKey(newIndex, newKey)`: Sets new shared key and updates key index on ALL active sender and receiver cryptors. Also updates `currentKeyIndex` field. Used by `setSframeKey()` on MLS epoch change.
+
+`setKeyIndexForPeer(peerId, index)`: Sets the key index on all sender and receiver cryptors matching the given peerId prefix. Called after creating new cryptors to ensure they use the correct epoch key index.
+
+`currentKeyIndex`: Tracks the active key index. New cryptors must call `setKeyIndex(currentKeyIndex)` after creation — they default to index 0 which may not match the current epoch.
 
 ### Enabling Encryption
 
-`enableForSender(peerId, sender, {kind})`: Creates a sender-side `FrameCryptor` via `frameCryptorFactory.createFrameCryptorForRtpSender()` using AES-GCM algorithm. Keyed by `'$peerId:$kind'` where kind is `'audio'` or `'video'`. Registers `onFrameCryptorStateChanged` callback for logging. Enables immediately. Skips if already enabled for that key (dedup).
+`enableForSender(peerId, sender, {kind})`: Creates a sender-side `FrameCryptor` via `frameCryptorFactory.createFrameCryptorForRtpSender()` using AES-GCM algorithm. Keyed by `'$peerId:$kind'` where kind is `'audio'`, `'video'`, `'screen_audio'`, or `'screen_video'`. Registers `onFrameCryptorStateChanged` callback for logging. Enables immediately. Skips if already enabled for that key (dedup). **IMPORTANT:** Call `setKeyIndexForPeer` after this to set the correct key index.
 
-`enableForReceiver(peerId, receiver, {kind})`: Same pattern for receiver-side decryption via `frameCryptorFactory.createFrameCryptorForRtpReceiver()`. Keyed by `'$peerId:$kind'`.
+`enableForReceiver(peerId, receiver, {kind})`: Same pattern for receiver-side decryption via `frameCryptorFactory.createFrameCryptorForRtpReceiver()`. Keyed by `'$peerId:$kind'`. **IMPORTANT:** Call `setKeyIndexForPeer` after this.
 
 ### Per-Peer Cleanup
 

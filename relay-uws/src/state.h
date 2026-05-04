@@ -20,6 +20,10 @@ struct PerSocketData {
     std::chrono::steady_clock::time_point rate_last_refill;
     struct us_timer_t* auth_timer = nullptr;
     std::string license_key;
+
+    // Per-room channel subscriptions (room_code -> set of topic strings).
+    // Empty set = wildcard (receive all messages for that room).
+    std::unordered_map<std::string, std::unordered_set<std::string>> subscriptions;
 };
 
 struct PeerEntry {

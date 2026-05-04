@@ -468,6 +468,16 @@ class _HollowShellState extends ConsumerState<HollowShell>
               : null;
           ref.read(unreadProvider.notifier)
               .markChannelSeen(serverId, channelId, latestId);
+          // Subscribe to this channel for topic-based relay routing.
+          // Include channels with unread messages so @mentions still arrive.
+          final unread = ref.read(unreadProvider);
+          final prefix = '$serverId:';
+          final unreadChannels = unread.channelUnreadCounts.entries
+              .where((e) => e.key.startsWith(prefix) && e.value > 0)
+              .map((e) => e.key.substring(prefix.length))
+              .toList();
+          final topics = <String>{channelId, ...unreadChannels}.toList();
+          network_api.subscribeChannels(serverId: serverId, channelIds: topics);
         }
         // On mobile, switch to chat tab when channel is selected.
         ref.read(mobileTabProvider.notifier).state = 1;

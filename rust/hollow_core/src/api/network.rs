@@ -1438,6 +1438,24 @@ pub fn set_invisible(invisible: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Subscribe to specific channels in a server for topic-based relay routing.
+/// Only messages for subscribed channels are delivered in real-time.
+/// Unsubscribed channel messages are synced on-demand when navigating to them.
+#[frb]
+pub fn subscribe_channels(server_id: String, channel_ids: Vec<String>) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::SubscribeChannels { server_id, channel_ids }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
 /// Request message sync for a specific channel from all connected server members.
 /// Called when the user opens a channel to catch up on missed messages.
 #[frb]

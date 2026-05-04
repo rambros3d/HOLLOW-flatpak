@@ -30,6 +30,10 @@ pub enum WsCommand {
     SendDirect { room_code: String, target_peer: String, data: Vec<u8> },
     /// Send binary data directly to a specific peer (for file/shard streaming).
     SendBinaryDirect { room_code: String, target_peer: String, data: Vec<u8> },
+    /// Subscribe to specific channel topics in a room (reduces fan-out).
+    Subscribe { room_code: String, topics: Vec<String> },
+    /// Broadcast to peers subscribed to a specific topic in a room.
+    SendToRoomTopic { room_code: String, topic: String, data: Vec<u8> },
 }
 
 /// Events received from the WebSocket relay, forwarded to the swarm.
@@ -201,6 +205,25 @@ async fn ws_client_loop(
                                                     });
                                                 }
                                             }
+                                            0x08 => {
+                                                // Topic broadcast: [0x08][room\0][topic\0][sender\0][payload]
+                                                let rest = &data[1..];
+                                                if let Some(room_end) = rest.iter().position(|&b| b == 0) {
+                                                    let room = String::from_utf8_lossy(&rest[..room_end]).to_string();
+                                                    let after_room = &rest[room_end + 1..];
+                                                    if let Some(topic_end) = after_room.iter().position(|&b| b == 0) {
+                                                        let _topic = String::from_utf8_lossy(&after_room[..topic_end]).to_string();
+                                                        let after_topic = &after_room[topic_end + 1..];
+                                                        if let Some(sender_end) = after_topic.iter().position(|&b| b == 0) {
+                                                            let from = String::from_utf8_lossy(&after_topic[..sender_end]).to_string();
+                                                            let payload = after_topic[sender_end + 1..].to_vec();
+                                                            let _ = event_tx.send(WsEvent::Message {
+                                                                room, from, data: payload,
+                                                            });
+                                                        }
+                                                    }
+                                                }
+                                            }
                                             _ => {}
                                         }
                                     }
@@ -341,6 +364,31 @@ async fn send_command(write: &mut WsSink, cmd: &WsCommand) {
             frame.extend_from_slice(data);
             if let Err(e) = write.send(Message::Binary(frame.into())).await {
                 hollow_log!("[HOLLOW-WS] Binary send failed: {e}");
+            }
+            return;
+        }
+        WsCommand::Subscribe { room_code, topics } => {
+            let msg = serde_json::json!({
+                "type": "subscribe",
+                "room": room_code,
+                "topics": topics,
+            });
+            let text = msg.to_string();
+            if let Err(e) = write.send(Message::Text(text.into())).await {
+                hollow_log!("[HOLLOW-WS] Subscribe send failed: {e}");
+            }
+            return;
+        }
+        WsCommand::SendToRoomTopic { room_code, topic, data } => {
+            let mut frame = Vec::with_capacity(1 + room_code.len() + 1 + topic.len() + 1 + data.len());
+            frame.push(0x07);
+            frame.extend_from_slice(room_code.as_bytes());
+            frame.push(0x00);
+            frame.extend_from_slice(topic.as_bytes());
+            frame.push(0x00);
+            frame.extend_from_slice(data);
+            if let Err(e) = write.send(Message::Binary(frame.into())).await {
+                hollow_log!("[HOLLOW-WS] Topic send failed: {e}");
             }
             return;
         }

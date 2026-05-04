@@ -258,6 +258,27 @@ pub(crate) async fn handle_voice_channel_join(
     let vc_key = format!("{}:{}", server_id, channel_id);
     voice_channel_participants.entry(vc_key.clone()).or_default()
         .insert(local_peer_str.to_string());
+    // Emit current MLS epoch key BEFORE the join event — Dart caches it,
+    // then applies it after creating the VoiceChannelService.
+    match mls.as_ref() {
+        Some(mls_mgr) => {
+            let has_group = mls_mgr.has_group(&server_id);
+            hollow_log!("[HOLLOW-VC-SFRAME] MLS exists, has_group({server_id})={has_group}");
+            if has_group {
+                match mls_mgr.export_secret(&server_id, "sframe", b"", 32) {
+                    Ok(sframe_key) => {
+                        let epoch = mls_mgr.epoch(&server_id).unwrap_or(0);
+                        hollow_log!("[HOLLOW-VC-SFRAME] Emitting SFrame key for epoch {epoch}");
+                        let _ = event_tx.send(NetworkEvent::MlsEpochChanged {
+                            server_id: server_id.clone(), epoch, sframe_key,
+                        }).await;
+                    }
+                    Err(e) => hollow_log!("[HOLLOW-VC-SFRAME] export_secret FAILED: {e}"),
+                }
+            }
+        }
+        None => hollow_log!("[HOLLOW-VC-SFRAME] MLS is None — no SFrame key"),
+    }
     // Emit locally so our own UI updates.
     let _ = event_tx.send(NetworkEvent::VoiceChannelJoined {
         server_id: server_id.clone(), channel_id: channel_id.clone(),

@@ -308,6 +308,8 @@ pub(crate) enum NodeCommand {
     SendTypingIndicator { server_id: String, channel_id: String },
     // -- Presence (Phase 6.75) --
     SetInvisible { invisible: bool },
+    // -- Channel subscriptions (Phase 6.75) --
+    SubscribeChannels { server_id: String, channel_ids: Vec<String> },
     // -- Channel layout (Phase 3.5) --
     UpdateChannelLayout { server_id: String, layout_json: String },
     // -- Pinned messages (Phase 3.5) --

@@ -136,6 +136,38 @@ pub(crate) fn is_mls_coordinator(
     elect_coordinator(&members, local_peer, ws_room_peers) == Some(local_peer)
 }
 
+/// Vault coordinator: 2nd-lowest online peer_id (distributes work away from MLS coordinator).
+/// Falls back to lowest if only one peer is online.
+pub(crate) fn elect_vault_coordinator<'a>(
+    mls_members: &'a [String],
+    local_peer: &'a str,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+) -> Option<&'a str> {
+    let mut online: Vec<&str> = mls_members
+        .iter()
+        .filter(|p| p.as_str() == local_peer || peer_is_reachable(ws_room_peers, p))
+        .map(|p| p.as_str())
+        .collect();
+    if online.is_empty() {
+        return None;
+    }
+    online.sort();
+    if online.len() >= 2 { Some(online[1]) } else { Some(online[0]) }
+}
+
+pub(crate) fn is_vault_coordinator(
+    mls: &MlsManager,
+    server_id: &str,
+    local_peer: &str,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+) -> bool {
+    if !mls.has_group(server_id) {
+        return false;
+    }
+    let members = mls.group_members(server_id);
+    elect_vault_coordinator(&members, local_peer, ws_room_peers) == Some(local_peer)
+}
+
 /// Find a WS room containing the given peer.
 pub(crate) fn ws_room_for_peer(
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
@@ -170,6 +202,34 @@ pub(crate) fn send_mls_broadcast(
     let data = serde_json::to_vec(&msg).map_err(|e| format!("serialize msg: {e}"))?;
     let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendToRoom {
         room_code: server_id.to_string(),
+        data,
+    });
+    Ok(())
+}
+
+/// MLS-encrypt an envelope and broadcast to subscribed peers only (topic = channel_id).
+/// Peers not subscribed to this topic won't receive the message in real-time
+/// but will sync it when they navigate to the channel.
+pub(crate) fn send_mls_broadcast_topic(
+    mls: &mut MlsManager,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    server_id: &str,
+    topic: &str,
+    envelope: &MessageEnvelope,
+    crypto_store: &CryptoStore,
+) -> Result<(), String> {
+    let json = serde_json::to_string(envelope).map_err(|e| format!("serialize: {e}"))?;
+    let ciphertext = mls.encrypt(server_id, json.as_bytes()).map_err(|e| format!("encrypt: {e}"))?;
+    let body_b64 = base64::engine::general_purpose::STANDARD.encode(&ciphertext);
+    persist_mls_state(mls, crypto_store);
+    let msg = HavenMessage::MlsChannelMessage {
+        server_id: server_id.to_string(),
+        body: body_b64,
+    };
+    let data = serde_json::to_vec(&msg).map_err(|e| format!("serialize msg: {e}"))?;
+    let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendToRoomTopic {
+        room_code: server_id.to_string(),
+        topic: topic.to_string(),
         data,
     });
     Ok(())

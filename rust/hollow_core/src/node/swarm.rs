@@ -18,7 +18,7 @@ use super::types::*;
 use super::crypto_handler::{
     message_signing_payload, sign_message, verify_message_signature,
     persist_mls_state, persist_crypto_state,
-    peer_is_reachable, is_mls_coordinator, ws_room_for_peer,
+    peer_is_reachable, is_mls_coordinator, is_vault_coordinator, ws_room_for_peer,
     send_mls_broadcast, send_mls_to_peer, send_encrypted_message,
     send_message_to_peer,
 };
@@ -303,7 +303,8 @@ async fn run_event_loop(
 
     // MLS batch addition queue: collect KeyPackages and process them in a single commit.
     let mut pending_mls_key_packages: HashMap<String, Vec<(String, Vec<u8>)>> = HashMap::new();
-    let mut mls_batch_timer = tokio::time::interval(Duration::from_secs(2));
+    let mut mls_batch_interval = Duration::from_secs(2);
+    let mut mls_batch_timer = tokio::time::interval(mls_batch_interval);
     mls_batch_timer.tick().await; // consume immediate first tick
 
     // MLS decrypt failure counter per server — triggers recovery after 3 consecutive failures.
@@ -758,6 +759,13 @@ async fn run_event_loop(
                             &ws_cmd_tx, &ws_room_peers, &local_peer_str,
                             invisible, &mut is_invisible,
                         );
+                    }
+
+                    NodeCommand::SubscribeChannels { server_id, channel_ids } => {
+                        let _ = ws_cmd_tx.send(super::ws_client::WsCommand::Subscribe {
+                            room_code: server_id,
+                            topics: channel_ids,
+                        });
                     }
 
                     NodeCommand::UpdateChannelLayout { server_id, layout_json } => {
@@ -2157,6 +2165,21 @@ async fn run_event_loop(
                             }
                         }
                     }
+
+                    // Adaptive batch interval: scale up when queue is large, reset when empty.
+                    let total_queued: usize = pending_mls_key_packages.values().map(|v| v.len()).sum();
+                    let new_interval = if total_queued > 50 {
+                        Duration::from_secs(10)
+                    } else if total_queued > 20 {
+                        Duration::from_secs(5)
+                    } else {
+                        Duration::from_secs(2)
+                    };
+                    if new_interval != mls_batch_interval {
+                        mls_batch_interval = new_interval;
+                        mls_batch_timer = tokio::time::interval(mls_batch_interval);
+                        mls_batch_timer.tick().await;
+                    }
                 }
             }
 
@@ -2323,10 +2346,10 @@ async fn run_event_loop(
                     for (server_id, state) in &server_states {
                         if state.members.len() < 6 { continue; } // Only erasure-coded servers
 
-                        // Only the coordinator runs repair to avoid duplicate requests.
+                        // Only the vault coordinator runs repair to avoid duplicate requests.
                         if let Some(ref mls_mgr) = mls {
                             if mls_mgr.has_group(server_id) {
-                                if !is_mls_coordinator(mls_mgr, server_id, &local_peer_str, &ws_room_peers) {
+                                if !is_vault_coordinator(mls_mgr, server_id, &local_peer_str, &ws_room_peers) {
                                     continue;
                                 }
                             }
@@ -2442,10 +2465,10 @@ async fn run_event_loop(
                             };
                             if state.members.len() < 6 { continue; }
 
-                            // Only the coordinator runs rebalance.
+                            // Only the vault coordinator runs rebalance.
                             if let Some(ref mls_mgr) = mls {
                                 if mls_mgr.has_group(server_id) {
-                                    if !is_mls_coordinator(mls_mgr, server_id, &local_peer_str, &ws_room_peers) {
+                                    if !is_vault_coordinator(mls_mgr, server_id, &local_peer_str, &ws_room_peers) {
                                         continue;
                                     }
                                 }

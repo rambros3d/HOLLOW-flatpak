@@ -25,6 +25,9 @@ class FrameCryptorService {
   /// Whether encryption is active.
   bool _enabled = false;
 
+  /// Current key index (set by rotateKey / setSharedKey). New cryptors use this index.
+  int currentKeyIndex = 0;
+
   /// Initialize the KeyProvider. Call once per session before enabling encryption.
   ///
   /// [sharedKey]: true = all participants use the same key (server voice channels).
@@ -127,6 +130,7 @@ class FrameCryptorService {
   /// Rotate the encryption key (e.g., on MLS epoch change).
   Future<void> rotateKey(int newIndex, Uint8List newKey) async {
     if (_keyProvider == null) return;
+    currentKeyIndex = newIndex;
     await _keyProvider!.setSharedKey(key: newKey, index: newIndex);
     // Update key index on all active cryptors.
     for (final cryptor in _senderCryptors.values) {
@@ -136,6 +140,20 @@ class FrameCryptorService {
       await cryptor.setKeyIndex(newIndex);
     }
     _fcLog('[HOLLOW-SFRAME] Key rotated to index $newIndex');
+  }
+
+  /// Set the key index on all cryptors for a specific peer (e.g. newly created screen share cryptors).
+  Future<void> setKeyIndexForPeer(String peerId, int index) async {
+    for (final entry in _senderCryptors.entries) {
+      if (entry.key.startsWith('$peerId:')) {
+        await entry.value.setKeyIndex(index);
+      }
+    }
+    for (final entry in _receiverCryptors.entries) {
+      if (entry.key.startsWith('$peerId:')) {
+        await entry.value.setKeyIndex(index);
+      }
+    }
   }
 
   /// Disable and clean up cryptors for a specific peer (audio, video, and screen share).
