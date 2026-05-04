@@ -309,7 +309,7 @@ Registers the `/ws` endpoint with these settings:
 | Setting | Value | Description |
 |---------|-------|-------------|
 | `.compression` | `uWS::DISABLED` | No per-message compression (content is already encrypted) |
-| `.maxPayloadLength` | `10 * 1024 * 1024` (10 MB) | Maximum single message size |
+| `.maxPayloadLength` | `64 * 1024 * 1024` (64 MB) | Maximum single message size. NEVER lower — ChannelSyncBatch can exceed 2 MB after MLS+base64. Silently kills connections if exceeded. |
 | `.idleTimeout` | `120` seconds | Connection closed if no data (including pings) for 120s |
 | `.maxBackpressure` | `4 * 1024 * 1024` (4 MB) | Hard backpressure limit — uWS force-closes at this threshold |
 | `.sendPingsAutomatically` | `true` | uWS sends WebSocket pings automatically |
@@ -329,9 +329,9 @@ When a new WebSocket connects:
 #### .message handler
 
 1. If `!authenticated`: route to `handle_auth()`. First message MUST be auth.
-2. If `TEXT` opcode: route to `handle_text_message()`.
+2. If `TEXT` opcode: reject if >1 MB (silent drop). Route to `handle_text_message()`.
 3. If `BINARY` opcode:
-   - Check rate limit via `check_rate_limit()`. Drop silently if exhausted.
+   - Check rate limit via `check_binary_rate_limit()`. Drop silently if exhausted.
    - Dispatch on first byte:
      - `0x01` -> `handle_binary_broadcast()` — room broadcast via 32-byte room hash
      - `0x02` -> `handle_binary_direct()` — peer-to-peer direct via NUL-delimited fields
@@ -562,7 +562,7 @@ The type change from 0x04 to 0x06 lets receivers distinguish forwarded direct me
 
 The 0x01 broadcast is the only type that doesn't rewrite — it forwards the entire frame as-is (the sender identity is embedded in the encrypted MLS payload, not the routing header).
 
-### ws_handler.cpp:check_rate_limit() — Binary rate limiting
+### ws_handler.cpp:check_binary_rate_limit() — Binary rate limiting
 
 Token bucket algorithm:
 - Bucket capacity: 100 tokens.
@@ -571,7 +571,7 @@ Token bucket algorithm:
 - On each binary message, calculate elapsed time since last refill, add `elapsed * 20` tokens (capped at 100), then consume 1 token.
 - If bucket is empty (0 tokens), the message is silently dropped (no error sent to client).
 
-This limits binary messages to a burst of 100 + sustained 20/second. Text messages (JSON) are NOT rate-limited.
+This limits binary messages to a burst of 100 + sustained 20/second. Text messages have a 1 MB size cap but are NOT rate-limited (text frames are only small JSON commands: join/leave/subscribe, and the reconnection burst is too heavy to cap without breaking sync).
 
 ### ws_handler.cpp:cleanup_peer() — Disconnect cleanup
 

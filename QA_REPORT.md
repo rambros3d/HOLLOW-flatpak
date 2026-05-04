@@ -42,6 +42,20 @@
 - [x] **M5+M11:** Lazy profile blob loading — startup loads metadata only (`getAllProfilesLight()`), avatars/banners load on-demand via `avatarProvider`/`bannerProvider`. HollowAvatar is now a ConsumerWidget.
 - [x] **L1:** Channel sidebar `ListView(children:)` → `ListView.builder` for lazy rendering
 
+### Tier 6 — Voice ghost cleanup
+- [x] **M25+M29+L13:** Voice channel participants cleaned on PeerLeft (per-server) and WsEvent::Disconnected (retain only self). Fixes ghost participants after abrupt disconnect.
+
+### Tier 7 — Storage hygiene
+- [x] **M9:** O(n) duplicate detection in `apply_op` → HashSet dedup (lazy-init from op_log, rebuilt after compaction)
+- [x] **M10:** In-memory HashMap eviction every 5 min: peer_rate_tokens, vc_signal_rate_tokens, decrypt_fail_cooldown, channel_sync_sent, pending_shard_assembly
+- [x] **L2:** `banned_members` pruned (unbanned entries removed during op_log compaction)
+- [x] **L3:** `channel_sync_sent` pruned in same eviction cycle (entries >30s removed)
+- [x] **L5:** SQLCipher incremental auto-vacuum enabled + `incremental_vacuum(100)` on startup
+
+### Tier 8 — Relay hardening
+- [x] **M21:** Text frame 1 MB size cap added (text frames are only join/leave/subscribe JSON)
+- [x] **L12:** Text frames now share same 1 MB cap; binary rate limit unchanged (100 burst/20 per sec). `maxPayloadLength` raised to 64 MB (was 10 MB) — lowering silently kills connections due to ChannelSyncBatch size
+
 ---
 
 ## Remaining Items (not yet fixed)
@@ -52,40 +66,31 @@
 | M6 | Storage | Server avatar in CRDT settings (133KB in every serialization). Hot/cold deferred — needs sync FFI read path fix |
 | M7 | Storage | No message retention policy (~850 MB/server/year) |
 | M8 | Storage | Full op_log (300-500 KB) sent as plaintext to new joiners |
-| M9 | Storage | O(n) duplicate detection in `apply_op` — use HashSet for dedup |
-| M10 | Storage | In-memory HashMaps never evicted (rate tokens, cooldowns, shard assembly) |
 | M15 | MLS | MLS recovery only targets Owner, not current coordinator |
 | M16 | MLS | Targeted MLS messages encrypt+broadcast to ALL members (O(n)) |
 | M17 | MLS | Commits only sent to online members — offline permanently desync |
 | M18 | Network | Gossip PeerExchange broadcasts topology to all room members |
 | M19 | Network | WS stream transfer reads entire file (34 MB) into memory |
 | M20 | Network | Gossip neighbor selection can exceed MAX_TOTAL_WEBRTC=50 cap |
-| M21 | Network | Relay no text message size limit (DoS amplification) |
 | M22 | Network | Relay silently drops messages under backpressure (now logged but not retried) |
 | M23 | Network | Background bandwidth scales poorly at 1000+ members |
 | M24 | Network | No file transfer resumption on WS disconnect |
-| M25 | Offline | Voice channel participants not cleaned on disconnect |
 | M26 | Offline | Pending friend requests not re-sent after app restart |
 | M27 | Offline | Banned user retains server state until CRDT sync completes |
 | M28 | Offline | @Mentions during offline sync don't trigger mention-specific unread |
-| M29 | Offline | Voice ghost participants — no heartbeat/timeout cleanup |
+| M29 | Network | Voice channel state not synced to newly-connecting peers (PeerJoined re-broadcast timing) |
 | M30 | MLS | Channel visibility not cryptographically enforced (known, pre-v1.0) |
 
 ### LOW Severity
 | # | Domain | Title |
 |---|--------|-------|
-| L2 | Storage | `banned_members` HashMap grows without bound |
-| L3 | Storage | `channel_sync_sent` HashMap never pruned |
 | L4 | Storage | `LIKE '%query%'` search without FTS index |
-| L5 | Storage | No VACUUM/auto-vacuum for SQLCipher |
 | L6 | MLS | KeyPackage accepted without CRDT membership verification |
 | L7 | MLS | Remove-then-add recovery creates 2 epoch advances per peer |
 | L8 | MLS | Ed25519 uses `verify()` not `verify_strict()` |
 | L9 | MLS | Olm session count unbounded, no stale pruning |
 | L10 | Network | Data channel backpressure uses polling instead of callbacks |
 | L11 | Network | Gossip overlay `known_peers` not cleared on disconnect |
-| L12 | Network | Relay rate limiter only applies to binary frames, not text |
-| L13 | Network | No timeout for stale voice channel participants |
 | L14 | Offline | Server invites have no expiry mechanism |
 
 ### New items from HOLLOW_PLAN.md

@@ -17,7 +17,7 @@ struct PerSocketData {
     std::string peer_id;
     bool authenticated = false;
     uint32_t binary_rate_tokens = 100;
-    std::chrono::steady_clock::time_point rate_last_refill;
+    std::chrono::steady_clock::time_point binary_rate_last_refill;
     struct us_timer_t* auth_timer = nullptr;
     std::string license_key;
 

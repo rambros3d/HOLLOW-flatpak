@@ -103,6 +103,16 @@ impl MessageStore {
         conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", passphrase))
             .map_err(|e| format!("Failed to set encryption key: {e}"))?;
 
+        // Enable incremental auto-vacuum. For existing databases (auto_vacuum=0),
+        // convert with a one-time full VACUUM. New databases get it automatically.
+        let auto_vac: i32 = conn
+            .query_row("PRAGMA auto_vacuum;", [], |r| r.get(0))
+            .unwrap_or(0);
+        if auto_vac == 0 {
+            let _ = conn.execute_batch("PRAGMA auto_vacuum = INCREMENTAL; VACUUM;");
+        }
+        let _ = conn.execute_batch("PRAGMA incremental_vacuum(100);");
+
         // Create messages table if it doesn't exist.
         conn.execute(
             "CREATE TABLE IF NOT EXISTS messages (

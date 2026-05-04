@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
 use super::admin_lww::AdminLwwReg;
-use super::hlc::Hlc;
+use super::hlc::{Hlc, HlcTimestamp};
 use super::operations::{CrdtOp, CrdtPayload, MemberRole, Permission};
 
 /// Type of channel within a server.
@@ -129,6 +129,8 @@ pub struct ServerState {
     pub op_log: Vec<CrdtOp>,
     #[serde(skip)]
     pub hlc: Option<Hlc>,
+    #[serde(skip)]
+    op_log_dedup: HashSet<(String, HlcTimestamp)>,
 }
 
 impl ServerState {
@@ -185,6 +187,7 @@ impl ServerState {
             label_assignments: HashMap::new(),
             op_log: Vec::new(),
             hlc: Some(hlc),
+            op_log_dedup: HashSet::new(),
         }
     }
 
@@ -218,12 +221,17 @@ impl ServerState {
             ));
         }
 
-        // Check for duplicate (same author + same HLC = same op)
-        if self.op_log.iter().any(|existing| {
-            existing.author == op.author
-                && existing.hlc == op.hlc
-        }) {
-            return Ok(()); // Already applied — idempotent
+        // Lazy-init dedup set from op_log (after deserialization, skip field is empty).
+        if self.op_log_dedup.is_empty() && !self.op_log.is_empty() {
+            for existing in &self.op_log {
+                self.op_log_dedup.insert((existing.author.clone(), existing.hlc.clone()));
+            }
+        }
+
+        // O(1) duplicate check (same author + same HLC = same op)
+        let dedup_key = (op.author.clone(), op.hlc.clone());
+        if self.op_log_dedup.contains(&dedup_key) {
+            return Ok(());
         }
 
         // Witness the remote timestamp to keep our HLC in sync
@@ -501,6 +509,7 @@ impl ServerState {
             .binary_search_by(|existing| existing.hlc.cmp(&op.hlc))
             .unwrap_or_else(|pos| pos);
         self.op_log.insert(insert_pos, op.clone());
+        self.op_log_dedup.insert(dedup_key);
 
         // SECURITY: Compact op log to prevent unbounded growth.
         // Keep last 1000 ops — older ops are already applied to state.
@@ -508,7 +517,15 @@ impl ServerState {
         if self.op_log.len() > MAX_OP_LOG {
             let drain_count = self.op_log.len() - MAX_OP_LOG;
             self.op_log.drain(..drain_count);
+            // Rebuild dedup set after compaction.
+            self.op_log_dedup.clear();
+            for existing in &self.op_log {
+                self.op_log_dedup.insert((existing.author.clone(), existing.hlc.clone()));
+            }
         }
+
+        // Prune unbanned members to prevent unbounded growth.
+        self.banned_members.retain(|_, reg| *reg.read());
 
         Ok(())
     }

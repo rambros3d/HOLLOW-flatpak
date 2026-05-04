@@ -488,18 +488,19 @@ static void handle_text_message(SSLWebSocket* ws, PerSocketData* data,
     }
 }
 
-static bool check_rate_limit(PerSocketData* data) {
+static bool check_binary_rate_limit(PerSocketData* data) {
     auto now = std::chrono::steady_clock::now();
-    double elapsed = std::chrono::duration<double>(now - data->rate_last_refill).count();
+    double elapsed = std::chrono::duration<double>(now - data->binary_rate_last_refill).count();
     uint32_t refill = static_cast<uint32_t>(elapsed * 20.0);
     if (refill > 0) {
         data->binary_rate_tokens = std::min(data->binary_rate_tokens + refill, 100u);
-        data->rate_last_refill = now;
+        data->binary_rate_last_refill = now;
     }
     if (data->binary_rate_tokens == 0) return false;
     data->binary_rate_tokens--;
     return true;
 }
+
 
 static void cleanup_peer(RelayState& state, const std::string& peer_id) {
     state.license.release_key(peer_id);
@@ -519,14 +520,14 @@ static void cleanup_peer(RelayState& state, const std::string& peer_id) {
 void setup_ws_handler(uWS::SSLApp& app, RelayState& state) {
     app.ws<PerSocketData>("/ws", {
         .compression = uWS::DISABLED,
-        .maxPayloadLength = 10 * 1024 * 1024,
+        .maxPayloadLength = 64 * 1024 * 1024,
         .idleTimeout = 120,
         .maxBackpressure = 4 * 1024 * 1024,
         .sendPingsAutomatically = true,
 
         .open = [&state](SSLWebSocket* ws) {
             auto* data = ws->getUserData();
-            data->rate_last_refill = std::chrono::steady_clock::now();
+            data->binary_rate_last_refill = std::chrono::steady_clock::now();
 
             // 10-second auth timeout
             auto* loop = reinterpret_cast<struct us_loop_t*>(uWS::Loop::get());
@@ -557,9 +558,10 @@ void setup_ws_handler(uWS::SSLApp& app, RelayState& state) {
             }
 
             if (opCode == uWS::OpCode::TEXT) {
+                if (message.size() > 1024 * 1024) return;
                 handle_text_message(ws, data, message, state);
             } else if (opCode == uWS::OpCode::BINARY) {
-                if (!check_rate_limit(data)) return;
+                if (!check_binary_rate_limit(data)) return;
                 if (message.size() > 1) {
                     switch (static_cast<uint8_t>(message[0])) {
                         case 0x01:

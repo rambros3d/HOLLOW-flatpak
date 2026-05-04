@@ -335,6 +335,7 @@ async fn run_event_loop(
     // Re-bootstrap timer (30 seconds) for signaling re-registration.
     let mut rebootstrap_timer = tokio::time::interval(Duration::from_secs(30));
     rebootstrap_timer.tick().await; // consume immediate first tick
+    let mut eviction_counter: u32 = 0;
 
     // Vault rebalance + retention enforcement timer (30 min safety net).
     let mut rebalance_timer = tokio::time::interval(Duration::from_secs(1800));
@@ -1198,6 +1199,14 @@ async fn run_event_loop(
                                 hollow_log!("[HOLLOW-WS-STREAM] Abandoned transfer {id} due to disconnect");
                             }
                         }
+                        // Remove all remote peers from voice channels (keep only self).
+                        // On reconnect, PeerJoined re-broadcasts repopulate remote participants.
+                        let local_str = local_peer_str.to_string();
+                        for participants in voice_channel_participants.values_mut() {
+                            participants.retain(|p| *p == local_str);
+                        }
+                        voice_channel_participants.retain(|_, p| !p.is_empty());
+                        voice_channel_gossip_mode.clear();
                     }
                     WsEvent::PeerJoined { room, peer_id } => {
                         hollow_log!("[HOLLOW-WS] Peer {peer_id} joined room {room}");
@@ -1483,6 +1492,33 @@ async fn run_event_loop(
                                 }
                             }
                         }
+                        // Clean up voice channel participants for this peer in this server room.
+                        let vc_prefix = format!("{}:", room);
+                        let vc_left: Vec<(String, String)> = voice_channel_participants.iter()
+                            .filter(|(k, v)| k.starts_with(&vc_prefix) && v.contains(&peer_id))
+                            .map(|(k, _)| {
+                                let cid = &k[vc_prefix.len()..];
+                                (room.clone(), cid.to_string())
+                            })
+                            .collect();
+                        for (sid, cid) in &vc_left {
+                            let _ = event_tx.send(NetworkEvent::VoiceChannelLeft {
+                                server_id: sid.clone(),
+                                channel_id: cid.clone(),
+                                peer_id: peer_id.clone(),
+                            }).await;
+                        }
+                        voice_channel_participants.retain(|vc_key, participants| {
+                            if vc_key.starts_with(&vc_prefix) {
+                                participants.remove(&peer_id);
+                                if participants.is_empty() {
+                                    voice_channel_gossip_mode.remove(vc_key);
+                                    return false;
+                                }
+                            }
+                            true
+                        });
+
                         // Only emit disconnect if peer is no longer reachable via any WS room.
                         let still_ws = ws_room_peers.values().any(|ps| ps.contains(&peer_id));
                         if !still_ws {
@@ -2195,6 +2231,17 @@ async fn run_event_loop(
                     let _ = sig_cmd_tx.send(SignalingCmd::Bootstrap {
                         room_code: sid.clone(),
                     }).await;
+                }
+
+                // Every 10th tick (~5 min): evict stale entries from in-memory HashMaps.
+                eviction_counter += 1;
+                if eviction_counter % 10 == 0 {
+                    let stale = Duration::from_secs(300);
+                    peer_rate_tokens.retain(|_, (_, last)| last.elapsed() < stale);
+                    vc_signal_rate_tokens.retain(|_, (_, last)| last.elapsed() < stale);
+                    decrypt_fail_cooldown.retain(|_, instant| instant.elapsed() < REKEY_COOLDOWN);
+                    channel_sync_sent.retain(|_, instant| instant.elapsed() < Duration::from_secs(30));
+                    pending_shard_assembly.retain(|_, asm| asm.received_at.elapsed() < Duration::from_secs(600));
                 }
             }
 
