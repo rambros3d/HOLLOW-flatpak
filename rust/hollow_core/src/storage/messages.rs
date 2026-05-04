@@ -594,6 +594,18 @@ impl MessageStore {
             [],
         ).map_err(|e| format!("Failed to create idx_shares_seeding: {e}"))?;
 
+        // -- Server blobs (CrdtStore: large settings like server_avatar) --
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS server_blobs (
+                server_id TEXT NOT NULL,
+                key       TEXT NOT NULL,
+                value     TEXT NOT NULL,
+                PRIMARY KEY (server_id, key)
+            )",
+            [],
+        )
+        .map_err(|e| format!("Failed to create server_blobs table: {e}"))?;
+
         // Have-bitmap per share, persisted so paused/restarted downloads resume
         // without re-fetching. bitmap_blob is little-endian-packed bits.
         conn.execute(
@@ -953,6 +965,61 @@ impl MessageStore {
                 ],
             )
             .map_err(|e| format!("Failed to insert crdt_op: {e}"))?;
+        Ok(())
+    }
+
+    /// Prune old CRDT ops, keeping the most recent `keep_count` per server.
+    pub fn prune_crdt_ops(&self, keep_count: usize) -> Result<usize, String> {
+        let deleted = self.conn
+            .execute(
+                "DELETE FROM crdt_ops WHERE id IN (
+                    SELECT id FROM (
+                        SELECT id, ROW_NUMBER() OVER (
+                            PARTITION BY server_id ORDER BY hlc_ms DESC, hlc_counter DESC
+                        ) AS rn FROM crdt_ops
+                    ) WHERE rn > ?1
+                )",
+                params![keep_count as i64],
+            )
+            .map_err(|e| format!("Failed to prune crdt_ops: {e}"))?;
+        Ok(deleted)
+    }
+
+    /// Save (upsert) a key-value blob for a server (e.g. server_avatar).
+    pub fn save_server_blob(&self, server_id: &str, key: &str, value: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT INTO server_blobs (server_id, key, value) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(server_id, key) DO UPDATE SET value = excluded.value",
+                params![server_id, key, value],
+            )
+            .map_err(|e| format!("Failed to save server blob: {e}"))?;
+        Ok(())
+    }
+
+    /// Load a server blob by key.
+    pub fn load_server_blob(&self, server_id: &str, key: &str) -> Result<Option<String>, String> {
+        let mut stmt = self.conn
+            .prepare("SELECT value FROM server_blobs WHERE server_id = ?1 AND key = ?2")
+            .map_err(|e| format!("Failed to prepare server_blobs query: {e}"))?;
+        let mut rows = stmt
+            .query_map(params![server_id, key], |row| row.get(0))
+            .map_err(|e| format!("Failed to query server_blobs: {e}"))?;
+        match rows.next() {
+            Some(Ok(value)) => Ok(Some(value)),
+            Some(Err(e)) => Err(format!("Failed to read server_blobs row: {e}")),
+            None => Ok(None),
+        }
+    }
+
+    /// Delete all blobs for a server.
+    pub fn delete_server_blobs(&self, server_id: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "DELETE FROM server_blobs WHERE server_id = ?1",
+                params![server_id],
+            )
+            .map_err(|e| format!("Failed to delete server blobs: {e}"))?;
         Ok(())
     }
 

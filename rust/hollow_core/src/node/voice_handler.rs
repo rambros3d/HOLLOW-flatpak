@@ -226,6 +226,7 @@ pub(crate) async fn handle_voice_channel_join(
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
     server_states: &HashMap<String, ServerState>,
     bundle_keypair: &NativeKeypair,
+    crypto_store: &CryptoStore,
     voice_channel_participants: &mut HashMap<String, std::collections::HashSet<String>>,
     voice_channel_gossip_mode: &mut HashMap<String, bool>,
     gossip_overlays: &HashMap<String, super::gossip::GossipOverlay>,
@@ -239,7 +240,7 @@ pub(crate) async fn handle_voice_channel_join(
         cid: channel_id.clone(),
     };
     let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
-    let mls_sent = mls_ok && send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair).is_ok();
+    let mls_sent = mls_ok && send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store).is_ok();
     if !mls_sent {
         if let Some(state) = server_states.get(&server_id) {
             let local_peer = local_peer_str.to_string();
@@ -280,6 +281,7 @@ pub(crate) async fn handle_voice_channel_leave(
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
     server_states: &HashMap<String, ServerState>,
     bundle_keypair: &NativeKeypair,
+    crypto_store: &CryptoStore,
     voice_channel_participants: &mut HashMap<String, std::collections::HashSet<String>>,
     voice_channel_gossip_mode: &mut HashMap<String, bool>,
     gossip_overlays: &HashMap<String, super::gossip::GossipOverlay>,
@@ -293,7 +295,7 @@ pub(crate) async fn handle_voice_channel_leave(
         cid: channel_id.clone(),
     };
     let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
-    let mls_sent = mls_ok && send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair).is_ok();
+    let mls_sent = mls_ok && send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store).is_ok();
     if !mls_sent {
         if let Some(state) = server_states.get(&server_id) {
             let local_peer = local_peer_str.to_string();
@@ -476,7 +478,7 @@ pub(crate) async fn handle_voice_channel_send_signal(
     let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
 
     if is_broadcast {
-        let mls_sent = mls_ok && send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair).is_ok();
+        let mls_sent = mls_ok && send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store).is_ok();
         if !mls_sent {
             // Plaintext fallback: iterate members.
             let plaintext_msg = match signal_type.as_str() {
@@ -522,7 +524,7 @@ pub(crate) async fn handle_voice_channel_send_signal(
         }
     } else {
         // Targeted SDP/ICE: MLS first, Olm fallback.
-        let mls_sent = mls_ok && send_mls_to_peer(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &peer_id, &envelope, bundle_keypair).is_ok();
+        let mls_sent = mls_ok && send_mls_to_peer(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &peer_id, &envelope, crypto_store).is_ok();
         if !mls_sent {
             let env_json = serde_json::to_string(&envelope).unwrap_or_default();
             send_encrypted_message(olm, crypto_store, &peer_id, &env_json, event_tx, ws_cmd_tx, ws_room_peers).await;

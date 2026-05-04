@@ -187,7 +187,7 @@ pub(crate) async fn handle_send_channel_message(
     // MLS path: encrypt once → single WS broadcast to room.
     let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
     if use_mls {
-        match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+        match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
             Ok(()) => {}
             Err(e) => {
                 hollow_log!("[HOLLOW-MLS] Encrypt failed, falling back to Olm: {e}");
@@ -325,7 +325,7 @@ pub(crate) async fn handle_edit_channel_message(
 
     let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
     if use_mls {
-        match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+        match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
             Ok(()) => {}
             Err(e) => {
                 hollow_log!("[HOLLOW-MLS] Edit encrypt failed, falling back to Olm: {e}");
@@ -535,7 +535,7 @@ pub(crate) async fn handle_delete_channel_message(
 
     let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
     if use_mls {
-        match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+        match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
             Ok(()) => {}
             Err(e) => {
                 hollow_log!("[HOLLOW-MLS] Delete encrypt failed, falling back to Olm: {e}");
@@ -724,7 +724,7 @@ pub(crate) async fn handle_add_channel_reaction(
 
     let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
     if use_mls {
-        match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+        match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
             Ok(()) => {}
             Err(e) => {
                 hollow_log!("[HOLLOW-MLS] Reaction encrypt failed, falling back to Olm: {e}");
@@ -902,7 +902,7 @@ pub(crate) async fn handle_remove_channel_reaction(
 
     let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
     if use_mls {
-        match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+        match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
             Ok(()) => {}
             Err(e) => {
                 hollow_log!("[HOLLOW-MLS] Remove reaction encrypt failed, Olm fallback: {e}");

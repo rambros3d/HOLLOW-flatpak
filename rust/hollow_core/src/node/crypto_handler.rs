@@ -76,8 +76,8 @@ pub(crate) fn verify_message_signature(
         .unwrap_or(false)
 }
 
-/// Persist MLS state (signer + credential + storage) to SQLCipher.
-pub(crate) fn persist_mls_state(mls: &MlsManager, keypair: &crate::identity::native_identity::NativeKeypair) {
+/// Persist MLS state (signer + credential + storage) via the CryptoStore actor.
+pub(crate) fn persist_mls_state(mls: &MlsManager, crypto_store: &crate::crypto::CryptoStore) {
     let signer = match mls.signer_bytes() {
         Ok(s) => s,
         Err(e) => { hollow_log!("[HOLLOW-MLS] Failed to serialize signer: {e}"); return; }
@@ -90,13 +90,7 @@ pub(crate) fn persist_mls_state(mls: &MlsManager, keypair: &crate::identity::nat
         Ok(s) => s,
         Err(e) => { hollow_log!("[HOLLOW-MLS] Failed to serialize storage: {e}"); return; }
     };
-    let data_dir = crate::identity::data_dir().unwrap_or_default();
-    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-    let proto = keypair.to_protobuf_encoding().unwrap_or_default();
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-        let _ = store.save_mls_identity(&signer, &cred, &storage);
-    }
+    crypto_store.save_mls_identity(signer, cred, storage);
 }
 
 /// Check if a peer is reachable via WS relay.
@@ -163,12 +157,12 @@ pub(crate) fn send_mls_broadcast(
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     server_id: &str,
     envelope: &MessageEnvelope,
-    keypair: &crate::identity::native_identity::NativeKeypair,
+    crypto_store: &CryptoStore,
 ) -> Result<(), String> {
     let json = serde_json::to_string(envelope).map_err(|e| format!("serialize: {e}"))?;
     let ciphertext = mls.encrypt(server_id, json.as_bytes()).map_err(|e| format!("encrypt: {e}"))?;
     let body_b64 = base64::engine::general_purpose::STANDARD.encode(&ciphertext);
-    persist_mls_state(mls, keypair);
+    persist_mls_state(mls, crypto_store);
     let msg = HavenMessage::MlsChannelMessage {
         server_id: server_id.to_string(),
         body: body_b64,
@@ -189,7 +183,7 @@ pub(crate) fn send_mls_to_peer(
     server_id: &str,
     target_peer: &str,
     envelope: &MessageEnvelope,
-    keypair: &crate::identity::native_identity::NativeKeypair,
+    crypto_store: &CryptoStore,
 ) -> Result<(), String> {
     // Clone envelope and inject target — callers construct without target, we add it here.
     let mut json_value = serde_json::to_value(envelope).map_err(|e| format!("serialize: {e}"))?;
@@ -199,7 +193,7 @@ pub(crate) fn send_mls_to_peer(
     let json = serde_json::to_string(&json_value).map_err(|e| format!("re-serialize: {e}"))?;
     let ciphertext = mls.encrypt(server_id, json.as_bytes()).map_err(|e| format!("encrypt: {e}"))?;
     let body_b64 = base64::engine::general_purpose::STANDARD.encode(&ciphertext);
-    persist_mls_state(mls, keypair);
+    persist_mls_state(mls, crypto_store);
     let msg = HavenMessage::MlsChannelMessage {
         server_id: server_id.to_string(),
         body: body_b64,

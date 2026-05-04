@@ -38,6 +38,7 @@ pub(crate) async fn spawn_node(
     cmd_tx: mpsc::Sender<NodeCommand>,
     olm: OlmManager,
     crypto_store: CryptoStore,
+    crdt_store: super::crdt_store::CrdtStore,
     license_key: Option<String>,
     initial_invisible: bool,
 ) -> Result<(String, tokio::task::JoinHandle<()>), String> {
@@ -66,7 +67,7 @@ pub(crate) async fn spawn_node(
     );
 
     let handle = tokio::spawn(run_event_loop(
-        event_tx, cmd_rx, cmd_tx, olm, crypto_store, sig_cmd_tx, sig_event_rx,
+        event_tx, cmd_rx, cmd_tx, olm, crypto_store, crdt_store, sig_cmd_tx, sig_event_rx,
         bundle_keypair, ws_cmd_tx, ws_event_rx, peer_id_str.clone(),
         initial_invisible,
     ));
@@ -81,6 +82,7 @@ async fn run_event_loop(
     cmd_tx: mpsc::Sender<NodeCommand>,
     mut olm: OlmManager,
     crypto_store: CryptoStore,
+    crdt_store: super::crdt_store::CrdtStore,
     sig_cmd_tx: mpsc::Sender<SignalingCmd>,
     mut sig_event_rx: mpsc::Receiver<SignalingEvent>,
     bundle_keypair: crate::identity::native_identity::NativeKeypair,
@@ -420,6 +422,7 @@ async fn run_event_loop(
                         sync_handler::handle_create_server(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &bundle_keypair, &local_peer_str, name,
+                            &crypto_store, &crdt_store,
                         ).await;
                     }
 
@@ -428,6 +431,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, name, category, channel_type,
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -436,6 +440,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, channel_id,
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -444,6 +449,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, new_name,
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -452,6 +458,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, channel_id, new_name,
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -460,6 +467,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, key, value,
+                            &crypto_store, &crdt_store,
                         ).await;
                     }
 
@@ -468,6 +476,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &sig_cmd_tx, &bundle_keypair, &local_peer_str,
                             server_id,
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -476,6 +485,7 @@ async fn run_event_loop(
                             &mut pending_server_joins, &mls, &ws_cmd_tx,
                             &ws_room_peers, &sig_cmd_tx, &cmd_tx,
                             server_id, twitch_proof_json,
+                            &crdt_store,
                         ).await;
                     }
 
@@ -484,6 +494,7 @@ async fn run_event_loop(
                             &mut server_states, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, peer_id, new_role,
+                            &crdt_store,
                         ).await { continue; }
                     }
 
@@ -492,6 +503,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, peer_id,
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -500,6 +512,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &sig_cmd_tx, &bundle_keypair, &local_peer_str,
                             server_id,
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -508,6 +521,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, role, permissions,
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -516,6 +530,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, peer_id,
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -524,6 +539,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, peer_id,
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -537,6 +553,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, CrdtPayload::LabelCreated { label_id, name, color },
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -545,6 +562,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, CrdtPayload::LabelDeleted { label_id },
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -553,6 +571,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, CrdtPayload::LabelUpdated { label_id, name, color },
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -561,6 +580,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, CrdtPayload::LabelAssigned { label_id, peer_id },
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -569,6 +589,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, CrdtPayload::LabelUnassigned { label_id, peer_id },
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -577,6 +598,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, channel_id, visibility,
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -585,6 +607,7 @@ async fn run_event_loop(
                             &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, channel_id, posting,
+                            &crypto_store, &crdt_store,
                         ).await { continue; }
                     }
 
@@ -593,6 +616,7 @@ async fn run_event_loop(
                             &mut server_states, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, peer_id, nickname,
+                            &crdt_store,
                         ).await { continue; }
                     }
 
@@ -601,6 +625,7 @@ async fn run_event_loop(
                             &mut server_states, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, peer_id, twitch_username,
+                            &crdt_store,
                         ).await { continue; }
                     }
 
@@ -609,13 +634,14 @@ async fn run_event_loop(
                             &server_states, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             &mut channel_sync_sent, server_id, channel_id,
+                            &crdt_store,
                         ).await { continue; }
                     }
                     NodeCommand::UpdateProfile { display_name, status, about_me, avatar_bytes, banner_bytes, twitch_username } => {
                         social::handle_update_profile(
                             &event_tx, &ws_cmd_tx, &ws_room_peers,
                             &mut mls, &server_states, &bundle_keypair,
-                            &local_peer_str, display_name, status, about_me,
+                            &crypto_store, &local_peer_str, display_name, status, about_me,
                             avatar_bytes, banner_bytes, is_invisible, twitch_username,
                         ).await;
                     }
@@ -721,8 +747,8 @@ async fn run_event_loop(
                         if !is_invisible {
                             social::handle_send_typing_indicator(
                                 &ws_cmd_tx, &ws_room_peers, &mut mls,
-                                &server_states, &bundle_keypair, &local_peer_str,
-                                server_id, channel_id,
+                                &server_states, &bundle_keypair, &crypto_store,
+                                &local_peer_str, server_id, channel_id,
                             );
                         }
                     }
@@ -739,6 +765,7 @@ async fn run_event_loop(
                             &mut server_states, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, layout_json,
+                            &crdt_store,
                         ).await { continue; }
                     }
 
@@ -747,6 +774,7 @@ async fn run_event_loop(
                             &mut server_states, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, channel_id, message_id,
+                            &crdt_store,
                         ).await { continue; }
                     }
 
@@ -755,6 +783,7 @@ async fn run_event_loop(
                             &mut server_states, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, channel_id, message_id,
+                            &crdt_store,
                         ).await { continue; }
                     }
 
@@ -764,6 +793,7 @@ async fn run_event_loop(
                             &mut server_states, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, pledge_bytes,
+                            &crdt_store,
                         ).await;
                     }
 
@@ -905,7 +935,7 @@ async fn run_event_loop(
                         voice_handler::handle_voice_channel_join(
                             server_id, channel_id,
                             &mut mls, &ws_cmd_tx, &ws_room_peers,
-                            &server_states, &bundle_keypair,
+                            &server_states, &bundle_keypair, &crypto_store,
                             &mut voice_channel_participants, &mut voice_channel_gossip_mode,
                             &gossip_overlays, &local_peer_str, &event_tx,
                         ).await;
@@ -915,7 +945,7 @@ async fn run_event_loop(
                         voice_handler::handle_voice_channel_leave(
                             server_id, channel_id,
                             &mut mls, &ws_cmd_tx, &ws_room_peers,
-                            &server_states, &bundle_keypair,
+                            &server_states, &bundle_keypair, &crypto_store,
                             &mut voice_channel_participants, &mut voice_channel_gossip_mode,
                             &gossip_overlays, &local_peer_str, &event_tx,
                         ).await;
@@ -937,6 +967,7 @@ async fn run_event_loop(
                         sync_handler::handle_check_pending_join_timeout(
                             &mut pending_server_joins, &event_tx, &ws_cmd_tx,
                             server_id,
+                            &crdt_store,
                         ).await;
                     }
 
@@ -1260,6 +1291,7 @@ async fn run_event_loop(
                                             &mut olm, &crypto_store,
                                             &bundle_keypair, &event_tx,
                                             &ws_cmd_tx, &ws_room_peers,
+                                            &crdt_store,
                                         ).await;
                                     } else if !key_request_in_flight.contains(&peer_id) {
                                         // No Olm session — send KeyRequest via WS.
@@ -1549,7 +1581,7 @@ async fn run_event_loop(
                                                     let envelope = MessageEnvelope::SyncReq {
                                                         sid: sid.clone(), state_vector_json: sv_json.clone(), target: None,
                                                     };
-                                                    if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), &ws_cmd_tx, sid, pid_str, &envelope, &bundle_keypair) {
+                                                    if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), &ws_cmd_tx, sid, pid_str, &envelope, &crypto_store) {
                                                         hollow_log!("[HOLLOW-MLS] RoomMembers SyncReq failed: {e}");
                                                     }
                                                 } else {
@@ -1620,6 +1652,7 @@ async fn run_event_loop(
                                             &mut olm, &crypto_store,
                                             &bundle_keypair, &event_tx,
                                             &ws_cmd_tx, &ws_room_peers,
+                                            &crdt_store,
                                         ).await;
                                     } else if !key_request_in_flight.contains(pid_str) {
                                         hollow_log!("[HOLLOW-WS] RoomMembers: proactive key exchange for {pid_str}");
@@ -2023,7 +2056,7 @@ async fn run_event_loop(
                                     }
 
                                     handle_incoming_request(
-                                        &mut olm, &crypto_store, &event_tx,
+                                        &mut olm, &crypto_store, &crdt_store, &event_tx,
                                         &mut pending_messages, &mut key_request_in_flight,
                                         &mut server_states, &bundle_keypair,
                                         &mut pending_server_joins,
@@ -2075,7 +2108,7 @@ async fn run_event_loop(
                                         hollow_log!("[HOLLOW-MLS] Failed to merge batch commit: {e}");
                                         continue;
                                     }
-                                    persist_mls_state(mls_mgr, &bundle_keypair);
+                                    persist_mls_state(mls_mgr, &crypto_store);
                                     // Emit epoch change for SFrame key rotation.
                                     if let Ok(sframe_key) = mls_mgr.export_secret(&server_id, "sframe", b"", 32) {
                                         let epoch = mls_mgr.epoch(&server_id).unwrap_or(0);
@@ -2230,6 +2263,7 @@ async fn run_event_loop(
 
             // -- Vault rebalance + retention enforcement (every 30 min) --
             _ = rebalance_timer.tick() => {
+                crdt_store.prune_ops(1000);
                 hollow_log!("[HOLLOW-VAULT] Running rebalance + retention check");
                 let local_peer = local_peer_str.to_string();
                 let data_dir = crate::identity::data_dir().unwrap_or_default();
@@ -2344,7 +2378,7 @@ async fn run_event_loop(
                                         };
                                         if let Some(ref mut mls_mgr) = mls {
                                             if mls_mgr.has_group(server_id) {
-                                                let _ = send_mls_to_peer(mls_mgr, &ws_cmd_tx, server_id, source_peer, &envelope, &bundle_keypair);
+                                                let _ = send_mls_to_peer(mls_mgr, &ws_cmd_tx, server_id, source_peer, &envelope, &crypto_store);
                                                 total_requested += 1;
                                             }
                                         }
@@ -2461,7 +2495,7 @@ async fn run_event_loop(
                                                 };
                                                 if let Some(ref mut mls_mgr) = mls {
                                                     if mls_mgr.has_group(server_id.as_str()) {
-                                                        let _ = send_mls_to_peer(mls_mgr, &ws_cmd_tx, server_id, source_peer, &envelope, &bundle_keypair);
+                                                        let _ = send_mls_to_peer(mls_mgr, &ws_cmd_tx, server_id, source_peer, &envelope, &crypto_store);
                                                         total_requested += 1;
                                                     }
                                                 }
@@ -2501,7 +2535,7 @@ async fn run_event_loop(
                                             // MLS first, Olm fallback (peer's epoch may be stale).
                                             let mls_sent = mls.as_mut().map(|m| {
                                                 m.has_group(server_id.as_str()) &&
-                                                send_mls_to_peer(m, &ws_cmd_tx, server_id, &migration.to_peer, &envelope, &bundle_keypair).is_ok()
+                                                send_mls_to_peer(m, &ws_cmd_tx, server_id, &migration.to_peer, &envelope, &crypto_store).is_ok()
                                             }).unwrap_or(false);
                                             if !mls_sent {
                                                 let env_json = serde_json::to_string(&envelope).unwrap_or_default();
@@ -2565,6 +2599,7 @@ async fn run_event_loop(
 async fn handle_incoming_request(
     olm: &mut OlmManager,
     crypto_store: &CryptoStore,
+    crdt_store: &super::crdt_store::CrdtStore,
     event_tx: &mpsc::Sender<NetworkEvent>,
     pending_messages: &mut HashMap<String, Vec<String>>,
     key_request_in_flight: &mut std::collections::HashSet<String>,
@@ -2658,6 +2693,7 @@ async fn handle_incoming_request(
                             pending_sync_requests, peer_str,
                             olm, crypto_store, bundle_keypair, event_tx,
                             ws_cmd_tx, ws_room_peers,
+                            crdt_store,
                         ).await;
                     }
                     Err(e) => {
@@ -2742,6 +2778,7 @@ async fn handle_incoming_request(
                                         olm, crypto_store,
                                         bundle_keypair, event_tx,
                                         ws_cmd_tx, ws_room_peers,
+                                        crdt_store,
                                     ).await;
                                     pt
                                 }
@@ -2799,6 +2836,7 @@ async fn handle_incoming_request(
                                 olm, crypto_store,
                                 bundle_keypair, event_tx,
                                 ws_cmd_tx, ws_room_peers,
+                                crdt_store,
                             ).await;
                             pt
                         }
@@ -4458,7 +4496,7 @@ async fn handle_incoming_request(
                                         let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
                                         if mls_ok {
                                             let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                                            if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                                            if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
                                                 hollow_log!("[HOLLOW-MLS] CrdtOp pledge broadcast failed: {e}");
                                             }
                                         } else {
@@ -4901,7 +4939,7 @@ async fn handle_incoming_request(
                         let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
                         if mls_ok {
                             let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                            if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                            if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
                                 hollow_log!("[HOLLOW-MLS] CrdtOp MemberAdded broadcast failed: {e}");
                             }
                         } else {
@@ -5005,7 +5043,7 @@ async fn handle_incoming_request(
                 // Clean up MLS group.
                 if let Some(mls_mgr) = mls {
                     mls_mgr.remove_group(&server_id);
-                    persist_mls_state(mls_mgr, bundle_keypair);
+                    persist_mls_state(mls_mgr, crypto_store);
                 }
 
                 let _ = event_tx.send(NetworkEvent::ServerDeleted {
@@ -5050,7 +5088,7 @@ async fn handle_incoming_request(
                 // Clean up MLS group.
                 if let Some(mls_mgr) = mls {
                     mls_mgr.remove_group(&server_id);
-                    persist_mls_state(mls_mgr, bundle_keypair);
+                    persist_mls_state(mls_mgr, crypto_store);
                 }
 
                 let _ = event_tx.send(NetworkEvent::ServerDeleted {
@@ -5169,7 +5207,7 @@ async fn handle_incoming_request(
                             m.has_group(&server_id) && m.group_members(&server_id).contains(&peer_str.to_string())
                         });
                         if mls_ok {
-                            if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &peer_str, &envelope, bundle_keypair) {
+                            if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &peer_str, &envelope, crypto_store) {
                                 hollow_log!("[HOLLOW-MLS] ChannelSyncBatch targeted send failed: {e}");
                             }
                         } else {
@@ -5412,7 +5450,7 @@ async fn handle_incoming_request(
 
                 match mls_mgr.decrypt(&server_id, &ciphertext) {
                     Ok((plaintext, sender_peer_id)) => {
-                        persist_mls_state(mls_mgr, bundle_keypair);
+                        persist_mls_state(mls_mgr, crypto_store);
                         mls_decrypt_failures.remove(&server_id); // Reset failure counter on success.
 
                         // Parse the plaintext as a MessageEnvelope.
@@ -5487,6 +5525,7 @@ async fn handle_incoming_request(
                                 sync_handler::handle_envelope_crdt_op(
                                     server_states, bundle_keypair, event_tx,
                                     sid, op_json,
+                                    crdt_store,
                                 ).await;
                             }
 
@@ -5494,6 +5533,7 @@ async fn handle_incoming_request(
                                 sync_handler::handle_envelope_server_delete(
                                     server_states, mls, bundle_keypair, event_tx,
                                     &sender_peer_id, sid,
+                                    crypto_store, crdt_store,
                                 ).await;
                             }
 
@@ -5501,6 +5541,7 @@ async fn handle_incoming_request(
                                 sync_handler::handle_envelope_member_kick(
                                     server_states, mls, bundle_keypair, event_tx,
                                     &local_peer, &sender_peer_id, sid,
+                                    crypto_store, crdt_store,
                                 ).await;
                             }
 
@@ -5529,6 +5570,7 @@ async fn handle_incoming_request(
                                     server_states, olm, crypto_store, mls_mgr,
                                     bundle_keypair, event_tx, ws_cmd_tx, ws_room_peers,
                                     sender_peer_id, sid, state_vector_json,
+                                    crdt_store,
                                 ).await;
                             }
 
@@ -5536,6 +5578,7 @@ async fn handle_incoming_request(
                                 sync_handler::handle_envelope_sync_resp(
                                     server_states, bundle_keypair, event_tx,
                                     sid, ops_json,
+                                    crdt_store,
                                 ).await;
                             }
 
@@ -5543,6 +5586,7 @@ async fn handle_incoming_request(
                                 sync_handler::handle_envelope_channel_sync_req(
                                     server_states, mls, bundle_keypair, ws_cmd_tx,
                                     &sender_peer_id, sid, cid, since_timestamp, sender_timestamps,
+                                    crypto_store, crdt_store,
                                 ).await;
                             }
 
@@ -5551,6 +5595,7 @@ async fn handle_incoming_request(
                                     server_states, olm, crypto_store, mls_mgr,
                                     bundle_keypair, event_tx, ws_cmd_tx, ws_room_peers,
                                     sender_peer_id, sid, cid,
+                                    crdt_store,
                                 ).await;
                             }
 
@@ -5559,6 +5604,7 @@ async fn handle_incoming_request(
                                     bundle_keypair, ws_cmd_tx, ws_room_peers,
                                     channel_sync_sent, sender_peer_id,
                                     sid, cid, their_latest, msg_count,
+                                    crdt_store,
                                 ).await;
                             }
 
@@ -5567,6 +5613,7 @@ async fn handle_incoming_request(
                                     mls, bundle_keypair, event_tx, ws_cmd_tx,
                                     &local_peer, &sender_peer_id,
                                     sid, cid, messages, total, has_more,
+                                    crypto_store, crdt_store,
                                 ).await;
                             }
 
@@ -5575,7 +5622,7 @@ async fn handle_incoming_request(
                             MessageEnvelope::ShardStore { sid, cid, si, sk, k, m, total_size, tier, data, chunks, .. } => {
                                 vault_ops::handle_envelope_shard_store(
                                     server_states, pending_shard_streams, mls,
-                                    bundle_keypair, event_tx, ws_cmd_tx,
+                                    bundle_keypair, crypto_store, event_tx, ws_cmd_tx,
                                     &server_id, sender_peer_id,
                                     sid, cid, si, sk, k, m, total_size, tier, data, chunks,
                                 ).await;
@@ -5778,7 +5825,7 @@ async fn handle_incoming_request(
 
                             // Drop broken group and request re-bootstrap from owner.
                             mls_mgr.remove_group(&server_id);
-                            persist_mls_state(mls_mgr, bundle_keypair);
+                            persist_mls_state(mls_mgr, crypto_store);
 
                             if let Some(state) = server_states.get(&server_id) {
                                 let local_peer = local_peer_str.to_string();
@@ -5867,7 +5914,7 @@ async fn handle_incoming_request(
                                         hollow_log!("[HOLLOW-MLS] Failed to merge stale removal commit: {e}");
                                         continue;
                                     }
-                                    persist_mls_state(mls_mgr, bundle_keypair);
+                                    persist_mls_state(mls_mgr, crypto_store);
                                     let commit_b64 = base64::engine::general_purpose::STANDARD.encode(&commit_bytes);
                                     for member_peer in state.members.keys() {
                                         if member_peer == local_peer_str || member_peer == stale_peer { continue; }
@@ -5894,7 +5941,7 @@ async fn handle_incoming_request(
                                     hollow_log!("[HOLLOW-MLS] Failed to merge recovery removal commit: {e}");
                                     return;
                                 }
-                                persist_mls_state(mls_mgr, bundle_keypair);
+                                persist_mls_state(mls_mgr, crypto_store);
                                 let commit_b64 = base64::engine::general_purpose::STANDARD.encode(&commit_bytes);
                                 for member_peer in state.members.keys() {
                                     if member_peer == local_peer_str || member_peer == peer_str { continue; }
@@ -5944,7 +5991,7 @@ async fn handle_incoming_request(
 
                 match mls_mgr.join_from_welcome(&server_id, &welcome_bytes) {
                     Ok(()) => {
-                        persist_mls_state(mls_mgr, bundle_keypair);
+                        persist_mls_state(mls_mgr, crypto_store);
                         mls_bootstrap_requested.remove(&server_id);
                         hollow_log!("[HOLLOW-MLS] Joined MLS group for server {server_id}");
 
@@ -6001,7 +6048,7 @@ async fn handle_incoming_request(
 
                 match mls_mgr.process_commit(&server_id, &commit_bytes) {
                     Ok(()) => {
-                        persist_mls_state(mls_mgr, bundle_keypair);
+                        persist_mls_state(mls_mgr, crypto_store);
                         hollow_log!("[HOLLOW-MLS] Processed commit for server {server_id}");
                         // Emit epoch change for SFrame key rotation.
                         if let Ok(sframe_key) = mls_mgr.export_secret(&server_id, "sframe", b"", 32) {
@@ -6019,7 +6066,7 @@ async fn handle_incoming_request(
                         if !mls_bootstrap_requested.get(&server_id).is_some_and(|t| t.elapsed() < MLS_BOOTSTRAP_TIMEOUT) {
                             hollow_log!("[HOLLOW-MLS] Dropping stale MLS group and requesting re-bootstrap for {server_id}");
                             mls_mgr.remove_group(&server_id);
-                            persist_mls_state(mls_mgr, bundle_keypair);
+                            persist_mls_state(mls_mgr, crypto_store);
 
                             if let Some(state) = server_states.get(&server_id) {
                                 let local_peer = local_peer_str.to_string();
@@ -6340,7 +6387,7 @@ async fn handle_incoming_request(
                                                 m.has_group(&ctx_sid) && m.group_members(&ctx_sid).contains(&peer_str.to_string())
                                             });
                                             if mls_ok {
-                                                let _ = send_mls_to_peer(mls.as_mut().unwrap(), ws_cmd_tx, &ctx_sid, &peer_str, &header, bundle_keypair);
+                                                let _ = send_mls_to_peer(mls.as_mut().unwrap(), ws_cmd_tx, &ctx_sid, &peer_str, &header, crypto_store);
                                             } else if olm.has_session(&peer_str) {
                                                 let header_json = serde_json::to_string(&header).unwrap_or_default();
                                                 send_encrypted_message(

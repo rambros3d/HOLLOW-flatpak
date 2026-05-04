@@ -6,6 +6,7 @@ use crate::storage::MessageStore;
 pub(crate) enum CryptoStoreCmd {
     SaveAccount(String),
     SaveSession { peer_id: String, pickle: String },
+    SaveMlsIdentity { signer: Vec<u8>, credential: Vec<u8>, storage: Vec<u8> },
 }
 
 /// A fire-and-forget persistence actor for Olm state.
@@ -46,6 +47,11 @@ impl CryptoStore {
                             hollow_log!("CryptoStore: failed to save session for {peer_id}: {e}");
                         }
                     }
+                    CryptoStoreCmd::SaveMlsIdentity { signer, credential, storage } => {
+                        if let Err(e) = store.save_mls_identity(&signer, &credential, &storage) {
+                            hollow_log!("CryptoStore: failed to save MLS identity: {e}");
+                        }
+                    }
                 }
             }
         });
@@ -63,6 +69,13 @@ impl CryptoStore {
         let _ = self.cmd_tx.send(CryptoStoreCmd::SaveSession {
             peer_id,
             pickle: pickle_json,
+        });
+    }
+
+    /// Fire-and-forget: persist MLS identity (signer, credential, storage).
+    pub fn save_mls_identity(&self, signer: Vec<u8>, credential: Vec<u8>, storage: Vec<u8>) {
+        let _ = self.cmd_tx.send(CryptoStoreCmd::SaveMlsIdentity {
+            signer, credential, storage,
         });
     }
 }

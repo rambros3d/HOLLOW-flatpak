@@ -12,19 +12,13 @@ Nearly every handler in this file follows this sequence:
 2. Check permissions via `state.has_permission()`, `state.can_change_role()`, `state.can_kick()`, or `state.can_ban()`
 3. Create a CRDT op via `state.create_op(CrdtPayload::Variant { ... })`
 4. Apply locally via `state.apply_op(&op)`
-5. Persist: serialize state to JSON, open `MessageStore` (SQLCipher), call `save_server_state()` + `insert_crdt_op()`
+5. Persist via `CrdtStore` actor: `crdt_store.insert_op(op)` + `crdt_store.save_state(server_id, json)`. The actor batches writes — burst of 20 ops = one DB write per server. No direct `MessageStore::open()` calls.
 6. Emit a `NetworkEvent` via `event_tx` (Dart StreamSink)
 7. Broadcast: serialize op to JSON, then either:
-   - MLS path: wrap in `MessageEnvelope::CrdtOp { sid, op_json }` and call `sync_handler:send_mls_broadcast()`
+   - MLS path: wrap in `MessageEnvelope::CrdtOp { sid, op_json }` and call `send_mls_broadcast()`
    - Plaintext fallback: iterate `state.members`, skip self, check `peer_is_reachable()`, send `HavenMessage::CrdtOpBroadcast`
 
-DB access pattern (repeated in every handler):
-```
-data_dir = crate::identity::data_dir()
-db_path = data_dir.join("messages.db")
-passphrase = hex::encode(bundle_keypair.to_protobuf_encoding()[..32])
-store = MessageStore::open(&db_path, &passphrase)
-```
+All handlers receive `crdt_store: &CrdtStore` as a parameter. State serialization uses `serialize_state_lean(&state)` helper.
 
 ## Imports and Dependencies
 

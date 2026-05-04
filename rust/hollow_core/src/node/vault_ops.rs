@@ -159,7 +159,7 @@ pub(crate) async fn handle_vault_download_file(
                                     m.has_group(&server_id) && m.group_members(&server_id).contains(&target_peer.to_string())
                                 });
                                 if mls_ok {
-                                    if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, target_peer, &envelope, &bundle_keypair) {
+                                    if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, target_peer, &envelope, crypto_store) {
                                         hollow_log!("[HOLLOW-VAULT] MLS ShardRequest failed: {e}");
                                     }
                                 } else {
@@ -371,7 +371,7 @@ pub(crate) async fn handle_vault_upload_file(
                                         // Send ShardStore metadata via MLS if available, Olm fallback.
                                         let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
                                         if mls_ok {
-                                            if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, &placement.target_peer, &envelope, &bundle_keypair) {
+                                            if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, &placement.target_peer, &envelope, crypto_store) {
                                                 hollow_log!("[HOLLOW-MLS] ShardStore targeted send failed: {e}");
                                             }
                                         } else {
@@ -413,7 +413,7 @@ pub(crate) async fn handle_vault_upload_file(
                     };
                     let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
                     if mls_ok {
-                        if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, &manifest_envelope, &bundle_keypair) {
+                        if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, &manifest_envelope, crypto_store) {
                             hollow_log!("[HOLLOW-MLS] VaultManifest broadcast failed: {e}");
                         }
                     } else {
@@ -494,7 +494,7 @@ pub(crate) async fn handle_delete_vault_content(
         // Broadcast ShardDelete via MLS or Olm fallback.
         let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
         if mls_ok {
-            if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, &delete_envelope, &bundle_keypair) {
+            if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, &delete_envelope, crypto_store) {
                 hollow_log!("[HOLLOW-MLS] ShardDelete broadcast failed: {e}");
             }
         } else {
@@ -553,7 +553,7 @@ pub(crate) async fn handle_request_shard_from_peer(
                 m.has_group(&server_id) && m.group_members(&server_id).contains(&target_peer)
             });
             if mls_ok {
-                if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, &target_peer, &envelope, &bundle_keypair) {
+                if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, &target_peer, &envelope, crypto_store) {
                     hollow_log!("[HOLLOW-VAULT] MLS ShardRequest failed: {e}");
                 }
             } else {
@@ -622,7 +622,7 @@ pub(crate) async fn handle_store_shard_on_peer(
                 m.has_group(&server_id) && m.group_members(&server_id).contains(&target_peer)
             });
             if mls_ok {
-                if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, &target_peer, &envelope, &bundle_keypair) {
+                if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, &target_peer, &envelope, crypto_store) {
                     hollow_log!("[HOLLOW-MLS] ShardStore targeted send failed: {e}");
                 }
             } else {
@@ -800,6 +800,7 @@ pub(crate) async fn handle_envelope_shard_store(
     pending_shard_streams: &mut HashMap<String, PendingShardStream>,
     mls: &mut Option<MlsManager>,
     bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    crypto_store: &CryptoStore,
     event_tx: &mpsc::Sender<NetworkEvent>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     server_id: &str,
@@ -846,7 +847,7 @@ pub(crate) async fn handle_envelope_shard_store(
                 sid, cid, si, ok: true, err: None, target: None,
             };
             if let Some(mls_mgr_ref) = mls {
-                let _ = send_mls_to_peer(mls_mgr_ref, ws_cmd_tx, server_id, &sender_peer_id, &ack, bundle_keypair);
+                let _ = send_mls_to_peer(mls_mgr_ref, ws_cmd_tx, server_id, &sender_peer_id, &ack, crypto_store);
             }
         }
     }
@@ -943,7 +944,7 @@ pub(crate) async fn handle_envelope_shard_request(
                     sid: sid.clone(), cid: cid.clone(), si,
                     data: String::new(), chunks: 0, found: true, target: None,
                 };
-                let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, bundle_keypair).is_ok();
+                let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, crypto_store).is_ok();
                 if !mls_sent {
                     let resp_json = serde_json::to_string(&resp).unwrap_or_default();
                     send_encrypted_message(olm, crypto_store, &sender_peer_id, &resp_json, event_tx, ws_cmd_tx, ws_room_peers).await;
@@ -965,7 +966,7 @@ pub(crate) async fn handle_envelope_shard_request(
                 let resp = MessageEnvelope::ShardResponse {
                     sid, cid, si, data: String::new(), chunks: 0, found: false, target: None,
                 };
-                let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, server_id, &sender_peer_id, &resp, bundle_keypair).is_ok();
+                let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, server_id, &sender_peer_id, &resp, crypto_store).is_ok();
                 if !mls_sent {
                     let resp_json = serde_json::to_string(&resp).unwrap_or_default();
                     send_encrypted_message(olm, crypto_store, &sender_peer_id, &resp_json, event_tx, ws_cmd_tx, ws_room_peers).await;
@@ -1041,7 +1042,7 @@ pub(crate) async fn handle_envelope_shard_probe(
     let resp = MessageEnvelope::ShardProbeResponse {
         sid: sid.clone(), cid, shards: indices, target: None,
     };
-    let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, bundle_keypair).is_ok();
+    let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, crypto_store).is_ok();
     if !mls_sent {
         let resp_json = serde_json::to_string(&resp).unwrap_or_default();
         send_encrypted_message(olm, crypto_store, &sender_peer_id, &resp_json, event_tx, ws_cmd_tx, ws_room_peers).await;

@@ -474,7 +474,7 @@ pub(crate) async fn handle_send_file(
                 // Broadcast FileHeader via MLS (single encrypt, relay fans out).
                 let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&sid));
                 if mls_ok {
-                    if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), &ws_cmd_tx, &sid, &header, &bundle_keypair) {
+                    if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), &ws_cmd_tx, &sid, &header, crypto_store) {
                         hollow_log!("[HOLLOW-MLS] FileHeader broadcast failed: {e}");
                     }
                 } else {
@@ -511,7 +511,7 @@ pub(crate) async fn handle_send_file(
                     };
                     if let Some(mls_mgr) = mls {
                         if mls_mgr.has_group(&sid) {
-                            let _ = send_mls_broadcast(mls_mgr, &ws_cmd_tx, &sid, &meta_envelope, &bundle_keypair);
+                            let _ = send_mls_broadcast(mls_mgr, &ws_cmd_tx, &sid, &meta_envelope, crypto_store);
                         }
                     }
 

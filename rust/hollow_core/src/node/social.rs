@@ -207,6 +207,7 @@ pub(crate) fn handle_send_typing_indicator(
     mls: &mut Option<MlsManager>,
     server_states: &HashMap<String, crate::crdt::server_state::ServerState>,
     bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    crypto_store: &crate::crypto::CryptoStore,
     local_peer_str: &str,
     server_id: String,
     channel_id: String,
@@ -229,7 +230,7 @@ pub(crate) fn handle_send_typing_indicator(
         let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
         if mls_ok {
             let envelope = MessageEnvelope::Typing { sid: server_id.clone(), cid: channel_id.clone() };
-            if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, &envelope, &bundle_keypair) {
+            if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, &envelope, crypto_store) {
                 hollow_log!("[HOLLOW-MLS] Typing broadcast failed: {e}");
             }
         } else {
@@ -281,6 +282,7 @@ pub(crate) async fn handle_update_profile(
     mls: &mut Option<MlsManager>,
     server_states: &HashMap<String, crate::crdt::server_state::ServerState>,
     bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    crypto_store: &crate::crypto::CryptoStore,
     local_peer_str: &str,
     display_name: String,
     status: String,
@@ -339,7 +341,7 @@ pub(crate) async fn handle_update_profile(
     for (sid, state) in server_states.iter() {
         let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(sid));
         if mls_ok {
-            if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), &ws_cmd_tx, sid, &envelope, &bundle_keypair) {
+            if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), &ws_cmd_tx, sid, &envelope, crypto_store) {
                 hollow_log!("[HOLLOW-MLS] Profile broadcast to server {sid} failed: {e}");
             } else {
                 // Track members reached via MLS so we skip them in plaintext.

@@ -1,3 +1,4 @@
+pub(crate) mod crdt_store;
 pub(crate) mod crypto_handler;
 pub(crate) mod file_handler;
 pub(crate) mod file_transfer;
@@ -19,6 +20,7 @@ pub(crate) mod ws_stream_transfer;
 mod swarm;
 pub(crate) mod ws_client;
 
+pub(crate) use crdt_store::CrdtStore;
 pub(crate) use types::{LinkPreviewRef, NetworkEvent, NodeCommand, ShareRef, VideoThumbRef};
 pub(crate) use crypto_handler::{message_signing_payload, verify_message_signature};
 pub(crate) use swarm::spawn_node;

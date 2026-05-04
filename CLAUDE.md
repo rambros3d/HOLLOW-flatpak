@@ -98,6 +98,7 @@ All UI uses custom Hollow widgets — no Material defaults.
 
 ## Key Architecture Notes
 - **Node module structure:** `swarm.rs` is the event loop dispatcher; domain logic lives in focused modules (`crypto_handler`, `sync_handler`, `message_ops`, `social`, `vault_ops`, `file_handler`, `voice_handler`, `gossip_relay`). Types/enums are in `types.rs`. Each module exports `pub(crate) async fn handle_*()` functions called from swarm.rs match arms. Functions take individual state variables as parameters (no SwarmContext struct — deferred due to borrow checker constraints with crypto helpers).
+- **Persistence actors:** `CrdtStore` (`node/crdt_store.rs`) and `CryptoStore` (`crypto/store.rs`) own long-lived SQLCipher connections in `spawn_blocking` threads. Fire-and-forget via mpsc channels. CrdtStore uses batch-drain (blocking_recv + try_recv loop) to coalesce multiple CRDT ops into one DB write per server. All sync_handler save sites use CrdtStore. MLS state persistence uses CryptoStore. Never open `MessageStore::open()` in sync handlers.
 - **Peer state tracking in swarm.rs:** `ws_room_peers` (room → peer set), `synced_peers` (HashSet<String>). WS PeerJoined triggers key exchange + sync. 30s keepalive ping in ws_client.rs.
 - **Event streaming:** Rust→Dart via `StreamSink` (flutter_rust_bridge). `watch_network_events()` in `api/network.rs`, `EventStreamNotifier` in `event_provider.dart`.
 - **Navigation shell:** Two layout modes (persisted via `layoutModeProvider`):

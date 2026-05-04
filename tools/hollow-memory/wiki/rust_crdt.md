@@ -401,7 +401,9 @@ There is no separate `store.rs` module. Op persistence and compaction are handle
 
 **Storage:** The `op_log: Vec<CrdtOp>` is a field on ServerState. The entire ServerState (including op_log) is serialized as JSON and stored in SQLCipher. The HLC field is `#[serde(skip)]` and must be restored via `set_hlc()` after deserialization.
 
-**Compaction threshold:** `MAX_OP_LOG = 1000`. After every successful apply, if the op_log exceeds 1000 entries, the oldest entries are drained: `op_log.drain(..excess)`. This prevents unbounded memory and storage growth. The comment marks this as a security measure — without it, a malicious peer could flood ops to exhaust memory.
+**In-memory compaction:** `MAX_OP_LOG = 1000`. After every successful apply, if the op_log exceeds 1000 entries, the oldest entries are drained: `op_log.drain(..excess)`. This prevents unbounded memory growth.
+
+**DB-level pruning:** The `crdt_ops` SQLCipher table is pruned every 30 minutes via `CrdtStore::prune_ops(1000)` (called from the rebalance_timer). Uses `ROW_NUMBER() OVER (PARTITION BY server_id ORDER BY hlc_ms DESC)` to keep only the latest 1000 per server.
 
 **Insertion order:** Ops are binary-search inserted by HLC into the op_log, maintaining deterministic sorted order. This is critical for `StateVector::from_op_log()` which scans for the latest HLC per author, and for `compute_delta()` which filters by HLC comparison.
 

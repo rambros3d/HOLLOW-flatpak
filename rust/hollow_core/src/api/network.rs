@@ -7,6 +7,7 @@ use crate::crypto::{CryptoStore, OlmManager};
 use crate::frb_generated::StreamSink;
 use crate::identity;
 use crate::node;
+use crate::node::CrdtStore;
 use crate::storage::MessageStore;
 
 /// A discovered peer on the local network.
@@ -925,7 +926,12 @@ pub fn start_node() -> Result<String, String> {
     // Open the CryptoStore persistence actor (runs in its own blocking thread).
     let rt = get_runtime();
     let crypto_store = rt.block_on(async {
-        CryptoStore::open(db_path, passphrase)
+        CryptoStore::open(db_path.clone(), passphrase.clone())
+    })?;
+
+    // Open the CrdtStore persistence actor (batched CRDT state writes).
+    let crdt_store = rt.block_on(async {
+        CrdtStore::open(db_path, passphrase)
     })?;
 
     let license_key = get_license_key()
@@ -938,7 +944,7 @@ pub fn start_node() -> Result<String, String> {
 
     let cmd_tx_clone = cmd_tx.clone();
     let (peer_id_str, handle) = rt
-        .block_on(node::spawn_node(id.keypair, event_tx, cmd_rx, cmd_tx_clone, olm, crypto_store, license_key, initial_invisible))
+        .block_on(node::spawn_node(id.keypair, event_tx, cmd_rx, cmd_tx_clone, olm, crypto_store, crdt_store, license_key, initial_invisible))
         .map_err(|e| format!("Failed to start node: {e}"))?;
 
     // Store event receiver separately so watch_network_events() can take it.

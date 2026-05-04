@@ -7,12 +7,18 @@ use tokio::sync::mpsc;
 use crate::crdt::operations::{CrdtPayload, Permission};
 use crate::crdt::server_state::ServerState;
 use crate::crypto::{CryptoStore, MlsManager, OlmManager};
+use super::crdt_store::CrdtStore;
 use super::crypto_handler::{
     peer_is_reachable, send_message_to_peer, send_mls_broadcast, send_mls_to_peer,
     persist_mls_state, send_encrypted_message,
 };
 use super::signaling::SignalingCmd;
 use super::types::*;
+
+/// Serialize ServerState for persistence.
+fn serialize_state_lean(state: &ServerState) -> Result<String, serde_json::Error> {
+    serde_json::to_string(state)
+}
 
 // ── 1. CreateServer ───────────────────────────────────────────────────
 
@@ -24,6 +30,8 @@ pub(crate) async fn handle_create_server(
     bundle_keypair: &crate::identity::native_identity::NativeKeypair,
     local_peer_str: &str,
     name: String,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) {
     let local_peer = local_peer_str.to_string();
     let server_id = hex::encode(&{
@@ -47,20 +55,9 @@ pub(crate) async fn handle_create_server(
     let _ = state.apply_op(&op);
 
     // Persist
-    if let Ok(json) = serde_json::to_string(&state) {
-        // Save via direct DB call (initial creation)
-        let _ = event_tx.send(NetworkEvent::Error {
-            message: format!("[CRDT] Server state saved: {server_id}"),
-        }).await;
-        // We'll persist through the storage API
-        let data_dir = crate::identity::data_dir().unwrap_or_default();
-        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-            let _ = store.save_server_state(&server_id, &json);
-            let _ = store.insert_crdt_op(&op);
-        }
+    crdt_store.insert_op(op.clone());
+    if let Ok(json) = serialize_state_lean(&mut state) {
+        crdt_store.save_state(server_id.clone(), json);
     }
 
     server_states.insert(server_id.clone(), state);
@@ -81,22 +78,16 @@ pub(crate) async fn handle_create_server(
         let _ = state.apply_op(&pledge_op);
 
         // Re-persist with pledge included
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&pledge_op);
-            }
+        crdt_store.insert_op(pledge_op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
     }
 
     // Create MLS group for this server (owner is sole member).
     if let Some(mls_mgr) = mls {
         match mls_mgr.create_group(&server_id) {
-            Ok(()) => persist_mls_state(mls_mgr, bundle_keypair),
+            Ok(()) => persist_mls_state(mls_mgr, crypto_store),
             Err(e) => hollow_log!("[HOLLOW-MLS] Failed to create MLS group: {e}"),
         }
     }
@@ -126,6 +117,8 @@ pub(crate) async fn handle_create_channel(
     name: String,
     category: Option<String>,
     channel_type: String,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) -> bool {
     // Returns true if the caller should `continue` (skip to next iteration).
     if let Some(state) = server_states.get_mut(&server_id) {
@@ -153,15 +146,9 @@ pub(crate) async fn handle_create_channel(
         let _ = state.apply_op(&op);
 
         // Persist
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::ChannelAdded {
@@ -176,7 +163,7 @@ pub(crate) async fn handle_create_channel(
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
                     hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
                 }
             } else {
@@ -215,6 +202,8 @@ pub(crate) async fn handle_remove_channel(
     local_peer_str: &str,
     server_id: String,
     channel_id: String,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -233,15 +222,9 @@ pub(crate) async fn handle_remove_channel(
         let _ = state.apply_op(&op);
 
         // Persist
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::ChannelRemoved {
@@ -254,7 +237,7 @@ pub(crate) async fn handle_remove_channel(
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
                     hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
                 }
             } else {
@@ -289,6 +272,8 @@ pub(crate) async fn handle_rename_server(
     local_peer_str: &str,
     server_id: String,
     new_name: String,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -307,15 +292,9 @@ pub(crate) async fn handle_rename_server(
         let _ = state.apply_op(&op);
 
         // Persist
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::ServerUpdated {
@@ -327,7 +306,7 @@ pub(crate) async fn handle_rename_server(
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
                     hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
                 }
             } else {
@@ -363,6 +342,8 @@ pub(crate) async fn handle_rename_channel(
     server_id: String,
     channel_id: String,
     new_name: String,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -382,15 +363,9 @@ pub(crate) async fn handle_rename_channel(
         let _ = state.apply_op(&op);
 
         // Persist
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::ChannelRenamed {
@@ -404,7 +379,7 @@ pub(crate) async fn handle_rename_channel(
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
                     hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
                 }
             } else {
@@ -440,6 +415,8 @@ pub(crate) async fn handle_update_server_setting(
     server_id: String,
     key: String,
     value: String,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) {
     if let Some(state) = server_states.get_mut(&server_id) {
         hollow_log!("[HOLLOW-CRDT] Updating setting '{key}'='{value}' in server {server_id}");
@@ -451,17 +428,10 @@ pub(crate) async fn handle_update_server_setting(
         let _ = state.apply_op(&op);
 
         // Persist
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
-
         let _ = event_tx.send(NetworkEvent::ServerUpdated {
             server_id: server_id.clone(),
         }).await;
@@ -471,7 +441,7 @@ pub(crate) async fn handle_update_server_setting(
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
                     hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
                 }
             } else {
@@ -505,6 +475,8 @@ pub(crate) async fn handle_delete_server(
     bundle_keypair: &crate::identity::native_identity::NativeKeypair,
     local_peer_str: &str,
     server_id: String,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) -> bool {
     // Only owner can delete a server.
     if let Some(state) = server_states.get(&server_id) {
@@ -524,7 +496,7 @@ pub(crate) async fn handle_delete_server(
     let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
     if mls_ok {
         let envelope = MessageEnvelope::ServerDelete { sid: server_id.clone() };
-        if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+        if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
             hollow_log!("[HOLLOW-MLS] ServerDelete broadcast failed: {e}");
         }
     } else if let Some(state) = server_states.get(&server_id) {
@@ -547,7 +519,7 @@ pub(crate) async fn handle_delete_server(
     // Clean up MLS group.
     if let Some(mls_mgr) = mls {
         mls_mgr.remove_group(&server_id);
-        persist_mls_state(mls_mgr, bundle_keypair);
+        persist_mls_state(mls_mgr, crypto_store);
     }
 
     // Unregister from signaling room for this server.
@@ -556,13 +528,7 @@ pub(crate) async fn handle_delete_server(
     }).await;
 
     // Remove from DB
-    let data_dir = crate::identity::data_dir().unwrap_or_default();
-    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-        let _ = store.delete_server_state(&server_id);
-    }
+    crdt_store.delete_server(server_id.clone());
 
     let _ = event_tx.send(NetworkEvent::ServerDeleted {
         server_id,
@@ -581,6 +547,7 @@ pub(crate) async fn handle_join_server(
     cmd_tx: &mpsc::Sender<NodeCommand>,
     server_id: String,
     twitch_proof_json: Option<String>,
+    _crdt_store: &CrdtStore,
 ) {
     hollow_log!("[HOLLOW-CRDT] Joining server {server_id}");
     pending_server_joins.insert(server_id.clone(), twitch_proof_json.clone());
@@ -641,11 +608,12 @@ pub(crate) async fn handle_change_role(
     event_tx: &mpsc::Sender<NetworkEvent>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
-    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    _bundle_keypair: &crate::identity::native_identity::NativeKeypair,
     local_peer_str: &str,
     server_id: String,
     peer_id: String,
     new_role: String,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -673,15 +641,9 @@ pub(crate) async fn handle_change_role(
         let _ = state.apply_op(&op);
 
         // Persist
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::RoleChanged {
@@ -721,6 +683,8 @@ pub(crate) async fn handle_kick_member(
     local_peer_str: &str,
     server_id: String,
     peer_id: String,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -748,15 +712,9 @@ pub(crate) async fn handle_kick_member(
         let _ = state.apply_op(&op);
 
         // Persist
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::MemberLeft {
@@ -784,7 +742,7 @@ pub(crate) async fn handle_kick_member(
         let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
         if mls_ok {
             let envelope = MessageEnvelope::MemberKick { sid: server_id.clone() };
-            if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &peer_id, &envelope, bundle_keypair) {
+            if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &peer_id, &envelope, crypto_store) {
                 hollow_log!("[HOLLOW-MLS] MemberKick targeted send failed: {e}");
             }
             if peer_is_reachable(ws_room_peers, &peer_id) {
@@ -811,7 +769,7 @@ pub(crate) async fn handle_kick_member(
                     Ok(commit_bytes) => {
                         match mls_mgr.merge_pending_commit(&server_id) {
                             Ok(()) => {
-                                persist_mls_state(mls_mgr, bundle_keypair);
+                                persist_mls_state(mls_mgr, crypto_store);
                                 // Emit epoch change for SFrame key rotation.
                                 if let Ok(sframe_key) = mls_mgr.export_secret(&server_id, "sframe", b"", 32) {
                                     let epoch = mls_mgr.epoch(&server_id).unwrap_or(0);
@@ -858,6 +816,8 @@ pub(crate) async fn handle_leave_server(
     bundle_keypair: &crate::identity::native_identity::NativeKeypair,
     local_peer_str: &str,
     server_id: String,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -885,15 +845,9 @@ pub(crate) async fn handle_leave_server(
         let _ = state.apply_op(&op);
 
         // Persist state (with us removed) + op.
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         // Broadcast CRDT op to remaining members.
@@ -918,7 +872,7 @@ pub(crate) async fn handle_leave_server(
                     Ok(commit_bytes) => {
                         match mls_mgr.merge_pending_commit(&server_id) {
                             Ok(()) => {
-                                persist_mls_state(mls_mgr, bundle_keypair);
+                                persist_mls_state(mls_mgr, crypto_store);
                                 let commit_b64 = base64::engine::general_purpose::STANDARD.encode(&commit_bytes);
                                 for member_peer_str in &broadcast_targets {
                                     if peer_is_reachable(ws_room_peers, member_peer_str) {
@@ -939,7 +893,7 @@ pub(crate) async fn handle_leave_server(
                     Err(e) => {
                         hollow_log!("[HOLLOW-MLS] Failed to remove self from MLS group: {e}");
                         mls_mgr.remove_group(&server_id);
-                        persist_mls_state(mls_mgr, bundle_keypair);
+                        persist_mls_state(mls_mgr, crypto_store);
                     }
                 }
             }
@@ -960,13 +914,7 @@ pub(crate) async fn handle_leave_server(
     });
 
     // Delete server state from DB.
-    let data_dir = crate::identity::data_dir().unwrap_or_default();
-    let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-    let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-    if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-        let _ = store.delete_server_state(&server_id);
-    }
+    crdt_store.delete_server(server_id.clone());
 
     let _ = event_tx.send(NetworkEvent::ServerDeleted {
         server_id,
@@ -986,6 +934,8 @@ pub(crate) async fn handle_ban_member(
     local_peer_str: &str,
     server_id: String,
     peer_id: String,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -1012,15 +962,9 @@ pub(crate) async fn handle_ban_member(
         let _ = state.apply_op(&op);
 
         // Persist
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::MemberLeft {
@@ -1061,7 +1005,7 @@ pub(crate) async fn handle_ban_member(
                     Ok(commit_bytes) => {
                         match mls_mgr.merge_pending_commit(&server_id) {
                             Ok(()) => {
-                                persist_mls_state(mls_mgr, bundle_keypair);
+                                persist_mls_state(mls_mgr, crypto_store);
                                 if let Ok(sframe_key) = mls_mgr.export_secret(&server_id, "sframe", b"", 32) {
                                     let epoch = mls_mgr.epoch(&server_id).unwrap_or(0);
                                     let _ = event_tx.send(NetworkEvent::MlsEpochChanged {
@@ -1106,6 +1050,8 @@ pub(crate) async fn handle_unban_member(
     local_peer_str: &str,
     server_id: String,
     peer_id: String,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -1125,15 +1071,9 @@ pub(crate) async fn handle_unban_member(
         let _ = state.apply_op(&op);
 
         // Persist
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::ServerUpdated {
@@ -1145,7 +1085,7 @@ pub(crate) async fn handle_unban_member(
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
                     hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
                 }
             } else {
@@ -1179,6 +1119,8 @@ pub(crate) async fn handle_label_op(
     local_peer_str: &str,
     server_id: String,
     payload: CrdtPayload,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -1202,15 +1144,9 @@ pub(crate) async fn handle_label_op(
         let op = state.create_op(payload);
         let _ = state.apply_op(&op);
 
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::ServerUpdated {
@@ -1221,7 +1157,7 @@ pub(crate) async fn handle_label_op(
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
                     hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
                 }
             } else {
@@ -1256,6 +1192,8 @@ pub(crate) async fn handle_set_channel_visibility(
     server_id: String,
     channel_id: String,
     visibility: String,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -1274,15 +1212,9 @@ pub(crate) async fn handle_set_channel_visibility(
         });
         let _ = state.apply_op(&op);
 
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::ServerUpdated {
@@ -1293,7 +1225,7 @@ pub(crate) async fn handle_set_channel_visibility(
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
                     hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
                 }
             } else {
@@ -1328,6 +1260,8 @@ pub(crate) async fn handle_set_channel_posting(
     server_id: String,
     channel_id: String,
     posting: String,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -1346,15 +1280,9 @@ pub(crate) async fn handle_set_channel_posting(
         });
         let _ = state.apply_op(&op);
 
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::ServerUpdated {
@@ -1365,7 +1293,7 @@ pub(crate) async fn handle_set_channel_posting(
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
                     hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
                 }
             } else {
@@ -1400,6 +1328,8 @@ pub(crate) async fn handle_change_role_permissions(
     server_id: String,
     role: String,
     permissions: u32,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -1423,15 +1353,9 @@ pub(crate) async fn handle_change_role_permissions(
         let _ = state.apply_op(&op);
 
         // Persist
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::ServerUpdated {
@@ -1443,7 +1367,7 @@ pub(crate) async fn handle_change_role_permissions(
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, bundle_keypair) {
+                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
                     hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
                 }
             } else {
@@ -1472,11 +1396,12 @@ pub(crate) async fn handle_set_nickname(
     event_tx: &mpsc::Sender<NetworkEvent>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
-    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    _bundle_keypair: &crate::identity::native_identity::NativeKeypair,
     local_peer_str: &str,
     server_id: String,
     peer_id: String,
     nickname: String,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -1495,15 +1420,9 @@ pub(crate) async fn handle_set_nickname(
         let _ = state.apply_op(&op);
 
         // Persist
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         // Emit event so Dart refreshes member list
@@ -1538,11 +1457,12 @@ pub(crate) async fn handle_set_twitch_username(
     event_tx: &mpsc::Sender<NetworkEvent>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
-    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    _bundle_keypair: &crate::identity::native_identity::NativeKeypair,
     local_peer_str: &str,
     server_id: String,
     peer_id: String,
     twitch_username: String,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -1557,15 +1477,9 @@ pub(crate) async fn handle_set_twitch_username(
         });
         let _ = state.apply_op(&op);
 
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::MemberJoined {
@@ -1603,6 +1517,7 @@ pub(crate) async fn handle_request_channel_sync(
     channel_sync_sent: &mut HashMap<String, std::time::Instant>,
     server_id: String,
     channel_id: String,
+    _crdt_store: &CrdtStore,
 ) -> bool {
     // On-demand sync when user opens a channel.
     // Dedup: skip if already synced this channel recently.
@@ -1652,10 +1567,11 @@ pub(crate) async fn handle_update_channel_layout(
     event_tx: &mpsc::Sender<NetworkEvent>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
-    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    _bundle_keypair: &crate::identity::native_identity::NativeKeypair,
     local_peer_str: &str,
     server_id: String,
     layout_json: String,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -1671,15 +1587,9 @@ pub(crate) async fn handle_update_channel_layout(
         });
         let _ = state.apply_op(&op);
 
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::ServerUpdated {
@@ -1711,11 +1621,12 @@ pub(crate) async fn handle_pin_message(
     event_tx: &mpsc::Sender<NetworkEvent>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
-    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    _bundle_keypair: &crate::identity::native_identity::NativeKeypair,
     local_peer_str: &str,
     server_id: String,
     channel_id: String,
     message_id: String,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -1732,15 +1643,9 @@ pub(crate) async fn handle_pin_message(
         });
         let _ = state.apply_op(&op);
 
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::MessagePinned {
@@ -1774,11 +1679,12 @@ pub(crate) async fn handle_unpin_message(
     event_tx: &mpsc::Sender<NetworkEvent>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
-    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    _bundle_keypair: &crate::identity::native_identity::NativeKeypair,
     local_peer_str: &str,
     server_id: String,
     channel_id: String,
     message_id: String,
+    crdt_store: &CrdtStore,
 ) -> bool {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -1795,15 +1701,9 @@ pub(crate) async fn handle_unpin_message(
         });
         let _ = state.apply_op(&op);
 
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::MessageUnpinned {
@@ -1837,10 +1737,11 @@ pub(crate) async fn handle_set_storage_pledge(
     event_tx: &mpsc::Sender<NetworkEvent>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
-    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    _bundle_keypair: &crate::identity::native_identity::NativeKeypair,
     local_peer_str: &str,
     server_id: String,
     pledge_bytes: u64,
+    crdt_store: &CrdtStore,
 ) {
     if let Some(state) = server_states.get_mut(&server_id) {
         let local_peer = local_peer_str.to_string();
@@ -1852,15 +1753,9 @@ pub(crate) async fn handle_set_storage_pledge(
         });
         let _ = state.apply_op(&op);
 
-        if let Ok(json) = serde_json::to_string(&state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&server_id, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
         }
 
         let _ = event_tx.send(NetworkEvent::ServerUpdated {
@@ -1891,6 +1786,7 @@ pub(crate) async fn handle_check_pending_join_timeout(
     event_tx: &mpsc::Sender<NetworkEvent>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     server_id: String,
+    _crdt_store: &CrdtStore,
 ) {
     if pending_server_joins.remove(&server_id).is_some() {
         hollow_log!("[HOLLOW-CRDT] Server join timed out for {server_id}");
@@ -1917,6 +1813,7 @@ pub(crate) async fn flush_pending_sync_requests(
     event_tx: &mpsc::Sender<NetworkEvent>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    _crdt_store: &CrdtStore,
 ) {
     let Some(entries) = pending_sync_requests.remove(peer_str) else {
         return;
@@ -2040,10 +1937,11 @@ pub(crate) async fn flush_pending_sync_requests(
 /// Handle `MessageEnvelope::CrdtOp` (MLS path) — permission-checked CRDT op application.
 pub(crate) async fn handle_envelope_crdt_op(
     server_states: &mut HashMap<String, ServerState>,
-    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    _bundle_keypair: &crate::identity::native_identity::NativeKeypair,
     event_tx: &mpsc::Sender<NetworkEvent>,
     sid: String,
     op_json: String,
+    crdt_store: &CrdtStore,
 ) {
     if !server_states.contains_key(&sid) { return; }
     let op = match serde_json::from_str::<crate::crdt::operations::CrdtOp>(&op_json) {
@@ -2127,15 +2025,9 @@ pub(crate) async fn handle_envelope_crdt_op(
     let was_len = state.op_log.len();
     let _ = state.apply_op(&op);
     if state.op_log.len() > was_len {
-        if let Ok(json) = serde_json::to_string(&*state) {
-            let data_dir = crate::identity::data_dir().unwrap_or_default();
-            let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-            let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-            let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                let _ = store.save_server_state(&sid, &json);
-                let _ = store.insert_crdt_op(&op);
-            }
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(sid.clone(), json);
         }
         match &op.payload {
             CrdtPayload::ChannelAdded { channel_id, name, channel_type, .. } => {
@@ -2196,6 +2088,8 @@ pub(crate) async fn handle_envelope_server_delete(
     event_tx: &mpsc::Sender<NetworkEvent>,
     sender_peer_id: &str,
     sid: String,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) {
     let sender_role = server_states.get(&sid)
         .map(|s| s.get_role(sender_peer_id))
@@ -2205,16 +2099,10 @@ pub(crate) async fn handle_envelope_server_delete(
         return;
     }
     if server_states.remove(&sid).is_some() {
-        let data_dir = crate::identity::data_dir().unwrap_or_default();
-        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-            let _ = store.delete_server_state(&sid);
-        }
+        crdt_store.delete_server(sid.clone());
         if let Some(mls_mgr_ref) = mls {
             mls_mgr_ref.remove_group(&sid);
-            persist_mls_state(mls_mgr_ref, bundle_keypair);
+            persist_mls_state(mls_mgr_ref, crypto_store);
         }
         let _ = event_tx.send(NetworkEvent::ServerDeleted {
             server_id: sid,
@@ -2232,6 +2120,8 @@ pub(crate) async fn handle_envelope_member_kick(
     local_peer: &str,
     sender_peer_id: &str,
     sid: String,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
 ) {
     let can_kick = if let Some(state) = server_states.get(&sid) {
         let sender_role = state.get_role(sender_peer_id);
@@ -2245,16 +2135,10 @@ pub(crate) async fn handle_envelope_member_kick(
         return;
     }
     if server_states.remove(&sid).is_some() {
-        let data_dir = crate::identity::data_dir().unwrap_or_default();
-        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-            let _ = store.delete_server_state(&sid);
-        }
+        crdt_store.delete_server(sid.clone());
         if let Some(mls_mgr_ref) = mls {
             mls_mgr_ref.remove_group(&sid);
-            persist_mls_state(mls_mgr_ref, bundle_keypair);
+            persist_mls_state(mls_mgr_ref, crypto_store);
         }
         let _ = event_tx.send(NetworkEvent::ServerDeleted {
             server_id: sid,
@@ -2276,6 +2160,7 @@ pub(crate) async fn handle_envelope_sync_req(
     sender_peer_id: String,
     sid: String,
     state_vector_json: String,
+    _crdt_store: &CrdtStore,
 ) {
     hollow_log!("[HOLLOW-CRDT] MLS SyncReq from {sender_peer_id} for {sid}, our op_log has {} ops", server_states.get(&sid).map(|s| s.op_log.len()).unwrap_or(0));
     if let Some(state) = server_states.get(&sid) {
@@ -2287,7 +2172,7 @@ pub(crate) async fn handle_envelope_sync_req(
                 let resp = MessageEnvelope::SyncResp {
                     sid: sid.clone(), ops_json, target: None,
                 };
-                let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, bundle_keypair).is_ok();
+                let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, crypto_store).is_ok();
                 if !mls_sent {
                     let resp_json = serde_json::to_string(&resp).unwrap_or_default();
                     send_encrypted_message(
@@ -2304,23 +2189,18 @@ pub(crate) async fn handle_envelope_sync_req(
 /// Handle `MessageEnvelope::SyncResp` (MLS path).
 pub(crate) async fn handle_envelope_sync_resp(
     server_states: &mut HashMap<String, ServerState>,
-    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    _bundle_keypair: &crate::identity::native_identity::NativeKeypair,
     event_tx: &mpsc::Sender<NetworkEvent>,
     sid: String,
     ops_json: String,
+    crdt_store: &CrdtStore,
 ) {
     if let Some(state) = server_states.get_mut(&sid) {
         if let Ok(incoming_ops) = serde_json::from_str::<Vec<crate::crdt::operations::CrdtOp>>(&ops_json) {
             if let Ok(applied) = crate::crdt::sync::merge_ops(state, incoming_ops) {
                 if applied > 0 {
-                    if let Ok(json) = serde_json::to_string(&*state) {
-                        let data_dir = crate::identity::data_dir().unwrap_or_default();
-                        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
-                        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
-                        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
-                            let _ = store.save_server_state(&sid, &json);
-                        }
+                    if let Ok(json) = serialize_state_lean(state) {
+                        crdt_store.save_state(sid.clone(), json);
                     }
                     let _ = event_tx.send(NetworkEvent::SyncCompleted {
                         server_id: sid.clone(),
@@ -2344,6 +2224,8 @@ pub(crate) async fn handle_envelope_channel_sync_req(
     cid: String,
     since_timestamp: i64,
     sender_timestamps: HashMap<String, i64>,
+    crypto_store: &CryptoStore,
+    _crdt_store: &CrdtStore,
 ) {
     if !server_states.contains_key(&sid) { return; }
     let data_dir = crate::identity::data_dir().unwrap_or_default();
@@ -2394,7 +2276,7 @@ pub(crate) async fn handle_envelope_channel_sync_req(
                     total, has_more, target: None,
                 };
                 if let Some(mls_mgr_ref) = mls {
-                    if let Err(e) = send_mls_to_peer(mls_mgr_ref, ws_cmd_tx, &sid, sender_peer_id, &batch, bundle_keypair) {
+                    if let Err(e) = send_mls_to_peer(mls_mgr_ref, ws_cmd_tx, &sid, sender_peer_id, &batch, crypto_store) {
                         hollow_log!("[HOLLOW-MLS] Failed to send MLS ChannelSyncBatch: {e}");
                     }
                 }
@@ -2417,6 +2299,7 @@ pub(crate) async fn handle_envelope_channel_probe(
     sender_peer_id: String,
     sid: String,
     cid: String,
+    _crdt_store: &CrdtStore,
 ) {
     if !server_states.contains_key(&sid) { return; }
     let data_dir = crate::identity::data_dir().unwrap_or_default();
@@ -2433,7 +2316,7 @@ pub(crate) async fn handle_envelope_channel_probe(
             msg_count: our_count,
             target: None,
         };
-        let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, bundle_keypair).is_ok();
+        let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, crypto_store).is_ok();
         if !mls_sent {
             let resp_json = serde_json::to_string(&resp).unwrap_or_default();
             send_encrypted_message(
@@ -2457,6 +2340,7 @@ pub(crate) async fn handle_envelope_channel_probe_resp(
     cid: String,
     their_latest: i64,
     _msg_count: u32,
+    _crdt_store: &CrdtStore,
 ) {
     let dedup_key = format!("{sid}:{cid}");
     if channel_sync_sent.get(&dedup_key).is_some_and(|t| t.elapsed() < Duration::from_secs(5)) {
@@ -2501,6 +2385,8 @@ pub(crate) async fn handle_envelope_channel_sync_batch(
     messages: Vec<SyncMessageItem>,
     _total: u32,
     has_more: Option<bool>,
+    crypto_store: &CryptoStore,
+    _crdt_store: &CrdtStore,
 ) {
     let data_dir = crate::identity::data_dir().unwrap_or_default();
     let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
@@ -2590,7 +2476,7 @@ pub(crate) async fn handle_envelope_channel_sync_batch(
                 target: None,
             };
             if let Some(mls_mgr_ref) = mls {
-                if let Err(e) = send_mls_to_peer(mls_mgr_ref, ws_cmd_tx, &sid, sender_peer_id, &req, bundle_keypair) {
+                if let Err(e) = send_mls_to_peer(mls_mgr_ref, ws_cmd_tx, &sid, sender_peer_id, &req, crypto_store) {
                     hollow_log!("[HOLLOW-MLS] Failed to send follow-up ChannelSyncReq: {e}");
                 }
             }

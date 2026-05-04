@@ -70,6 +70,60 @@ class MemberPanel extends ConsumerWidget {
   }
 }
 
+/// Lightweight data entry for the flat member list. No widget allocation —
+/// ListView.builder creates widgets lazily from these entries.
+class _MemberListEntry {
+  final bool isDivider;
+  final bool isOnline;
+  // Divider fields
+  final String? label;
+  final int? count;
+  final Color? glowColor;
+  // Member fields
+  final String? peerId;
+  final String? displayName;
+  final String? role;
+  final String? nickname;
+  final String? twitchUsername;
+  final List<crdt_api.LabelFfi>? labels;
+  final String? serverId;
+
+  const _MemberListEntry._({
+    required this.isDivider,
+    required this.isOnline,
+    this.label,
+    this.count,
+    this.glowColor,
+    this.peerId,
+    this.displayName,
+    this.role,
+    this.nickname,
+    this.twitchUsername,
+    this.labels,
+    this.serverId,
+  });
+
+  factory _MemberListEntry.divider({
+    required String label,
+    required int count,
+    required bool isOnline,
+    Color? glowColor,
+  }) => _MemberListEntry._(
+    isDivider: true, isOnline: isOnline,
+    label: label, count: count, glowColor: glowColor,
+  );
+
+  factory _MemberListEntry.member(dynamic m, {required bool isOnline, String? serverId}) =>
+    _MemberListEntry._(
+      isDivider: false, isOnline: isOnline,
+      peerId: m.peerId, displayName: m.displayName,
+      role: m.role, nickname: m.nickname,
+      twitchUsername: m.twitchUsername,
+      labels: (m.labels as List<dynamic>?)?.cast<crdt_api.LabelFfi>() ?? const [],
+      serverId: serverId,
+    );
+}
+
 /// ASOT-style section divider: "Online ------------ 10"
 /// Online variant has a subtle left-to-right glow sweep on the line.
 /// Uses [SharedTickers.shimmer] instead of per-instance AnimationController.
@@ -336,107 +390,73 @@ class _ServerMemberContent extends ConsumerWidget {
                   })
                   .toList();
 
-              // Group by role within each section
+              // Build a flat data list — widgets are created lazily by ListView.builder.
               final roleOrder = ['owner', 'admin', 'moderator', 'member'];
+              final flatItems = <_MemberListEntry>[];
 
-              Widget buildRoleGrouped(
-                List<dynamic> memberList,
-                bool isOnline,
-              ) {
-                final groups = <String, List<dynamic>>{};
-                for (final m in memberList) {
-                  final role = m.role as String;
-                  (groups[role] ??= []).add(m);
-                }
-
-                final items = <Widget>[];
-                for (final role in roleOrder) {
-                  final group = groups[role];
-                  if (group == null || group.isEmpty) continue;
-
-                  // Role-colored divider for online groups
-                  if (isOnline) {
-                    final glowColor = _roleGlowColor(role, hollow);
-                    final label = _roleDividerLabel(role);
-                    items.add(_SectionDivider(
-                      label: label,
-                      count: group.length,
-                      isOnline: true,
-                      glowColor: glowColor,
-                    ));
-                  }
-
-                  for (final m in group) {
-                    items.add(_ServerMemberTile(
-                      peerId: m.peerId,
-                      displayName: m.displayName,
-                      role: m.role,
-                      nickname: m.nickname,
-                      twitchUsername: m.twitchUsername,
-                      labels: m.labels,
-                      isOnline: isOnline,
-                      serverId: serverId,
-                    ));
-                  }
-                }
-                return Column(
-                    mainAxisSize: MainAxisSize.min, children: items);
-              }
-
-              // Build flat item list
-              final items = <Widget>[];
               if (online.isNotEmpty) {
-                // If all online members share the same role, show "Online" divider
                 final roles = online.map((m) => m.role).toSet();
                 if (roles.length == 1 && roles.first == 'member') {
-                  // All regular members — use simple "Online" divider
-                  items.add(_SectionDivider(
-                    label: 'Online',
-                    count: online.length,
-                    isOnline: true,
+                  flatItems.add(_MemberListEntry.divider(
+                    label: 'Online', count: online.length, isOnline: true,
                   ));
                   for (final m in online) {
-                    items.add(_ServerMemberTile(
-                      peerId: m.peerId,
-                      displayName: m.displayName,
-                      role: m.role,
-                      nickname: m.nickname,
-                      twitchUsername: m.twitchUsername,
-                      isOnline: true,
-                      serverId: serverId,
-                    ));
+                    flatItems.add(_MemberListEntry.member(m, isOnline: true, serverId: serverId));
                   }
                 } else {
-                  // Multiple roles — group by role with colored dividers
-                  items.add(buildRoleGrouped(online, true));
+                  final groups = <String, List<dynamic>>{};
+                  for (final m in online) {
+                    (groups[m.role as String] ??= []).add(m);
+                  }
+                  for (final role in roleOrder) {
+                    final group = groups[role];
+                    if (group == null || group.isEmpty) continue;
+                    flatItems.add(_MemberListEntry.divider(
+                      label: _roleDividerLabel(role),
+                      count: group.length,
+                      isOnline: true,
+                      glowColor: _roleGlowColor(role, hollow),
+                    ));
+                    for (final m in group) {
+                      flatItems.add(_MemberListEntry.member(m, isOnline: true, serverId: serverId));
+                    }
+                  }
                 }
               }
               if (offline.isNotEmpty) {
-                items.add(_SectionDivider(
-                  label: 'Offline',
-                  count: offline.length,
-                  isOnline: false,
+                flatItems.add(_MemberListEntry.divider(
+                  label: 'Offline', count: offline.length, isOnline: false,
                 ));
                 for (final m in offline) {
-                  items.add(_ServerMemberTile(
-                    peerId: m.peerId,
-                    displayName: m.displayName,
-                    role: m.role,
-                    nickname: m.nickname,
-                    twitchUsername: m.twitchUsername,
-                    isOnline: false,
-                    serverId: serverId,
-                  ));
+                  flatItems.add(_MemberListEntry.member(m, isOnline: false, serverId: serverId));
                 }
               }
 
-              // Phase 6.25: Use ListView.builder for lazy rendering —
-              // only builds visible members, prevents jank on first server entry.
               return ListView.builder(
                 padding: const EdgeInsets.symmetric(
                     vertical: HollowSpacing.sm),
-                itemCount: items.length,
-                itemBuilder: (context, index) => items[index],
+                itemCount: flatItems.length,
+                itemBuilder: (context, index) {
+                  final entry = flatItems[index];
+                  if (entry.isDivider) {
+                    return _SectionDivider(
+                      label: entry.label!,
+                      count: entry.count!,
+                      isOnline: entry.isOnline,
+                      glowColor: entry.glowColor,
+                    );
+                  }
+                  return _ServerMemberTile(
+                    peerId: entry.peerId!,
+                    displayName: entry.displayName!,
+                    role: entry.role!,
+                    nickname: entry.nickname!,
+                    twitchUsername: entry.twitchUsername!,
+                    labels: entry.labels!,
+                    isOnline: entry.isOnline,
+                    serverId: entry.serverId,
+                  );
+                },
               );
             },
             loading: () => const Center(
