@@ -61,38 +61,132 @@
 ## Remaining Items (not yet fixed)
 
 ### MEDIUM Severity
-| # | Domain | Title |
-|---|--------|-------|
-| M6 | Storage | Server avatar in CRDT settings (133KB in every serialization). Hot/cold deferred — needs sync FFI read path fix |
-| M7 | Storage | No message retention policy (~850 MB/server/year) |
-| M8 | Storage | Full op_log (300-500 KB) sent as plaintext to new joiners |
-| M15 | MLS | MLS recovery only targets Owner, not current coordinator |
-| M16 | MLS | Targeted MLS messages encrypt+broadcast to ALL members (O(n)) |
-| M17 | MLS | Commits only sent to online members — offline permanently desync |
-| M18 | Network | Gossip PeerExchange broadcasts topology to all room members |
-| M19 | Network | WS stream transfer reads entire file (34 MB) into memory |
-| M20 | Network | Gossip neighbor selection can exceed MAX_TOTAL_WEBRTC=50 cap |
-| M22 | Network | Relay silently drops messages under backpressure (now logged but not retried) |
-| M23 | Network | Background bandwidth scales poorly at 1000+ members |
-| M24 | Network | No file transfer resumption on WS disconnect |
-| M26 | Offline | Pending friend requests not re-sent after app restart |
-| M27 | Offline | Banned user retains server state until CRDT sync completes |
-| M28 | Offline | @Mentions during offline sync don't trigger mention-specific unread |
-| M29 | Network | Voice channel state not synced to newly-connecting peers (PeerJoined re-broadcast timing) |
-| M30 | MLS | Channel visibility not cryptographically enforced (known, pre-v1.0) |
+
+| # | Domain | Title | Location |
+|---|--------|-------|----------|
+| M6 | Storage | Server avatar in CRDT settings (133KB in every serialization) | `crdt.rs:364-368` |
+| M7 | Storage | No message retention policy (~850 MB/server/year) | `messages.rs` tables |
+| M8 | Storage | Full op_log (300-500 KB) sent as plaintext to new joiners | `swarm.rs:4918-4928` |
+| M15 | MLS | MLS recovery only targets Owner, not current coordinator | `swarm.rs:5353-5378` |
+| M16 | MLS | Targeted MLS messages encrypt+broadcast to ALL members (O(n)) | `crypto_handler.rs:186-213` |
+| M17 | MLS | Commits only sent to online members — offline permanently desync | `swarm.rs:2108-2123` |
+| M18 | Network | Gossip PeerExchange broadcasts topology to all room members | `gossip_relay.rs:110-129` |
+| M19 | Network | WS stream transfer reads entire file (34 MB) into memory | `ws_stream_transfer.rs` |
+| M20 | Network | Gossip neighbor selection can exceed MAX_TOTAL_WEBRTC=50 cap | `gossip.rs:237-265` |
+| M22 | Network | Relay silently drops messages under backpressure (now logged but not retried) | `ws_handler.cpp:28-32` |
+| M23 | Network | Background bandwidth scales poorly at 1000+ members | across networking code |
+| M24 | Network | No file transfer resumption on WS disconnect | `swarm.rs:1144-1151` |
+| M26 | Offline | Pending friend requests not re-sent after app restart | `swarm.rs:289` |
+| M27 | Offline | Banned user retains server state until CRDT sync completes | `sync_handler.rs` |
+| M28 | Offline | @Mentions during offline sync don't trigger mention-specific unread | `unread_provider.dart` |
+| M29 | Network | Voice channel state not synced to newly-connecting peers (PeerJoined re-broadcast timing) | `swarm.rs:1370-1390` |
+| M30 | MLS | Channel visibility not cryptographically enforced (known, pre-v1.0) | documented |
 
 ### LOW Severity
-| # | Domain | Title |
-|---|--------|-------|
-| L4 | Storage | `LIKE '%query%'` search without FTS index |
-| L6 | MLS | KeyPackage accepted without CRDT membership verification |
-| L7 | MLS | Remove-then-add recovery creates 2 epoch advances per peer |
-| L8 | MLS | Ed25519 uses `verify()` not `verify_strict()` |
-| L9 | MLS | Olm session count unbounded, no stale pruning |
-| L10 | Network | Data channel backpressure uses polling instead of callbacks |
-| L11 | Network | Gossip overlay `known_peers` not cleared on disconnect |
-| L14 | Offline | Server invites have no expiry mechanism |
 
-### New items from HOLLOW_PLAN.md
+| # | Domain | Title | Location |
+|---|--------|-------|----------|
+| L4 | Storage | `LIKE '%query%'` search without FTS index | `messages.rs:2254, 2304` |
+| L6 | MLS | KeyPackage accepted without CRDT membership verification | `swarm.rs:5792-5903` |
+| L7 | MLS | Remove-then-add recovery creates 2 epoch advances per peer | `swarm.rs:5863-5901` |
+| L8 | MLS | Ed25519 uses `verify()` not `verify_strict()` | `native_identity.rs:149` |
+| L9 | MLS | Olm session count unbounded, no stale pruning | `olm_manager.rs:12-19` |
+| L10 | Network | Data channel backpressure uses polling instead of callbacks | `webrtc_service.dart` |
+| L11 | Network | Gossip overlay `known_peers` not cleared on disconnect | `swarm.rs:1141-1152` |
+| L14 | Offline | Server invites have no expiry mechanism | `sync_handler.rs` |
+
+### New items discovered during QA work
 - [ ] Screen share gossip relay for voice channels (current limit: 5 viewers)
 - [ ] Topic-routed channel notifications (@mentions for unsubscribed channels)
+
+---
+
+## Detailed Descriptions of Remaining Items
+
+### M6: Server avatar in CRDT settings
+Server avatar is stored as base64 in the CRDT `settings` HashMap (key `"server_avatar"`). At 133 KB per avatar, this bloats every ServerState JSON serialization. We tried a hot/cold split (separate `server_blobs` table) but reverted — CrdtStore actor writes asynchronously but `get_server_setting()` reads DB synchronously via FFI, causing race conditions. Needs a sync-safe read path before retrying.
+
+### M7: No message retention policy
+Messages accumulate indefinitely in SQLCipher tables (`messages`, `channel_messages`). At ~850 MB/server/year with active use, long-running nodes will consume significant disk. Needs a configurable retention policy (per-server? global? time-based? count-based?) — design decision required.
+
+### M8: Full op_log sent as plaintext to new joiners
+When a new peer joins a server, the CRDT SyncResponse includes the full op_log (up to 1000 ops, 300-500 KB) as plaintext JSON in a `HavenMessage::SyncResponse`. This is sent before MLS is established. Exposes server structure (channel names, member roles, nicknames) to anyone who can intercept the relay traffic. Should be encrypted or use a challenge-response pattern.
+
+### M15: MLS recovery targets Owner, not coordinator
+When MLS state is corrupted and recovery is triggered, the recovery request (`MlsRecoveryRequest`) is sent to the server Owner rather than the current MLS coordinator (`is_mls_coordinator()` = lowest online peer_id). If the Owner is offline, recovery fails. Should target the current coordinator.
+
+### M16: Targeted MLS messages encrypt+broadcast to ALL
+`send_mls_to_peer()` encrypts a message for a single target but the MLS protocol encrypts for the entire group. The encrypted ciphertext is then broadcast to ALL room members via the relay. Every member receives and attempts to decrypt a message intended for one peer. O(n) bandwidth per targeted send.
+
+### M17: MLS commits only sent to online members
+When the MLS coordinator creates a commit (add/remove member), it's only broadcast to currently online members via the relay. Offline peers never receive the commit and permanently fall behind in epoch. On reconnect, they can't decrypt any messages from the new epoch. Current workaround: MLS recovery re-adds them, but this creates churn.
+
+### M18: Gossip PeerExchange broadcasts topology
+`gossip_relay.rs` periodically sends `PeerExchange` messages containing neighbor lists to all room members. This exposes the gossip topology to every peer, which is unnecessary — each peer only needs to know its own neighbors. Wastes bandwidth at scale.
+
+### M19: WS stream transfer reads entire file into memory
+`ws_stream_transfer.rs:send_file_over_ws()` reads the entire file into memory with `std::fs::read()` before chunking. For files up to 34 MB (the max relay transfer size), this means 34 MB resident in memory during transfer. Should use streaming file I/O.
+
+### M20: Gossip neighbor selection can exceed WebRTC cap
+`gossip.rs` neighbor selection doesn't check the total WebRTC peer connection count. A node could end up with more gossip neighbors than `MAX_TOTAL_WEBRTC=50` allows, especially if it's in multiple servers with gossip mode active. Should coordinate with the voice channel PC count.
+
+### M22: Relay drops messages under backpressure (no retry)
+When a peer's outbound buffer exceeds 2 MB (soft limit), `send_to_peer()` silently drops the message and logs to stderr. The sender gets no indication. For critical messages (MLS commits, sync responses), this can cause permanent state divergence. Could add a priority system or retry queue for critical message types.
+
+### M23: Background bandwidth at 1000+ members
+Multiple background systems generate per-peer or per-room traffic: gossip PeerExchange, CRDT sync probes, profile broadcasts, MLS commits, voice channel state. At 1000+ members, the aggregate bandwidth from these background systems may saturate the relay connection. Needs measurement and tuning.
+
+### M24: No file transfer resumption on WS disconnect
+If a WS stream file transfer is in progress and the relay connection drops, the partial transfer is abandoned. `pending_ws_transfers` is cleaned up on disconnect (temp files deleted). No mechanism to resume from the last received chunk. WebRTC transfers have the same issue.
+
+### M26: Pending friend requests not re-sent after app restart
+`pending_friend_requests` HashMap in `swarm.rs` tracks friend requests that couldn't be delivered (peer offline). On peer reconnect, queued requests are sent. But on app restart, this in-memory map is empty — any pending requests from the previous session are lost. Needs persistence in SQLCipher.
+
+### M27: Banned user retains server state
+When a user is banned via CRDT `MemberBanned`, the ban takes effect immediately for online peers (UI filtering). But the banned user's local CRDT state and channel messages remain until they receive the ban op via sync. If the banned user is offline when banned, they retain full access until next sync. The UI should also enforce the ban locally on receipt.
+
+### M28: @Mentions during offline sync don't trigger unread
+When catching up on messages via sync after being offline, `@mention` patterns in received messages are not processed for mention-specific unread state. The `unread_provider.dart` only triggers mention highlighting for live-received messages, not bulk sync.
+
+### M29: Voice channel state not synced to newly-connecting peers
+When a peer connects and another peer is already in a voice channel, the existing peer re-broadcasts `VoiceChannelJoin` at `swarm.rs:1370-1390`. But this only fires during the `PeerJoined` handler, and the message may arrive before MLS key exchange completes (sent as plaintext to work around this, but timing is still fragile). The reconnecting peer may not see existing VC participants until someone leaves/rejoins.
+
+### M30: Channel visibility not cryptographically enforced
+Channel `visibility` (Everyone/Specific Roles) is UI-filtered only — all members still receive all messages via the server-wide MLS group. A member with a custom client could see "hidden" channels. True enforcement requires per-channel MLS subgroups (Option B in the design), which is a significant architectural change planned for pre-v1.0.
+
+### L4: LIKE '%query%' search without FTS
+Message search uses `WHERE text LIKE '%query%'` which is a full table scan. For large message histories (100K+ messages), this becomes slow. FTS5 virtual table would provide indexed full-text search. Low priority since search is infrequent.
+
+### L6: KeyPackage accepted without CRDT membership
+When the MLS coordinator receives a `MlsKeyPackage` from a peer, it's processed without verifying the peer is actually a CRDT member of the server. A non-member could potentially join the MLS group by sending a valid KeyPackage. Should check `server_state.members.contains_key(peer_id)` before processing.
+
+### L7: Remove-then-add recovery creates 2 epochs
+MLS recovery removes the stale member then re-adds them, advancing the epoch twice. All other members must process both commits. Could be optimized to a single epoch advance with a custom proposal, but OpenMLS may not support this directly.
+
+### L8: Ed25519 verify() vs verify_strict()
+`native_identity.rs` uses `ed25519_dalek::verify()` instead of `verify_strict()`. The non-strict version accepts some malleated signatures. Low risk since we're not using signatures for consensus, but `verify_strict()` is the recommended default.
+
+### L9: Olm session count unbounded
+`OlmManager` stores Olm sessions indefinitely. Over time with many peers, this grows without bound. Stale sessions (peers not seen in months) should be pruned. Low priority since Olm sessions are small (~2 KB each).
+
+### L10: Data channel backpressure uses polling
+WebRTC data channel send checks `bufferedAmount` in a polling loop with delays. Should use the `onBufferedAmountLow` callback for event-driven flow control. Current approach wastes CPU but works correctly.
+
+### L11: Gossip overlay known_peers not cleared on disconnect
+When WS disconnects, `gossip_overlays` are not cleared. On reconnect, stale peer entries may cause neighbor selection to target disconnected peers. Should clear or rebuild overlays on disconnect.
+
+### L14: Server invites have no expiry
+Server invite codes never expire. Once generated, an invite link works forever. Should add optional expiry (24h, 7d, never) and max-use counts.
+
+---
+
+## Positive Findings (things done well)
+
+- Server switching is correctly batched (atomic provider writes)
+- Chat messages properly capped at 200 with lazy `ScrollablePositionedList.builder`
+- SharedTickers architecture — all decorative animations share a single ticker
+- Strategic `RepaintBoundary` placement isolates repaint regions
+- Ed25519/Olm/MLS library choices all provide constant-time guarantees
+- Topic-based relay routing reduces per-channel bandwidth
+- CrdtStore + CryptoStore actor pattern prevents DB connection churn
+- Lazy avatar loading (avatarProvider) eliminates 80+ MB startup cost
