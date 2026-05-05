@@ -4,7 +4,7 @@
 //! as libp2p, using ed25519-dalek directly.
 
 use bip39::Mnemonic;
-use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 
 /// Native Ed25519 keypair, replacing `libp2p::identity::Keypair`.
 #[derive(Clone)]
@@ -146,7 +146,7 @@ impl NativeKeypair {
             .try_into()
             .map_err(|_| "Signature must be 64 bytes")?;
         let sig = ed25519_dalek::Signature::from_bytes(&sig_bytes);
-        Ok(verifying_key.verify(payload, &sig).is_ok())
+        Ok(verifying_key.verify_strict(payload, &sig).is_ok())
     }
 }
 

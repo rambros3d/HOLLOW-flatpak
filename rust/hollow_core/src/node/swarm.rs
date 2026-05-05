@@ -291,6 +291,27 @@ async fn run_event_loop(
     // Pending friend requests: peer_id → requested_at timestamp.
     // Queued when peer isn't reachable (no shared rooms), sent when they appear.
     let mut pending_friend_requests: HashMap<String, i64> = HashMap::new();
+    {
+        let data_dir = crate::identity::data_dir().unwrap_or_default();
+        let db_path = data_dir.join("messages.db").to_string_lossy().to_string();
+        let proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
+        let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &passphrase) {
+            if let Ok(friends) = store.load_friends(Some("pending")) {
+                for (peer_id, _status, direction, requested_at, _updated_at) in friends {
+                    if direction == "outgoing" {
+                        pending_friend_requests.insert(peer_id, requested_at);
+                    }
+                }
+                if !pending_friend_requests.is_empty() {
+                    hollow_log!(
+                        "[HOLLOW-FRIENDS] Restored {} pending outgoing friend requests from DB",
+                        pending_friend_requests.len()
+                    );
+                }
+            }
+        }
+    }
 
     // Track failed sync requests per peer — retried after session re-establishment.
     // Maps peer_id_str → Vec<(server_id, channel_id, since_timestamp)>
@@ -1207,6 +1228,12 @@ async fn run_event_loop(
                         }
                         voice_channel_participants.retain(|_, p| !p.is_empty());
                         voice_channel_gossip_mode.clear();
+                        for overlay in gossip_overlays.values_mut() {
+                            overlay.known_peers.clear();
+                            overlay.neighbors.clear();
+                            overlay.peer_scores.clear();
+                            overlay.pending_relays.clear();
+                        }
                     }
                     WsEvent::PeerJoined { room, peer_id } => {
                         hollow_log!("[HOLLOW-WS] Peer {peer_id} joined room {room}");
@@ -1620,23 +1647,14 @@ async fn run_event_loop(
                                         if state.members.contains_key(pid_str) {
                                             let our_vector = StateVector::from_server_state(state);
                                             if let Ok(sv_json) = serde_json::to_string(&our_vector) {
-                                                let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(sid));
-                                                if mls_ok {
-                                                    let envelope = MessageEnvelope::SyncReq {
-                                                        sid: sid.clone(), state_vector_json: sv_json.clone(), target: None,
-                                                    };
-                                                    if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), &ws_cmd_tx, sid, pid_str, &envelope, &crypto_store) {
-                                                        hollow_log!("[HOLLOW-MLS] RoomMembers SyncReq failed: {e}");
-                                                    }
-                                                } else {
-                                                    send_message_to_peer(
-                                                        &ws_cmd_tx, &ws_room_peers,
-                                                        pid_str, HavenMessage::SyncRequest {
-                                                            server_id: sid.clone(),
-                                                            state_vector_json: sv_json,
-                                                        },
-                                                    );
-                                                }
+                                                // Always plaintext — peer's MLS epoch may be stale after reconnection.
+                                                send_message_to_peer(
+                                                    &ws_cmd_tx, &ws_room_peers,
+                                                    pid_str, HavenMessage::SyncRequest {
+                                                        server_id: sid.clone(),
+                                                        state_vector_json: sv_json,
+                                                    },
+                                                );
                                             }
 
                                             // Channel message sync via coordinator (same as PeerJoined).
@@ -2242,6 +2260,11 @@ async fn run_event_loop(
                     decrypt_fail_cooldown.retain(|_, instant| instant.elapsed() < REKEY_COOLDOWN);
                     channel_sync_sent.retain(|_, instant| instant.elapsed() < Duration::from_secs(30));
                     pending_shard_assembly.retain(|_, asm| asm.received_at.elapsed() < Duration::from_secs(600));
+                    let olm_ttl = Duration::from_secs(7 * 24 * 3600);
+                    let pruned = olm.prune_stale_sessions(olm_ttl);
+                    if pruned > 0 {
+                        hollow_log!("[HOLLOW-OLM] Pruned {pruned} stale Olm sessions (>7d inactive)");
+                    }
                 }
             }
 
@@ -4649,10 +4672,17 @@ async fn handle_incoming_request(
                             }
                         }
 
-                        let _ = event_tx.send(NetworkEvent::SyncCompleted {
-                            server_id,
-                            ops_applied: applied as u32,
-                        }).await;
+                        if state.is_banned(&local_peer_str) {
+                            let _ = event_tx.send(NetworkEvent::MemberLeft {
+                                server_id,
+                                peer_id: local_peer_str.to_string(),
+                            }).await;
+                        } else {
+                            let _ = event_tx.send(NetworkEvent::SyncCompleted {
+                                server_id,
+                                ops_applied: applied as u32,
+                            }).await;
+                        }
                     }
                     _ => {}
                 }
@@ -4831,6 +4861,19 @@ async fn handle_incoming_request(
                                 server_id: server_id.clone(),
                                 peer_id: peer_id.clone(),
                             }).await;
+                        }
+                        CrdtPayload::MemberBanned { peer_id } => {
+                            let local_peer = local_peer_str.to_string();
+                            if *peer_id == local_peer {
+                                let _ = event_tx.send(NetworkEvent::MemberLeft {
+                                    server_id: server_id.clone(),
+                                    peer_id: peer_id.clone(),
+                                }).await;
+                            } else {
+                                let _ = event_tx.send(NetworkEvent::ServerUpdated {
+                                    server_id: server_id.clone(),
+                                }).await;
+                            }
                         }
                         CrdtPayload::RoleChanged { peer_id, role, .. } => {
                             let _ = event_tx.send(NetworkEvent::RoleChanged {

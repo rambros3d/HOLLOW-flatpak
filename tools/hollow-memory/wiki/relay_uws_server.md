@@ -40,8 +40,6 @@ Attached to every WebSocket via uWebSockets' templated user data. Fields:
 |-------|------|-------------|
 | `peer_id` | `std::string` | Hex-encoded Ed25519 public key, set on auth |
 | `authenticated` | `bool` | `false` until auth handshake completes |
-| `binary_rate_tokens` | `uint32_t` | Token bucket for binary message rate limiting, starts at 100 |
-| `rate_last_refill` | `steady_clock::time_point` | Last time tokens were refilled |
 | `auth_timer` | `us_timer_t*` | 10-second auth timeout timer, nulled after auth or on close |
 | `license_key` | `std::string` | The license key this peer authenticated with (empty if license not required) |
 
@@ -93,13 +91,9 @@ Caches `/server-stats` JSON for 5 seconds to avoid re-reading `/proc` on every r
 
 `online_users()` returns `peer_sockets.size()`.
 
-### Backpressure constant
+### Backpressure
 
-```cpp
-constexpr size_t MAX_BACKPRESSURE_SOFT = 2 * 1024 * 1024;  // 2 MB
-```
-
-Defined in `state.h`. The hard limit (4 MB) is set via uWebSockets' `.maxBackpressure` in `setup_ws_handler()`.
+No soft backpressure limit — removed because it silently dropped CRDT sync messages and broke all offline-to-online flows. Hard limit (64 MB) is set via uWebSockets' `.maxBackpressure` in `setup_ws_handler()` as a safety net for dead connections.
 
 ### Type alias
 
@@ -311,7 +305,7 @@ Registers the `/ws` endpoint with these settings:
 | `.compression` | `uWS::DISABLED` | No per-message compression (content is already encrypted) |
 | `.maxPayloadLength` | `64 * 1024 * 1024` (64 MB) | Maximum single message size. NEVER lower — ChannelSyncBatch can exceed 2 MB after MLS+base64. Silently kills connections if exceeded. |
 | `.idleTimeout` | `120` seconds | Connection closed if no data (including pings) for 120s |
-| `.maxBackpressure` | `4 * 1024 * 1024` (4 MB) | Hard backpressure limit — uWS force-closes at this threshold |
+| `.maxBackpressure` | `64 * 1024 * 1024` (64 MB) | Hard backpressure limit — uWS force-closes truly dead connections at this threshold |
 | `.sendPingsAutomatically` | `true` | uWS sends WebSocket pings automatically |
 
 ### Connection lifecycle
@@ -331,7 +325,6 @@ When a new WebSocket connects:
 1. If `!authenticated`: route to `handle_auth()`. First message MUST be auth.
 2. If `TEXT` opcode: reject if >1 MB (silent drop). Route to `handle_text_message()`.
 3. If `BINARY` opcode:
-   - Check rate limit via `check_binary_rate_limit()`. Drop silently if exhausted.
    - Dispatch on first byte:
      - `0x01` -> `handle_binary_broadcast()` — room broadcast via 32-byte room hash
      - `0x02` -> `handle_binary_direct()` — peer-to-peer direct via NUL-delimited fields
@@ -341,7 +334,7 @@ When a new WebSocket connects:
 
 #### .drain handler
 
-Empty (no-op). Backpressure is handled reactively in `send_to_peer()`.
+Empty (no-op).
 
 #### .close handler
 
@@ -400,18 +393,10 @@ Helper: serializes `nlohmann::json` to string and sends as TEXT opcode. No backp
 The CRITICAL message delivery function. All routed messages go through this:
 
 ```cpp
-if (ws->getBufferedAmount() < MAX_BACKPRESSURE_SOFT) {
-    ws->send(data, op);
-} else {
-    fprintf(stderr, "[RELAY] Backpressure drop: peer=%s buffered=%zu msg_size=%zu\n",
-            d ? d->peer_id.c_str() : "?", ws->getBufferedAmount(), data.size());
-}
+ws->send(data, op);
 ```
 
-- **Soft limit (2 MB):** If the peer's send buffer exceeds 2 MB, messages are silently dropped and logged to stderr.
-- **Hard limit (4 MB):** uWebSockets force-closes the connection at `.maxBackpressure = 4MB`.
-- This means: between 2-4 MB buffered, new messages are dropped. Above 4 MB, the connection dies.
-- The drop is silent to the sender — no error is returned. The log format includes peer_id, current buffer size, and message size.
+No soft limit — sends unconditionally. `maxBackpressure` (64 MB) is the only safety net for dead connections. Previous soft limit (2 MB) silently dropped CRDT sync responses and broke all offline-to-online flows.
 
 ### ws_handler.cpp:handle_join() — Room join
 
@@ -562,9 +547,9 @@ The type change from 0x04 to 0x06 lets receivers distinguish forwarded direct me
 
 The 0x01 broadcast is the only type that doesn't rewrite — it forwards the entire frame as-is (the sender identity is embedded in the encrypted MLS payload, not the routing header).
 
-### ws_handler.cpp:check_binary_rate_limit() — Binary rate limiting
+### ws_handler.cpp — Binary rate limiting (REMOVED)
 
-Token bucket algorithm:
+Previously used a token bucket algorithm (removed — broke reconnection bursts):
 - Bucket capacity: 100 tokens.
 - Refill rate: 20 tokens/second.
 - Cost: 1 token per binary message.
@@ -827,8 +812,7 @@ ulimit -n 500000
 1. Sender's Rust `node/` encrypts the message with MLS and sends a binary frame: `[0x01][32-byte server_id][MLS ciphertext]`.
 2. Rust `ws_client.rs` sends this over the WSS connection to `relay.anonlisten.com:443/ws`.
 3. Relay's `.message` handler receives it as `BINARY` opcode.
-4. `check_rate_limit()` passes (tokens available).
-5. First byte is `0x01` -> `handle_binary_broadcast()`.
+4. First byte is `0x01` -> `handle_binary_broadcast()`.
 6. Bytes 1-32 are hex-encoded to get the room code (server ID).
 7. The room is looked up in `ws_rooms`.
 8. The entire raw frame is forwarded via `send_to_peer()` to every other peer in the room.
@@ -853,9 +837,7 @@ ulimit -n 500000
 | Message to non-existent room | Silently dropped |
 | Message from non-member | Silently dropped |
 | Direct to offline target | Silently dropped |
-| Binary rate limit exceeded | Silently dropped |
-| Backpressure > 2 MB (soft) | Message dropped, logged to stderr |
-| Backpressure > 4 MB (hard) | uWebSockets force-closes connection |
+| Backpressure > 64 MB (hard) | uWebSockets force-closes dead connection |
 | No data for 120s | uWebSockets idle timeout, connection closed |
 | keys.json removed keys | Affected peers kicked within 30s |
 | TLS cert/key missing on startup | Fatal exit |
@@ -871,6 +853,6 @@ ulimit -n 500000
 - **No connection logging:** Comments throughout the code (`// privacy: no connection logging`) indicate deliberate suppression of peer connect/disconnect logs.
 - **Sender identity injection:** For binary types 0x02/0x03/0x04, the relay replaces/injects the sender's peer_id — peers cannot spoof their identity to the relay.
 - **Timestamp anti-replay:** 60-second skew window limits replay attacks on auth and signaling requests.
-- **Rate limiting:** Binary messages are rate-limited to prevent flooding (20/s sustained, 100 burst).
+- **No rate limiting:** Removed — Ed25519 auth + license keys are the DoS protection layer.
 - **Room isolation:** Peers can only send to rooms they've joined. Non-members are silently rejected.
 - **License revocation:** Active connections can be terminated within 30 seconds by removing their key from `keys.json`.

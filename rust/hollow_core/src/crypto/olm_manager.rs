@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -17,6 +18,7 @@ pub(crate) struct OlmManager {
     /// (type 0) for ALL messages until replaced by an inbound session.
     /// Cleared when `create_inbound_session` replaces the session.
     outbound_only: HashSet<String>,
+    session_last_used: HashMap<String, Instant>,
 }
 
 impl OlmManager {
@@ -26,6 +28,7 @@ impl OlmManager {
             account: Account::new(),
             sessions: HashMap::new(),
             outbound_only: HashSet::new(),
+            session_last_used: HashMap::new(),
         }
     }
 
@@ -45,12 +48,18 @@ impl OlmManager {
             session_map.insert(peer_id, Session::from_pickle(session_pickle));
         }
 
+        let now = Instant::now();
+        let session_last_used: HashMap<String, Instant> = session_map.keys()
+            .map(|k| (k.clone(), now))
+            .collect();
+
         Ok(OlmManager {
             account,
             sessions: session_map,
             // Restored sessions: conservatively assume they could be outbound.
             // On first PreKey received from peer, the session will be replaced.
             outbound_only: HashSet::new(),
+            session_last_used,
         })
     }
 
@@ -92,6 +101,7 @@ impl OlmManager {
         );
         self.sessions.insert(peer_id.to_string(), session);
         self.outbound_only.insert(peer_id.to_string());
+        self.session_last_used.insert(peer_id.to_string(), Instant::now());
         Ok(())
     }
 
@@ -121,6 +131,7 @@ impl OlmManager {
 
         self.sessions.insert(peer_id.to_string(), session);
         self.outbound_only.remove(peer_id); // Now inbound-derived — produces Normal
+        self.session_last_used.insert(peer_id.to_string(), Instant::now());
         Ok(plaintext)
     }
 
@@ -133,6 +144,7 @@ impl OlmManager {
             .ok_or_else(|| format!("No session for peer {peer_id}"))?;
         let olm_msg = session.encrypt(plaintext);
         let (msg_type, ciphertext) = olm_msg.to_parts();
+        self.session_last_used.insert(peer_id.to_string(), Instant::now());
         Ok((msg_type, ciphertext))
     }
 
@@ -149,9 +161,11 @@ impl OlmManager {
             .ok_or_else(|| format!("No session for peer {peer_id}"))?;
         let olm_msg = OlmMessage::from_parts(message_type, ciphertext_bytes)
             .map_err(|e| format!("Failed to decode OlmMessage: {e}"))?;
-        session
+        let plaintext = session
             .decrypt(&olm_msg)
-            .map_err(|e| format!("Decryption failed: {e}"))
+            .map_err(|e| format!("Decryption failed: {e}"))?;
+        self.session_last_used.insert(peer_id.to_string(), Instant::now());
+        Ok(plaintext)
     }
 
     /// Try to decrypt a PreKey message using an existing session.
@@ -183,6 +197,22 @@ impl OlmManager {
     pub fn remove_session(&mut self, peer_id: &str) {
         self.sessions.remove(peer_id);
         self.outbound_only.remove(peer_id);
+        self.session_last_used.remove(peer_id);
+    }
+
+    /// Remove sessions not used within the given TTL. Returns count pruned.
+    pub fn prune_stale_sessions(&mut self, ttl: Duration) -> usize {
+        let stale: Vec<String> = self.session_last_used.iter()
+            .filter(|(_, last)| last.elapsed() > ttl)
+            .map(|(id, _)| id.clone())
+            .collect();
+        let count = stale.len();
+        for peer_id in &stale {
+            self.sessions.remove(peer_id);
+            self.outbound_only.remove(peer_id);
+            self.session_last_used.remove(peer_id);
+        }
+        count
     }
 
     /// Mark a session as bidirectional (no longer outbound-only).

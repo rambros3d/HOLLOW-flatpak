@@ -56,11 +56,27 @@
 - [x] **M21:** Text frame 1 MB size cap added (text frames are only join/leave/subscribe JSON)
 - [x] **L12:** Text frames now share same 1 MB cap; binary rate limit unchanged (100 burst/20 per sec). `maxPayloadLength` raised to 64 MB (was 10 MB) — lowering silently kills connections due to ChannelSyncBatch size
 
+### Tier 9 — Targeted fixes + relay uncapping
+- [x] **L8:** Ed25519 `verify()` → `verify_strict()` (rejects non-canonical signatures)
+- [x] **L9:** Olm session pruning — `session_last_used` tracking + 7-day TTL prune every 5 min
+- [x] **L11:** Gossip overlay `known_peers`/`neighbors`/`peer_scores`/`pending_relays` cleared on WS disconnect
+- [x] **M26:** Pending friend requests restored from DB on startup (outgoing+pending loaded into HashMap)
+- [x] **M27:** Banned user server removal — `is_banned()` check after `merge_ops` in plaintext SyncResponse handler + explicit `MemberBanned` arm in CrdtOpBroadcast (emits `MemberLeft` for local user)
+- [x] **Relay uncapping:** Removed soft backpressure (was 2MB, silently dropped CRDT sync), removed binary rate limit (100 burst/20sec, blocked reconnection floods), raised `.maxBackpressure` to 64MB, raised `MAX_ROOMS_PER_PEER` to 10000
+- [x] **RoomMembers SyncRequest → plaintext:** Fixed MLS epoch staleness blocking all CRDT sync after offline (was the root cause of server renames/bans not arriving)
+
 ---
 
 ## Remaining Items (not yet fixed)
 
-### MEDIUM Severity
+### Tier 9 — Quick fixes (small, self-contained, no design decisions)
+
+| # | Domain | Title | Location |
+|---|--------|-------|----------|
+| M29 | Network | Voice channel leave not synced to peers (join works, leave doesn't) | `swarm.rs:1370-1390` |
+| M28 | Offline | @Mentions during offline sync don't trigger mention-specific unread | `unread_provider.dart` |
+
+### Tier 10 — Design decisions needed (requires discussion before coding)
 
 | # | Domain | Title | Location |
 |---|--------|-------|----------|
@@ -68,36 +84,30 @@
 | M7 | Storage | No message retention policy (~850 MB/server/year) | `messages.rs` tables |
 | M8 | Storage | Full op_log (300-500 KB) sent as plaintext to new joiners | `swarm.rs:4918-4928` |
 | M15 | MLS | MLS recovery only targets Owner, not current coordinator | `swarm.rs:5353-5378` |
-| M16 | MLS | Targeted MLS messages encrypt+broadcast to ALL members (O(n)) | `crypto_handler.rs:186-213` |
 | M17 | MLS | Commits only sent to online members — offline permanently desync | `swarm.rs:2108-2123` |
-| M18 | Network | Gossip PeerExchange broadcasts topology to all room members | `gossip_relay.rs:110-129` |
-| M19 | Network | WS stream transfer reads entire file (34 MB) into memory | `ws_stream_transfer.rs` |
-| M20 | Network | Gossip neighbor selection can exceed MAX_TOTAL_WEBRTC=50 cap | `gossip.rs:237-265` |
 | M22 | Network | Relay silently drops messages under backpressure (now logged but not retried) | `ws_handler.cpp:28-32` |
-| M23 | Network | Background bandwidth scales poorly at 1000+ members | across networking code |
-| M24 | Network | No file transfer resumption on WS disconnect | `swarm.rs:1144-1151` |
-| M26 | Offline | Pending friend requests not re-sent after app restart | `swarm.rs:289` |
-| M27 | Offline | Banned user retains server state until CRDT sync completes | `sync_handler.rs` |
-| M28 | Offline | @Mentions during offline sync don't trigger mention-specific unread | `unread_provider.dart` |
-| M29 | Network | Voice channel state not synced to newly-connecting peers (PeerJoined re-broadcast timing) | `swarm.rs:1370-1390` |
 | M30 | MLS | Channel visibility not cryptographically enforced (known, pre-v1.0) | documented |
+| L6 | MLS | KeyPackage accepted without CRDT membership verification | `swarm.rs:5792-5903` |
+| L14 | Offline | Server invites have no expiry mechanism | `sync_handler.rs` |
 
-### LOW Severity
+### Tier 11 — Scaling & architecture (pre-v1.0, matters at 1000+ members)
 
 | # | Domain | Title | Location |
 |---|--------|-------|----------|
+| M16 | MLS | Targeted MLS messages encrypt+broadcast to ALL members (O(n)) | `crypto_handler.rs:186-213` |
+| M18 | Network | Gossip PeerExchange broadcasts topology to all room members | `gossip_relay.rs:110-129` |
+| M19 | Network | WS stream transfer reads entire file (34 MB) into memory | `ws_stream_transfer.rs` |
+| M20 | Network | Gossip neighbor selection can exceed MAX_TOTAL_WEBRTC=50 cap | `gossip.rs:237-265` |
+| M23 | Network | Background bandwidth scales poorly at 1000+ members | across networking code |
+| M24 | Network | No file transfer resumption on WS disconnect | `swarm.rs:1144-1151` |
 | L4 | Storage | `LIKE '%query%'` search without FTS index | `messages.rs:2254, 2304` |
-| L6 | MLS | KeyPackage accepted without CRDT membership verification | `swarm.rs:5792-5903` |
 | L7 | MLS | Remove-then-add recovery creates 2 epoch advances per peer | `swarm.rs:5863-5901` |
-| L8 | MLS | Ed25519 uses `verify()` not `verify_strict()` | `native_identity.rs:149` |
-| L9 | MLS | Olm session count unbounded, no stale pruning | `olm_manager.rs:12-19` |
 | L10 | Network | Data channel backpressure uses polling instead of callbacks | `webrtc_service.dart` |
-| L11 | Network | Gossip overlay `known_peers` not cleared on disconnect | `swarm.rs:1141-1152` |
-| L14 | Offline | Server invites have no expiry mechanism | `sync_handler.rs` |
 
 ### New items discovered during QA work
 - [ ] Screen share gossip relay for voice channels (current limit: 5 viewers)
 - [ ] Topic-routed channel notifications (@mentions for unsubscribed channels)
+- [ ] Friend removal not delivered to offline peers (no queue-and-drain like friend requests)
 
 ---
 
