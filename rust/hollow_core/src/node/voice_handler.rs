@@ -6,7 +6,7 @@ use crate::crdt::server_state::ServerState;
 use crate::crypto::{MlsManager, OlmManager, CryptoStore};
 use crate::identity::native_identity::NativeKeypair;
 use super::crypto_handler::{
-    peer_is_reachable, send_mls_broadcast, send_mls_to_peer,
+    peer_is_reachable, send_mls_broadcast,
     send_encrypted_message, send_message_to_peer,
 };
 use super::types::*;
@@ -544,12 +544,9 @@ pub(crate) async fn handle_voice_channel_send_signal(
             }
         }
     } else {
-        // Targeted SDP/ICE: MLS first, Olm fallback.
-        let mls_sent = mls_ok && send_mls_to_peer(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &peer_id, &envelope, crypto_store).is_ok();
-        if !mls_sent {
-            let env_json = serde_json::to_string(&envelope).unwrap_or_default();
-            send_encrypted_message(olm, crypto_store, &peer_id, &env_json, event_tx, ws_cmd_tx, ws_room_peers).await;
-        }
+        // Targeted SDP/ICE: Olm encrypted + SendDirect.
+        let env_json = serde_json::to_string(&envelope).unwrap_or_default();
+        send_encrypted_message(olm, crypto_store, &peer_id, &env_json, event_tx, ws_cmd_tx, ws_room_peers).await;
     }
 }
 

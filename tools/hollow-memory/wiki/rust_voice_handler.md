@@ -4,7 +4,7 @@ The voice handler module manages all voice-related signaling in the Rust node la
 
 Source file: `rust/hollow_core/src/node/voice_handler.rs` (932 lines)
 
-Imports from: `crypto_handler::{peer_is_reachable, send_mls_broadcast, send_mls_to_peer, send_encrypted_message, send_message_to_peer}`, `types::*`, `gossip::GossipOverlay`
+Imports from: `crypto_handler::{peer_is_reachable, send_mls_broadcast, send_encrypted_message, send_message_to_peer}`, `types::*`, `gossip::GossipOverlay`
 
 ---
 
@@ -152,10 +152,9 @@ The handler classifies signals as either broadcast or targeted based on `signal_
 2. If MLS fails or is unavailable, fall back to plaintext `HavenMessage` variants sent individually to each reachable server member. The plaintext message variants are `HavenMessage::VoiceChannelAudioState`, `HavenMessage::VoiceChannelScreenState`, `HavenMessage::VoiceChannelCameraState`.
 
 **Targeted signals** (all SDP/ICE/reneg types):
-1. Try `send_mls_to_peer()` to encrypt the envelope for a specific peer within the MLS group
-2. If MLS fails, fall back to Olm encryption via `send_encrypted_message()` (Olm is preferred over plaintext because SDP/ICE contain IP addresses — sensitive data)
+1. Olm-encrypt via `send_encrypted_message()` + `SendDirect` to the specific peer
 
-This distinction is important: broadcast signals reveal no sensitive data (muted/deafened/enabled flags), while targeted signals contain SDP offers/answers and ICE candidates that expose IP addresses. Hence targeted signals use Olm as fallback (E2EE), not plaintext.
+This distinction is important: broadcast signals reveal no sensitive data (muted/deafened/enabled flags), while targeted signals contain SDP offers/answers and ICE candidates that expose IP addresses. Hence targeted signals always use Olm (E2EE), not plaintext.
 
 ---
 

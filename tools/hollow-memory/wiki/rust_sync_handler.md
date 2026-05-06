@@ -25,7 +25,7 @@ All handlers receive `crdt_store: &CrdtStore` as a parameter. State serializatio
 - `crate::crdt::operations::{CrdtPayload, Permission, MemberRole, CrdtOp}`
 - `crate::crdt::server_state::ServerState`
 - `crate::crypto::{CryptoStore, MlsManager, OlmManager}`
-- `crypto_handler::{peer_is_reachable, send_message_to_peer, send_mls_broadcast, send_mls_to_peer, persist_mls_state, send_encrypted_message}`
+- `crypto_handler::{peer_is_reachable, send_message_to_peer, send_mls_broadcast, persist_mls_state, send_encrypted_message}`
 - `types::*` — NetworkEvent, NodeCommand, HavenMessage, MessageEnvelope, SyncMessageItem, SyncReactionItem, SyncFileMetaItem
 
 ## handle_create_server()
@@ -197,8 +197,7 @@ Emits: `NetworkEvent::MemberLeft { server_id, peer_id }`
 Two-phase notification:
 1. CRDT op broadcast to remaining members (excluding kicked peer)
 2. Kick notification to the kicked peer specifically:
-   - MLS: `MessageEnvelope::MemberKick { sid }` via `send_mls_to_peer()`, PLUS plaintext `HavenMessage::MemberKickBroadcast` as redundancy
-   - No MLS: plaintext `HavenMessage::MemberKickBroadcast` only
+   - `MessageEnvelope::MemberKick { sid }` via Olm (`send_encrypted_message()`), PLUS plaintext `HavenMessage::MemberKickBroadcast` as redundancy
 
 MLS cleanup after kick:
 1. `mls_mgr.remove_member(&server_id, &peer_id)` — generates commit bytes
@@ -545,7 +544,7 @@ Flow:
 1. Deserialize their `StateVector` from JSON
 2. Compute delta via `crate::crdt::sync::compute_delta(&state.op_log, &their_vector)` — finds ops in our log that they're missing
 3. If delta is non-empty: serialize ops, wrap in `MessageEnvelope::SyncResp { sid, ops_json, target: None }`
-4. Send via MLS (`send_mls_to_peer`); if MLS fails, fall back to Olm (`send_encrypted_message`)
+4. Send via Olm (`send_encrypted_message`) + `SendDirect` to the requesting peer
 
 ## handle_envelope_sync_resp()
 

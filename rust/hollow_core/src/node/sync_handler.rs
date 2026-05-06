@@ -9,7 +9,7 @@ use crate::crdt::server_state::ServerState;
 use crate::crypto::{CryptoStore, MlsManager, OlmManager};
 use super::crdt_store::CrdtStore;
 use super::crypto_handler::{
-    peer_is_reachable, send_message_to_peer, send_mls_broadcast, send_mls_to_peer,
+    peer_is_reachable, send_message_to_peer, send_mls_broadcast,
     persist_mls_state, send_encrypted_message,
 };
 use super::signaling::SignalingCmd;
@@ -676,6 +676,7 @@ pub(crate) async fn handle_change_role(
 pub(crate) async fn handle_kick_member(
     server_states: &mut HashMap<String, ServerState>,
     mls: &mut Option<MlsManager>,
+    olm: &mut OlmManager,
     event_tx: &mpsc::Sender<NetworkEvent>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
@@ -738,22 +739,11 @@ pub(crate) async fn handle_kick_member(
             }
         }
 
-        // Send kick notification to the kicked peer — MLS (targeted) first, plaintext fallback.
-        let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
-        if mls_ok {
-            let envelope = MessageEnvelope::MemberKick { sid: server_id.clone() };
-            if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &peer_id, &envelope, crypto_store) {
-                hollow_log!("[HOLLOW-MLS] MemberKick targeted send failed: {e}");
-            }
-            if peer_is_reachable(ws_room_peers, &peer_id) {
-                send_message_to_peer(
-                    ws_cmd_tx, ws_room_peers,
-                    &peer_id, HavenMessage::MemberKickBroadcast {
-                        server_id: server_id.clone(),
-                    },
-                );
-            }
-        } else if peer_is_reachable(ws_room_peers, &peer_id) {
+        // Send kick notification to the kicked peer via Olm (targeted) + plaintext broadcast.
+        let envelope = MessageEnvelope::MemberKick { sid: server_id.clone() };
+        let kick_json = serde_json::to_string(&envelope).unwrap_or_default();
+        send_encrypted_message(olm, crypto_store, &peer_id, &kick_json, event_tx, ws_cmd_tx, ws_room_peers).await;
+        if peer_is_reachable(ws_room_peers, &peer_id) {
             send_message_to_peer(
                 ws_cmd_tx, ws_room_peers,
                 &peer_id, HavenMessage::MemberKickBroadcast {
@@ -2172,15 +2162,12 @@ pub(crate) async fn handle_envelope_sync_req(
                 let resp = MessageEnvelope::SyncResp {
                     sid: sid.clone(), ops_json, target: None,
                 };
-                let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, crypto_store).is_ok();
-                if !mls_sent {
-                    let resp_json = serde_json::to_string(&resp).unwrap_or_default();
-                    send_encrypted_message(
-                        olm, crypto_store,
-                        &sender_peer_id, &resp_json, event_tx,
-                        ws_cmd_tx, ws_room_peers,
-                    ).await;
-                }
+                let resp_json = serde_json::to_string(&resp).unwrap_or_default();
+                send_encrypted_message(
+                    olm, crypto_store,
+                    &sender_peer_id, &resp_json, event_tx,
+                    ws_cmd_tx, ws_room_peers,
+                ).await;
             }
         }
     }
@@ -2216,9 +2203,11 @@ pub(crate) async fn handle_envelope_sync_resp(
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_envelope_channel_sync_req(
     server_states: &HashMap<String, ServerState>,
-    mls: &mut Option<MlsManager>,
+    olm: &mut OlmManager,
     bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    event_tx: &mpsc::Sender<NetworkEvent>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
     sender_peer_id: &str,
     sid: String,
     cid: String,
@@ -2275,11 +2264,11 @@ pub(crate) async fn handle_envelope_channel_sync_req(
                     sid: sid.clone(), cid: cid.clone(), messages: items,
                     total, has_more, target: None,
                 };
-                if let Some(mls_mgr_ref) = mls {
-                    if let Err(e) = send_mls_to_peer(mls_mgr_ref, ws_cmd_tx, &sid, sender_peer_id, &batch, crypto_store) {
-                        hollow_log!("[HOLLOW-MLS] Failed to send MLS ChannelSyncBatch: {e}");
-                    }
-                }
+                let batch_json = serde_json::to_string(&batch).unwrap_or_default();
+                send_encrypted_message(
+                    olm, crypto_store, sender_peer_id, &batch_json, event_tx,
+                    ws_cmd_tx, ws_room_peers,
+                ).await;
             }
         }
     }
@@ -2291,7 +2280,6 @@ pub(crate) async fn handle_envelope_channel_probe(
     server_states: &HashMap<String, ServerState>,
     olm: &mut OlmManager,
     crypto_store: &CryptoStore,
-    mls_mgr: &mut MlsManager,
     bundle_keypair: &crate::identity::native_identity::NativeKeypair,
     event_tx: &mpsc::Sender<NetworkEvent>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
@@ -2316,15 +2304,12 @@ pub(crate) async fn handle_envelope_channel_probe(
             msg_count: our_count,
             target: None,
         };
-        let mls_sent = send_mls_to_peer(mls_mgr, ws_cmd_tx, &sid, &sender_peer_id, &resp, crypto_store).is_ok();
-        if !mls_sent {
-            let resp_json = serde_json::to_string(&resp).unwrap_or_default();
-            send_encrypted_message(
-                olm, crypto_store,
-                &sender_peer_id, &resp_json, event_tx,
-                ws_cmd_tx, ws_room_peers,
-            ).await;
-        }
+        let resp_json = serde_json::to_string(&resp).unwrap_or_default();
+        send_encrypted_message(
+            olm, crypto_store,
+            &sender_peer_id, &resp_json, event_tx,
+            ws_cmd_tx, ws_room_peers,
+        ).await;
     }
 }
 
@@ -2374,10 +2359,11 @@ pub(crate) async fn handle_envelope_channel_probe_resp(
 /// Handle `MessageEnvelope::ChannelSyncBatch` (MLS path).
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_envelope_channel_sync_batch(
-    mls: &mut Option<MlsManager>,
+    olm: &mut OlmManager,
     bundle_keypair: &crate::identity::native_identity::NativeKeypair,
     event_tx: &mpsc::Sender<NetworkEvent>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
     local_peer: &str,
     sender_peer_id: &str,
     sid: String,
@@ -2475,11 +2461,11 @@ pub(crate) async fn handle_envelope_channel_sync_batch(
                 since_timestamp: since, sender_timestamps: sender_ts,
                 target: None,
             };
-            if let Some(mls_mgr_ref) = mls {
-                if let Err(e) = send_mls_to_peer(mls_mgr_ref, ws_cmd_tx, &sid, sender_peer_id, &req, crypto_store) {
-                    hollow_log!("[HOLLOW-MLS] Failed to send follow-up ChannelSyncReq: {e}");
-                }
-            }
+            let req_json = serde_json::to_string(&req).unwrap_or_default();
+            send_encrypted_message(
+                olm, crypto_store, sender_peer_id, &req_json, event_tx,
+                ws_cmd_tx, ws_room_peers,
+            ).await;
         }
         if has_more != Some(true) {
             let _ = event_tx.send(NetworkEvent::MessageSyncCompleted {

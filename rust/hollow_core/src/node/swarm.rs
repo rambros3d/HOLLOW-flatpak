@@ -19,7 +19,7 @@ use super::crypto_handler::{
     message_signing_payload, sign_message, verify_message_signature,
     persist_mls_state, persist_crypto_state,
     peer_is_reachable, is_mls_coordinator, is_vault_coordinator, ws_room_for_peer,
-    send_mls_broadcast, send_mls_to_peer, send_encrypted_message,
+    send_mls_broadcast, send_encrypted_message,
     send_message_to_peer,
 };
 use super::file_handler;
@@ -324,6 +324,8 @@ async fn run_event_loop(
 
     // MLS batch addition queue: collect KeyPackages and process them in a single commit.
     let mut pending_mls_key_packages: HashMap<String, Vec<(String, Vec<u8>)>> = HashMap::new();
+    // MLS batch removal queue: collect peers needing removal before re-add (recovery).
+    let mut pending_mls_removals: HashMap<String, Vec<String>> = HashMap::new();
     let mut mls_batch_interval = Duration::from_secs(2);
     let mut mls_batch_timer = tokio::time::interval(mls_batch_interval);
     mls_batch_timer.tick().await; // consume immediate first tick
@@ -523,7 +525,7 @@ async fn run_event_loop(
 
                     NodeCommand::KickMember { server_id, peer_id } => {
                         if sync_handler::handle_kick_member(
-                            &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
+                            &mut server_states, &mut mls, &mut olm, &event_tx, &ws_cmd_tx,
                             &ws_room_peers, &bundle_keypair, &local_peer_str,
                             server_id, peer_id,
                             &crypto_store, &crdt_store,
@@ -2133,7 +2135,8 @@ async fn run_event_loop(
                                         &mut pending_shard_assembly, &mut pending_file_streams,
                                         &mut pending_shard_streams, &mut early_file_streams,
                                         &mut decrypt_fail_cooldown,
-                                        &mut pending_mls_key_packages, &mut mls_decrypt_failures,
+                                        &mut pending_mls_key_packages, &mut pending_mls_removals,
+                                        &mut mls_decrypt_failures,
                                         &ws_cmd_tx, &ws_room_peers,
                                         &webrtc_peers, &mut pending_webrtc_sends,
                                         &mut channel_sync_sent,
@@ -2151,9 +2154,45 @@ async fn run_event_loop(
                 }
             }
 
-            // MLS batch addition timer — process queued KeyPackages as a single commit.
+            // MLS batch timer — process queued removals then additions (2 epochs max for N peers).
             _ = mls_batch_timer.tick() => {
                 if let Some(ref mut mls_mgr) = mls {
+                    // Phase 1: Batch removals (stale members + recovery re-adds) — single commit.
+                    let removal_sids: Vec<String> = pending_mls_removals.keys().cloned().collect();
+                    for server_id in removal_sids {
+                        if let Some(peers_to_remove) = pending_mls_removals.remove(&server_id) {
+                            if peers_to_remove.is_empty() { continue; }
+                            let unique: Vec<String> = {
+                                let mut set = std::collections::HashSet::new();
+                                peers_to_remove.into_iter().filter(|p| set.insert(p.clone())).collect()
+                            };
+                            let refs: Vec<&str> = unique.iter().map(|s| s.as_str()).collect();
+                            hollow_log!("[HOLLOW-MLS] Batch-removing {} members from {server_id}: {:?}", refs.len(), refs);
+                            match mls_mgr.remove_members_batch(&server_id, &refs) {
+                                Ok(commit_bytes) => {
+                                    if let Err(e) = mls_mgr.merge_pending_commit(&server_id) {
+                                        hollow_log!("[HOLLOW-MLS] Failed to merge batch removal commit: {e}");
+                                        continue;
+                                    }
+                                    persist_mls_state(mls_mgr, &crypto_store);
+                                    let commit_b64 = base64::engine::general_purpose::STANDARD.encode(&commit_bytes);
+                                    if let Some(state) = server_states.get(&server_id) {
+                                        for member_peer in state.members.keys() {
+                                            if member_peer == &local_peer_str { continue; }
+                                            if unique.contains(member_peer) { continue; }
+                                            if peer_is_reachable(&ws_room_peers, member_peer) {
+                                                send_message_to_peer(&ws_cmd_tx, &ws_room_peers, member_peer,
+                                                    HavenMessage::MlsCommit { server_id: server_id.clone(), commit: commit_b64.clone() });
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(e) => hollow_log!("[HOLLOW-MLS] Batch removal failed for {server_id}: {e}"),
+                            }
+                        }
+                    }
+
+                    // Phase 2: Batch additions — single commit.
                     let server_ids: Vec<String> = pending_mls_key_packages.keys().cloned().collect();
                     for server_id in server_ids {
                         if let Some(queued) = pending_mls_key_packages.remove(&server_id) {
@@ -2516,12 +2555,12 @@ async fn run_event_loop(
                                             sk: shard_key,
                                             target: None,
                                         };
-                                        if let Some(ref mut mls_mgr) = mls {
-                                            if mls_mgr.has_group(server_id) {
-                                                let _ = send_mls_to_peer(mls_mgr, &ws_cmd_tx, server_id, source_peer, &envelope, &crypto_store);
-                                                total_requested += 1;
-                                            }
-                                        }
+                                        let env_json = serde_json::to_string(&envelope).unwrap_or_default();
+                                        send_encrypted_message(
+                                            &mut olm, &crypto_store, source_peer, &env_json,
+                                            &event_tx, &ws_cmd_tx, &ws_room_peers,
+                                        ).await;
+                                        total_requested += 1;
                                     }
                                 }
                             }
@@ -2633,12 +2672,12 @@ async fn run_event_loop(
                                                     sk: shard_key,
                                                     target: None,
                                                 };
-                                                if let Some(ref mut mls_mgr) = mls {
-                                                    if mls_mgr.has_group(server_id.as_str()) {
-                                                        let _ = send_mls_to_peer(mls_mgr, &ws_cmd_tx, server_id, source_peer, &envelope, &crypto_store);
-                                                        total_requested += 1;
-                                                    }
-                                                }
+                                                let env_json = serde_json::to_string(&envelope).unwrap_or_default();
+                                                send_encrypted_message(
+                                                    &mut olm, &crypto_store, source_peer, &env_json,
+                                                    &event_tx, &ws_cmd_tx, &ws_room_peers,
+                                                ).await;
+                                                total_requested += 1;
                                             }
                                         }
                                     }
@@ -2672,15 +2711,8 @@ async fn run_event_loop(
                                                 data: data_b64,
                                                 target: None,
                                             };
-                                            // MLS first, Olm fallback (peer's epoch may be stale).
-                                            let mls_sent = mls.as_mut().map(|m| {
-                                                m.has_group(server_id.as_str()) &&
-                                                send_mls_to_peer(m, &ws_cmd_tx, server_id, &migration.to_peer, &envelope, &crypto_store).is_ok()
-                                            }).unwrap_or(false);
-                                            if !mls_sent {
-                                                let env_json = serde_json::to_string(&envelope).unwrap_or_default();
-                                                send_encrypted_message(&mut olm, &crypto_store, &migration.to_peer, &env_json, &event_tx, &ws_cmd_tx, &ws_room_peers).await;
-                                            }
+                                            let env_json = serde_json::to_string(&envelope).unwrap_or_default();
+                                            send_encrypted_message(&mut olm, &crypto_store, &migration.to_peer, &env_json, &event_tx, &ws_cmd_tx, &ws_room_peers).await;
                                             total_requested += 1;
                                             hollow_log!("[HOLLOW-VAULT] Migrating shard {} of {} from local → {}", migration.shard_index, manifest.content_id, migration.to_peer);
                                         }
@@ -2712,7 +2744,12 @@ async fn run_event_loop(
 
             // -- Gossip peer exchange timer (2 minutes) --
             _ = gossip_exchange_timer.tick() => {
-                super::gossip_relay::handle_gossip_exchange(&gossip_overlays, &ws_cmd_tx);
+                super::gossip_relay::handle_gossip_exchange(&gossip_overlays, &ws_cmd_tx, &ws_room_peers);
+                // Adaptive interval: scale with largest server's member count.
+                let max_members = server_states.values().map(|s| s.members.len()).max().unwrap_or(0);
+                let new_secs = super::gossip::gossip_exchange_interval_secs(max_members);
+                gossip_exchange_timer = tokio::time::interval(Duration::from_secs(new_secs));
+                gossip_exchange_timer.tick().await;
             }
 
             // -- Hollow Share scheduler (1 second) --
@@ -2756,6 +2793,7 @@ async fn handle_incoming_request(
     early_file_streams: &mut HashMap<String, (std::path::PathBuf, u64, String)>,
     decrypt_fail_cooldown: &mut HashMap<String, std::time::Instant>,
     pending_mls_key_packages: &mut HashMap<String, Vec<(String, Vec<u8>)>>,
+    pending_mls_removals: &mut HashMap<String, Vec<String>>,
     mls_decrypt_failures: &mut HashMap<String, u32>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
@@ -5369,22 +5407,12 @@ async fn handle_incoming_request(
                         // Send via MLS if peer is in the group, otherwise Olm fallback.
                         // Don't use MLS if peer hasn't joined yet (they sent plaintext request
                         // before receiving Welcome) — they can't decrypt the MLS response.
-                        let mls_ok = mls.as_ref().is_some_and(|m| {
-                            m.has_group(&server_id) && m.group_members(&server_id).contains(&peer_str.to_string())
-                        });
-                        if mls_ok {
-                            if let Err(e) = send_mls_to_peer(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &peer_str, &envelope, crypto_store) {
-                                hollow_log!("[HOLLOW-MLS] ChannelSyncBatch targeted send failed: {e}");
-                            }
-                        } else {
-                            let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
-                            let _ok = send_encrypted_message(
-                                olm, crypto_store,
-                                
-                                peer_str, &envelope_json, event_tx,
+                        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+                        send_encrypted_message(
+                            olm, crypto_store,
+                            peer_str, &envelope_json, event_tx,
                             ws_cmd_tx, ws_room_peers,
-                            ).await;
-                        }
+                        ).await;
                     }
                 }
             }
@@ -5750,7 +5778,8 @@ async fn handle_incoming_request(
 
                             MessageEnvelope::ChannelSyncReq { sid, cid, since_timestamp, sender_timestamps, .. } => {
                                 sync_handler::handle_envelope_channel_sync_req(
-                                    server_states, mls, bundle_keypair, ws_cmd_tx,
+                                    server_states, olm, bundle_keypair, event_tx,
+                                    ws_cmd_tx, ws_room_peers,
                                     &sender_peer_id, sid, cid, since_timestamp, sender_timestamps,
                                     crypto_store, crdt_store,
                                 ).await;
@@ -5758,7 +5787,7 @@ async fn handle_incoming_request(
 
                             MessageEnvelope::ChannelProbe { sid, cid, our_latest: _their_latest, msg_count: _their_count, .. } => {
                                 sync_handler::handle_envelope_channel_probe(
-                                    server_states, olm, crypto_store, mls_mgr,
+                                    server_states, olm, crypto_store,
                                     bundle_keypair, event_tx, ws_cmd_tx, ws_room_peers,
                                     sender_peer_id, sid, cid,
                                     crdt_store,
@@ -5776,8 +5805,8 @@ async fn handle_incoming_request(
 
                             MessageEnvelope::ChannelSyncBatch { sid, cid, messages, total, has_more, .. } => {
                                 sync_handler::handle_envelope_channel_sync_batch(
-                                    mls, bundle_keypair, event_tx, ws_cmd_tx,
-                                    &local_peer, &sender_peer_id,
+                                    olm, bundle_keypair, event_tx, ws_cmd_tx,
+                                    ws_room_peers, &local_peer, &sender_peer_id,
                                     sid, cid, messages, total, has_more,
                                     crypto_store, crdt_store,
                                 ).await;
@@ -5787,9 +5816,9 @@ async fn handle_incoming_request(
 
                             MessageEnvelope::ShardStore { sid, cid, si, sk, k, m, total_size, tier, data, chunks, .. } => {
                                 vault_ops::handle_envelope_shard_store(
-                                    server_states, pending_shard_streams, mls,
+                                    server_states, pending_shard_streams, olm,
                                     bundle_keypair, crypto_store, event_tx, ws_cmd_tx,
-                                    &server_id, sender_peer_id,
+                                    ws_room_peers, sender_peer_id,
                                     sid, cid, si, sk, k, m, total_size, tier, data, chunks,
                                 ).await;
                             }
@@ -5813,7 +5842,7 @@ async fn handle_incoming_request(
 
                             MessageEnvelope::ShardRequest { sid, cid, si, sk, .. } => {
                                 vault_ops::handle_envelope_shard_request(
-                                    server_states, olm, crypto_store, mls_mgr,
+                                    server_states, olm, crypto_store,
                                     bundle_keypair, event_tx, ws_cmd_tx, ws_room_peers,
                                     webrtc_peers, pending_webrtc_sends,
                                     &server_id, sender_peer_id, sid, cid, si, sk,
@@ -5833,7 +5862,7 @@ async fn handle_incoming_request(
 
                             MessageEnvelope::ShardProbe { sid, cid, .. } => {
                                 vault_ops::handle_envelope_shard_probe(
-                                    server_states, olm, crypto_store, mls_mgr,
+                                    server_states, olm, crypto_store,
                                     bundle_keypair, event_tx, ws_cmd_tx, ws_room_peers,
                                     sender_peer_id, sid, cid,
                                 ).await;
@@ -6075,64 +6104,23 @@ async fn handle_incoming_request(
                     }
                 }
 
-                // Step 1: Clean stale MLS members not in CRDT member list.
-                // Handles identity resets (old peer_id ghost) and failed removals.
+                // Step 1: Queue stale MLS members (not in CRDT) for batch removal.
                 if let Some(state) = server_states.get(&server_id) {
                     let crdt_members: std::collections::HashSet<&String> = state.members.keys().collect();
                     let mls_members = mls_mgr.group_members(&server_id);
                     for stale_peer in &mls_members {
-                        if stale_peer == local_peer_str { continue; } // Don't remove ourselves
+                        if stale_peer == local_peer_str { continue; }
                         if !crdt_members.contains(stale_peer) {
-                            hollow_log!("[HOLLOW-MLS] Removing stale MLS member {stale_peer} from {server_id} (not in CRDT)");
-                            match mls_mgr.remove_member(&server_id, stale_peer) {
-                                Ok(commit_bytes) => {
-                                    if let Err(e) = mls_mgr.merge_pending_commit(&server_id) {
-                                        hollow_log!("[HOLLOW-MLS] Failed to merge stale removal commit: {e}");
-                                        continue;
-                                    }
-                                    persist_mls_state(mls_mgr, crypto_store);
-                                    let commit_b64 = base64::engine::general_purpose::STANDARD.encode(&commit_bytes);
-                                    for member_peer in state.members.keys() {
-                                        if member_peer == local_peer_str || member_peer == stale_peer { continue; }
-                                        if peer_is_reachable(ws_room_peers, member_peer) {
-                                            send_message_to_peer(ws_cmd_tx, ws_room_peers, member_peer,
-                                                HavenMessage::MlsCommit { server_id: server_id.clone(), commit: commit_b64.clone() });
-                                        }
-                                    }
-                                }
-                                Err(e) => hollow_log!("[HOLLOW-MLS] Failed to remove stale member {stale_peer}: {e}"),
-                            }
+                            hollow_log!("[HOLLOW-MLS] Queuing stale MLS member {stale_peer} for batch removal from {server_id}");
+                            pending_mls_removals.entry(server_id.clone()).or_default().push(stale_peer.clone());
                         }
                     }
                 }
 
-                // Step 2: If sender is already in MLS group, remove them first (recovery re-add).
-                // Peer dropped their local MLS state and sent a fresh KeyPackage — cycle them.
+                // Step 2: If sender is already in MLS group, queue them for batch removal (recovery re-add).
                 if mls_mgr.group_members(&server_id).contains(&peer_str.to_string()) {
-                    hollow_log!("[HOLLOW-MLS] Peer {peer_str} already in MLS group for {server_id} — removing for re-add (recovery)");
-                    if let Some(state) = server_states.get(&server_id) {
-                        match mls_mgr.remove_member(&server_id, peer_str) {
-                            Ok(commit_bytes) => {
-                                if let Err(e) = mls_mgr.merge_pending_commit(&server_id) {
-                                    hollow_log!("[HOLLOW-MLS] Failed to merge recovery removal commit: {e}");
-                                    return;
-                                }
-                                persist_mls_state(mls_mgr, crypto_store);
-                                let commit_b64 = base64::engine::general_purpose::STANDARD.encode(&commit_bytes);
-                                for member_peer in state.members.keys() {
-                                    if member_peer == local_peer_str || member_peer == peer_str { continue; }
-                                    if peer_is_reachable(ws_room_peers, member_peer) {
-                                        send_message_to_peer(ws_cmd_tx, ws_room_peers, member_peer,
-                                            HavenMessage::MlsCommit { server_id: server_id.clone(), commit: commit_b64.clone() });
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                hollow_log!("[HOLLOW-MLS] Failed to remove {peer_str} for re-add: {e}");
-                                return;
-                            }
-                        }
-                    }
+                    hollow_log!("[HOLLOW-MLS] Peer {peer_str} already in MLS group for {server_id} — queuing for batch removal + re-add");
+                    pending_mls_removals.entry(server_id.clone()).or_default().push(peer_str.to_string());
                 }
 
                 let kp_bytes = match base64::engine::general_purpose::STANDARD.decode(&key_package) {
@@ -6557,22 +6545,13 @@ async fn handle_incoming_request(
                                             vthumb: file_meta.video_thumb.clone(),
                                             share_ref: None,
                                         };
-                                        // Send FileHeader via MLS (targeted) if possible, Olm fallback.
-                                            let ctx_sid = file_meta.context_id.split(':').next().unwrap_or("").to_string();
-                                            let mls_ok = mls.as_ref().is_some_and(|m| {
-                                                m.has_group(&ctx_sid) && m.group_members(&ctx_sid).contains(&peer_str.to_string())
-                                            });
-                                            if mls_ok {
-                                                let _ = send_mls_to_peer(mls.as_mut().unwrap(), ws_cmd_tx, &ctx_sid, &peer_str, &header, crypto_store);
-                                            } else if olm.has_session(&peer_str) {
-                                                let header_json = serde_json::to_string(&header).unwrap_or_default();
-                                                send_encrypted_message(
-                                                    olm, crypto_store,
-                                                    
-                                                    &peer_str, &header_json, event_tx,
-                                                    ws_cmd_tx, ws_room_peers,
-                                                ).await;
-                                            }
+                                        // Send FileHeader via Olm (targeted) + SendDirect.
+                                            let header_json = serde_json::to_string(&header).unwrap_or_default();
+                                            send_encrypted_message(
+                                                olm, crypto_store,
+                                                &peer_str, &header_json, event_tx,
+                                                ws_cmd_tx, ws_room_peers,
+                                            ).await;
 
                                             if offset > 0 {
                                                 // Resumed transfer: skip FileHeader, stream from offset via WS.

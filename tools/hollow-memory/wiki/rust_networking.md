@@ -481,14 +481,14 @@ Flow:
 
 #### gossip_relay.rs:handle_gossip_exchange()
 
-Timer tick handler for peer exchange protocol. Broadcasts neighbor lists to server rooms.
+Timer tick handler for peer exchange protocol. Sends neighbor lists only to gossip neighbors (not the whole room).
 
 Flow:
 1. Iterate all server overlays
 2. Skip overlays with empty neighbor sets
 3. Build `HavenMessage::PeerExchange { server_id, peers }` with the overlay's neighbor list
-4. Serialize to JSON and send via `WsCommand::SendToRoom` to the server room
-5. This lets all room members learn about the overlay topology for better neighbor selection
+4. Send via `send_message_to_peer()` (`SendDirect`) to each gossip neighbor individually
+5. Adaptive interval: `gossip_exchange_interval_secs(max_members)` returns 120s/<100, 180s/100-499, 240s/500+
 
 ### Integration with Swarm Event Loop
 

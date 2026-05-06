@@ -237,6 +237,8 @@ pub(crate) fn send_mls_broadcast_topic(
 
 /// MLS-encrypt a targeted envelope and broadcast to the server room.
 /// All members decrypt (keeping ratchets in sync) but only `target_peer` processes it.
+/// Retained for backward compatibility — new code uses Olm+SendDirect instead.
+#[allow(dead_code)]
 pub(crate) fn send_mls_to_peer(
     mls: &mut MlsManager,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,

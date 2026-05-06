@@ -312,6 +312,42 @@ impl MlsManager {
         Ok(commit_bytes)
     }
 
+    /// Remove multiple members from the MLS group in a single commit.
+    /// Returns serialized commit. Caller must call `merge_pending_commit()` after broadcasting.
+    pub fn remove_members_batch(
+        &mut self,
+        server_id: &str,
+        peer_ids: &[&str],
+    ) -> Result<Vec<u8>, String> {
+        if peer_ids.is_empty() {
+            return Err("No peers to remove".to_string());
+        }
+        let group = self.groups.get_mut(server_id)
+            .ok_or_else(|| format!("No MLS group for server {server_id}"))?;
+
+        let mut leaf_indices = Vec::new();
+        for peer_id in peer_ids {
+            if let Some(member) = group.members().find(|m| m.credential.serialized_content() == peer_id.as_bytes()) {
+                leaf_indices.push(member.index);
+            } else {
+                hollow_log!("[HOLLOW-MLS] Peer {peer_id} not found in group for batch removal — skipping");
+            }
+        }
+        if leaf_indices.is_empty() {
+            return Err("No matching members found for batch removal".to_string());
+        }
+
+        let (commit_out, _welcome, _group_info) = group
+            .remove_members(&self.provider, &self.signer, &leaf_indices)
+            .map_err(|e| format!("Failed to batch-remove members: {e:?}"))?;
+
+        let commit_bytes = TlsSerialize::tls_serialize_detached(&commit_out)
+            .map_err(|e| format!("Failed to serialize batch-remove commit: {e:?}"))?;
+
+        hollow_log!("[HOLLOW-MLS] remove_members_batch commit for {} peers in server {server_id}", peer_ids.len());
+        Ok(commit_bytes)
+    }
+
     /// Join a group from a Welcome message (called by the joiner).
     pub fn join_from_welcome(
         &mut self,

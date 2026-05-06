@@ -103,13 +103,13 @@ Encrypts a `MessageEnvelope` for all server members and broadcasts it. Flow:
 
 The relay fans out the message to all room members. Each member decrypts with their own MLS group state, advancing the ratchet.
 
-### MLS Targeted Send
+### Targeted Peer Sends (Olm + SendDirect)
 
-`crypto_handler:send_mls_to_peer(mls, ws_cmd_tx, server_id, target_peer, envelope, keypair) -> Result<(), String>`
+All targeted peer-to-peer messages (shard requests, sync batches, file headers, voice signaling) use **Olm encryption + `SendDirect`** (relay frame 0x04) instead of MLS group broadcast. This sends only to the target peer — O(1) delivery instead of O(n).
 
-Encrypts and sends an envelope intended for a specific peer, but broadcast to the whole MLS group. Critical detail: **all members decrypt** (keeping ratchets in sync), but only the `target_peer` processes the envelope's content.
+The primary function is `send_encrypted_message(olm, crypto_store, peer_id, text, event_tx, ws_cmd_tx, ws_room_peers)` which Olm-encrypts the payload and sends via `WsCommand::SendDirect`. If Olm encryption fails (no session), the message is not delivered and `false` is returned.
 
-Implementation: clones the envelope's JSON value, injects a `"target"` field with the target peer ID, then encrypts and sends identically to `send_mls_broadcast`. The `target` field is checked on the receiving side to decide whether to process the payload.
+Previously, `send_mls_to_peer()` was used for targeted sends — it MLS-encrypted and broadcast to ALL room members (O(n)), with every member decrypting to keep ratchets in sync. This was replaced in Phase 6.75 Tier 11 because the O(n) overhead was unnecessary for targeted messages. The function is retained with `#[allow(dead_code)]` for backward compatibility.
 
 ### Peer Reachability
 
@@ -403,6 +403,10 @@ Removes a member from the MLS group. Steps:
 3. TLS-serialize and return the commit.
 
 Caller must call `merge_pending_commit()` after broadcasting. After removal, the epoch advances and the removed member's key material is excluded from future encryptions (forward secrecy).
+
+`MlsManager:remove_members_batch(server_id, peer_ids: &[&str]) -> Result<Vec<u8>, String>`
+
+Removes multiple members in a single commit (single epoch advance). Collects all leaf indices, calls `group.remove_members()` with the full slice. Skips peers not found in the group. Used by the batch timer for recovery removals and stale member cleanup.
 
 #### Join from Welcome
 

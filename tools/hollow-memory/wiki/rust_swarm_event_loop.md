@@ -340,7 +340,10 @@ After MLS decryption in the `MlsChannelMessage` handler, the inner envelope is m
 ## Timer-Based Operations
 
 ### mls_batch_timer (2 seconds)
-Processes queued MLS KeyPackages as a single batch commit per server. Deduplicates by peer_id (keeps last KeyPackage). After batch add: persists MLS state, emits MlsEpochChanged, sends Welcome to new members, broadcasts Commit to existing members.
+Two-phase processing per server:
+1. **Batch removals** — drains `pending_mls_removals` queue (stale members + recovery re-adds), calls `remove_members_batch()` for a single commit, broadcasts commit to remaining members.
+2. **Batch additions** — drains `pending_mls_key_packages` queue, deduplicates by peer_id, calls `add_members_batch()` for a single commit, sends Welcome to new members, broadcasts commit to existing members.
+Result: N recovering peers = 2 total epoch advances instead of 2N.
 
 ### rebootstrap_timer (30 seconds)
 Re-registers with the signaling server for all rooms (active_room + all server_ids) to discover new peers.
@@ -389,9 +392,9 @@ The event loop coordinates all three transport layers:
 **Gossip overlay** activates for servers with 6+ members. The loop maintains per-server `GossipOverlay` instances in `gossip_overlays`. Peer join/leave updates the overlay. File broadcasts use gossip for large server fan-out (`file_handler::broadcast_to_gossip_neighbors()`). Three timers maintain gossip health.
 
 **Transport selection for sends:**
-1. `send_message_to_peer()` finds the WS room containing the target peer and sends via WS `SendDirect`.
-2. `send_mls_to_peer()` MLS-encrypts and sends via WS `SendDirect` to the server room.
-3. `send_mls_broadcast()` MLS-encrypts and sends via WS `SendToRoom` (all members receive).
+1. `send_message_to_peer()` finds the WS room containing the target peer and sends plaintext via WS `SendDirect`.
+2. `send_encrypted_message()` Olm-encrypts and sends via WS `SendDirect` to a specific peer. Used for all targeted sends (shard requests, sync batches, file headers, voice signaling).
+3. `send_mls_broadcast()` MLS-encrypts and sends via WS `SendToRoom` (all members receive). Used for group messages (channel messages, CRDT ops, profile updates).
 4. `file_handler::stream_to_peer()` checks `webrtc_peers` first (sends via `NodeCommand` to Dart which drives WebRTC), falls back to WS stream transfer.
 
 ## Error Handling and Recovery

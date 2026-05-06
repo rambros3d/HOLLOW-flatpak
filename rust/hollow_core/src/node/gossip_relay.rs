@@ -107,10 +107,11 @@ pub(crate) fn handle_gossip_eviction(
 }
 
 /// Handle gossip peer exchange timer tick.
-/// Broadcasts neighbor list to each server room.
+/// Sends neighbor list only to gossip neighbors (not the entire room).
 pub(crate) fn handle_gossip_exchange(
     gossip_overlays: &HashMap<String, super::gossip::GossipOverlay>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
 ) {
     for overlay in gossip_overlays.values() {
         if overlay.neighbors.is_empty() { continue; }
@@ -119,12 +120,10 @@ pub(crate) fn handle_gossip_exchange(
             server_id: overlay.server_id.clone(),
             peers: peers_list,
         };
-        if let Ok(json) = serde_json::to_string(&msg) {
-            // Send to the server room — reaches all room members.
-            let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendToRoom {
-                room_code: overlay.server_id.clone(),
-                data: json.into_bytes(),
-            });
+        for neighbor in &overlay.neighbors {
+            if peer_is_reachable(ws_room_peers, neighbor) {
+                send_message_to_peer(ws_cmd_tx, ws_room_peers, neighbor, msg.clone());
+            }
         }
     }
 }

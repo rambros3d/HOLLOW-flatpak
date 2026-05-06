@@ -33,6 +33,15 @@ pub const VOICE_GOSSIP_THRESHOLD_DOWN: usize = 4;
 /// How long to wait for gossip file data before falling back to direct request (seconds).
 pub const BROADCAST_FALLBACK_TIMEOUT_SECS: u64 = 30;
 
+/// Adaptive gossip exchange interval based on max server member count.
+pub fn gossip_exchange_interval_secs(max_member_count: usize) -> u64 {
+    match max_member_count {
+        0..=99 => 120,
+        100..=499 => 180,
+        _ => 240,
+    }
+}
+
 // ── Peer Scoring ─────────────────────────────────────────────────────────────
 
 /// Scoring data for a known peer in a server overlay.

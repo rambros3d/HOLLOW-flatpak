@@ -85,6 +85,11 @@
 - [x] **M20:** Gossip neighbor selection respects global WebRTC 50 cap as hard limit. `select_initial_neighbors()` returns empty at zero budget. `rotate_with_budget()` receives global count from swarm
 - [x] **L4:** FTS5 full-text search indexes on `messages` and `channel_messages` tables. Content-sync triggers keep index in sync. Backfill on startup. Search functions use `MATCH` instead of `LIKE '%query%'`
 - [x] **M24:** Deferred — resumption infrastructure in place (offset field in FileRequest, seek support in ws_stream_send, append logic in ws_stream_receive) but transfer state is in-memory only. Needs SQLCipher persistence for cross-restart resumption. Current behavior: interrupted transfers restart cleanly via re-request
+- [x] **M16:** Targeted MLS messages converted to Olm+SendDirect — all 19 `send_mls_to_peer()` call sites now use `send_encrypted_message()` (Olm) + `SendDirect` (relay frame 0x04). O(1) delivery instead of O(n) broadcast. No MLS ratchet churn for targeted messages
+- [x] **M18:** Gossip PeerExchange narrowed from `SendToRoom` (all members) to per-neighbor `SendDirect`. 12 messages max instead of n. Receiver-side neighbor validation was already in place
+- [x] **M23:** Adaptive gossip exchange interval (120s/<100 members, 180s/100-499, 240s/500+). Interval recalculated after each exchange tick based on max server member count
+- [x] **L7:** MLS recovery removals batched — new `remove_members_batch()` in mls_manager.rs. Stale members + recovery re-adds queued in `pending_mls_removals`, processed as single commit in batch timer. N recovering peers = 2 total epoch advances instead of 2N
+- [x] **L10:** Data channel backpressure poll interval increased from 1ms to 5ms. flutter_webrtc doesn't expose `onBufferedAmountLow` callbacks; 5ms polling is adequate for 256 KB buffer drain cycles
 
 ### Storage hygiene
 - [x] **Voice recording temp cleanup:** Temp `.ogg` files in `$APPDATA/Hollow/temp/` now deleted after successful send (both DM and channel paths)
@@ -99,16 +104,6 @@
 | # | Domain | Title | Location |
 |---|--------|-------|----------|
 | M28 | Offline | @Mentions during offline sync don't trigger mention-specific unread — requires relay `0x09` notification hint frames for unsubscribed channels (topic routing means unsubscribed channels never receive messages to count). Small Dart-only fix possible for subscribed channels, but full solution needs relay change | `unread_provider.dart` + `relay-uws/` |
-
-### Tier 11 — Scaling & architecture (pre-v1.0, matters at 1000+ members)
-
-| # | Domain | Title | Location |
-|---|--------|-------|----------|
-| M16 | MLS | Targeted MLS messages encrypt+broadcast to ALL members (O(n)) | `crypto_handler.rs:186-213` |
-| M18 | Network | Gossip PeerExchange broadcasts topology to all room members | `gossip_relay.rs:110-129` |
-| M23 | Network | Background bandwidth scales poorly at 1000+ members | across networking code |
-| L7 | MLS | Remove-then-add recovery creates 2 epoch advances per peer | `swarm.rs:5863-5901` |
-| L10 | Network | Data channel backpressure uses polling instead of callbacks | `webrtc_service.dart` |
 
 ### New items discovered during QA work
 - [ ] Screen share gossip relay for voice channels (current limit: 5 viewers)

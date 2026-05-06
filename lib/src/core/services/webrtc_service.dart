@@ -290,7 +290,7 @@ class WebRtcService {
         // Backpressure: wait for SCTP buffer to drain if it's getting full.
         var buffered = await dc.getBufferedAmount();
         while (buffered > _kMaxBufferedAmount) {
-          await Future.delayed(const Duration(milliseconds: 1));
+          await Future.delayed(const Duration(milliseconds: 5));
           buffered = await dc.getBufferedAmount();
         }
 
