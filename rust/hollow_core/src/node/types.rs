@@ -655,6 +655,9 @@ pub(crate) enum HavenMessage {
         /// Which chunks we need (empty = all).
         #[serde(default)]
         chunks: Vec<u32>,
+        /// Byte offset to resume from (0 = start from beginning).
+        #[serde(default)]
+        offset: u64,
     },
 
     /// "Do you have this file?"

@@ -545,6 +545,7 @@ pub(crate) async fn handle_send_file(
 }
 
 /// Handle NodeCommand::RequestFile — request file from peer.
+/// Checks for a partial WS transfer and includes the byte offset for resumption.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_request_file(
     file_id: String,
@@ -552,16 +553,25 @@ pub(crate) fn handle_request_file(
     chunks: Vec<u32>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    pending_ws_transfers: &HashMap<String, super::ws_stream_transfer::WsTransferState>,
 ) {
-    // Send a FileRequest HavenMessage to the remote peer,
-    // asking them to send us the file data.
-    hollow_log!("[HOLLOW-FILE] Requesting file {file_id} from peer {peer_id_str}");
+    let offset = pending_ws_transfers.get(&file_id)
+        .map(|s| s.bytes_received)
+        .unwrap_or(0);
+
+    if offset > 0 {
+        hollow_log!("[HOLLOW-FILE] Resuming file {file_id} from offset {offset} from peer {peer_id_str}");
+    } else {
+        hollow_log!("[HOLLOW-FILE] Requesting file {file_id} from peer {peer_id_str}");
+    }
+
     if peer_is_reachable(&ws_room_peers, &peer_id_str) {
         send_message_to_peer(
             &ws_cmd_tx, &ws_room_peers,
             &peer_id_str, HavenMessage::FileRequest {
                 file_id,
                 chunks,
+                offset,
             },
         );
     }
@@ -691,6 +701,7 @@ pub(crate) async fn handle_webrtc_transfer_failed(
             &peer_id, HavenMessage::FileRequest {
                 file_id: transfer_id,
                 chunks: vec![],
+                offset: 0,
             },
         );
     }
@@ -893,7 +904,7 @@ pub(crate) async fn stream_to_peer(
     // Fallback: WSS relay binary streaming.
     if let Some(room) = ws_room_for_peer(ws_room_peers, peer_str) {
         ws_stream_transfer::ws_stream_send(
-            ws_cmd_tx, &room, peer_str, kind, id, source_path, total_size,
+            ws_cmd_tx, &room, peer_str, kind, id, source_path, total_size, 0,
         ).await;
     } else {
         hollow_log!("[HOLLOW-STREAM] Peer {peer_str} unreachable via WS — cannot stream {id}");

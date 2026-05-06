@@ -628,6 +628,49 @@ impl MessageStore {
         )
         .map_err(|e| format!("Failed to create share_chunks table: {e}"))?;
 
+        // -- FTS5 full-text search indexes (L4 QA fix) --
+        // Content-sync FTS: the FTS table reads from the main table on demand,
+        // triggers keep the index in sync on INSERT/DELETE/UPDATE.
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+                text, content='messages', content_rowid='id'
+            );
+            CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+                INSERT INTO messages_fts(rowid, text) VALUES (new.id, new.text);
+            END;
+            CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+                INSERT INTO messages_fts(messages_fts, rowid, text) VALUES('delete', old.id, old.text);
+            END;
+            CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN
+                INSERT INTO messages_fts(messages_fts, rowid, text) VALUES('delete', old.id, old.text);
+                INSERT INTO messages_fts(rowid, text) VALUES (new.id, new.text);
+            END;
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS channel_messages_fts USING fts5(
+                text, content='channel_messages', content_rowid='id'
+            );
+            CREATE TRIGGER IF NOT EXISTS channel_messages_fts_ai AFTER INSERT ON channel_messages BEGIN
+                INSERT INTO channel_messages_fts(rowid, text) VALUES (new.id, new.text);
+            END;
+            CREATE TRIGGER IF NOT EXISTS channel_messages_fts_ad AFTER DELETE ON channel_messages BEGIN
+                INSERT INTO channel_messages_fts(channel_messages_fts, rowid, text) VALUES('delete', old.id, old.text);
+            END;
+            CREATE TRIGGER IF NOT EXISTS channel_messages_fts_au AFTER UPDATE ON channel_messages BEGIN
+                INSERT INTO channel_messages_fts(channel_messages_fts, rowid, text) VALUES('delete', old.id, old.text);
+                INSERT INTO channel_messages_fts(rowid, text) VALUES (new.id, new.text);
+            END;"
+        ).unwrap_or_else(|e| {
+            eprintln!("[HOLLOW] FTS5 setup failed (non-fatal): {e}");
+        });
+
+        // Backfill FTS for existing messages (idempotent — rebuild clears + re-inserts).
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO messages_fts(messages_fts) VALUES('rebuild');
+             INSERT OR IGNORE INTO channel_messages_fts(channel_messages_fts) VALUES('rebuild');"
+        ).unwrap_or_else(|e| {
+            eprintln!("[HOLLOW] FTS5 rebuild failed (non-fatal): {e}");
+        });
+
         Ok(MessageStore { conn })
     }
 
@@ -2468,7 +2511,8 @@ impl MessageStore {
     /// Save a key-value setting (insert or update).
     // ── Search ────────────────────────────────────────────────────
 
-    /// Search channel messages by text content. Returns matching messages.
+    /// Search channel messages by text content using FTS5 index.
+    /// Falls back to LIKE if FTS match fails.
     pub fn search_channel_messages(
         &self,
         server_id: &str,
@@ -2476,20 +2520,22 @@ impl MessageStore {
         query: &str,
         limit: i32,
     ) -> Result<Vec<StoredChannelMessage>, String> {
-        let pattern = format!("%{}%", query);
+        let fts_query = query.replace('"', "\"\"");
+        let fts_pattern = format!("\"{}\"", fts_query);
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id, link_preview_json
-                 FROM channel_messages
-                 WHERE server_id = ?1 AND channel_id = ?2 AND hidden_at IS NULL AND text LIKE ?3
-                 ORDER BY id DESC
+                "SELECT cm.id, cm.server_id, cm.channel_id, cm.sender_id, cm.text, cm.is_mine, cm.timestamp, cm.signature, cm.public_key, cm.message_id, cm.edited_at, cm.hidden_at, cm.reply_to_mid, cm.file_id, cm.link_preview_json
+                 FROM channel_messages cm
+                 JOIN channel_messages_fts fts ON cm.id = fts.rowid
+                 WHERE fts.text MATCH ?3 AND cm.server_id = ?1 AND cm.channel_id = ?2 AND cm.hidden_at IS NULL
+                 ORDER BY cm.id DESC
                  LIMIT ?4",
             )
-            .map_err(|e| format!("Failed to prepare search query: {e}"))?;
+            .map_err(|e| format!("Failed to prepare FTS search query: {e}"))?;
 
         let rows = stmt
-            .query_map(params![server_id, channel_id, pattern, limit], |row| {
+            .query_map(params![server_id, channel_id, fts_pattern, limit], |row| {
                 Ok(StoredChannelMessage {
                     id: row.get(0)?,
                     server_id: row.get(1)?,
@@ -2519,27 +2565,29 @@ impl MessageStore {
         Ok(messages)
     }
 
-    /// Search DM messages by text content.
+    /// Search DM messages by text content using FTS5 index.
     pub fn search_dm_messages(
         &self,
         peer_id: &str,
         query: &str,
         limit: i32,
     ) -> Result<Vec<StoredMessage>, String> {
-        let pattern = format!("%{}%", query);
+        let fts_query = query.replace('"', "\"\"");
+        let fts_pattern = format!("\"{}\"", fts_query);
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, peer_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id, link_preview_json
-                 FROM messages
-                 WHERE peer_id = ?1 AND hidden_at IS NULL AND text LIKE ?2
-                 ORDER BY id DESC
+                "SELECT m.id, m.peer_id, m.text, m.is_mine, m.timestamp, m.signature, m.public_key, m.message_id, m.edited_at, m.hidden_at, m.reply_to_mid, m.file_id, m.link_preview_json
+                 FROM messages m
+                 JOIN messages_fts fts ON m.id = fts.rowid
+                 WHERE fts.text MATCH ?2 AND m.peer_id = ?1 AND m.hidden_at IS NULL
+                 ORDER BY m.id DESC
                  LIMIT ?3",
             )
-            .map_err(|e| format!("Failed to prepare DM search query: {e}"))?;
+            .map_err(|e| format!("Failed to prepare FTS DM search query: {e}"))?;
 
         let rows = stmt
-            .query_map(params![peer_id, pattern, limit], |row| {
+            .query_map(params![peer_id, fts_pattern, limit], |row| {
                 Ok(StoredMessage {
                     id: row.get(0)?,
                     peer_id: row.get(1)?,

@@ -85,7 +85,8 @@ pub struct WsTransferState {
 }
 
 /// Send a file or shard to a peer via chunked WS binary frames.
-/// Reads from `source_path`, splits into WS_CHUNK_SIZE chunks, sends each via WsCommand::SendBinaryDirect.
+/// Streams from disk in WS_CHUNK_SIZE increments — never loads the full file into memory.
+/// If `start_offset > 0`, seeks past already-sent bytes (for transfer resumption).
 pub async fn ws_stream_send(
     ws_cmd_tx: &mpsc::UnboundedSender<WsCommand>,
     room_code: &str,
@@ -94,14 +95,25 @@ pub async fn ws_stream_send(
     id: &str,
     source_path: &std::path::Path,
     total_size: u64,
+    start_offset: u64,
 ) {
-    let file_data = match std::fs::read(source_path) {
-        Ok(d) => d,
+    use std::io::{Read, Seek};
+
+    let mut file = match std::fs::File::open(source_path) {
+        Ok(f) => std::io::BufReader::new(f),
         Err(e) => {
-            hollow_log!("[HOLLOW-WS-STREAM] Failed to read source {}: {e}", source_path.display());
+            hollow_log!("[HOLLOW-WS-STREAM] Failed to open source {}: {e}", source_path.display());
             return;
         }
     };
+
+    if start_offset > 0 {
+        if let Err(e) = file.seek(std::io::SeekFrom::Start(start_offset)) {
+            hollow_log!("[HOLLOW-WS-STREAM] Failed to seek to offset {start_offset}: {e}");
+            return;
+        }
+        hollow_log!("[HOLLOW-WS-STREAM] Resuming {id} from offset {start_offset}/{total_size}");
+    }
 
     // Build header for first chunk.
     // Wire format: [type:1][id:64][size:8][extra...][data]
@@ -115,9 +127,9 @@ pub async fn ws_stream_send(
         StreamKind::ShareChunk { .. } => 4,
     };
     let header_len = 1 + 64 + 8 + extra_len;
-    let first_data_len = WS_CHUNK_SIZE.saturating_sub(header_len).min(file_data.len());
+    let first_data_cap = WS_CHUNK_SIZE.saturating_sub(header_len).min(total_size as usize);
 
-    let mut first_chunk = Vec::with_capacity(header_len + first_data_len);
+    let mut first_chunk = Vec::with_capacity(header_len + first_data_cap);
     first_chunk.push(match kind {
         StreamKind::File => TYPE_FILE,
         StreamKind::Shard { .. } => TYPE_SHARD,
@@ -134,7 +146,16 @@ pub async fn ws_stream_send(
         }
         StreamKind::File => {}
     }
-    first_chunk.extend_from_slice(&file_data[..first_data_len]);
+
+    let mut read_buf = vec![0u8; first_data_cap];
+    let first_read = match file.read(&mut read_buf) {
+        Ok(n) => n,
+        Err(e) => {
+            hollow_log!("[HOLLOW-WS-STREAM] Failed to read first chunk: {e}");
+            return;
+        }
+    };
+    first_chunk.extend_from_slice(&read_buf[..first_read]);
 
     let _ = ws_cmd_tx.send(WsCommand::SendBinaryDirect {
         room_code: room_code.to_string(),
@@ -142,17 +163,27 @@ pub async fn ws_stream_send(
         data: first_chunk,
     });
 
-    // Continuation chunks: [0xFF][id:64][data...]
-    let mut offset = first_data_len;
-    while offset < file_data.len() {
-        // Brief yield for backpressure.
+    let mut bytes_sent = first_read as u64;
+    let mut chunk_count: u64 = 1;
+    let cont_data_cap = WS_CHUNK_SIZE.saturating_sub(65);
+    let mut cont_buf = vec![0u8; cont_data_cap];
+
+    while bytes_sent < total_size {
         tokio::task::yield_now().await;
 
-        let cont_data_len = WS_CHUNK_SIZE.saturating_sub(65).min(file_data.len() - offset);
-        let mut chunk = Vec::with_capacity(65 + cont_data_len);
+        let n = match file.read(&mut cont_buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) => {
+                hollow_log!("[HOLLOW-WS-STREAM] Read error at offset {bytes_sent}: {e}");
+                break;
+            }
+        };
+
+        let mut chunk = Vec::with_capacity(65 + n);
         chunk.push(TYPE_CONTINUATION);
         chunk.extend_from_slice(&id_padded);
-        chunk.extend_from_slice(&file_data[offset..offset + cont_data_len]);
+        chunk.extend_from_slice(&cont_buf[..n]);
 
         let _ = ws_cmd_tx.send(WsCommand::SendBinaryDirect {
             room_code: room_code.to_string(),
@@ -160,11 +191,11 @@ pub async fn ws_stream_send(
             data: chunk,
         });
 
-        offset += cont_data_len;
+        bytes_sent += n as u64;
+        chunk_count += 1;
     }
 
-    hollow_log!("[HOLLOW-WS-STREAM] Sent {id} ({total_size} bytes) to {target_peer} in {} chunks",
-        1 + ((file_data.len().saturating_sub(first_data_len)) + WS_CHUNK_SIZE.saturating_sub(65) - 1) / WS_CHUNK_SIZE.saturating_sub(65).max(1));
+    hollow_log!("[HOLLOW-WS-STREAM] Sent {id} ({total_size} bytes) to {target_peer} in {chunk_count} chunks");
 }
 
 /// Process a received WS binary chunk. Called from the swarm when BinaryDirect arrives.
@@ -230,6 +261,23 @@ pub fn ws_stream_receive(
         };
 
         let payload = &data[payload_start..];
+
+        // Check if this is a resumed transfer (partial temp file exists from before disconnect).
+        if let Some(state) = pending.get_mut(&id) {
+            if let Err(e) = state.temp_file.write_all(payload) {
+                hollow_log!("[HOLLOW-WS-STREAM] Write failed for resumed {id}: {e}");
+                pending.remove(&id);
+                return None;
+            }
+            state.bytes_received += payload.len() as u64;
+            if let Some(ref progress) = state.progress {
+                progress.store(state.bytes_received, Ordering::Relaxed);
+            }
+            if state.bytes_received >= state.total_size {
+                return complete_transfer(pending, &id);
+            }
+            return None;
+        }
 
         // Create temp file for reassembly.
         let temp_path = files_dir().join(format!(".ws_recv_{id}.tmp"));

@@ -43,7 +43,7 @@ Indexes:
 - `messages.rs:load_for_peer()` -- Loads recent DMs for a peer. `WHERE peer_id = ?1 AND hidden_at IS NULL ORDER BY timestamp DESC, id DESC LIMIT ?2`. Result is reversed to oldest-first for display. Returns `Vec<StoredMessage>`.
 - `messages.rs:get_latest_dm_timestamp()` -- `SELECT MAX(timestamp) FROM messages WHERE peer_id = ?1 AND is_mine = 0`. Only received messages (is_mine=0) because sync sends the other peer's sent messages.
 - `messages.rs:get_dm_messages_since()` -- `WHERE peer_id = ?1 AND timestamp >= ?2 AND is_mine = 1 ORDER BY timestamp ASC LIMIT ?3`. Returns our sent messages for sync. Uses `>=` (inclusive) with INSERT OR IGNORE dedup. Includes hidden messages (Rat Files evidence must sync).
-- `messages.rs:search_dm_messages()` -- `WHERE peer_id = ?1 AND hidden_at IS NULL AND text LIKE ?2 ORDER BY id DESC LIMIT ?3`. LIKE pattern is `%query%`. Result reversed to chronological.
+- `messages.rs:search_dm_messages()` -- FTS5 indexed search. JOINs `messages_fts` on rowid, uses `MATCH` instead of `LIKE`. Query wrapped in `"escaped_query"` for phrase matching. Result reversed to chronological.
 - `messages.rs:load_all_dm_messages()` -- Archive export. No limit, includes hidden/deleted. `ORDER BY timestamp ASC, id ASC`.
 - `messages.rs:count_dm_messages()` -- `SELECT COUNT(*) FROM messages WHERE peer_id = ?1`. Includes hidden.
 - `messages.rs:count_unread_dm()` -- Finds autoincrement ID of `last_seen_message_id`, then counts rows with `id > threshold AND hidden_at IS NULL AND is_mine = 0`.
@@ -90,7 +90,7 @@ Migration note: The UNIQUE constraint and index are enforced at open time. If du
 - `messages.rs:load_channel_messages()` -- `WHERE server_id = ?1 AND channel_id = ?2 AND hidden_at IS NULL ORDER BY timestamp DESC, sender_id DESC, id DESC LIMIT ?3`. Reversed to oldest-first.
 - `messages.rs:get_latest_channel_timestamp()` -- `SELECT MAX(timestamp) FROM channel_messages WHERE server_id = ?1 AND channel_id = ?2`.
 - `messages.rs:get_channel_messages_since()` -- `WHERE server_id = ?1 AND channel_id = ?2 AND timestamp > ?3 ORDER BY timestamp ASC LIMIT ?4`. Includes hidden (Rat Files). Note: uses `>` (exclusive), unlike DM sync which uses `>=`.
-- `messages.rs:search_channel_messages()` -- `WHERE server_id = ?1 AND channel_id = ?2 AND hidden_at IS NULL AND text LIKE ?3 ORDER BY id DESC LIMIT ?4`. LIKE `%query%` pattern.
+- `messages.rs:search_channel_messages()` -- FTS5 indexed search. JOINs `channel_messages_fts` on rowid, uses `MATCH` instead of `LIKE`. Filters by server_id + channel_id + hidden_at. Result reversed to chronological.
 - `messages.rs:load_all_channel_messages()` -- Archive export. No limit, includes hidden. `ORDER BY timestamp ASC, id ASC`.
 - `messages.rs:count_channel_messages()` -- `SELECT COUNT(*) ... WHERE server_id = ?1 AND channel_id = ?2`.
 - `messages.rs:count_channel_messages_since()` -- `SELECT COUNT(*) ... WHERE server_id = ?1 AND channel_id = ?2 AND timestamp > ?3`.

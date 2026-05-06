@@ -900,6 +900,7 @@ async fn run_event_loop(
                         file_handler::handle_request_file(
                             file_id, peer_id_str, chunks,
                             &ws_cmd_tx, &ws_room_peers,
+                            &pending_ws_transfers,
                         );
                     }
 
@@ -1212,7 +1213,10 @@ async fn run_event_loop(
                             hollow_log!("[HOLLOW-WS] Draining {} pending message queues on disconnect", pending_messages.len());
                             pending_messages.clear();
                         }
-                        // Clean up any in-progress WS stream transfers.
+                        // Clean up in-progress WS stream transfers.
+                        // Resumption infrastructure exists (offset field in FileRequest,
+                        // seek support in ws_stream_send) but transfer state is in-memory
+                        // only — persistence needed for cross-restart resumption.
                         if !pending_ws_transfers.is_empty() {
                             hollow_log!("[HOLLOW-WS] Cleaning up {} in-progress WS transfers", pending_ws_transfers.len());
                             for (id, state) in pending_ws_transfers.drain() {
@@ -2046,6 +2050,7 @@ async fn run_event_loop(
                                                                                 &assignment.content_id,
                                                                                 &temp_path,
                                                                                 total_size,
+                                                                                0,
                                                                             ).await;
                                                                             let _ = std::fs::remove_file(&temp_path);
 
@@ -2260,6 +2265,24 @@ async fn run_event_loop(
                     decrypt_fail_cooldown.retain(|_, instant| instant.elapsed() < REKEY_COOLDOWN);
                     channel_sync_sent.retain(|_, instant| instant.elapsed() < Duration::from_secs(30));
                     pending_shard_assembly.retain(|_, asm| asm.received_at.elapsed() < Duration::from_secs(600));
+                    // Clean up orphaned early-arrival file streams (5 min TTL).
+                    let stale_early: Vec<String> = early_file_streams.iter()
+                        .filter(|(_, (tp, _, _))| {
+                            std::fs::metadata(tp)
+                                .and_then(|m| m.modified())
+                                .map(|t| t.elapsed().unwrap_or_default() >= Duration::from_secs(300))
+                                .unwrap_or(true)
+                        })
+                        .map(|(k, _)| k.clone())
+                        .collect();
+                    for id in &stale_early {
+                        if let Some((tp, _, _)) = early_file_streams.remove(id) {
+                            let _ = std::fs::remove_file(&tp);
+                        }
+                    }
+                    if !stale_early.is_empty() {
+                        hollow_log!("[HOLLOW-STREAM] Cleaned {} orphaned early-arrival file streams", stale_early.len());
+                    }
                     let olm_ttl = Duration::from_secs(7 * 24 * 3600);
                     let pruned = olm.prune_stale_sessions(olm_ttl);
                     if pruned > 0 {
@@ -2679,7 +2702,7 @@ async fn run_event_loop(
 
             // -- Gossip overlay rotation timer (5 minutes) --
             _ = gossip_rotation_timer.tick() => {
-                super::gossip_relay::handle_gossip_rotation(&mut gossip_overlays, &event_tx).await;
+                super::gossip_relay::handle_gossip_rotation(&mut gossip_overlays, &event_tx, webrtc_peers.len()).await;
             }
 
             // -- Gossip broadcast dedup eviction timer (60s) --
@@ -6484,7 +6507,7 @@ async fn handle_incoming_request(
         }
 
         // File request — respond with file chunks via Olm.
-        HavenMessage::FileRequest { file_id, chunks } => {
+        HavenMessage::FileRequest { file_id, chunks, offset } => {
             
             use crate::node::file_transfer;
             hollow_log!("[HOLLOW-FILE] FileRequest from {peer_str} for {file_id}");
@@ -6551,14 +6574,27 @@ async fn handle_incoming_request(
                                                 ).await;
                                             }
 
-                                            // Stream encrypted file bytes via WebRTC or WS relay.
-                                            file_handler::stream_to_peer(
-                                                ws_cmd_tx, ws_room_peers,
-                                                webrtc_peers, pending_webrtc_sends, event_tx,
-                                                &peer_str, &super::ws_stream_transfer::StreamKind::File,
-                                                &file_id, &temp_path, enc.ciphertext.len() as u64,
-                                            ).await;
-                                            hollow_log!("[HOLLOW-FILE] Streamed file {} to {peer_str}", file_id);
+                                            if offset > 0 {
+                                                // Resumed transfer: skip FileHeader, stream from offset via WS.
+                                                if let Some(room) = ws_room_for_peer(ws_room_peers, &peer_str) {
+                                                    super::ws_stream_transfer::ws_stream_send(
+                                                        ws_cmd_tx, &room, &peer_str,
+                                                        &super::ws_stream_transfer::StreamKind::File,
+                                                        &file_id, &temp_path, enc.ciphertext.len() as u64,
+                                                        offset,
+                                                    ).await;
+                                                }
+                                                hollow_log!("[HOLLOW-FILE] Resumed file {} to {peer_str} from offset {offset}", file_id);
+                                            } else {
+                                                // Fresh transfer: stream via WebRTC or WS relay.
+                                                file_handler::stream_to_peer(
+                                                    ws_cmd_tx, ws_room_peers,
+                                                    webrtc_peers, pending_webrtc_sends, event_tx,
+                                                    &peer_str, &super::ws_stream_transfer::StreamKind::File,
+                                                    &file_id, &temp_path, enc.ciphertext.len() as u64,
+                                                ).await;
+                                                hollow_log!("[HOLLOW-FILE] Streamed file {} to {peer_str}", file_id);
+                                            }
                                     }
                                 }
                             }

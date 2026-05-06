@@ -233,14 +233,20 @@ impl GossipOverlay {
     }
 
     /// Select initial neighbors when the overlay is first created.
-    /// Picks the best-scoring peers up to MAX_GOSSIP_NEIGHBORS.
+    /// Picks the best-scoring peers up to MAX_GOSSIP_NEIGHBORS, respecting the
+    /// global WebRTC cap as a hard limit.
     pub fn select_initial_neighbors(
         &mut self,
         global_webrtc_count: usize,
     ) -> Vec<String> {
-        let budget = (MAX_TOTAL_WEBRTC.saturating_sub(global_webrtc_count))
-            .min(MAX_GOSSIP_NEIGHBORS);
-        let target = budget.max(MIN_GOSSIP_NEIGHBORS).min(self.known_peers.len());
+        let budget = MAX_TOTAL_WEBRTC.saturating_sub(global_webrtc_count);
+        if budget == 0 {
+            return Vec::new();
+        }
+        let target = budget
+            .min(MAX_GOSSIP_NEIGHBORS)
+            .max(MIN_GOSSIP_NEIGHBORS.min(budget))
+            .min(self.known_peers.len());
 
         let mut candidates: Vec<_> = self
             .known_peers
@@ -268,7 +274,7 @@ impl GossipOverlay {
     /// non-neighbor. Max 1 swap per call for stability.
     ///
     /// Returns `(to_connect, to_disconnect)`.
-    pub fn rotate(&mut self) -> (Vec<String>, Vec<String>) {
+    pub fn rotate_with_budget(&mut self, global_webrtc_count: usize) -> (Vec<String>, Vec<String>) {
         self.last_rotation = Instant::now();
 
         // Refresh uptime for all scored peers.
@@ -279,13 +285,15 @@ impl GossipOverlay {
         let mut to_connect = Vec::new();
         let mut to_disconnect = Vec::new();
 
-        // If under minimum, just fill up.
-        while self.neighbors.len() < MIN_GOSSIP_NEIGHBORS {
+        // If under minimum, fill up — but respect the global WebRTC cap.
+        let budget = MAX_TOTAL_WEBRTC.saturating_sub(global_webrtc_count);
+        let fill_target = MIN_GOSSIP_NEIGHBORS.min(self.neighbors.len() + budget);
+        while self.neighbors.len() < fill_target {
             if let Some(peer) = self.pick_best_non_neighbor() {
                 self.neighbors.insert(peer.clone());
                 to_connect.push(peer);
             } else {
-                break; // no more candidates
+                break;
             }
         }
 
@@ -537,8 +545,15 @@ mod tests {
         let mut overlay = make_overlay(20);
         // Global count near limit: only 4 slots left.
         let selected = overlay.select_initial_neighbors(MAX_TOTAL_WEBRTC - 4);
-        // Should still get at least MIN (6) because we use max(budget, MIN).
-        assert!(selected.len() >= MIN_GOSSIP_NEIGHBORS);
+        // Hard cap: only 4 slots available, so at most 4 neighbors.
+        assert!(selected.len() <= 4);
+    }
+
+    #[test]
+    fn test_select_initial_neighbors_zero_budget() {
+        let mut overlay = make_overlay(20);
+        let selected = overlay.select_initial_neighbors(MAX_TOTAL_WEBRTC);
+        assert!(selected.is_empty());
     }
 
     #[test]
@@ -603,7 +618,7 @@ mod tests {
             score.shard_overlap = 0;
         }
 
-        let (to_connect, to_disconnect) = overlay.rotate();
+        let (to_connect, to_disconnect) = overlay.rotate_with_budget(0);
         // The non-neighbor with great score should be added.
         assert!(
             to_connect.contains(&non_neighbor),
@@ -621,7 +636,7 @@ mod tests {
         let mut overlay = make_overlay(15);
         overlay.select_initial_neighbors(0);
         // All scores are default (identical) — no swap should happen.
-        let (to_connect, to_disconnect) = overlay.rotate();
+        let (to_connect, to_disconnect) = overlay.rotate_with_budget(0);
         assert!(to_connect.is_empty());
         assert!(to_disconnect.is_empty());
     }
@@ -636,7 +651,7 @@ mod tests {
         }
         assert_eq!(overlay.neighbors.len(), 3);
 
-        let (to_connect, _) = overlay.rotate();
+        let (to_connect, _) = overlay.rotate_with_budget(0);
         assert!(!to_connect.is_empty());
         assert!(overlay.neighbors.len() >= MIN_GOSSIP_NEIGHBORS);
     }
@@ -768,7 +783,7 @@ mod tests {
             score.uptime_ratio = 1.0;
         }
 
-        let (to_connect, to_disconnect) = overlay.rotate();
+        let (to_connect, to_disconnect) = overlay.rotate_with_budget(0);
         // No neighbors should be dropped because they're all protected by shard overlap.
         assert!(to_disconnect.is_empty(), "protected peers should not be dropped");
         assert!(to_connect.is_empty(), "can't add without dropping");
@@ -929,9 +944,10 @@ mod tests {
     fn test_overlay_global_budget_cap() {
         let mut overlay = make_overlay(20);
         // Global count is 48 out of 50 — only 2 slots available.
-        // But MIN is 6, so it should still get 6 (max of budget, MIN).
+        // Hard cap: at most 2 neighbors.
         let selected = overlay.select_initial_neighbors(48);
-        assert!(selected.len() >= MIN_GOSSIP_NEIGHBORS);
+        assert!(selected.len() <= 2);
+        assert!(!selected.is_empty());
     }
 
     #[test]

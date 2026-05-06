@@ -713,6 +713,11 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
           messageId: messageId,
           messageText: messageText,
         );
+
+    // Clean up voice recording temp files after successful send.
+    if (fileName.endsWith('.ogg') && filePath.contains('temp')) {
+      try { await File(filePath).delete(); } catch (_) {}
+    }
   }
 
   Future<void> _saveFile(FileAttachment attachment) async {

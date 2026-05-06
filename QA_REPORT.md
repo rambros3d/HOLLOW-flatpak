@@ -80,6 +80,16 @@
 - [x] **MLS recovery skip for non-members:** Recovery KeyPackage no longer sent when local peer is not a CRDT member (fixes noisy REJECTED log after ban)
 - [x] **File re-download on rejoin:** `get_missing_file_ids()` now checks disk (`~/.hollow/files/`) in addition to DB, preventing ~250 MB redundant WebRTC transfers after ban/unban cycles
 
+### Tier 11 — Scaling fixes
+- [x] **M19:** WS stream transfer now streams from disk via `BufReader` — no longer reads entire file (up to 34 MB) into memory. ~256 KB resident per transfer
+- [x] **M20:** Gossip neighbor selection respects global WebRTC 50 cap as hard limit. `select_initial_neighbors()` returns empty at zero budget. `rotate_with_budget()` receives global count from swarm
+- [x] **L4:** FTS5 full-text search indexes on `messages` and `channel_messages` tables. Content-sync triggers keep index in sync. Backfill on startup. Search functions use `MATCH` instead of `LIKE '%query%'`
+- [x] **M24:** Deferred — resumption infrastructure in place (offset field in FileRequest, seek support in ws_stream_send, append logic in ws_stream_receive) but transfer state is in-memory only. Needs SQLCipher persistence for cross-restart resumption. Current behavior: interrupted transfers restart cleanly via re-request
+
+### Storage hygiene
+- [x] **Voice recording temp cleanup:** Temp `.ogg` files in `$APPDATA/Hollow/temp/` now deleted after successful send (both DM and channel paths)
+- [x] **Early-arrival stream cleanup:** Orphaned early-arrival file streams (WebRTC bytes before FileHeader) pruned after 5 min TTL in eviction timer
+
 ---
 
 ## Remaining Items (not yet fixed)
@@ -96,18 +106,14 @@
 |---|--------|-------|----------|
 | M16 | MLS | Targeted MLS messages encrypt+broadcast to ALL members (O(n)) | `crypto_handler.rs:186-213` |
 | M18 | Network | Gossip PeerExchange broadcasts topology to all room members | `gossip_relay.rs:110-129` |
-| M19 | Network | WS stream transfer reads entire file (34 MB) into memory | `ws_stream_transfer.rs` |
-| M20 | Network | Gossip neighbor selection can exceed MAX_TOTAL_WEBRTC=50 cap | `gossip.rs:237-265` |
 | M23 | Network | Background bandwidth scales poorly at 1000+ members | across networking code |
-| M24 | Network | No file transfer resumption on WS disconnect | `swarm.rs:1144-1151` |
-| L4 | Storage | `LIKE '%query%'` search without FTS index | `messages.rs:2254, 2304` |
 | L7 | MLS | Remove-then-add recovery creates 2 epoch advances per peer | `swarm.rs:5863-5901` |
 | L10 | Network | Data channel backpressure uses polling instead of callbacks | `webrtc_service.dart` |
 
 ### New items discovered during QA work
 - [ ] Screen share gossip relay for voice channels (current limit: 5 viewers)
-- [ ] Topic-routed channel notifications (@mentions for unsubscribed channels)
 - [ ] Friend removal not delivered to offline peers (no queue-and-drain like friend requests)
+- Note: Topic-routed channel notifications merged into M28 above
 
 ---
 

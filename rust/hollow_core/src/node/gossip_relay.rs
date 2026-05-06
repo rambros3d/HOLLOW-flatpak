@@ -58,12 +58,13 @@ pub(crate) async fn handle_webrtc_broadcast_received(
 pub(crate) async fn handle_gossip_rotation(
     gossip_overlays: &mut HashMap<String, super::gossip::GossipOverlay>,
     event_tx: &mpsc::Sender<NetworkEvent>,
+    global_webrtc_count: usize,
 ) {
     for overlay in gossip_overlays.values_mut() {
         if overlay.known_peers.len() < super::gossip::GOSSIP_ACTIVATION_THRESHOLD {
             continue; // skip small servers
         }
-        let (to_connect, to_disconnect) = overlay.rotate();
+        let (to_connect, to_disconnect) = overlay.rotate_with_budget(global_webrtc_count);
         for peer_id in to_connect {
             hollow_log!("[HOLLOW-GOSSIP] Rotation: connect to {peer_id} (server={})", overlay.server_id);
             let _ = event_tx.send(NetworkEvent::GossipConnect { peer_id }).await;

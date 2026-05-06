@@ -164,14 +164,15 @@ Header sizes: File = 73 bytes (1+64+8), Shard = 75 bytes (1+64+8+2), ShareChunk 
 
 ### Sending: ws_stream_transfer.rs:ws_stream_send()
 
-Parameters: `ws_cmd_tx`, `room_code`, `target_peer`, `kind`, `id`, `source_path`, `total_size`.
+Parameters: `ws_cmd_tx`, `room_code`, `target_peer`, `kind`, `id`, `source_path`, `total_size`, `start_offset`.
 
-1. Read entire source file into memory via `std::fs::read()`
-2. Build first chunk: type byte + `pad_id(id)` + total_size LE + kind-specific extra + first data slice
-3. Send via `WsCommand::SendBinaryDirect`
-4. Loop over remaining data in continuation chunks, each prefixed `[0xFF][id:64]`
-5. `tokio::task::yield_now().await` between continuation chunks for cooperative backpressure
-6. Logs total chunk count on completion
+1. Open source file with `BufReader` (streams from disk, never loads full file into memory)
+2. If `start_offset > 0`, seek past already-sent bytes (for transfer resumption)
+3. Build first chunk: type byte + `pad_id(id)` + total_size LE + kind-specific extra + first data read
+4. Send via `WsCommand::SendBinaryDirect`
+5. Loop: read continuation chunks from disk, each prefixed `[0xFF][id:64]`
+6. `tokio::task::yield_now().await` between continuation chunks for cooperative backpressure
+7. Logs total chunk count on completion
 
 ### Receiving: ws_stream_transfer.rs:ws_stream_receive()
 
@@ -181,11 +182,12 @@ Returns `Some(StreamRequest)` when transfer completes, `None` when more chunks n
 
 **First chunk path (type 0x00/0x01/0x02):**
 1. Parse type, ID (64 bytes, stripped of trailing zeros via `parse_id()`), total_size, kind-specific extra
-2. Create temp file at `~/.hollow/files/.ws_recv_{id}.tmp`
-3. Write initial payload data
-4. If `StreamKind::File`, register in global `stream_progress()` map for UI progress tracking
-5. If `bytes_received >= total_size`, single-chunk transfer — call `complete_transfer()` immediately
-6. Otherwise insert `WsTransferState` into `pending` map
+2. If transfer ID already exists in `pending` (resumed transfer), append payload to existing temp file and return
+3. Create temp file at `~/.hollow/files/.ws_recv_{id}.tmp`
+4. Write initial payload data
+5. If `StreamKind::File`, register in global `stream_progress()` map for UI progress tracking
+6. If `bytes_received >= total_size`, single-chunk transfer — call `complete_transfer()` immediately
+7. Otherwise insert `WsTransferState` into `pending` map
 
 **Continuation chunk path (type 0xFF):**
 1. Parse ID from bytes 1..65
@@ -364,11 +366,12 @@ Weights: shard overlap is per-shard additive (40% weight at 4 overlaps), latency
 ### Neighbor Selection
 
 **Initial selection** — `gossip.rs:GossipOverlay::select_initial_neighbors()`:
-1. Compute budget: `min(MAX_TOTAL_WEBRTC - global_count, MAX_GOSSIP_NEIGHBORS)`
-2. Target: `max(budget, MIN_GOSSIP_NEIGHBORS)` capped by `known_peers.len()`
-3. Sort all known peers by composite score descending
-4. Take top N as neighbors
-5. Returns the selected peer IDs (caller must establish WebRTC connections)
+1. Compute budget: `MAX_TOTAL_WEBRTC - global_count` (hard cap — global WebRTC limit takes priority)
+2. If budget is 0, return empty (no new connections allowed)
+3. Target: `min(budget, MAX_GOSSIP_NEIGHBORS)`, then `max(target, min(MIN_GOSSIP_NEIGHBORS, budget))`, capped by `known_peers.len()`
+4. Sort all known peers by composite score descending
+5. Take top N as neighbors
+6. Returns the selected peer IDs (caller must establish WebRTC connections)
 
 **Auto-add below minimum** — `gossip.rs:GossipOverlay::add_known_peer()`:
 - Inserts peer into `known_peers` and ensures a `PeerScore` entry exists
@@ -382,10 +385,10 @@ Weights: shard overlap is per-shard additive (40% weight at 4 overlaps), latency
 
 ### Neighbor Rotation
 
-`gossip.rs:GossipOverlay::rotate()` — called periodically (every 5 minutes via `gossip_relay.rs`).
+`gossip.rs:GossipOverlay::rotate_with_budget(global_webrtc_count)` — called periodically (every 5 minutes via `gossip_relay.rs`). Receives the current global WebRTC peer count from the swarm.
 
 1. Refreshes uptime for all scored peers
-2. **Fill below minimum**: repeatedly picks best non-neighbor until `neighbors.len() >= MIN_GOSSIP_NEIGHBORS`
+2. **Fill below minimum**: picks best non-neighbor until `neighbors.len() >= min(MIN_GOSSIP_NEIGHBORS, current + budget)` — respects global WebRTC cap
 3. **Trim above maximum**: repeatedly drops worst neighbor until `neighbors.len() <= MAX_GOSSIP_NEIGHBORS`
 4. **Swap (when in range [MIN, MAX])**: finds worst neighbor and best non-neighbor. Swaps only if best candidate scores >10% higher than worst neighbor (`best_score > worst_score * 1.1`)
 5. At most 1 swap per rotation for stability
@@ -460,7 +463,7 @@ Timer tick handler for neighbor rotation. Called periodically from the swarm eve
 Flow:
 1. Iterate all server overlays
 2. Skip overlays where `known_peers.len() < GOSSIP_ACTIVATION_THRESHOLD` (6) — small servers don't need gossip
-3. Call `overlay.rotate()` to get `(to_connect, to_disconnect)` lists
+3. Call `overlay.rotate_with_budget(global_webrtc_count)` to get `(to_connect, to_disconnect)` lists
 4. Emit `NetworkEvent::GossipConnect { peer_id }` for each peer to connect
 5. Emit `NetworkEvent::GossipDisconnect { peer_id }` for each peer to disconnect
 
