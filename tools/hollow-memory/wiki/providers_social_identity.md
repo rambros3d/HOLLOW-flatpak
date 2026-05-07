@@ -61,6 +61,15 @@ State is an ordered `List<String>` of peer IDs. When non-empty, the FriendsBar d
 - **Reorder:** `reorder(oldIndex, newIndex)` does in-place list reorder with standard remove/insert logic (adjusts `newIndex` when moving downward). Persists immediately.
 - **Query:** `isFavourite(peerId)` returns `state.contains(peerId)`.
 
+### Derived Providers (Performance)
+
+**File:** `lib/src/core/providers/friends_provider.dart`
+
+- **`sortedFriendsProvider`** — `Provider<List<FriendInfo>>`. Watches `friendsProvider`, `peersProvider`, `invisiblePeersProvider`, `profileProvider`, `favouriteFriendsProvider`. Filters accepted friends, sorts by online status (online first) then alphabetical display name. Applies favourites override when favourites are non-empty. Computed once when any dependency changes, shared across all consumers.
+- **`pendingFriendCountProvider`** — `Provider<int>`. Watches `friendsProvider`, returns count of incoming pending requests.
+
+These replace inline sorting/filtering that was previously in `FriendsBar.build()`.
+
 ---
 
 ## PeersProvider
@@ -193,16 +202,24 @@ Lazy banner loading per peer. Calls `storage_api.getBanner(peerId:)`. Used by pr
 
 ### Display Name Resolution
 
-Two helper functions (NOT in the notifier, exported as free functions):
+Four helper functions (NOT in the notifier, exported as free functions):
 
-**`displayNameFor(profiles, peerId)`** — Resolution order:
-1. Local nickname (from `_localNicknames` static map, set by `setLocalNicknamesRef()`)
-2. Profile `displayName` (if non-empty)
-3. Truncated peer ID: first 8 chars + `'...'`
+**`displayNameFor(profiles, peerId)`** — Takes the full profiles map. Resolution order: local nickname → profile displayName → truncated peer ID. Delegates to `displayNameForPeer`.
 
-**`serverDisplayNameFor(profiles, peerId, {nickname})`** — Resolution order:
-1. Server nickname (the `nickname` parameter, from server member data)
-2. Falls through to `displayNameFor()` (local nickname > profile > truncated ID)
+**`displayNameForPeer(profile, peerId)`** — Takes a single `UserProfile?` instead of the full map. Preferred with `ref.watch(profileProvider.select((p) => p[peerId]))` to avoid rebuilding when unrelated profiles change. Same resolution order as above.
+
+**`serverDisplayNameFor(profiles, peerId, {nickname})`** — Server context variant: server nickname → falls through to `displayNameFor`.
+
+**`serverDisplayNameForPeer(profile, peerId, {nickname})`** — Single-profile variant for server context.
+
+### Performance: .select() Pattern
+
+Most widgets should use the single-profile variants with `.select()`:
+```dart
+final profile = ref.watch(profileProvider.select((p) => p[peerId]));
+final name = displayNameForPeer(profile, peerId);
+```
+Only use the full-map variants (`displayNameFor`) in list builders that iterate multiple peerIds.
 
 ### Local Nicknames Integration
 
@@ -213,7 +230,7 @@ Purely local, never synced. Maps peer_id to a user-chosen nickname. Stored in `a
 
 A static reference `_localNicknames` in `profile_provider.dart` is kept in sync via `setLocalNicknamesRef()`, called twice:
 1. During bootstrap after `loadAll()` completes.
-2. In the shell's `build()` method via `ref.watch(localNicknameProvider)` to stay reactive.
+2. In the shell via `ref.listenManual(localNicknameProvider)` to stay reactive (side-effect only, doesn't trigger shell rebuild).
 
 This avoids passing `localNicknameProvider` state through every `displayNameFor()` call site.
 

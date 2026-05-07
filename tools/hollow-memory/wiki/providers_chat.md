@@ -458,18 +458,19 @@ Parses message text containing lightweight markup into styled Flutter `InlineSpa
 - `suffixSpans` (List<InlineSpan>?) — additional spans appended after parsed content (used for edited indicators, etc.)
 - `memberNames` (Set<String>?) — set of display names for @mention matching
 
-**Build logic:**
-1. Checks if text contains triple-backtick code blocks via `RegExp(r'```(\w*)\n?([\s\S]*?)```')`.
-2. If code blocks found: delegates to `_buildWithCodeBlocks()` which splits the text into segments, rendering code blocks as `Container` widgets with mono font and inline text as parsed spans.
-3. If no code blocks: calls `_parseInline()` directly and wraps in `Text.rich(TextSpan(children: spans))`.
+**Build logic (two-phase tokenize + render with LRU cache):**
+1. Checks if text contains triple-backtick code blocks via `_codeBlockPattern` (static final `RegExp`).
+2. Tokenizes the text into a `List<_Token>` via `_cachedTokenize()`. Tokens are a pure-data intermediate representation (no widgets, no closures) keyed by `(text.hashCode ^ memberNames hash)` in a 200-entry LRU cache (`_tokenCache`). Cache hits skip all regex/parsing work.
+3. Converts tokens to `InlineSpan` widgets via `_tokensToSpans()` — a cheap loop that applies theme colors, gesture callbacks, and styles. This runs on every build but does no parsing.
+4. Code blocks are handled as `_TokenKind.codeBlock` tokens, rendered as `Container` widgets with mono font.
 
 ### buildMessageText(text, context, {baseStyle?, suffixSpans?, memberNames?})
 
 Top-level convenience function that creates and returns a `MessageText` widget.
 
-### _parseInline(text, style, hollow, {depth, memberNames})
+### _tokenize(text, {depth, memberNames})
 
-Core recursive inline parser. Returns `List<InlineSpan>`.
+Core recursive tokenizer. Returns `List<_Token>` (pure data, safely cacheable).
 
 **Recursion depth limit:** 10 levels. Beyond that, returns plain `TextSpan`.
 
