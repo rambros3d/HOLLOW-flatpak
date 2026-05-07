@@ -137,9 +137,10 @@ class _MemberRow extends ConsumerWidget {
     final isMe = peerId == localPeerId;
     final info = _roleInfo(role, hollow);
     final canManage = !isMe && _canManageRole(myRole, role);
-    final profiles = ref.watch(profileProvider);
+    final peerProfile =
+        ref.watch(profileProvider.select((p) => p[peerId]));
     final resolvedName =
-        serverDisplayNameFor(profiles, peerId, nickname: nickname);
+        serverDisplayNameForPeer(peerProfile, peerId, nickname: nickname);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: HollowSpacing.sm),

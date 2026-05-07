@@ -24,6 +24,13 @@ class _HollowToggleState extends State<HollowToggle>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _thumbPosition;
+  late Animation<Color?> _trackColorAnimation;
+
+  static const _thumbShadow = BoxShadow(
+    color: Color.fromRGBO(0, 0, 0, 0.15),
+    blurRadius: 2,
+    offset: Offset(0, 1),
+  );
 
   @override
   void initState() {
@@ -38,6 +45,16 @@ class _HollowToggleState extends State<HollowToggle>
       curve: HollowCurves.spring,
       reverseCurve: HollowCurves.spring,
     );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final hollow = HollowTheme.of(context);
+    _trackColorAnimation = ColorTween(
+      begin: hollow.border,
+      end: hollow.accent,
+    ).animate(_thumbPosition);
   }
 
   @override
@@ -60,7 +77,6 @@ class _HollowToggleState extends State<HollowToggle>
 
   @override
   Widget build(BuildContext context) {
-    final hollow = HollowTheme.of(context);
     final isDisabled = widget.onChanged == null;
 
     return GestureDetector(
@@ -76,24 +92,14 @@ class _HollowToggleState extends State<HollowToggle>
           child: AnimatedBuilder(
             animation: _thumbPosition,
             builder: (context, _) {
-              // Track colors.
-              final trackColor = ColorTween(
-                begin: hollow.border,
-                end: hollow.accent,
-              ).evaluate(_thumbPosition)!;
-
-              // Thumb position: 2px padding on each side.
-              // Track: 36x20, Thumb: 16px.
-              // Left position: 2 (off) → 18 (on).
-              final thumbLeft =
-                  2.0 + (_thumbPosition.value * 16.0);
+              final thumbLeft = 2.0 + (_thumbPosition.value * 16.0);
 
               return SizedBox(
                 width: 36,
                 height: 20,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: trackColor,
+                    color: _trackColorAnimation.value,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Stack(
@@ -104,17 +110,10 @@ class _HollowToggleState extends State<HollowToggle>
                         child: Container(
                           width: 16,
                           height: 16,
-                          decoration: BoxDecoration(
+                          decoration: const BoxDecoration(
                             color: Colors.white,
                             shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black
-                                    .withValues(alpha: 0.15),
-                                blurRadius: 2,
-                                offset: const Offset(0, 1),
-                              ),
-                            ],
+                            boxShadow: [_thumbShadow],
                           ),
                         ),
                       ),

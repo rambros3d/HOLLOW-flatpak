@@ -147,8 +147,7 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
   @override
   Widget build(BuildContext context) {
     final hollow = HollowTheme.of(context);
-    final profiles = ref.watch(profileProvider);
-    final profile = profiles[widget.peerId];
+    final profile = ref.watch(profileProvider.select((p) => p[widget.peerId]));
     final localPeerId = ref.watch(identityProvider).peerId;
     final isMe = widget.peerId == localPeerId;
 

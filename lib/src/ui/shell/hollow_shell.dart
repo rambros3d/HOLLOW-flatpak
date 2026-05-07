@@ -147,6 +147,13 @@ class _HollowShellState extends ConsumerState<HollowShell>
     });
     _bootstrap();
     _listenForLicenseErrors();
+    _listenForNicknameChanges();
+  }
+
+  void _listenForNicknameChanges() {
+    ref.listenManual(localNicknameProvider, (_, next) {
+      setLocalNicknamesRef(next);
+    });
   }
 
   void _listenForLicenseErrors() {
@@ -690,9 +697,6 @@ class _HollowShellState extends ConsumerState<HollowShell>
   Widget build(BuildContext context) {
     final hollow = HollowTheme.of(context);
 
-    // Keep local nicknames static ref in sync for displayNameFor().
-    setLocalNicknamesRef(ref.watch(localNicknameProvider));
-
     final nodeState = ref.watch(nodeProvider);
     final peers = ref.watch(peersProvider);
     final selectedPeerId = ref.watch(selectedPeerProvider);
@@ -783,41 +787,7 @@ class _HollowShellState extends ConsumerState<HollowShell>
           body = DragToResizeArea(child: body);
         }
 
-        final bg = ref.watch(backgroundProvider);
-
-        Widget scaffold = Scaffold(
-          backgroundColor: bg.hasBackground ? Colors.transparent : hollow.background,
-          body: Stack(
-            children: [
-              body,
-              const NotificationOverlay(),
-              const ActiveCallBar(),
-              const IncomingCallOverlay(),
-            ],
-          ),
-        );
-
-        if (bg.hasBackground) {
-          scaffold = Stack(
-            children: [
-              Positioned.fill(
-                child: Container(
-                  color: Colors.black,
-                  child: Image.memory(
-                    bg.imageBytes!,
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                    width: double.infinity,
-                    height: double.infinity,
-                  ),
-                ),
-              ),
-              scaffold,
-            ],
-          );
-        }
-
-        return scaffold;
+        return _ShellScaffold(body: body);
       },
     );
   }
@@ -1922,5 +1892,52 @@ class _SplitDividerState extends State<_SplitDivider> {
         ),
       ),
     );
+  }
+}
+
+/// Isolates the background image and scaffold from the main shell build.
+/// Only rebuilds when backgroundProvider changes.
+class _ShellScaffold extends ConsumerWidget {
+  final Widget body;
+  const _ShellScaffold({required this.body});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hollow = HollowTheme.of(context);
+    final bg = ref.watch(backgroundProvider);
+
+    Widget scaffold = Scaffold(
+      backgroundColor: bg.hasBackground ? Colors.transparent : hollow.background,
+      body: Stack(
+        children: [
+          body,
+          const NotificationOverlay(),
+          const ActiveCallBar(),
+          const IncomingCallOverlay(),
+        ],
+      ),
+    );
+
+    if (bg.hasBackground) {
+      scaffold = Stack(
+        children: [
+          Positioned.fill(
+            child: Container(
+              color: Colors.black,
+              child: Image.memory(
+                bg.imageBytes!,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                width: double.infinity,
+                height: double.infinity,
+              ),
+            ),
+          ),
+          scaffold,
+        ],
+      );
+    }
+
+    return scaffold;
   }
 }

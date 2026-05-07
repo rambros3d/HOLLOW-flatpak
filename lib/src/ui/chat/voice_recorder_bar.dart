@@ -212,13 +212,15 @@ class _VoiceRecorderBarState extends ConsumerState<VoiceRecorderBar>
                 ),
                 const SizedBox(width: HollowSpacing.sm),
                 Expanded(
-                  child: CustomPaint(
-                    painter: _WaveformPainter(
-                      samples: _waveform.toList(growable: false),
-                      color: hollow.accent,
-                      maxSamples: _waveformSamples,
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      painter: _WaveformPainter(
+                        samples: _waveform.toList(growable: false),
+                        color: hollow.accent,
+                        maxSamples: _waveformSamples,
+                      ),
+                      child: const SizedBox.expand(),
                     ),
-                    child: const SizedBox.expand(),
                   ),
                 ),
               ],
@@ -246,6 +248,10 @@ class _WaveformPainter extends CustomPainter {
   final Color color;
   final int maxSamples;
 
+  static final _paint = Paint()
+    ..strokeCap = StrokeCap.round
+    ..strokeWidth = 2.0;
+
   _WaveformPainter({
     required this.samples,
     required this.color,
@@ -255,31 +261,26 @@ class _WaveformPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (samples.isEmpty) return;
-    final paint = Paint()
-      ..color = color
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 2.0;
+    _paint.color = color;
 
     final slotWidth = size.width / maxSamples;
     final centerY = size.height / 2;
-    // Align samples to the right so the waveform "scrolls" leftward.
     final startSlot = maxSamples - samples.length;
 
     for (var i = 0; i < samples.length; i++) {
       final amp = samples[i].clamp(0.0, 1.0);
-      // Boost low levels slightly so quiet speech is still visible.
       final scaled = amp < 0.05 ? 0.05 : amp;
       final barHeight = scaled * size.height * 0.9;
       final x = (startSlot + i) * slotWidth + slotWidth / 2;
       canvas.drawLine(
         Offset(x, centerY - barHeight / 2),
         Offset(x, centerY + barHeight / 2),
-        paint,
+        _paint,
       );
     }
   }
 
   @override
   bool shouldRepaint(covariant _WaveformPainter old) =>
-      !identical(old.samples, samples) || old.color != color;
+      old.samples.length != samples.length || old.color != color;
 }

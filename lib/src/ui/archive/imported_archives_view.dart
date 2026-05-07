@@ -348,13 +348,14 @@ class _ArchiveEntryCard extends ConsumerWidget {
                       : LucideIcons.hash;
 
               // Resolve display name for DMs, channel name for channels, or server name.
-              final profiles = ref.watch(profileProvider);
+              final peerProfile = ref.watch(profileProvider.select(
+                  (p) => result.peerId != null ? p[result.peerId!] : null));
               final servers = ref.watch(serverListProvider);
               String name;
               String? serverLabel;
               if (result.archiveType == 'dm') {
                 name = result.peerId != null
-                    ? displayNameFor(profiles, result.peerId!)
+                    ? displayNameForPeer(peerProfile, result.peerId!)
                     : 'DM';
               } else if (result.archiveType == 'server') {
                 name = result.serverName ?? 'Server';

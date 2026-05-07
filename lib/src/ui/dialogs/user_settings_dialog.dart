@@ -689,7 +689,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
     final bannerColor = _bannerColorFromId(widget.localPeerId);
     final previewName = _liveDisplayName.trim().isNotEmpty
         ? _liveDisplayName.trim()
-        : displayNameFor(ref.watch(profileProvider), widget.localPeerId);
+        : displayNameForPeer(ref.watch(profileProvider.select((p) => p[widget.localPeerId])), widget.localPeerId);
 
     return SingleChildScrollView(
       key: const ValueKey('profile'),

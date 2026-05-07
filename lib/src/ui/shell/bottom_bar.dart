@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/color_utils.dart';
 import 'package:hollow/src/core/providers/channel_provider.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:hollow/src/core/providers/identity_provider.dart';
@@ -54,17 +55,18 @@ class _BottomBarState extends ConsumerState<BottomBar> {
     final hollow = HollowTheme.of(context);
     final identity = ref.watch(identityProvider);
     final nodeState = ref.watch(nodeProvider);
-    final profiles = ref.watch(profileProvider);
     final servers = ref.watch(serverListProvider);
     final selectedServerId = ref.watch(selectedServerProvider);
-    final unreadState = ref.watch(unreadProvider);
     final notifSettings = ref.watch(notificationSettingsProvider.notifier);
 
     _initialServerIds ??= ref.read(serverStripLayoutProvider.notifier).allServerIds();
 
     final localPeerId = identity.peerId;
+    final localProfile = localPeerId != null
+        ? ref.watch(profileProvider.select((p) => p[localPeerId]))
+        : null;
     final myDisplayName =
-        localPeerId != null ? displayNameFor(profiles, localPeerId) : '---';
+        localPeerId != null ? displayNameForPeer(localProfile, localPeerId) : '---';
 
     // Node status for user panel dot.
     final amInvisible =
@@ -76,13 +78,8 @@ class _BottomBarState extends ConsumerState<BottomBar> {
         ? false
         : nodeState.status == NodeStatus.connected;
 
-    // DM unread count for Home button.
-    int dmUnreadTotal = 0;
-    for (final entry in unreadState.dmUnreadCounts.entries) {
-      if (notifSettings.isDmEnabled(entry.key)) {
-        dmUnreadTotal += entry.value;
-      }
-    }
+    // DM unread count for Home button (pre-computed, notification-filtered).
+    final dmUnreadTotal = ref.watch(dmUnreadBadgeProvider);
 
     final archiveOpen = ref.watch(archiveTabOpenProvider);
     final shareOpen = ref.watch(shareTabOpenProvider);
@@ -542,7 +539,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
                 opacity: 0.8,
                 duration: Duration.zero,
                 child: _BottomServerIcon(
-                  backgroundColor: _colorFromId(serverId),
+                  backgroundColor: colorFromId(serverId),
                   child: serverIconChild,
                 ),
               ),
@@ -551,7 +548,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
               opacity: 0.3,
               duration: HollowDurations.fast,
               child: _BottomServerIcon(
-                backgroundColor: _colorFromId(serverId),
+                backgroundColor: colorFromId(serverId),
                 child: serverIconChild,
               ),
             ),
@@ -575,7 +572,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
                   isSelected: isSelected || isRightPaneServer,
                   unreadCount: serverUnreads,
                   tooltip: _isDragging ? null : name,
-                  backgroundColor: _colorFromId(serverId),
+                  backgroundColor: colorFromId(serverId),
                   onTap: () => _selectServer(ref, serverId),
                   child: serverIconChild,
                 ),
@@ -714,12 +711,6 @@ class _BottomBarState extends ConsumerState<BottomBar> {
 }
 
 /// Deterministic color from an ID string.
-Color _colorFromId(String id) {
-  final hash = id.hashCode;
-  final hue = (hash % 360).abs().toDouble();
-  return HSLColor.fromAHSL(1.0, hue, 0.5, 0.45).toColor();
-}
-
 /// Extract 1-2 letter initials from a server name.
 String _initialsFromName(String name) {
   final words = name.trim().split(RegExp(r'\s+'));

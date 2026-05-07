@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/color_utils.dart';
 import 'package:hollow/src/core/providers/avatar_provider.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/ui/components/animated_gif_image.dart';
@@ -30,12 +31,6 @@ class HollowAvatar extends ConsumerWidget {
     this.animate = false,
   });
 
-  Color _colorFromId(String id) {
-    final hash = id.hashCode;
-    final hue = (hash % 360).abs().toDouble();
-    return HSLColor.fromAHSL(1.0, hue, 0.5, 0.45).toColor();
-  }
-
   String _initialsFromId(String id) {
     if (id.length < 2) return '??';
     return id.substring(0, 2).toUpperCase();
@@ -46,7 +41,7 @@ class HollowAvatar extends ConsumerWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: _colorFromId(peerId),
+        color: colorFromId(peerId),
         borderRadius: BorderRadius.circular(hollow.radiusMd),
       ),
       alignment: Alignment.center,

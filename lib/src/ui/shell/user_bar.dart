@@ -34,9 +34,11 @@ class UserBar extends ConsumerWidget {
     final selectedServerId = ref.watch(selectedServerProvider);
 
     final localPeerId = identity.peerId;
-    final profiles = ref.watch(profileProvider);
+    final localProfile = localPeerId != null
+        ? ref.watch(profileProvider.select((p) => p[localPeerId]))
+        : null;
     final myDisplayName = localPeerId != null
-        ? displayNameFor(profiles, localPeerId)
+        ? displayNameForPeer(localProfile, localPeerId)
         : '---';
 
     // Derive status: mirror channel pane when a server is selected.
@@ -54,14 +56,14 @@ class UserBar extends ConsumerWidget {
     } else if (selectedServerId != null) {
       final syncStatus =
           ref.watch(serverSyncStatusProvider(selectedServerId));
-      final connectedPeers = ref.watch(peersProvider);
+      final peerIds = ref.watch(peersProvider.select((p) => p.keys.toSet()));
       final membersAsync =
           ref.watch(serverMembersProvider(selectedServerId));
       final onlineCount = membersAsync.when(
         data: (members) => members
             .where((m) =>
                 m.peerId != localPeerId &&
-                connectedPeers.containsKey(m.peerId))
+                peerIds.contains(m.peerId))
             .length,
         loading: () => 0,
         error: (_, _) => 0,

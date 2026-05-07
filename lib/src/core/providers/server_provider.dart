@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/models/server_info.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
+import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 
 /// Manages the list of servers the user has joined.
@@ -155,6 +156,35 @@ final serverNicknamesProvider =
     },
     loading: () => {},
     error: (_, _) => {},
+  );
+});
+
+/// Memoized set of display names for all members in a server.
+/// Used by MessageText for @mention highlighting. Computed once per server
+/// when members/profiles/nicknames change, instead of per-message-bubble.
+final serverMemberNamesProvider =
+    Provider.family<Set<String>?, String>((ref, serverId) {
+  final membersAsync = ref.watch(serverMembersProvider(serverId));
+  final profiles = ref.watch(profileProvider);
+  final nicknames = ref.watch(serverNicknamesProvider(serverId));
+  return membersAsync.whenOrNull(
+    data: (members) {
+      final names = <String>{};
+      for (final m in members) {
+        final displayName = serverDisplayNameFor(
+          profiles,
+          m.peerId,
+          nickname: nicknames[m.peerId] ?? '',
+        );
+        names.add(displayName);
+        if (m.nickname.isNotEmpty) names.add(m.nickname);
+        final profile = profiles[m.peerId];
+        if (profile != null && profile.displayName.isNotEmpty) {
+          names.add(profile.displayName);
+        }
+      }
+      return names;
+    },
   );
 });
 

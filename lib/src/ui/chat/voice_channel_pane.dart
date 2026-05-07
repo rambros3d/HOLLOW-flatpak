@@ -385,8 +385,9 @@ class _VoiceChannelPaneState extends ConsumerState<VoiceChannelPane> {
     final isLocal = peerId == localPeerId;
     final renderer = ref.read(voiceChannelProvider.notifier)
         .getCameraRenderer(peerId);
-    final profiles = ref.watch(profileProvider);
-    final name = isLocal ? 'You' : displayNameFor(profiles, peerId);
+    final peerProfile =
+        ref.watch(profileProvider.select((p) => p[peerId]));
+    final name = isLocal ? 'You' : displayNameForPeer(peerProfile, peerId);
     final isSpeaking = vcState.isSpeaking(peerId);
 
     return GestureDetector(
@@ -913,8 +914,11 @@ class _VoiceChannelPaneState extends ConsumerState<VoiceChannelPane> {
     final isLocal = focusedPeerId == localPeerId;
     final renderer = ref.read(voiceChannelProvider.notifier)
         .getCameraRenderer(focusedPeerId);
-    final profiles = ref.watch(profileProvider);
-    final name = isLocal ? 'You' : displayNameFor(profiles, focusedPeerId);
+    final focusedProfile =
+        ref.watch(profileProvider.select((p) => p[focusedPeerId]));
+    final name = isLocal
+        ? 'You'
+        : displayNameForPeer(focusedProfile, focusedPeerId);
 
     return Container(
       color: Colors.black,

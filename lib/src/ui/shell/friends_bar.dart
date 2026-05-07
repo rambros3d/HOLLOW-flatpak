@@ -34,43 +34,14 @@ class FriendsBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hollow = HollowTheme.of(context);
-    final friends = ref.watch(friendsProvider);
+    final displayList = ref.watch(sortedFriendsProvider);
+    final pendingCount = ref.watch(pendingFriendCountProvider);
     final peers = ref.watch(peersProvider);
     final invisiblePeers = ref.watch(invisiblePeersProvider);
     final profiles = ref.watch(profileProvider);
     final unreadState = ref.watch(unreadProvider);
     final notifSettings = ref.watch(notificationSettingsProvider.notifier);
     final selectedPeerId = ref.watch(selectedPeerProvider);
-
-    final favourites = ref.watch(favouriteFriendsProvider);
-
-    // Accepted friends sorted: online first, then alphabetical by display name.
-    final accepted = friends.values
-        .where((f) => f.status == 'accepted')
-        .toList();
-    accepted.sort((a, b) {
-      final aOnline = (peers.containsKey(a.peerId) && !invisiblePeers.contains(a.peerId)) ? 0 : 1;
-      final bOnline = (peers.containsKey(b.peerId) && !invisiblePeers.contains(b.peerId)) ? 0 : 1;
-      if (aOnline != bOnline) return aOnline.compareTo(bOnline);
-      final aName = displayNameFor(profiles, a.peerId);
-      final bName = displayNameFor(profiles, b.peerId);
-      return aName.compareTo(bName);
-    });
-
-    // When favourites exist, show only favourites in their custom order.
-    // Filter out any stale favourites (removed friends).
-    final acceptedIds = accepted.map((f) => f.peerId).toSet();
-    final displayList = favourites.isNotEmpty
-        ? favourites
-            .where((id) => acceptedIds.contains(id))
-            .map((id) => accepted.firstWhere((f) => f.peerId == id))
-            .toList()
-        : accepted;
-
-    // Count pending requests for badge.
-    final pendingCount = friends.values
-        .where((f) => f.status == 'pending' && f.direction == 'incoming')
-        .length;
 
     return Container(
       height: 44,

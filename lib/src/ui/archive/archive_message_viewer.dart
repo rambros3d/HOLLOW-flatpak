@@ -113,8 +113,9 @@ class _ArchiveDmViewer extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final hollow = HollowTheme.of(context);
     final messagesAsync = ref.watch(archiveDmMessagesProvider(peerId));
-    final profiles = ref.watch(profileProvider);
-    final displayName = displayNameFor(profiles, peerId);
+    final peerProfile = ref.watch(
+        profileProvider.select((p) => p[peerId]));
+    final displayName = displayNameForPeer(peerProfile, peerId);
     final searchOpen = ref.watch(archiveMessageSearchOpenProvider);
 
     final allMessages = messagesAsync.valueOrNull ?? [];

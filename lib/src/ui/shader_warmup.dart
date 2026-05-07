@@ -199,7 +199,7 @@ class HollowShaderWarmUp extends ShaderWarmUp {
     canvas.drawRect(
       rect,
       Paint()
-        ..imageFilter = ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        ..imageFilter = ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
     );
 
     // ── 13. Transform (ScaleTransition, SlideTransition) ──

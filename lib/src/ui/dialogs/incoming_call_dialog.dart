@@ -129,9 +129,9 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     // Cache display info when call becomes visible so the card
     // doesn't go blank during the exit animation.
     if (isVisible) {
-      final profiles = ref.watch(profileProvider);
       _cachedPeerId = call.peerId ?? '';
-      _cachedDisplayName = displayNameFor(profiles, _cachedPeerId);
+      final callerProfile = ref.watch(profileProvider.select((p) => p[_cachedPeerId]));
+      _cachedDisplayName = displayNameForPeer(callerProfile, _cachedPeerId);
       _cachedIsVideoCall = call.isVideoCall;
     }
 

@@ -296,13 +296,29 @@ class _ServerContent extends StatefulWidget {
 }
 
 class _ServerContentState extends State<_ServerContent> {
+  /// Cached parsed layout — only re-parsed when the JSON string changes.
+  List<dynamic> _parsedLayout = [];
+  String _lastLayoutJson = '';
+
+  List<dynamic> _getParsedLayout() {
+    if (widget.channelLayoutJson != _lastLayoutJson) {
+      _lastLayoutJson = widget.channelLayoutJson;
+      try {
+        _parsedLayout = jsonDecode(widget.channelLayoutJson) as List<dynamic>;
+      } catch (_) {
+        _parsedLayout = [];
+      }
+    }
+    return _parsedLayout;
+  }
+
   List<Widget> _buildLayoutItems() {
     final w = widget;
     final widgets = <Widget>[];
     final placedChannels = <String>{};
 
     try {
-      final List<dynamic> layout = jsonDecode(w.channelLayoutJson);
+      final List<dynamic> layout = _getParsedLayout();
       String? currentCategory;
       for (final item in layout) {
         if (item['type'] == 'category') {
@@ -767,8 +783,9 @@ class _PendingRequestTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final profiles = ref.watch(profileProvider);
-    final name = displayNameFor(profiles, peerId);
+    final peerProfile =
+        ref.watch(profileProvider.select((p) => p[peerId]));
+    final name = displayNameForPeer(peerProfile, peerId);
 
     return Padding(
       padding: const EdgeInsets.symmetric(
@@ -1161,8 +1178,9 @@ class _VoiceParticipantRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final profiles = ref.watch(profileProvider);
-    final name = displayNameFor(profiles, peerId);
+    final peerProfile =
+        ref.watch(profileProvider.select((p) => p[peerId]));
+    final name = displayNameForPeer(peerProfile, peerId);
     final hollow = HollowTheme.of(context);
     final vcState = ref.watch(voiceChannelProvider);
     final localPeerId = ref.watch(identityProvider).peerId ?? '';

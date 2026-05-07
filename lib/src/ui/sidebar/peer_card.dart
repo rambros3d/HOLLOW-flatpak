@@ -37,8 +37,8 @@ class PeerCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hollow = HollowTheme.of(context);
-    final profiles = ref.watch(profileProvider);
-    final peerName = displayNameFor(profiles, peerId);
+    final peerProfile = ref.watch(profileProvider.select((p) => p[peerId]));
+    final peerName = displayNameForPeer(peerProfile, peerId);
     final radius = BorderRadius.circular(hollow.radiusMd);
     final isDmMuted = !ref.watch(notificationSettingsProvider.notifier)
         .isDmEnabled(peerId);

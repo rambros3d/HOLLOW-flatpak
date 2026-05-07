@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hollow/src/core/providers/local_nickname_provider.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
 import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 
@@ -81,15 +80,18 @@ String displayNameFor(
   Map<String, storage_api.UserProfile> profiles,
   String peerId,
 ) {
-  // Local nickname takes priority (user-chosen, purely local)
+  return displayNameForPeer(profiles[peerId], peerId);
+}
+
+/// Same as [displayNameFor] but takes a single [UserProfile?] instead of the
+/// full map. Prefer this with `ref.watch(profileProvider.select(...))` to
+/// avoid rebuilding when unrelated profiles change.
+String displayNameForPeer(storage_api.UserProfile? profile, String peerId) {
   final localNick = _localNicknames[peerId];
   if (localNick != null && localNick.isNotEmpty) return localNick;
-
-  final profile = profiles[peerId];
   if (profile != null && profile.displayName.isNotEmpty) {
     return profile.displayName;
   }
-  // Fallback: first 8 chars of peer ID.
   return peerId.length > 8 ? '${peerId.substring(0, 8)}...' : peerId;
 }
 
@@ -101,5 +103,15 @@ String serverDisplayNameFor(
   String nickname = '',
 }) {
   if (nickname.isNotEmpty) return nickname;
-  return displayNameFor(profiles, peerId);
+  return displayNameForPeer(profiles[peerId], peerId);
+}
+
+/// Same as [serverDisplayNameFor] but takes a single [UserProfile?].
+String serverDisplayNameForPeer(
+  storage_api.UserProfile? profile,
+  String peerId, {
+  String nickname = '',
+}) {
+  if (nickname.isNotEmpty) return nickname;
+  return displayNameForPeer(profile, peerId);
 }

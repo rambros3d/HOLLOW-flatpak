@@ -10,7 +10,7 @@ import 'package:hollow/src/ui/animations/hollow_curves.dart';
 ///
 /// Entrance: scale 0.95→1.0 + fade in, 200ms easeOutCubic.
 /// Full-screen BackdropFilter blurs everything behind the dialog.
-/// Blur animates 0→12 alongside the dialog entrance.
+/// Blur animates 0→8 alongside the dialog entrance.
 Future<T?> showHollowDialog<T>({
   required BuildContext context,
   required WidgetBuilder builder,
@@ -35,12 +35,13 @@ Future<T?> showHollowDialog<T>({
           return Stack(
             children: [
               // Blur layer — fades with dialog.
-              AnimatedOpacity(
-                opacity: animation.value,
-                duration: Duration.zero,
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                  child: const SizedBox.expand(),
+              RepaintBoundary(
+                child: FadeTransition(
+                  opacity: animation,
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                    child: const SizedBox.expand(),
+                  ),
                 ),
               ),
               // Dialog content — scale + fade.
@@ -103,7 +104,7 @@ class HollowDialog extends StatelessWidget {
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.2),
-                    blurRadius: 24,
+                    blurRadius: 16,
                   ),
                 ],
               ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/color_utils.dart';
 import 'package:hollow/src/ui/animations/hollow_curves.dart';
 import 'package:hollow/src/core/models/strip_item.dart';
 import 'package:hollow/src/core/providers/notification_provider.dart';
@@ -57,7 +58,7 @@ class ServerFolderIcon extends ConsumerWidget {
                     height: cellSize,
                     fit: BoxFit.cover)
                 : Container(
-                    color: _colorFromId(sid),
+                    color: colorFromId(sid),
                     alignment: Alignment.center,
                     child: Text(
                       _initialsFromName(name.isNotEmpty ? name : sid),
@@ -103,7 +104,7 @@ class ServerFolderIcon extends ConsumerWidget {
               child: avatar != null
                   ? Image.memory(avatar, fit: BoxFit.cover)
                   : Container(
-                      color: _colorFromId(sid),
+                      color: colorFromId(sid),
                       alignment: Alignment.center,
                       child: Text(
                         _initialsFromName(cName.isNotEmpty ? cName : sid),
@@ -474,7 +475,7 @@ class _FolderServerItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = server?.name ?? '';
-    final bgColor = _colorFromId(serverId);
+    final bgColor = colorFromId(serverId);
 
     return HollowPressable(
       onTap: onTap,
@@ -690,12 +691,6 @@ class _FolderRenameDialogState extends ConsumerState<_FolderRenameDialog> {
 }
 
 // ── Shared Helpers ──────────────────────────────────────────────
-
-Color _colorFromId(String id) {
-  final hash = id.hashCode;
-  final hue = (hash % 360).abs().toDouble();
-  return HSLColor.fromAHSL(1.0, hue, 0.5, 0.45).toColor();
-}
 
 String _initialsFromName(String name) {
   final words = name.trim().split(RegExp(r'\s+'));

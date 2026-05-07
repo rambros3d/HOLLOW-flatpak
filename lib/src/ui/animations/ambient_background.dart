@@ -57,7 +57,9 @@ class AmbientBackground extends ConsumerWidget {
                   child: CustomPaint(
                     painter: _AmbientPainter(
                       color1: color1.withValues(alpha: opacity),
+                      color1Fade: color1.withValues(alpha: 0),
                       color2: color2.withValues(alpha: opacity),
+                      color2Fade: color2.withValues(alpha: 0),
                       center1: Offset(x1, y1),
                       center2: Offset(x2, y2),
                     ),
@@ -75,13 +77,20 @@ class AmbientBackground extends ConsumerWidget {
 
 class _AmbientPainter extends CustomPainter {
   final Color color1;
+  final Color color1Fade;
   final Color color2;
+  final Color color2Fade;
   final Offset center1;
   final Offset center2;
 
+  final Paint _paint1 = Paint();
+  final Paint _paint2 = Paint();
+
   _AmbientPainter({
     required this.color1,
+    required this.color1Fade,
     required this.color2,
+    required this.color2Fade,
     required this.center1,
     required this.center2,
   });
@@ -90,21 +99,19 @@ class _AmbientPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final c1 = Offset(center1.dx * size.width, center1.dy * size.height);
     final r1 = size.width * 0.55;
-    final paint1 = Paint()
-      ..shader = RadialGradient(
-        colors: [color1, color1, color1.withValues(alpha: 0)],
-        stops: const [0.0, 0.35, 1.0],
-      ).createShader(Rect.fromCircle(center: c1, radius: r1));
-    canvas.drawCircle(c1, r1, paint1);
+    _paint1.shader = RadialGradient(
+      colors: [color1, color1, color1Fade],
+      stops: const [0.0, 0.35, 1.0],
+    ).createShader(Rect.fromCircle(center: c1, radius: r1));
+    canvas.drawCircle(c1, r1, _paint1);
 
     final c2 = Offset(center2.dx * size.width, center2.dy * size.height);
     final r2 = size.width * 0.5;
-    final paint2 = Paint()
-      ..shader = RadialGradient(
-        colors: [color2, color2, color2.withValues(alpha: 0)],
-        stops: const [0.0, 0.35, 1.0],
-      ).createShader(Rect.fromCircle(center: c2, radius: r2));
-    canvas.drawCircle(c2, r2, paint2);
+    _paint2.shader = RadialGradient(
+      colors: [color2, color2, color2Fade],
+      stops: const [0.0, 0.35, 1.0],
+    ).createShader(Rect.fromCircle(center: c2, radius: r2));
+    canvas.drawCircle(c2, r2, _paint2);
   }
 
   @override

@@ -1859,9 +1859,7 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
           ),
               // Unread pill — only when new messages arrived while scrolled up
               Builder(builder: (context) {
-                final unreadState = ref.watch(unreadProvider);
-                final unreadCount = unreadState
-                    .channelUnreadCounts['${widget.serverId}:${widget.channelId}'] ?? 0;
+                final unreadCount = ref.watch(unreadProvider.select((s) => s.channelUnreadCounts['${widget.serverId}:${widget.channelId}'] ?? 0));
                 if (unreadCount > 0 && _showScrollPill) {
                   return Positioned(
                     bottom: HollowSpacing.md,

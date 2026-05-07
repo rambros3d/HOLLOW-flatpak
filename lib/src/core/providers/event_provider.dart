@@ -98,6 +98,17 @@ class EventStreamNotifier extends Notifier<bool> {
     state = false;
   }
 
+  void _refreshServerState(String serverId) {
+    ref.read(serverListProvider.notifier).onServerUpdated(serverId);
+    ref.invalidate(serverMembersProvider(serverId));
+    ref.invalidate(myPermissionsProvider(serverId));
+    ref.invalidate(myRoleProvider(serverId));
+    if (ref.read(selectedServerProvider) == serverId) {
+      ref.read(channelListProvider.notifier).loadForServer(serverId);
+      ref.read(channelLayoutProvider.notifier).loadForServer(serverId);
+    }
+  }
+
   void _dispatch(NetworkEvent event) {
     // SECURITY: Wrap dispatch in try-catch to prevent unhandled exceptions
     // from killing the event loop.
@@ -254,16 +265,8 @@ class EventStreamNotifier extends Notifier<bool> {
 
       case NetworkEvent_ServerUpdated(:final serverId):
         debugPrint('[HOLLOW] Server updated: $serverId');
-        ref.read(serverListProvider.notifier).onServerUpdated(serverId);
         ref.read(serverAvatarProvider.notifier).loadAvatar(serverId);
-        ref.invalidate(serverMembersProvider(serverId));
-        ref.invalidate(myPermissionsProvider(serverId));
-        ref.invalidate(myRoleProvider(serverId));
-        // Reload channels and layout in case they changed.
-        if (ref.read(selectedServerProvider) == serverId) {
-          ref.read(channelListProvider.notifier).loadForServer(serverId);
-          ref.read(channelLayoutProvider.notifier).loadForServer(serverId);
-        }
+        _refreshServerState(serverId);
 
       case NetworkEvent_ChannelAdded(
             :final serverId, :final channelId, :final name, :final channelType):
@@ -488,10 +491,7 @@ class EventStreamNotifier extends Notifier<bool> {
 
       case NetworkEvent_RoleChanged(:final serverId, :final peerId, :final newRole):
         debugPrint('[HOLLOW] Role changed: $peerId is now $newRole in $serverId');
-        ref.read(serverListProvider.notifier).onServerUpdated(serverId);
-        ref.invalidate(serverMembersProvider(serverId));
-        ref.invalidate(myRoleProvider(serverId));
-        ref.invalidate(myPermissionsProvider(serverId));
+        _refreshServerState(serverId);
 
       case NetworkEvent_DmSyncCompleted(:final peerId, :final newMessageCount):
         debugPrint('[HOLLOW] DM sync completed for $peerId: $newMessageCount new messages');

@@ -3,13 +3,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/models/channel_chat_message.dart';
+import 'package:hollow/src/core/color_utils.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
-import 'package:hollow/src/ui/chat/message_bubble.dart';
 import 'package:hollow/src/ui/chat/file_attachment_widget.dart';
 import 'package:hollow/src/ui/chat/hollow_link_card.dart';
 import 'package:hollow/src/ui/chat/hollow_link_utils.dart';
@@ -146,25 +146,8 @@ class ChannelMessageBubble extends ConsumerWidget {
 
     final localPeerId = ref.watch(identityProvider).peerId ?? '';
 
-    // Build mentionable names for @mention highlighting.
-    final membersAsync = ref.watch(serverMembersProvider(serverId));
-    final memberNames = membersAsync.whenOrNull(
-      data: (members) {
-        final names = <String>{};
-        for (final m in members) {
-          final displayName = serverDisplayNameFor(
-            profiles, m.peerId, nickname: nicknames[m.peerId] ?? '',
-          );
-          names.add(displayName);
-          if (m.nickname.isNotEmpty) names.add(m.nickname);
-          final profile = profiles[m.peerId];
-          if (profile != null && profile.displayName.isNotEmpty) {
-            names.add(profile.displayName);
-          }
-        }
-        return names;
-      },
-    );
+    // Memoized across all message bubbles — recomputes only when members change.
+    final memberNames = ref.watch(serverMemberNamesProvider(serverId));
 
     final isFileOnly = message.fileAttachment != null &&
         (message.text.isEmpty || message.text.startsWith('[file:'));

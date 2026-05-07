@@ -295,7 +295,7 @@ final _serverMemberEntriesProvider = Provider.family
     .autoDispose<(List<_MemberListEntry>, int, bool, String?), String>(
         (ref, serverId) {
   final membersAsync = ref.watch(serverMembersProvider(serverId));
-  final connectedPeers = ref.watch(peersProvider);
+  final peerIds = ref.watch(peersProvider.select((p) => p.keys.toSet()));
   final localPeerId = ref.watch(identityProvider).peerId;
   final invisiblePeers = ref.watch(invisiblePeersProvider);
   final amInvisible = ref.watch(invisibleModeProvider);
@@ -307,14 +307,14 @@ final _serverMemberEntriesProvider = Provider.family
       final online = members
           .where((m) {
             if (m.peerId == localPeerId) return !amInvisible;
-            return connectedPeers.containsKey(m.peerId) &&
+            return peerIds.contains(m.peerId) &&
                 !invisiblePeers.contains(m.peerId);
           })
           .toList();
       final offline = members
           .where((m) {
             if (m.peerId == localPeerId) return amInvisible;
-            return !connectedPeers.containsKey(m.peerId) ||
+            return !peerIds.contains(m.peerId) ||
                 invisiblePeers.contains(m.peerId);
           })
           .toList();

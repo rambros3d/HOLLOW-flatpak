@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/models/chat_message.dart';
+import 'package:hollow/src/core/color_utils.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
@@ -16,13 +17,6 @@ import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/chat/message_text_parser.dart';
 import 'package:hollow/src/ui/chat/reaction_bar.dart';
 import 'package:hollow/src/ui/components/hollow_avatar.dart';
-
-/// Deterministic name color from peer ID (same hue as avatar, lighter for readability).
-Color nameColorFromId(String id) {
-  final hash = id.hashCode;
-  final hue = (hash % 360).abs().toDouble();
-  return HSLColor.fromAHSL(1.0, hue, 0.6, 0.65).toColor();
-}
 
 /// Flat message row for DMs — no bubbles.
 ///
@@ -60,10 +54,11 @@ class MessageBubble extends ConsumerWidget {
         '${message.timestamp.hour.toString().padLeft(2, '0')}:${message.timestamp.minute.toString().padLeft(2, '0')}';
     final isEdited = message.editedAt != null;
 
-    final profiles = ref.watch(profileProvider);
     final localPeerId = ref.watch(identityProvider).peerId ?? '';
     final senderId = isMe ? localPeerId : peerId;
-    final senderName = displayNameFor(profiles, senderId);
+    final senderProfile =
+        ref.watch(profileProvider.select((p) => p[senderId]));
+    final senderName = displayNameForPeer(senderProfile, senderId);
 
     const avatarSize = 32.0;
     const avatarGap = HollowSpacing.sm + 2; // 10px

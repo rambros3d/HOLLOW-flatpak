@@ -1,5 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/providers/favourite_friends_provider.dart';
+import 'package:hollow/src/core/providers/peers_provider.dart';
+import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
 import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 
@@ -89,3 +92,52 @@ class FriendsNotifier extends Notifier<Map<String, FriendInfo>> {
 final friendsProvider =
     NotifierProvider<FriendsNotifier, Map<String, FriendInfo>>(
         FriendsNotifier.new);
+
+/// Accepted friends sorted by online status (online first) then alphabetical
+/// display name, with favourites override applied when favourites exist.
+/// Memoized — only recomputes when the upstream providers change.
+final sortedFriendsProvider = Provider<List<FriendInfo>>((ref) {
+  final friends = ref.watch(friendsProvider);
+  final peers = ref.watch(peersProvider);
+  final invisiblePeers = ref.watch(invisiblePeersProvider);
+  final profiles = ref.watch(profileProvider);
+  final favourites = ref.watch(favouriteFriendsProvider);
+
+  final accepted = friends.values
+      .where((f) => f.status == 'accepted')
+      .toList();
+  accepted.sort((a, b) {
+    final aOnline =
+        (peers.containsKey(a.peerId) && !invisiblePeers.contains(a.peerId))
+            ? 0
+            : 1;
+    final bOnline =
+        (peers.containsKey(b.peerId) && !invisiblePeers.contains(b.peerId))
+            ? 0
+            : 1;
+    if (aOnline != bOnline) return aOnline.compareTo(bOnline);
+    final aName = displayNameFor(profiles, a.peerId);
+    final bName = displayNameFor(profiles, b.peerId);
+    return aName.compareTo(bName);
+  });
+
+  // When favourites exist, show only favourites in their custom order.
+  // Filter out any stale favourites (removed friends).
+  if (favourites.isNotEmpty) {
+    final acceptedIds = accepted.map((f) => f.peerId).toSet();
+    return favourites
+        .where((id) => acceptedIds.contains(id))
+        .map((id) => accepted.firstWhere((f) => f.peerId == id))
+        .toList();
+  }
+
+  return accepted;
+});
+
+/// Count of incoming pending friend requests (for badge display).
+final pendingFriendCountProvider = Provider<int>((ref) {
+  final friends = ref.watch(friendsProvider);
+  return friends.values
+      .where((f) => f.status == 'pending' && f.direction == 'incoming')
+      .length;
+});

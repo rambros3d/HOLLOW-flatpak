@@ -875,7 +875,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      displayNameFor(ref.watch(profileProvider), widget.peerId),
+                      displayNameForPeer(ref.watch(profileProvider.select((p) => p[widget.peerId])), widget.peerId),
                       style: HollowTypography.body.copyWith(
                         color: hollow.textPrimary,
                         fontWeight: FontWeight.w600,
@@ -1507,9 +1507,7 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
             ),
             // Unread pill
             Builder(builder: (context) {
-              final unreadCount = ref.watch(unreadProvider)
-                      .dmUnreadCounts[widget.peerId] ??
-                  0;
+              final unreadCount = ref.watch(unreadProvider.select((s) => s.dmUnreadCounts[widget.peerId] ?? 0));
               if (unreadCount > 0 && _showScrollPill) {
                 return Positioned(
                   bottom: HollowSpacing.md,
@@ -2059,9 +2057,9 @@ class _InlineCallPanelState extends ConsumerState<_InlineCallPanel> {
   Widget build(BuildContext context) {
     final call = ref.watch(callProvider);
     final hollow = HollowTheme.of(context);
-    final profiles = ref.watch(profileProvider);
+    final peerProfile = ref.watch(profileProvider.select((p) => p[widget.peerId]));
     final localPeerId = ref.read(identityProvider).peerId ?? '';
-    final displayName = displayNameFor(profiles, widget.peerId);
+    final displayName = displayNameForPeer(peerProfile, widget.peerId);
 
     // Start timer.
     if (call.status == CallStatus.active && call.startedAt != null) {
@@ -3345,8 +3343,8 @@ class _ScreenShareControlsOverlayState
       _durationTimer = null;
     }
 
-    final profiles = ref.watch(profileProvider);
-    final displayName = displayNameFor(profiles, widget.peerId);
+    final peerProfile = ref.watch(profileProvider.select((p) => p[widget.peerId]));
+    final displayName = displayNameForPeer(peerProfile, widget.peerId);
 
     return Container(
       padding: const EdgeInsets.symmetric(
@@ -3570,8 +3568,7 @@ class _DmProfilePanel extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hollow = HollowTheme.of(context);
-    final profiles = ref.watch(profileProvider);
-    final profile = profiles[peerId];
+    final profile = ref.watch(profileProvider.select((p) => p[peerId]));
     final localNicknames = ref.watch(localNicknameProvider);
     final localNick = localNicknames[peerId];
     final isOnline = ref.watch(peersProvider).containsKey(peerId) &&

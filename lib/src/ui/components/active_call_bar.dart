@@ -85,7 +85,7 @@ class _ActiveCallBarState extends ConsumerState<ActiveCallBar> {
 
     final hollow = HollowTheme.of(context);
     final peerId = call.peerId ?? '';
-    final displayName = displayNameFor(ref.watch(profileProvider), peerId);
+    final displayName = displayNameForPeer(ref.watch(profileProvider.select((p) => p[peerId])), peerId);
 
     return Positioned(
       top: 80, // below title bar + friends bar

@@ -269,8 +269,9 @@ class _DmRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hollow = HollowTheme.of(context);
-    final profiles = ref.watch(profileProvider);
-    final name = displayNameFor(profiles, entry.peerId);
+    final peerProfile = ref.watch(
+        profileProvider.select((p) => p[entry.peerId]));
+    final name = displayNameForPeer(peerProfile, entry.peerId);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),

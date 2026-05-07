@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/color_utils.dart';
 import 'package:hollow/src/core/providers/archive_provider.dart';
 import 'package:hollow/src/core/providers/share_tab_provider.dart';
 import 'package:hollow/src/core/providers/channel_provider.dart';
@@ -43,16 +44,8 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
 
     final stripLayout = ref.watch(serverStripLayoutProvider);
 
-    final unreadState = ref.watch(unreadProvider);
-
-    // Home button — show unread count if any unmuted DM has unreads.
-    final notifSettings = ref.watch(notificationSettingsProvider.notifier);
-    int dmUnreadTotal = 0;
-    for (final entry in unreadState.dmUnreadCounts.entries) {
-      if (notifSettings.isDmEnabled(entry.key)) {
-        dmUnreadTotal += entry.value;
-      }
-    }
+    // DM unread count for Home button (pre-computed, notification-filtered).
+    final dmUnreadTotal = ref.watch(dmUnreadBadgeProvider);
     final archiveOpen = ref.watch(archiveTabOpenProvider);
     final shareOpen = ref.watch(shareTabOpenProvider);
 
@@ -307,7 +300,7 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
               opacity: 0.8,
               duration: Duration.zero,
               child: _ServerIcon(
-                backgroundColor: _colorFromId(serverId),
+                backgroundColor: colorFromId(serverId),
                 child: serverIconChild,
               ),
             ),
@@ -318,7 +311,7 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
             child: _ServerIconWithIndicator(
               isSelected: false,
               child: _ServerIcon(
-                backgroundColor: _colorFromId(serverId),
+                backgroundColor: colorFromId(serverId),
                 child: serverIconChild,
               ),
             ),
@@ -332,7 +325,7 @@ class _ServerStripState extends ConsumerState<ServerStrip> {
               mentionCount: serverMentions,
               child: _ServerIcon(
                 isSelected: isSelected,
-                backgroundColor: _colorFromId(serverId),
+                backgroundColor: colorFromId(serverId),
                 tooltip: name,
                 onTap: () => _selectServer(serverId),
                 child: serverIconChild,
@@ -535,12 +528,6 @@ class _StripDragData {
 }
 
 /// Deterministic color from an ID string (same logic as HollowAvatar).
-Color _colorFromId(String id) {
-  final hash = id.hashCode;
-  final hue = (hash % 360).abs().toDouble();
-  return HSLColor.fromAHSL(1.0, hue, 0.5, 0.45).toColor();
-}
-
 /// Extract 1–2 letter initials from a server name.
 String _initialsFromName(String name) {
   final words = name.trim().split(RegExp(r'\s+'));

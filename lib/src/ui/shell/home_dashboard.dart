@@ -163,13 +163,15 @@ class _ProfileColumn extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final identity = ref.watch(identityProvider);
     final nodeState = ref.watch(nodeProvider);
-    final profiles = ref.watch(profileProvider);
     final localPeerId = identity.peerId;
+    final localProfile = localPeerId != null
+        ? ref.watch(profileProvider.select((p) => p[localPeerId]))
+        : null;
 
     final displayName = localPeerId != null
-        ? displayNameFor(profiles, localPeerId)
+        ? displayNameForPeer(localProfile, localPeerId)
         : 'Loading...';
-    final profile = localPeerId != null ? profiles[localPeerId] : null;
+    final profile = localProfile;
     final statusText = profile?.status ?? '';
     final aboutMe = profile?.aboutMe ?? '';
     final isOnline = nodeState.status == NodeStatus.connected;
@@ -460,9 +462,9 @@ class _RecentConversationsColumn extends ConsumerWidget {
     final friends = ref.watch(friendsProvider);
     final lastMessages = ref.watch(lastDmMessageProvider);
     final profiles = ref.watch(profileProvider);
-    final peers = ref.watch(peersProvider);
+    final peerIds = ref.watch(peersProvider.select((p) => p.keys.toSet()));
     final invPeers = ref.watch(invisiblePeersProvider);
-    final unreadState = ref.watch(unreadProvider);
+    final dmUnreads = ref.watch(unreadProvider.select((s) => s.dmUnreadCounts));
 
     // Build list of friends with their last message, sorted by recency.
     final accepted = friends.values
@@ -477,9 +479,9 @@ class _RecentConversationsColumn extends ConsumerWidget {
         peerId: friend.peerId,
         lastMessage: lastMsg,
         timestamp: timestamp,
-        isOnline: peers.containsKey(friend.peerId) &&
+        isOnline: peerIds.contains(friend.peerId) &&
             !invPeers.contains(friend.peerId),
-        unreadCount: unreadState.dmUnreadCounts[friend.peerId] ?? 0,
+        unreadCount: dmUnreads[friend.peerId] ?? 0,
       ));
     }
 

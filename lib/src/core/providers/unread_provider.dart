@@ -389,3 +389,15 @@ class UnreadState {
 
 final unreadProvider =
     NotifierProvider<UnreadNotifier, UnreadState>(UnreadNotifier.new);
+
+/// Pre-computed DM unread total, filtered by notification settings.
+/// Replaces manual O(n) loops in bottom_bar.dart and server_strip.dart.
+final dmUnreadBadgeProvider = Provider<int>((ref) {
+  final unread = ref.watch(unreadProvider);
+  final notifSettings = ref.watch(notificationSettingsProvider.notifier);
+  int total = 0;
+  for (final entry in unread.dmUnreadCounts.entries) {
+    if (notifSettings.isDmEnabled(entry.key)) total += entry.value;
+  }
+  return total;
+});

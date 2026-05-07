@@ -33,8 +33,8 @@ class _CallVideoViewState extends ConsumerState<CallVideoView> {
     final voiceService = ref.read(callProvider.notifier).voiceService;
     final hollow = HollowTheme.of(context);
     final peerId = call.peerId ?? '';
-    final profiles = ref.watch(profileProvider);
-    final displayName = displayNameFor(profiles, peerId);
+    final peerProfile = ref.watch(profileProvider.select((p) => p[peerId]));
+    final displayName = displayNameForPeer(peerProfile, peerId);
 
     final remoteRenderer = voiceService?.remoteRenderer;
     final localRenderer = voiceService?.localRenderer;

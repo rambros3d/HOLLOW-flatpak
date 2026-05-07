@@ -27,17 +27,7 @@ class SelectionShimmer extends StatelessWidget {
     return ValueListenableBuilder<double>(
       valueListenable: SharedTickers.instance.shimmer,
       builder: (context, value, child) {
-        // Sweep position: -1.5 to 2.5 range.
         final pos = value * 4.0 - 1.5;
-        final Alignment begin;
-        final Alignment end;
-        if (vertical) {
-          begin = Alignment(0, pos - 0.5);
-          end = Alignment(0, pos + 0.5);
-        } else {
-          begin = Alignment(pos - 0.5, 0);
-          end = Alignment(pos + 0.5, 0);
-        }
         return Stack(
           children: [
             child!,
@@ -45,17 +35,11 @@ class SelectionShimmer extends StatelessWidget {
               child: IgnorePointer(
                 child: ClipRRect(
                   borderRadius: borderRadius ?? BorderRadius.zero,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: begin,
-                        end: end,
-                        colors: [
-                          Colors.transparent,
-                          highlightColor,
-                          Colors.transparent,
-                        ],
-                      ),
+                  child: CustomPaint(
+                    painter: _ShimmerPainter(
+                      position: pos,
+                      highlightColor: highlightColor,
+                      vertical: vertical,
                     ),
                   ),
                 ),
@@ -67,4 +51,40 @@ class SelectionShimmer extends StatelessWidget {
       child: child,
     );
   }
+}
+
+class _ShimmerPainter extends CustomPainter {
+  final double position;
+  final Color highlightColor;
+  final bool vertical;
+
+  final Paint _paint = Paint();
+
+  _ShimmerPainter({
+    required this.position,
+    required this.highlightColor,
+    required this.vertical,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Alignment begin;
+    final Alignment end;
+    if (vertical) {
+      begin = Alignment(0, position - 0.5);
+      end = Alignment(0, position + 0.5);
+    } else {
+      begin = Alignment(position - 0.5, 0);
+      end = Alignment(position + 0.5, 0);
+    }
+    _paint.shader = LinearGradient(
+      begin: begin,
+      end: end,
+      colors: [Colors.transparent, highlightColor, Colors.transparent],
+    ).createShader(Offset.zero & size);
+    canvas.drawRect(Offset.zero & size, _paint);
+  }
+
+  @override
+  bool shouldRepaint(_ShimmerPainter old) => old.position != position;
 }
