@@ -199,6 +199,12 @@ async fn run_event_loop(
                         match serde_json::from_str::<ServerState>(&json) {
                             Ok(mut state) => {
                                 state.set_hlc(Hlc::new(local_peer_str.to_string()));
+                                // Restore op_log from crdt_ops table (no longer serialized in state JSON).
+                                if state.op_log.is_empty() {
+                                    if let Ok(ops) = store.load_ops_for_server(&server_id) {
+                                        state.restore_op_log(ops);
+                                    }
+                                }
                                 // Log custom relay URL if set.
                                 if let Some(relay_reg) = state.settings.get("relay_url") {
                                     let url = relay_reg.read();

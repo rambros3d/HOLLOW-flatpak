@@ -126,6 +126,7 @@ pub struct ServerState {
     pub labels: HashMap<String, LabelInfo>,
     #[serde(default)]
     pub label_assignments: HashMap<String, Vec<String>>,
+    #[serde(default, skip_serializing)]
     pub op_log: Vec<CrdtOp>,
     #[serde(skip)]
     pub hlc: Option<Hlc>,
@@ -194,6 +195,16 @@ impl ServerState {
     /// Restore from persistence (HLC set separately via `set_hlc`).
     pub fn set_hlc(&mut self, hlc: Hlc) {
         self.hlc = Some(hlc);
+    }
+
+    /// Restore op_log from DB-persisted ops (called at startup when op_log
+    /// is no longer serialized in the state JSON).
+    pub fn restore_op_log(&mut self, ops: Vec<CrdtOp>) {
+        self.op_log = ops;
+        self.op_log_dedup.clear();
+        for op in &self.op_log {
+            self.op_log_dedup.insert((op.author.clone(), op.hlc.clone()));
+        }
     }
 
     /// Generate a new CrdtOp with our HLC, but do NOT apply it yet.

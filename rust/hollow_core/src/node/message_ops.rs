@@ -181,9 +181,6 @@ pub(crate) async fn handle_send_channel_message(
         file_id: None,
         link_preview: link_preview.clone(),
     };
-    let envelope_json = serde_json::to_string(&envelope)
-        .unwrap_or_else(|_| text.clone());
-
     // MLS path: encrypt once → single WS broadcast to room.
     let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
     if use_mls {
@@ -191,6 +188,7 @@ pub(crate) async fn handle_send_channel_message(
             Ok(()) => {}
             Err(e) => {
                 hollow_log!("[HOLLOW-MLS] Encrypt failed, falling back to Olm: {e}");
+                let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
                 for member_peer_str in server.members.keys() {
                     if member_peer_str == &local_peer { continue; }
                         if peer_is_reachable(ws_room_peers, member_peer_str) {
@@ -206,6 +204,7 @@ pub(crate) async fn handle_send_channel_message(
         }
     } else {
         // Legacy Olm fan-out path.
+        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
         for member_peer_str in server.members.keys() {
             if member_peer_str == &local_peer { continue; }
                 if peer_is_reachable(ws_room_peers, member_peer_str) {
@@ -341,7 +340,6 @@ pub(crate) async fn handle_edit_channel_message(
         sid: Some(server_id.clone()),
         cid: Some(channel_id.clone()),
     };
-    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
 
     let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
     if use_mls {
@@ -349,6 +347,7 @@ pub(crate) async fn handle_edit_channel_message(
             Ok(()) => {}
             Err(e) => {
                 hollow_log!("[HOLLOW-MLS] Edit encrypt failed, falling back to Olm: {e}");
+                let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
                 for member_peer_str in server.members.keys() {
                     if member_peer_str == &local_peer { continue; }
                         if peer_is_reachable(ws_room_peers, member_peer_str) {
@@ -364,6 +363,7 @@ pub(crate) async fn handle_edit_channel_message(
         }
     } else {
         // Olm fan-out fallback.
+        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
         for member_peer_str in server.members.keys() {
             if member_peer_str == &local_peer { continue; }
                 if peer_is_reachable(ws_room_peers, member_peer_str) {
@@ -547,7 +547,6 @@ pub(crate) async fn handle_delete_channel_message(
         sid: Some(server_id.clone()),
         cid: Some(channel_id.clone()),
     };
-    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
 
     let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
     if use_mls {
@@ -555,6 +554,7 @@ pub(crate) async fn handle_delete_channel_message(
             Ok(()) => {}
             Err(e) => {
                 hollow_log!("[HOLLOW-MLS] Delete encrypt failed, falling back to Olm: {e}");
+                let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
                 for member_peer_str in server.members.keys() {
                     if member_peer_str == &local_peer { continue; }
                         if peer_is_reachable(ws_room_peers, member_peer_str) {
@@ -570,6 +570,7 @@ pub(crate) async fn handle_delete_channel_message(
         }
     } else {
         // Olm fan-out fallback.
+        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
         for member_peer_str in server.members.keys() {
             if member_peer_str == &local_peer { continue; }
                 if peer_is_reachable(ws_room_peers, member_peer_str) {
@@ -732,7 +733,6 @@ pub(crate) async fn handle_add_channel_reaction(
         sid: Some(server_id.clone()),
         cid: Some(channel_id.clone()),
     };
-    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
 
     let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
     if use_mls {
@@ -740,6 +740,7 @@ pub(crate) async fn handle_add_channel_reaction(
             Ok(()) => {}
             Err(e) => {
                 hollow_log!("[HOLLOW-MLS] Reaction encrypt failed, falling back to Olm: {e}");
+                let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
                 for member_peer_str in server.members.keys() {
                     if member_peer_str == &local_peer { continue; }
                         if peer_is_reachable(ws_room_peers, member_peer_str) {
@@ -754,6 +755,7 @@ pub(crate) async fn handle_add_channel_reaction(
             }
         }
     } else {
+        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
         for member_peer_str in server.members.keys() {
             if member_peer_str == &local_peer { continue; }
                 if peer_is_reachable(ws_room_peers, member_peer_str) {
@@ -906,7 +908,6 @@ pub(crate) async fn handle_remove_channel_reaction(
         sid: Some(server_id.clone()),
         cid: Some(channel_id.clone()),
     };
-    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
 
     let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
     if use_mls {
@@ -914,6 +915,7 @@ pub(crate) async fn handle_remove_channel_reaction(
             Ok(()) => {}
             Err(e) => {
                 hollow_log!("[HOLLOW-MLS] Remove reaction encrypt failed, Olm fallback: {e}");
+                let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
                 for member_peer_str in server.members.keys() {
                     if member_peer_str == &local_peer { continue; }
                         if peer_is_reachable(ws_room_peers, member_peer_str) {
@@ -928,6 +930,7 @@ pub(crate) async fn handle_remove_channel_reaction(
             }
         }
     } else {
+        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
         for member_peer_str in server.members.keys() {
             if member_peer_str == &local_peer { continue; }
                 if peer_is_reachable(ws_room_peers, member_peer_str) {

@@ -513,10 +513,10 @@ ServerState serialized to JSON twice and two `save_state` messages sent within t
 5. **H1: Debounce persist_mls_state** — 2s dirty-flag timer, epoch-change ops still immediate. DONE.
 6. **H2: Split Olm persist** — persist_olm_session (ratchet only) for per-message, full persist on session lifecycle. DONE.
 
-### Phase 3: Serialization reduction
-7. **H3: Skip op_log in ServerState serialization** — Prevents linear degradation.
-8. **H5: Box fat enum variants** — Mechanical, immediate memory savings.
-9. **M15: Lazy envelope_json** — Skip redundant serialization on MLS path.
+### Phase 3: Serialization reduction — PARTIAL (H5 deferred)
+7. **H3: Skip op_log in ServerState serialization** — `#[serde(skip_serializing)]` + restore_op_log from DB at startup. DONE.
+8. **H5: Box fat enum variants** — Deferred to fresh session with plan mode (30-50 match sites to update).
+9. **M15: Lazy envelope_json** — Moved into Olm-only branches, skipped on MLS success path. DONE.
 
 ### Phase 4: Sync performance
 10. **M1: Transaction-wrap sync batch inserts** — 10-50x faster batch ingest.
