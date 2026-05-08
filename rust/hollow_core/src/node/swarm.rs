@@ -20,7 +20,7 @@ use super::crypto_handler::{
     persist_mls_state, persist_crypto_state, persist_olm_session,
     peer_is_reachable, is_mls_coordinator, is_vault_coordinator, ws_room_for_peer,
     send_mls_broadcast, send_encrypted_message,
-    send_message_to_peer,
+    send_message_to_peer, send_raw_to_peer,
 };
 use super::file_handler;
 use super::message_ops;
@@ -2215,12 +2215,13 @@ async fn run_event_loop(
                                     persist_mls_state(mls_mgr, &crypto_store);
                                     let commit_b64 = base64::engine::general_purpose::STANDARD.encode(&commit_bytes);
                                     if let Some(state) = server_states.get(&server_id) {
+                                        let commit_msg = HavenMessage::MlsCommit { server_id: server_id.clone(), commit: commit_b64.clone() };
+                                        let commit_data = serde_json::to_vec(&commit_msg).unwrap_or_default();
                                         for member_peer in state.members.keys() {
                                             if member_peer == &local_peer_str { continue; }
                                             if unique.contains(member_peer) { continue; }
                                             if peer_is_reachable(&ws_room_peers, member_peer) {
-                                                send_message_to_peer(&ws_cmd_tx, &ws_room_peers, member_peer,
-                                                    HavenMessage::MlsCommit { server_id: server_id.clone(), commit: commit_b64.clone() });
+                                                send_raw_to_peer(&ws_cmd_tx, &ws_room_peers, member_peer, commit_data.clone());
                                             }
                                         }
                                     }
@@ -2265,14 +2266,15 @@ async fn run_event_loop(
                                     let commit_b64 = base64::engine::general_purpose::STANDARD.encode(&commit_bytes);
 
                                     // Send Welcome to all new joiners.
+                                    let welcome_data = serde_json::to_vec(&HavenMessage::MlsWelcome {
+                                        server_id: server_id.clone(),
+                                        welcome: welcome_b64,
+                                    }).unwrap_or_default();
                                     for peer_id_str in &added_peers {
                                             if peer_is_reachable(&ws_room_peers, peer_id_str) {
-                                                send_message_to_peer(
+                                                send_raw_to_peer(
                                                     &ws_cmd_tx, &ws_room_peers,
-                                                    peer_id_str, HavenMessage::MlsWelcome {
-                                                        server_id: server_id.clone(),
-                                                        welcome: welcome_b64.clone(),
-                                                    },
+                                                    peer_id_str, welcome_data.clone(),
                                                 );
                                             }
                                     }
@@ -2280,16 +2282,17 @@ async fn run_event_loop(
                                     // Broadcast single Commit to all existing members.
                                     if let Some(state) = server_states.get(&server_id) {
                                         let local_peer = local_peer_str.to_string();
+                                        let commit_data = serde_json::to_vec(&HavenMessage::MlsCommit {
+                                            server_id: server_id.clone(),
+                                            commit: commit_b64,
+                                        }).unwrap_or_default();
                                         for member_peer_str in state.members.keys() {
                                             if member_peer_str == &local_peer { continue; }
                                             if added_peers.contains(member_peer_str) { continue; }
                                                 if peer_is_reachable(&ws_room_peers, member_peer_str) {
-                                                    send_message_to_peer(
+                                                    send_raw_to_peer(
                                                         &ws_cmd_tx, &ws_room_peers,
-                                                        member_peer_str, HavenMessage::MlsCommit {
-                                                            server_id: server_id.clone(),
-                                                            commit: commit_b64.clone(),
-                                                        },
+                                                        member_peer_str, commit_data.clone(),
                                                     );
                                                 }
                                         }
@@ -4633,15 +4636,16 @@ async fn handle_incoming_request(
                                                 hollow_log!("[HOLLOW-MLS] CrdtOp pledge broadcast failed: {e}");
                                             }
                                         } else {
+                                            let pledge_data = serde_json::to_vec(&HavenMessage::CrdtOpBroadcast {
+                                                server_id: server_id.clone(),
+                                                op_json: op_json.clone(),
+                                            }).unwrap_or_default();
                                             for member in state.members_list() {
                                                 if member.peer_id == local_peer { continue; }
                                                     if peer_is_reachable(ws_room_peers, &member.peer_id) {
-                                                        send_message_to_peer(
+                                                        send_raw_to_peer(
                                                             ws_cmd_tx, ws_room_peers,
-                                                            &member.peer_id, HavenMessage::CrdtOpBroadcast {
-                                                                server_id: server_id.clone(),
-                                                                op_json: op_json.clone(),
-                                                            },
+                                                            &member.peer_id, pledge_data.clone(),
                                                         );
                                                     }
                                             }
@@ -4845,15 +4849,17 @@ async fn handle_incoming_request(
 
                     // Forward to other connected server members (simple gossip).
                     let local_peer = local_peer_str.to_string();
+                    let crdt_msg = HavenMessage::CrdtOpBroadcast {
+                        server_id: server_id.clone(),
+                        op_json: op_json.clone(),
+                    };
+                    let crdt_data = serde_json::to_vec(&crdt_msg).unwrap_or_default();
                     for member_peer_str in state.members.keys() {
                         if member_peer_str == &local_peer || member_peer_str == peer_str { continue; }
                             if peer_is_reachable(ws_room_peers, member_peer_str) {
-                                send_message_to_peer(
+                                send_raw_to_peer(
                                     ws_cmd_tx, ws_room_peers,
-                                    member_peer_str, HavenMessage::CrdtOpBroadcast {
-                                        server_id: server_id.clone(),
-                                        op_json: op_json.clone(),
-                                    },
+                                    member_peer_str, crdt_data.clone(),
                                 );
                             }
                     }
@@ -5085,14 +5091,15 @@ async fn handle_incoming_request(
                         } else {
                             // Plaintext fallback: broadcast to all WS room peers.
                             if let Some(room_peers) = ws_room_peers.get(&server_id) {
+                                let crdt_data = serde_json::to_vec(&HavenMessage::CrdtOpBroadcast {
+                                    server_id: server_id.clone(),
+                                    op_json: op_json.clone(),
+                                }).unwrap_or_default();
                                 for other_str in room_peers.iter() {
                                     if other_str == local_peer_str || other_str == peer_str { continue; }
-                                    send_message_to_peer(
+                                    send_raw_to_peer(
                                         ws_cmd_tx, ws_room_peers,
-                                        other_str, HavenMessage::CrdtOpBroadcast {
-                                            server_id: server_id.clone(),
-                                            op_json: op_json.clone(),
-                                        },
+                                        other_str, crdt_data.clone(),
                                     );
                                 }
                             }

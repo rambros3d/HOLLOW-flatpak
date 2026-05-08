@@ -529,11 +529,11 @@ ServerState serialized to JSON twice and two `save_state` messages sent within t
 15. **C4: Use STORE singleton in crdt.rs** — All 14 FFI functions use cached DB connection instead of re-opening. `CACHED_PEER_ID` OnceLock for the 3 that need it. 7x fewer DB opens per server switch. DONE.
 16. **L9: Cache peer_id on NativeKeypair** — `cached_peer_id: String` field computed once at construction. `peer_id()` is a clone, not 3 allocs. DONE.
 
-### Phase 6: Memory optimization
-17. **H6: Serialize-once broadcast pattern** — Eliminate clone amplification.
-18. **H7: Fix double erasure encoding** — Halve vault upload cost.
-19. **H8: std::mem::take instead of file_data.clone()** — 34MB savings per send.
-20. **M9: Skip AES + temp file when vault_only** — 34MB wasted work.
+### Phase 6: Memory optimization — DONE
+17. **H6: Serialize-once broadcast pattern** — Added `send_raw_to_peer()` for pre-serialized bytes. Converted 8 broadcast loops (ProfileUpdate, TypingIndicator, StatusUpdate, PeerExchange, MlsCommit, MlsWelcome, CrdtOpBroadcast, VoiceChannel). Profile broadcast with 10 peers: 4MB cloning → 200KB. DONE.
+18. **H7: Fix double erasure encoding** — Closure returns `UploadPlan` instead of `()`, reused for remote shard distribution. Single `prepare_upload()` call. DONE.
+19. **H8: std::mem::take instead of file_data.clone()** — Non-image files, WebP fallback, WebP strip fallback all use `std::mem::take`. Saves up to 34MB per file send. DONE.
+20. **M9: Skip AES + temp file when vault_only** — Added `aes_generate_key_nonce()` for key-only path. Vault-only (6+ members, non-image) skips full AES encryption + temp file write. DONE.
 
 ### Phase 7: I/O optimization
 21. **M10: spawn_blocking for heavy disk I/O** — Prevent event loop stalls.

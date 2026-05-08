@@ -26,10 +26,10 @@ Receives: `peer_id` (Some for DM), `server_id`+`channel_id` (Some for channel), 
 3. **Size limit check (share_ref bypass #1).** Default 34 MB for DMs (`file_transfer::DEFAULT_MAX_FILE_SIZE`). For channels, reads `max_file_size_mb` from the server's CRDT settings (falls back to 34). **When `share_ref.is_some()`, the size check is skipped entirely** -- Share handles delivery with no size limit. This is the first of three share_ref bypass points. On size violation, emits `FileFailed`.
 
 4. **WebP conversion (image pipeline).** Reads the user's `image_quality` setting from SQLCipher (`app_settings` table) to determine `WebpQuality` tier. Then branches:
-   - **Convertible images** (png/jpg/jpeg/bmp/tiff): `image_convert::convert_to_webp_with_quality()`. On failure, falls back to original bytes with extracted dimensions.
-   - **WebP passthrough**: Strips metadata via decode+re-encode (`image_convert::strip_webp_metadata()`). Lossless re-encode to avoid generation loss.
+   - **Convertible images** (png/jpg/jpeg/bmp/tiff): `image_convert::convert_to_webp_with_quality()`. On failure, falls back to original bytes via `std::mem::take()` (zero-copy).
+   - **WebP passthrough**: Strips metadata via decode+re-encode (`image_convert::strip_webp_metadata()`). On strip failure, takes original via `std::mem::take()`.
    - **GIF**: Converts to animated WebP via `image_convert::convert_gif_to_animated_webp()` at all quality tiers (even lossless WebP beats GIF LZW). On failure, strips GIF metadata and sends as GIF.
-   - **Non-images**: Uses `override_width`/`override_height` from Dart (for video preview dimensions).
+   - **Non-images**: Uses `std::mem::take(&mut file_data)` to move the buffer (zero-copy, no 34MB clone). Uses `override_width`/`override_height` from Dart (for video preview dimensions).
 
 5. **Generate file ID.** `file_transfer::generate_file_id()` -- 32-char hex (16 random bytes).
 
@@ -54,13 +54,13 @@ Receives: `peer_id` (Some for DM), `server_id`+`channel_id` (Some for channel), 
     - Builds `MessageEnvelope::ChannelMessage` with `file_id`.
     - Stores text message in DB via `MessageStore::insert_channel_message()`.
     - Sends text message via MLS single encrypt + relay fan-out to all reachable members.
-    - AES-encrypts file data for binary transport.
+    - **Vault-only optimization:** When `use_vault_only` (6+ members, non-image), calls `pipeline::aes_generate_key_nonce()` to generate only the key+nonce WITHOUT encrypting the file. Skips temp file write entirely. The actual encryption happens later in the vault upload path (`crdt.rs`).
+    - **Normal path:** AES-encrypts file data via `pipeline::aes_encrypt()`, writes ciphertext to `.stream_send_{file_id}.tmp`.
     - Builds `MessageEnvelope::FileHeader` with AES key/nonce and optional `share_ref`.
-    - **Share-backed files bypass:** When `share_ref.is_some()`, skips writing ciphertext to temp file and sets `ct_size = 0`. Logs "Share-backed file -- skipping binary streaming".
     - Broadcasts FileHeader via MLS (`send_mls_broadcast()`) or Olm fallback.
     - **Binary streaming decision:**
       - `share_ref.is_some()`: Skip all binary streaming (Share handles delivery).
-      - `use_vault_only` (6+ members, non-image): Skip streaming (vault shards distribute separately).
+      - `use_vault_only` (6+ members, non-image): Skip streaming (vault shards distribute separately). No temp file created.
       - Gossip overlay exists: Gossip broadcast to neighbors. Sends `BroadcastMeta` via MLS, then `broadcast_to_gossip_neighbors()`.
       - Small server (no gossip): Full replication -- stream to each reachable member via `stream_to_peer()`.
 

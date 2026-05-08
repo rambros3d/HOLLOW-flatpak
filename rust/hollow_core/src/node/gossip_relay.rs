@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use tokio::sync::mpsc;
 
-use super::crypto_handler::{peer_is_reachable, send_message_to_peer};
+use super::crypto_handler::{peer_is_reachable, send_message_to_peer, send_raw_to_peer};
 use super::types::*;
 
 /// Handle a WebRTC broadcast received from a gossip neighbor.
@@ -120,9 +120,10 @@ pub(crate) fn handle_gossip_exchange(
             server_id: overlay.server_id.clone(),
             peers: peers_list,
         };
+        let data = serde_json::to_vec(&msg).unwrap_or_default();
         for neighbor in &overlay.neighbors {
             if peer_is_reachable(ws_room_peers, neighbor) {
-                send_message_to_peer(ws_cmd_tx, ws_room_peers, neighbor, msg.clone());
+                send_raw_to_peer(ws_cmd_tx, ws_room_peers, neighbor, data.clone());
             }
         }
     }

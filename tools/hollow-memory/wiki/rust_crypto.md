@@ -125,7 +125,11 @@ Returns the room code containing the peer, or `None`. Used by `send_encrypted_me
 
 `crypto_handler:send_message_to_peer(ws_cmd_tx, ws_room_peers, peer_str, msg)`
 
-Sends an unencrypted `HavenMessage` to a specific peer via WS relay direct send. Silently drops if peer is unreachable. Used for messages that must work immediately after reconnection (sync requests, shard coordination, voice channel state changes) because MLS epochs may be stale.
+Sends an unencrypted `HavenMessage` to a specific peer via WS relay direct send. Serializes the message to JSON internally. Silently drops if peer is unreachable. Used for single-peer sends (sync requests, shard coordination, voice channel state changes).
+
+`crypto_handler:send_raw_to_peer(ws_cmd_tx, ws_room_peers, peer_str, data)`
+
+Sends pre-serialized bytes to a specific peer via WS relay direct send. Used in broadcast loops to serialize once and send the same bytes to each peer, avoiding O(N) deep clones and re-serializations. All broadcast patterns (ProfileUpdate, TypingIndicator, StatusUpdate, PeerExchange, MlsCommit, MlsWelcome, CrdtOpBroadcast, VoiceChannel) use this function.
 
 ### MLS Coordinator Election
 

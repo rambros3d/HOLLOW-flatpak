@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use crate::crdt::server_state::ServerState;
 use crate::crypto::MlsManager;
 use super::crypto_handler::{
-    peer_is_reachable, send_mls_broadcast, send_message_to_peer,
+    peer_is_reachable, send_mls_broadcast, send_message_to_peer, send_raw_to_peer,
 };
 use super::signaling::SignalingCmd;
 use super::types::*;
@@ -228,12 +228,13 @@ pub(crate) fn handle_send_typing_indicator(
         } else {
             let local_peer = local_peer_str.to_string();
             if let Some(server) = server_states.get(&server_id) {
+                let data = serde_json::to_vec(&msg).unwrap_or_default();
                 for member_peer_str in server.members.keys() {
                     if member_peer_str == &local_peer { continue; }
                         if peer_is_reachable(&ws_room_peers, member_peer_str) {
-                            send_message_to_peer(
+                            send_raw_to_peer(
                                 &ws_cmd_tx, &ws_room_peers,
-                                member_peer_str, msg.clone(),
+                                member_peer_str, data.clone(),
                             );
                         }
                 }
@@ -256,11 +257,12 @@ pub(crate) fn handle_set_invisible(
     hollow_log!("[HOLLOW-STATUS] Setting invisible={invisible}, broadcasting status={status}");
     let msg = HavenMessage::StatusUpdate { status: status.to_string() };
 
+    let data = serde_json::to_vec(&msg).unwrap_or_default();
     let mut sent_to = std::collections::HashSet::new();
     for peers in ws_room_peers.values() {
         for peer in peers {
             if peer != local_peer_str && sent_to.insert(peer.clone()) {
-                send_message_to_peer(ws_cmd_tx, ws_room_peers, peer, msg.clone());
+                send_raw_to_peer(ws_cmd_tx, ws_room_peers, peer, data.clone());
             }
         }
     }
@@ -358,12 +360,13 @@ pub(crate) async fn handle_update_profile(
             .values()
             .flat_map(|peers| peers.iter().cloned())
             .collect();
+        let data = serde_json::to_vec(&msg).unwrap_or_default();
         for peer in &all_ws_peers {
             if peer == &local_peer_str { continue; }
             if mls_reached.contains(peer) { continue; }
-            send_message_to_peer(
+            send_raw_to_peer(
                 &ws_cmd_tx, &ws_room_peers,
-                peer, msg.clone(),
+                peer, data.clone(),
             );
         }
         hollow_log!("[HOLLOW-PROFILE] Plaintext broadcast to {} peers (MLS reached {})",

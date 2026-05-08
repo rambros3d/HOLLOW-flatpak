@@ -142,6 +142,7 @@ Contains everything needed to distribute a file: `manifest: VaultManifest`, `sha
 
 ### AES-256-GCM Helpers
 
+- `pipeline:aes_generate_key_nonce()` — generates random 32-byte key + 12-byte nonce via `getrandom` WITHOUT encrypting. Returns `([u8; 32], [u8; 12])`. Used by the vault-only file send path (6+ members, non-image) where only the key/nonce are needed for the FileHeader — the actual encryption happens later in the vault upload path.
 - `pipeline:aes_encrypt(plaintext)` — generates random 32-byte key + 12-byte nonce via `getrandom`, encrypts with `aes_gcm::Aes256Gcm`. Returns `EncryptedFile { ciphertext, key, nonce }`.
 - `pipeline:aes_decrypt(ciphertext, key, nonce)` — decrypts AES-256-GCM. Used by download pipeline.
 
@@ -298,10 +299,9 @@ Orchestrates file upload to the vault. Called when the Dart side sends `NodeComm
 
 1. Reads server state to get members list and storage pledges.
 2. **Upload guard:** Computes which members are online via `peer_is_reachable()`. If not enough online for erasure coding (online < k+m), falls back to full replication among online members only. Logs warning and emits `VaultUploadReplicationFallback` event.
-3. Calls `pipeline:prepare_upload()` to create the UploadPlan (shards + placements + manifest).
+3. Calls `pipeline:prepare_upload()` once to create the UploadPlan (shards + placements + manifest). The plan is returned from the closure and reused for both local storage and remote distribution (no second call).
 4. Opens ContentStore, stores local shards (those placed on self), saves placements and manifest to DB.
-5. Re-prepares plan for remote distribution (needs shard data again).
-6. **Remote shard distribution:** For each placement targeting a remote peer:
+5. **Remote shard distribution:** For each placement targeting a remote peer:
    - Sends `MessageEnvelope::ShardStore` metadata via MLS (targeted to peer) or Olm fallback. The `data` field is empty (data comes via binary stream).
    - Writes shard to temp file (`.stream_shard_{cid_prefix}_{shard_index}.tmp`).
    - Calls `file_handler:stream_to_peer()` to stream shard bytes via WS or WebRTC.

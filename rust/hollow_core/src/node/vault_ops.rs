@@ -226,11 +226,8 @@ pub(crate) async fn handle_vault_upload_file(
 ) {
     hollow_log!("[HOLLOW-VAULT] VaultUploadFile: {file_name} cid={content_id} in {server_id}/{channel_id}");
 
-    let aes_key_copy = aes_key.clone();
-    let aes_nonce_copy = aes_nonce.clone();
-
     let mut upload_fallback_info: Option<(usize, usize)> = None;
-    let upload_result: Result<(), String> = (|| {
+    let upload_result: Result<crate::vault::pipeline::UploadPlan, String> = (|| {
         let state = server_states.get(&server_id)
             .ok_or_else(|| format!("Server {server_id} not found"))?;
         let local_peer = local_peer_str.to_string();
@@ -261,7 +258,7 @@ pub(crate) async fn handle_vault_upload_file(
             all_members.clone()
         };
 
-        // Prepare upload plan
+        // Prepare upload plan (single call — reused for both local storage and remote distribution)
         let key: [u8; 32] = aes_key.try_into().map_err(|_| "Invalid AES key length")?;
         let nonce: [u8; 12] = aes_nonce.try_into().map_err(|_| "Invalid AES nonce length")?;
         let plan = crate::vault::pipeline::prepare_upload(
@@ -300,7 +297,7 @@ pub(crate) async fn handle_vault_upload_file(
             }
         }
 
-        Ok(())
+        Ok(plan)
     })();
 
     match upload_result {
@@ -310,7 +307,7 @@ pub(crate) async fn handle_vault_upload_file(
                 server_id, content_id, error: e,
             }).await;
         }
-        Ok(()) => {
+        Ok(plan) => {
             // Emit replication fallback event if upload guard triggered.
             if let Some((online, needed)) = upload_fallback_info {
                 let _ = event_tx.send(NetworkEvent::VaultUploadReplicationFallback {
@@ -318,113 +315,92 @@ pub(crate) async fn handle_vault_upload_file(
                     online, needed,
                 }).await;
             }
-            // Re-prepare plan for shard distribution (need the data again)
-            if let Some(state) = server_states.get(&server_id) {
-                let local_peer = local_peer_str.to_string();
-                let all_members: Vec<String> = state.members.keys().cloned().collect();
-                let pledges: std::collections::HashMap<String, u64> = state.storage_pledges
-                    .iter().map(|(k, v)| (k.clone(), *v.read())).collect();
-                // Use same fallback logic as initial prepare
-                let online_members: Vec<String> = all_members.iter()
-                    .filter(|m| *m == &local_peer || peer_is_reachable(&ws_room_peers, m))
-                    .cloned().collect();
-                let mode = crate::vault::adaptive::compute_adaptive_params(all_members.len());
-                let members = if let crate::vault::adaptive::VaultMode::ErasureCoding { k, m } = &mode {
-                    if online_members.len() < *k + *m { online_members } else { all_members }
-                } else { all_members };
+            // Distribute remote shards using the plan from the single prepare_upload() call.
+            let local_peer = local_peer_str.to_string();
+            for placement in &plan.placements {
+                if placement.target_peer != local_peer {
+                    if let Some((_, shard_data)) = plan.shards.iter().find(|(idx, _)| *idx == placement.shard_index) {
+                            if peer_is_reachable(&ws_room_peers, &placement.target_peer) {
+                                // Send ShardStore metadata via MLS or Olm.
+                                let envelope = MessageEnvelope::ShardStore {
+                                    inner: Box::new(ShardStorePayload {
+                                        sid: server_id.clone(), cid: content_id.clone(),
+                                        si: placement.shard_index, sk: placement.shard_key.clone(),
+                                        k: plan.manifest.k, m: plan.manifest.m,
+                                        total_size: plan.manifest.original_size,
+                                        tier: plan.manifest.storage_tier.clone(),
+                                        data: String::new(),
+                                        chunks: 0,
+                                        target: None,
+                                    }),
+                                };
+                                let json = serde_json::to_string(&envelope).unwrap_or_default();
+                                send_encrypted_message(
+                                    &mut *olm, crypto_store,
+                                    &placement.target_peer, &json, &event_tx,
+                                    &ws_cmd_tx, &ws_room_peers,
+                                ).await;
 
-                let key: [u8; 32] = aes_key_copy.try_into().unwrap_or([0u8; 32]);
-                let nonce: [u8; 12] = aes_nonce_copy.try_into().unwrap_or([0u8; 12]);
-                if let Ok(plan) = crate::vault::pipeline::prepare_upload(
-                    &ciphertext, &content_id, &key, &nonce,
-                    &file_name, &mime_type, &channel_id,
-                    original_size, &local_peer, &members, &pledges, &message_id,
-                ) {
-                    // Send remote shards via streaming
-                    for placement in &plan.placements {
-                        if placement.target_peer != local_peer {
-                            if let Some((_, shard_data)) = plan.shards.iter().find(|(idx, _)| *idx == placement.shard_index) {
-                                    if peer_is_reachable(&ws_room_peers, &placement.target_peer) {
-                                        // Send ShardStore metadata via MLS or Olm.
-                                        let envelope = MessageEnvelope::ShardStore {
-                                            inner: Box::new(ShardStorePayload {
-                                                sid: server_id.clone(), cid: content_id.clone(),
-                                                si: placement.shard_index, sk: placement.shard_key.clone(),
-                                                k: plan.manifest.k, m: plan.manifest.m,
-                                                total_size: plan.manifest.original_size,
-                                                tier: plan.manifest.storage_tier.clone(),
-                                                data: String::new(),
-                                                chunks: 0,
-                                                target: None,
-                                            }),
-                                        };
-                                        let json = serde_json::to_string(&envelope).unwrap_or_default();
-                                        send_encrypted_message(
-                                            &mut *olm, crypto_store,
-                                            &placement.target_peer, &json, &event_tx,
-                                            &ws_cmd_tx, &ws_room_peers,
-                                        ).await;
-
-                                        // Stream shard bytes via stream_to_peer (WS or libp2p).
-                                        let shard_temp_dir = crate::node::file_transfer::files_dir();
-                                        let shard_safe_prefix = &content_id[..16.min(content_id.len())];
-                                        let shard_temp_name = format!(".stream_shard_{}_{}.tmp", shard_safe_prefix, placement.shard_index);
-                                        let shard_temp_path = shard_temp_dir.join(&shard_temp_name);
-                                        if let Ok(()) = std::fs::write(&shard_temp_path, shard_data) {
-                                            let shard_kind = super::ws_stream_transfer::StreamKind::Shard { shard_index: placement.shard_index };
-                                            super::file_handler::stream_to_peer(
-                                                &ws_cmd_tx, &ws_room_peers,
-                                                webrtc_peers, pending_webrtc_sends, &event_tx,
-                                                &placement.target_peer, &shard_kind,
-                                                &content_id, &shard_temp_path, shard_data.len() as u64,
-                                            ).await;
-                                            hollow_log!("[HOLLOW-VAULT] Streaming shard si={} ({} bytes) to {}", placement.shard_index, shard_data.len(), placement.target_peer);
-                                        }
-                                    }
-                            }
-                        }
-                    }
-
-                    // Broadcast manifest via MLS (or Olm fallback).
-                    let manifest_json = serde_json::to_string(&plan.manifest).unwrap_or_default();
-                    let manifest_envelope = MessageEnvelope::VaultManifestBroadcast {
-                        sid: server_id.clone(),
-                        cid: content_id.clone(),
-                        chid: channel_id.clone(),
-                        manifest: manifest_json,
-                    };
-                    let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
-                    if mls_ok {
-                        if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, &manifest_envelope, crypto_store) {
-                            hollow_log!("[HOLLOW-MLS] VaultManifest broadcast failed: {e}");
-                        }
-                    } else {
-                        let manifest_env_json = serde_json::to_string(&manifest_envelope).unwrap_or_default();
-                        for member_peer_str in state.members.keys() {
-                            if member_peer_str == &local_peer { continue; }
-                                if peer_is_reachable(&ws_room_peers, member_peer_str) && olm.has_session(member_peer_str) {
-                                    send_encrypted_message(
-                                &mut *olm, crypto_store,
-                                member_peer_str, &manifest_env_json, &event_tx,
+                                // Stream shard bytes via stream_to_peer (WS or libp2p).
+                                let shard_temp_dir = crate::node::file_transfer::files_dir();
+                                let shard_safe_prefix = &content_id[..16.min(content_id.len())];
+                                let shard_temp_name = format!(".stream_shard_{}_{}.tmp", shard_safe_prefix, placement.shard_index);
+                                let shard_temp_path = shard_temp_dir.join(&shard_temp_name);
+                                if let Ok(()) = std::fs::write(&shard_temp_path, shard_data) {
+                                    let shard_kind = super::ws_stream_transfer::StreamKind::Shard { shard_index: placement.shard_index };
+                                    super::file_handler::stream_to_peer(
                                         &ws_cmd_tx, &ws_room_peers,
+                                        webrtc_peers, pending_webrtc_sends, &event_tx,
+                                        &placement.target_peer, &shard_kind,
+                                        &content_id, &shard_temp_path, shard_data.len() as u64,
                                     ).await;
+                                    hollow_log!("[HOLLOW-VAULT] Streaming shard si={} ({} bytes) to {}", placement.shard_index, shard_data.len(), placement.target_peer);
                                 }
-                        }
+                            }
                     }
                 }
-
-                // Link vault content_id to the file record via message_id.
-                if !message_id.is_empty() {
-                    if let Ok(ms) = crate::storage::MessageStore::open(db_path, db_passphrase) {
-                        let _ = ms.set_file_content_id(&message_id, &content_id);
-                    }
-                }
-
-                hollow_log!("[HOLLOW-VAULT] Upload complete: cid={content_id}");
-                let _ = event_tx.send(NetworkEvent::VaultUploadComplete {
-                    server_id, content_id, channel_id,
-                }).await;
             }
+
+            // Broadcast manifest via MLS (or Olm fallback).
+            if let Some(state) = server_states.get(&server_id) {
+                let manifest_json = serde_json::to_string(&plan.manifest).unwrap_or_default();
+                let manifest_envelope = MessageEnvelope::VaultManifestBroadcast {
+                    sid: server_id.clone(),
+                    cid: content_id.clone(),
+                    chid: channel_id.clone(),
+                    manifest: manifest_json,
+                };
+                let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+                if mls_ok {
+                    if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), &ws_cmd_tx, &server_id, &manifest_envelope, crypto_store) {
+                        hollow_log!("[HOLLOW-MLS] VaultManifest broadcast failed: {e}");
+                    }
+                } else {
+                    let manifest_env_json = serde_json::to_string(&manifest_envelope).unwrap_or_default();
+                    for member_peer_str in state.members.keys() {
+                        if member_peer_str == &local_peer { continue; }
+                            if peer_is_reachable(&ws_room_peers, member_peer_str) && olm.has_session(member_peer_str) {
+                                send_encrypted_message(
+                            &mut *olm, crypto_store,
+                            member_peer_str, &manifest_env_json, &event_tx,
+                                    &ws_cmd_tx, &ws_room_peers,
+                                ).await;
+                            }
+                    }
+                }
+            }
+
+            // Link vault content_id to the file record via message_id.
+            if !message_id.is_empty() {
+                if let Ok(ms) = crate::storage::MessageStore::open(db_path, db_passphrase) {
+                    let _ = ms.set_file_content_id(&message_id, &content_id);
+                }
+            }
+
+            hollow_log!("[HOLLOW-VAULT] Upload complete: cid={content_id}");
+            let _ = event_tx.send(NetworkEvent::VaultUploadComplete {
+                server_id, content_id, channel_id,
+            }).await;
         }
     }
 }

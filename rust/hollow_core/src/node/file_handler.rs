@@ -50,7 +50,7 @@ pub(crate) async fn handle_send_file(
     hollow_log!("[HOLLOW-FILE] SendFile: {file_path} mid={message_id}");
 
     // 1. Read file from disk.
-    let file_data = match std::fs::read(&file_path) {
+    let mut file_data = match std::fs::read(&file_path) {
         Ok(d) => d,
         Err(e) => {
             hollow_log!("[HOLLOW-FILE] Failed to read file: {e}");
@@ -126,13 +126,13 @@ pub(crate) async fn handle_send_file(
             Err(e) => {
                 hollow_log!("[HOLLOW-FILE] WebP conversion failed, sending original: {e}");
                 let dims = image_convert::get_image_dimensions(&file_data).ok();
-                (file_data.clone(), original_ext.clone(), dims.map(|d| d.0), dims.map(|d| d.1))
+                (std::mem::take(&mut file_data), original_ext.clone(), dims.map(|d| d.0), dims.map(|d| d.1))
             }
         }
     } else if is_image && original_ext == "webp" {
         // WebP passthrough — strip metadata by decode+re-encode.
         let stripped = image_convert::strip_webp_metadata(&file_data)
-            .unwrap_or_else(|_| file_data.clone());
+            .unwrap_or_else(|_| std::mem::take(&mut file_data));
         let dims = image_convert::get_image_dimensions(&stripped).ok();
         (stripped, original_ext.clone(), dims.map(|d| d.0), dims.map(|d| d.1))
     } else if is_image && original_ext == "gif" {
@@ -159,7 +159,7 @@ pub(crate) async fn handle_send_file(
     } else {
         // Non-image files: use Dart-supplied dimensions if any (Phase 6.75
         // video preview passes the source video's dimensions through here).
-        (file_data.clone(), original_ext.clone(), override_width, override_height)
+        (std::mem::take(&mut file_data), original_ext.clone(), override_width, override_height)
     };
 
     // 5. Generate file ID.
@@ -423,11 +423,41 @@ pub(crate) async fn handle_send_file(
         // Non-image files in 6+ servers use vault shards only.
         let use_vault_only = member_count >= 6 && !is_image;
 
-        let encrypted = crate::vault::pipeline::aes_encrypt(&final_data);
-        if let Ok(enc) = encrypted {
-            let aes_key_hex = hex::encode(&enc.key);
-            let aes_nonce_hex = hex::encode(&enc.nonce);
+        let has_share_ref = share_ref.is_some();
 
+        // Vault-only: generate key+nonce for the FileHeader without encrypting.
+        // The vault upload path (crdt.rs) does its own AES encryption.
+        let (aes_key_hex, aes_nonce_hex, temp_path, ct_size) = if use_vault_only {
+            match crate::vault::pipeline::aes_generate_key_nonce() {
+                Ok((key, nonce)) => {
+                    let temp_path = file_transfer::files_dir().join(format!(".stream_send_{file_id}.tmp"));
+                    (hex::encode(key), hex::encode(nonce), temp_path, 0u64)
+                }
+                Err(e) => {
+                    hollow_log!("[HOLLOW-FILE] AES key generation failed: {e}");
+                    return;
+                }
+            }
+        } else {
+            match crate::vault::pipeline::aes_encrypt(&final_data) {
+                Ok(enc) => {
+                    let key_hex = hex::encode(&enc.key);
+                    let nonce_hex = hex::encode(&enc.nonce);
+                    let temp_path = file_transfer::files_dir().join(format!(".stream_send_{file_id}.tmp"));
+                    if !has_share_ref {
+                        let _ = std::fs::write(&temp_path, &enc.ciphertext);
+                    }
+                    let ct_size = if has_share_ref { 0 } else { enc.ciphertext.len() as u64 };
+                    (key_hex, nonce_hex, temp_path, ct_size)
+                }
+                Err(e) => {
+                    hollow_log!("[HOLLOW-FILE] AES encryption failed: {e}");
+                    return;
+                }
+            }
+        };
+
+        {
             let header = MessageEnvelope::FileHeader {
                 inner: Box::new(FileHeaderPayload {
                     fid: file_id.clone(),
@@ -453,16 +483,6 @@ pub(crate) async fn handle_send_file(
                 }),
             };
             let header_json = serde_json::to_string(&header).unwrap_or_default();
-
-            let has_share_ref = share_ref.is_some();
-
-            // Write ciphertext to temp file (shared across all members).
-            // Skip for share-backed files — Share handles delivery.
-            let temp_path = file_transfer::files_dir().join(format!(".stream_send_{file_id}.tmp"));
-            if !has_share_ref {
-                let _ = std::fs::write(&temp_path, &enc.ciphertext);
-            }
-            let ct_size = if has_share_ref { 0 } else { enc.ciphertext.len() as u64 };
 
             if let Some(state) = server_states.get(&sid) {
                 // Broadcast FileHeader via MLS (single encrypt, relay fans out).

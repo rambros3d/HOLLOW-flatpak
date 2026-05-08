@@ -50,6 +50,16 @@ pub struct UploadPlan {
 
 // ── AES-256-GCM helpers ──────────────────────────────────────
 
+/// Generate a random AES-256-GCM key and nonce without encrypting.
+/// Used when only the key/nonce are needed for the FileHeader (vault-only path).
+pub fn aes_generate_key_nonce() -> Result<([u8; 32], [u8; 12]), String> {
+    let mut key = [0u8; 32];
+    getrandom::fill(&mut key).map_err(|e| format!("Failed to generate AES key: {e}"))?;
+    let mut nonce = [0u8; 12];
+    getrandom::fill(&mut nonce).map_err(|e| format!("Failed to generate AES nonce: {e}"))?;
+    Ok((key, nonce))
+}
+
 /// Encrypt plaintext with AES-256-GCM using a random key and nonce.
 pub fn aes_encrypt(plaintext: &[u8]) -> Result<EncryptedFile, String> {
     let mut key_bytes = [0u8; 32];

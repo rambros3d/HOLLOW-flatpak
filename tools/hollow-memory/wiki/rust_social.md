@@ -4,7 +4,7 @@ The social module handles friend requests, profile updates, typing indicators, a
 
 Source file: `rust/hollow_core/src/node/social.rs` (488 lines)
 
-Imports from: `crypto_handler::{peer_is_reachable, send_mls_broadcast, send_message_to_peer}`, `signaling::SignalingCmd`, `types::*`
+Imports from: `crypto_handler::{peer_is_reachable, send_mls_broadcast, send_message_to_peer, send_raw_to_peer}`, `signaling::SignalingCmd`, `types::*`
 
 ---
 
@@ -110,7 +110,7 @@ When `server_id.is_empty()`, the `channel_id` field is repurposed as the target 
 
 ### Channel typing (server_id is non-empty)
 1. **MLS path:** If the server has an active MLS group, constructs `MessageEnvelope::Typing { sid, cid }` and broadcasts via `send_mls_broadcast()`. This is the preferred path — the typing indicator is encrypted within the server's MLS group.
-2. **Plaintext fallback:** If MLS is unavailable, sends `HavenMessage::TypingIndicator { server_id, channel_id }` individually to every reachable server member (except self). Iterates `server_states[server_id].members.keys()`.
+2. **Plaintext fallback:** If MLS is unavailable, serializes `HavenMessage::TypingIndicator` once and sends pre-serialized bytes via `send_raw_to_peer()` to every reachable server member (except self).
 
 ---
 
@@ -123,7 +123,7 @@ Called when the local user toggles invisible mode (`NodeCommand::SetInvisible`).
 Steps:
 1. Updates the `is_invisible: &mut bool` flag in swarm state
 2. Determines status string: `"invisible"` if true, `"online"` if false
-3. Constructs `HavenMessage::StatusUpdate { status }` and broadcasts to every unique connected peer across all WS rooms. Uses a `HashSet<String>` (`sent_to`) to deduplicate peers that appear in multiple rooms.
+3. Constructs `HavenMessage::StatusUpdate { status }`, serializes once, and broadcasts pre-serialized bytes via `send_raw_to_peer()` to every unique connected peer across all WS rooms. Uses a `HashSet<String>` (`sent_to`) to deduplicate peers that appear in multiple rooms.
 
 The `is_invisible` flag is also read by `send_own_profile_to_peer()` and `handle_update_profile()` — both include it in the `ProfileUpdate` message so newly connecting peers learn the invisible status immediately.
 
@@ -148,7 +148,7 @@ The `avatar_bytes` and `banner_bytes` parameters use `Option<Vec<u8>>` with thre
 
 2. **MLS broadcast to servers:** Constructs `MessageEnvelope::ProfileUpdate { display_name, status, about_me, updated_at, avatar_b64, banner_b64, is_invisible }`. Iterates all `server_states` and for each server with an active MLS group, calls `send_mls_broadcast()`. Tracks which peer IDs were reached via MLS in `mls_reached: HashSet<String>`.
 
-3. **Plaintext fallback for remaining peers:** Constructs `HavenMessage::ProfileUpdate` with the same fields. Collects all unique peers across all WS rooms, then sends to each peer NOT already reached via MLS and NOT self. This covers DM peers and peers in servers where MLS is not yet established.
+3. **Plaintext fallback for remaining peers:** Constructs `HavenMessage::ProfileUpdate` with the same fields. Serializes once via `serde_json::to_vec()`, then sends pre-serialized bytes to each peer via `send_raw_to_peer()` (NOT `send_message_to_peer()`). This avoids O(N) deep clones and re-serializations of the potentially 200KB+ avatar/banner payload. Covers DM peers and peers in servers where MLS is not yet established.
 
 4. **Emit event:** `NetworkEvent::ProfileUpdated { peer_id: local_peer }` so Dart refreshes the local profile UI.
 

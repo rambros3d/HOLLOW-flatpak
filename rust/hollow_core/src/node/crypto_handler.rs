@@ -406,6 +406,23 @@ pub(crate) fn send_message_to_peer(
     // else: peer unreachable — drop silently
 }
 
+/// Send pre-serialized bytes to a specific peer via the WS relay.
+/// Use in broadcast loops to serialize once and send the same bytes to each peer.
+pub(crate) fn send_raw_to_peer(
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    peer_str: &str,
+    data: Vec<u8>,
+) {
+    if let Some(room) = ws_room_for_peer(ws_room_peers, peer_str) {
+        let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendDirect {
+            room_code: room,
+            target_peer: peer_str.to_string(),
+            data,
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

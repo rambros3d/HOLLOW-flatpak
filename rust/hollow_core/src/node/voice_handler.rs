@@ -7,7 +7,7 @@ use crate::crypto::{MlsManager, OlmManager, CryptoStore};
 use crate::identity::native_identity::NativeKeypair;
 use super::crypto_handler::{
     peer_is_reachable, send_mls_broadcast,
-    send_encrypted_message, send_message_to_peer,
+    send_encrypted_message, send_message_to_peer, send_raw_to_peer,
 };
 use super::types::*;
 
@@ -535,10 +535,11 @@ pub(crate) async fn handle_voice_channel_send_signal(
                 && let Some(state) = server_states.get(&server_id)
             {
                 let local_peer = local_peer_str.to_string();
+                let data = serde_json::to_vec(&msg).unwrap_or_default();
                 for member in state.members.keys() {
                     if member == &local_peer { continue; }
                     if peer_is_reachable(ws_room_peers, member) {
-                        send_message_to_peer(ws_cmd_tx, ws_room_peers, member, msg.clone());
+                        send_raw_to_peer(ws_cmd_tx, ws_room_peers, member, data.clone());
                     }
                 }
             }
