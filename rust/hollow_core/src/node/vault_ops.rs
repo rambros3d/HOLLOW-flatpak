@@ -341,21 +341,15 @@ pub(crate) async fn handle_vault_upload_file(
                                     &ws_cmd_tx, &ws_room_peers,
                                 ).await;
 
-                                // Stream shard bytes via stream_to_peer (WS or libp2p).
-                                let shard_temp_dir = crate::node::file_transfer::files_dir();
-                                let shard_safe_prefix = &content_id[..16.min(content_id.len())];
-                                let shard_temp_name = format!(".stream_shard_{}_{}.tmp", shard_safe_prefix, placement.shard_index);
-                                let shard_temp_path = shard_temp_dir.join(&shard_temp_name);
-                                if let Ok(()) = std::fs::write(&shard_temp_path, shard_data) {
-                                    let shard_kind = super::ws_stream_transfer::StreamKind::Shard { shard_index: placement.shard_index };
-                                    super::file_handler::stream_to_peer(
-                                        &ws_cmd_tx, &ws_room_peers,
-                                        webrtc_peers, pending_webrtc_sends, &event_tx,
-                                        &placement.target_peer, &shard_kind,
-                                        &content_id, &shard_temp_path, shard_data.len() as u64,
-                                    ).await;
-                                    hollow_log!("[HOLLOW-VAULT] Streaming shard si={} ({} bytes) to {}", placement.shard_index, shard_data.len(), placement.target_peer);
-                                }
+                                // Stream shard bytes directly from memory (no temp file for WS path).
+                                let shard_kind = super::ws_stream_transfer::StreamKind::Shard { shard_index: placement.shard_index };
+                                super::file_handler::stream_to_peer_bytes(
+                                    &ws_cmd_tx, &ws_room_peers,
+                                    webrtc_peers, pending_webrtc_sends, &event_tx,
+                                    &placement.target_peer, &shard_kind,
+                                    &content_id, shard_data,
+                                ).await;
+                                hollow_log!("[HOLLOW-VAULT] Streaming shard si={} ({} bytes) to {}", placement.shard_index, shard_data.len(), placement.target_peer);
                             }
                     }
                 }
@@ -570,21 +564,15 @@ pub(crate) async fn handle_store_shard_on_peer(
                 &ws_cmd_tx, &ws_room_peers,
             ).await;
 
-            // Stream shard bytes via stream_to_peer (WS or libp2p).
-            let shard_temp_dir = crate::node::file_transfer::files_dir();
-            let shard_safe_prefix = &content_id[..16.min(content_id.len())];
-            let shard_temp_name = format!(".stream_shard_{}_{}.tmp", shard_safe_prefix, shard_index);
-            let shard_temp_path = shard_temp_dir.join(&shard_temp_name);
-            if let Ok(()) = std::fs::write(&shard_temp_path, &data) {
-                let shard_kind = super::ws_stream_transfer::StreamKind::Shard { shard_index };
-                super::file_handler::stream_to_peer(
-                    &ws_cmd_tx, &ws_room_peers,
-                    webrtc_peers, pending_webrtc_sends, &event_tx,
-                    &target_peer, &shard_kind,
-                    &content_id, &shard_temp_path, data.len() as u64,
-                ).await;
-                hollow_log!("[HOLLOW-VAULT] Streaming shard si={shard_index} ({} bytes) to {target_peer}", data.len());
-            }
+            // Stream shard bytes directly from memory.
+            let shard_kind = super::ws_stream_transfer::StreamKind::Shard { shard_index };
+            super::file_handler::stream_to_peer_bytes(
+                &ws_cmd_tx, &ws_room_peers,
+                webrtc_peers, pending_webrtc_sends, &event_tx,
+                &target_peer, &shard_kind,
+                &content_id, &data,
+            ).await;
+            hollow_log!("[HOLLOW-VAULT] Streaming shard si={shard_index} ({} bytes) to {target_peer}", data.len());
         }
 }
 
@@ -874,18 +862,13 @@ pub(crate) async fn handle_envelope_shard_request(
                 };
                 let resp_json = serde_json::to_string(&resp).unwrap_or_default();
                 send_encrypted_message(olm, crypto_store, &sender_peer_id, &resp_json, event_tx, ws_cmd_tx, ws_room_peers).await;
-                let shard_temp_dir = crate::node::file_transfer::files_dir();
-                let shard_safe = &cid[..16.min(cid.len())];
-                let shard_temp = shard_temp_dir.join(format!(".stream_shard_{}_{}.tmp", shard_safe, si));
-                if std::fs::write(&shard_temp, &shard_data).is_ok() {
-                    let shard_kind = super::ws_stream_transfer::StreamKind::Shard { shard_index: si };
-                    file_handler::stream_to_peer(
-                        ws_cmd_tx, ws_room_peers,
-                        webrtc_peers, pending_webrtc_sends, event_tx,
-                        &sender_peer_id, &shard_kind,
-                        &cid, &shard_temp, shard_data.len() as u64,
-                    ).await;
-                }
+                let shard_kind = super::ws_stream_transfer::StreamKind::Shard { shard_index: si };
+                file_handler::stream_to_peer_bytes(
+                    ws_cmd_tx, ws_room_peers,
+                    webrtc_peers, pending_webrtc_sends, event_tx,
+                    &sender_peer_id, &shard_kind,
+                    &cid, &shard_data,
+                ).await;
             }
             Err(_) => {
                 let resp = MessageEnvelope::ShardResponse {

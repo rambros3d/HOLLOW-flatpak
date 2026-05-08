@@ -535,10 +535,10 @@ ServerState serialized to JSON twice and two `save_state` messages sent within t
 19. **H8: std::mem::take instead of file_data.clone()** — Non-image files, WebP fallback, WebP strip fallback all use `std::mem::take`. Saves up to 34MB per file send. DONE.
 20. **M9: Skip AES + temp file when vault_only** — Added `aes_generate_key_nonce()` for key-only path. Vault-only (6+ members, non-image) skips full AES encryption + temp file write. DONE.
 
-### Phase 7: I/O optimization
-21. **M10: spawn_blocking for heavy disk I/O** — Prevent event loop stalls.
-22. **M13: In-memory shard streaming** — Eliminate disk round-trip.
-23. **M11 + M12: Deduplicate PeerJoined/RoomMembers** — DB + StateVector once.
+### Phase 7: I/O optimization — DONE
+21. **M10: tokio::fs for heavy disk I/O** — 6 critical `std::fs::read`/`write` sites in `file_handler.rs` converted to `tokio::fs` async equivalents. File send (34MB read), file receive (34MB read + 34MB write), local save, temp encrypted file. Prevents event loop stalls during disk I/O. DONE.
+22. **M13: In-memory shard streaming** — Added `ws_stream_send_bytes()` (Cursor-based) and `stream_to_peer_bytes()`. 3 vault_ops sites (upload distribution, store-on-peer relay, shard request response) stream directly from memory. WebRTC fallback still writes temp file (Dart reads from path). Eliminates ~44MB disk round-trip per vault upload. DONE.
+23. **M12: Pre-compute StateVector per-server in RoomMembers** — `sv_cache: HashMap<&str, String>` built once before the peer loop. 20 peers × 5 servers drops from 100 StateVector computations to 5. M11 (code dedup) skipped — helper needs ~20 params. DONE.
 
 ### Phase 8: Polish (LOW items + deferred fixes)
 24-43. All LOW items — individually small but collectively meaningful.

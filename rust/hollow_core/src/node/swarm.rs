@@ -1650,6 +1650,14 @@ async fn run_event_loop(
                             }
                         }
 
+                        // Pre-compute StateVectors once per server (reused across all peers).
+                        let sv_cache: std::collections::HashMap<&str, String> = server_states.iter()
+                            .filter_map(|(sid, state)| {
+                                let sv = StateVector::from_server_state(state);
+                                serde_json::to_string(&sv).ok().map(|json| (sid.as_str(), json))
+                            })
+                            .collect();
+
                         for pid_str in &peers {
                             if pid_str != &local_peer {
                                 let _ = event_tx.send(NetworkEvent::PeerDiscovered {
@@ -1687,14 +1695,12 @@ async fn run_event_loop(
                                     // Send CRDT SyncReq + channel message sync for servers shared with this peer.
                                     for (sid, state) in server_states.iter() {
                                         if state.members.contains_key(pid_str) {
-                                            let our_vector = StateVector::from_server_state(state);
-                                            if let Ok(sv_json) = serde_json::to_string(&our_vector) {
-                                                // Always plaintext — peer's MLS epoch may be stale after reconnection.
+                                            if let Some(sv_json) = sv_cache.get(sid.as_str()) {
                                                 send_message_to_peer(
                                                     &ws_cmd_tx, &ws_room_peers,
                                                     pid_str, HavenMessage::SyncRequest {
                                                         server_id: sid.clone(),
-                                                        state_vector_json: sv_json,
+                                                        state_vector_json: sv_json.clone(),
                                                     },
                                                 );
                                             }

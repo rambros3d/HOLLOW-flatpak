@@ -303,8 +303,7 @@ Orchestrates file upload to the vault. Called when the Dart side sends `NodeComm
 4. Opens ContentStore, stores local shards (those placed on self), saves placements and manifest to DB.
 5. **Remote shard distribution:** For each placement targeting a remote peer:
    - Sends `MessageEnvelope::ShardStore` metadata via MLS (targeted to peer) or Olm fallback. The `data` field is empty (data comes via binary stream).
-   - Writes shard to temp file (`.stream_shard_{cid_prefix}_{shard_index}.tmp`).
-   - Calls `file_handler:stream_to_peer()` to stream shard bytes via WS or WebRTC.
+   - Calls `file_handler:stream_to_peer_bytes()` to stream shard bytes directly from memory (WS path avoids disk; WebRTC writes temp file for Dart).
 7. **Manifest broadcast:** Sends `MessageEnvelope::VaultManifestBroadcast` via MLS broadcast (or Olm to each member).
 8. Links vault content_id to the file record in MessageStore via `set_file_content_id(message_id, content_id)`.
 9. Emits `NetworkEvent::VaultUploadComplete`.
@@ -341,7 +340,7 @@ Sends a `MessageEnvelope::ShardRequest` to a specific peer. Checks reachability 
 
 ### vault_ops:handle_store_shard_on_peer()
 
-Sends a shard to a specific peer. Sends ShardStore metadata envelope (MLS or Olm), writes shard data to temp file, streams via `file_handler:stream_to_peer()`. Emits `ShardStoreFailed` if peer not reachable.
+Sends a shard to a specific peer. Sends ShardStore metadata envelope (MLS or Olm), streams shard data directly from memory via `file_handler:stream_to_peer_bytes()`. Emits `ShardStoreFailed` if peer not reachable.
 
 ### Incoming Envelope Handlers
 
@@ -355,7 +354,7 @@ These handle `MessageEnvelope` variants received from other peers via MLS or Olm
 
 **vault_ops:handle_envelope_shard_delete()** — receives deletion command. Validates sender has MANAGE_SERVER permission (checks role default_permissions). Deletes local shards via ContentStore. Emits `ShardDeleted`.
 
-**vault_ops:handle_envelope_shard_request()** — peer requests a shard from us. Validates sender is server member. Reads shard from ContentStore. Sends `ShardResponse` metadata (data field empty, found=true) via MLS/Olm, then streams shard bytes via temp file + `stream_to_peer()`. If shard not found: sends ShardResponse with found=false.
+**vault_ops:handle_envelope_shard_request()** — peer requests a shard from us. Validates sender is server member. Reads shard from ContentStore. Sends `ShardResponse` metadata (data field empty, found=true) via MLS/Olm, then streams shard bytes directly from memory via `stream_to_peer_bytes()`. If shard not found: sends ShardResponse with found=false.
 
 **vault_ops:handle_envelope_shard_response()** — receives shard response metadata. If found && data empty: registers in `pending_shard_streams` for binary stream arrival. If found && data non-empty: decodes base64, emits `ShardReceived`.
 

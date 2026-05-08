@@ -174,6 +174,12 @@ Parameters: `ws_cmd_tx`, `room_code`, `target_peer`, `kind`, `id`, `source_path`
 6. `tokio::task::yield_now().await` between continuation chunks for cooperative backpressure
 7. Logs total chunk count on completion
 
+### Sending from memory: ws_stream_transfer.rs:ws_stream_send_bytes()
+
+Parameters: `ws_cmd_tx`, `room_code`, `target_peer`, `kind`, `id`, `data: &[u8]`.
+
+Same wire format and chunking logic as `ws_stream_send()`, but reads from a `std::io::Cursor` instead of a file on disk. Used by `stream_to_peer_bytes()` to eliminate the write-then-read disk round-trip for vault shard streaming. No seek/resume support (shards are always sent in full).
+
 ### Receiving: ws_stream_transfer.rs:ws_stream_receive()
 
 Parameters: `pending: &mut HashMap<String, WsTransferState>`, `data: &[u8]`.

@@ -50,7 +50,7 @@ pub(crate) async fn handle_send_file(
     hollow_log!("[HOLLOW-FILE] SendFile: {file_path} mid={message_id}");
 
     // 1. Read file from disk.
-    let mut file_data = match std::fs::read(&file_path) {
+    let mut file_data = match tokio::fs::read(&file_path).await {
         Ok(d) => d,
         Err(e) => {
             hollow_log!("[HOLLOW-FILE] Failed to read file: {e}");
@@ -182,7 +182,7 @@ pub(crate) async fn handle_send_file(
     // 6. Store file locally (skip for non-image vault files — shards handle storage).
     let final_path = file_transfer::final_file_path(&file_id, &final_ext);
     if store_full_file {
-        if let Err(e) = std::fs::write(&final_path, &final_data) {
+        if let Err(e) = tokio::fs::write(&final_path, &final_data).await {
             hollow_log!("[HOLLOW-FILE] Failed to save local file: {e}");
         }
     }
@@ -310,7 +310,7 @@ pub(crate) async fn handle_send_file(
             let encrypted = crate::vault::pipeline::aes_encrypt(&final_data);
             if let Ok(enc) = encrypted {
                 let temp_path = file_transfer::files_dir().join(format!(".stream_send_{file_id}.tmp"));
-                if let Ok(()) = std::fs::write(&temp_path, &enc.ciphertext) {
+                if let Ok(()) = tokio::fs::write(&temp_path, &enc.ciphertext).await {
                     let aes_key_hex = hex::encode(enc.key);
                     let aes_nonce_hex = hex::encode(enc.nonce);
 
@@ -445,7 +445,7 @@ pub(crate) async fn handle_send_file(
                     let nonce_hex = hex::encode(&enc.nonce);
                     let temp_path = file_transfer::files_dir().join(format!(".stream_send_{file_id}.tmp"));
                     if !has_share_ref {
-                        let _ = std::fs::write(&temp_path, &enc.ciphertext);
+                        let _ = tokio::fs::write(&temp_path, &enc.ciphertext).await;
                     }
                     let ct_size = if has_share_ref { 0 } else { enc.ciphertext.len() as u64 };
                     (key_hex, nonce_hex, temp_path, ct_size)
@@ -752,7 +752,7 @@ pub(crate) async fn handle_completed_stream(
             hollow_log!("[HOLLOW-STREAM] Inbound file stream: {file_id} ({} bytes)", request.size);
 
             if let Some(pfs) = pending_file_streams.remove(&file_id) {
-                if let Ok(ciphertext) = std::fs::read(&request.temp_path) {
+                if let Ok(ciphertext) = tokio::fs::read(&request.temp_path).await {
                     let key_bytes = hex::decode(&pfs.aes_key).unwrap_or_default();
                     let nonce_bytes = hex::decode(&pfs.aes_nonce).unwrap_or_default();
                     if key_bytes.len() == 32 && nonce_bytes.len() == 12 {
@@ -761,7 +761,7 @@ pub(crate) async fn handle_completed_stream(
                         match crate::vault::pipeline::aes_decrypt(&ciphertext, &key, &nonce) {
                             Ok(plaintext) => {
                                 let final_path = file_transfer::final_file_path(&file_id, &pfs.ext);
-                                if let Ok(()) = std::fs::write(&final_path, &plaintext) {
+                                if let Ok(()) = tokio::fs::write(&final_path, &plaintext).await {
                                     if let Ok(store) = crate::storage::MessageStore::open(db_path, db_passphrase) {
                                         let disk_path = final_path.to_string_lossy().to_string();
                                         let _ = store.mark_file_complete(&file_id, &disk_path);
@@ -800,7 +800,7 @@ pub(crate) async fn handle_completed_stream(
             hollow_log!("[HOLLOW-STREAM] Inbound shard stream: cid={content_id} si={shard_index} ({} bytes)", request.size);
 
             if let Some(pss) = pending_shard_streams.remove(&key) {
-                if let Ok(shard_bytes) = std::fs::read(&request.temp_path) {
+                if let Ok(shard_bytes) = tokio::fs::read(&request.temp_path).await {
                     let data_dir = crate::identity::data_dir().unwrap_or_default();
                     let vault_dir = data_dir.join("vault");
                     if let Ok(content_store) = crate::vault::content_store::ContentStore::open(db_path, db_passphrase, &vault_dir) {
@@ -917,6 +917,58 @@ pub(crate) async fn stream_to_peer(
     if let Some(room) = ws_room_for_peer(ws_room_peers, peer_str) {
         ws_stream_transfer::ws_stream_send(
             ws_cmd_tx, &room, peer_str, kind, id, source_path, total_size, 0,
+        ).await;
+    } else {
+        hollow_log!("[HOLLOW-STREAM] Peer {peer_str} unreachable via WS — cannot stream {id}");
+    }
+}
+
+/// Stream data from an in-memory buffer to a peer. Prefers WebRTC (writes temp file for Dart),
+/// falls back to WS binary frames via relay (streams from memory, no disk).
+pub(crate) async fn stream_to_peer_bytes(
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    webrtc_peers: &std::collections::HashSet<String>,
+    pending_webrtc_sends: &mut HashMap<String, (String, ws_stream_transfer::StreamKind, String, PathBuf, u64)>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    peer_str: &str,
+    kind: &ws_stream_transfer::StreamKind,
+    id: &str,
+    data: &[u8],
+) {
+    if webrtc_peers.contains(peer_str) {
+        // WebRTC: Dart reads from file path — must write temp file.
+        let temp_path = file_transfer::files_dir().join(format!(".stream_shard_{id}.tmp"));
+        let _ = std::fs::write(&temp_path, data);
+        let total_size = data.len() as u64;
+        let kind_str = match kind {
+            ws_stream_transfer::StreamKind::File => "file",
+            ws_stream_transfer::StreamKind::Shard { .. } => "shard",
+            ws_stream_transfer::StreamKind::ShareChunk { .. } => "share_chunk",
+        };
+        let shard_index = match kind {
+            ws_stream_transfer::StreamKind::Shard { shard_index } => *shard_index,
+            _ => 0,
+        };
+        pending_webrtc_sends.insert(id.to_string(), (
+            peer_str.to_string(), kind.clone(), id.to_string(),
+            temp_path.to_path_buf(), total_size,
+        ));
+        let _ = event_tx.send(NetworkEvent::WebRtcSendFile {
+            peer_id: peer_str.to_string(),
+            transfer_id: id.to_string(),
+            file_path: temp_path.to_string_lossy().to_string(),
+            total_size,
+            kind: kind_str.to_string(),
+            shard_index,
+            chunk_index: 0,
+        }).await;
+        hollow_log!("[HOLLOW-WEBRTC] Routing {id} to {peer_str} via WebRTC data channel (from bytes)");
+        return;
+    }
+    if let Some(room) = ws_room_for_peer(ws_room_peers, peer_str) {
+        ws_stream_transfer::ws_stream_send_bytes(
+            ws_cmd_tx, &room, peer_str, kind, id, data,
         ).await;
     } else {
         hollow_log!("[HOLLOW-STREAM] Peer {peer_str} unreachable via WS — cannot stream {id}");

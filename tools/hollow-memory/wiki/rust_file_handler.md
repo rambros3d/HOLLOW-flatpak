@@ -74,7 +74,11 @@ Receives: `peer_id` (Some for DM), `server_id`+`channel_id` (Some for channel), 
 
 ## stream_to_peer()
 
-`file_handler.rs:stream_to_peer()` -- Routes file/shard data to a peer. Prefers WebRTC data channel if peer is in `webrtc_peers` set; falls back to WSS relay binary frames. For WebRTC: emits `NetworkEvent::WebRtcSendFile` (Dart handles the actual data channel send), stores in `pending_webrtc_sends` for fallback on failure. For WSS: calls `ws_stream_transfer::ws_stream_send()`.
+`file_handler.rs:stream_to_peer()` -- Routes file/shard data from a file on disk to a peer. Prefers WebRTC data channel if peer is in `webrtc_peers` set; falls back to WSS relay binary frames. For WebRTC: emits `NetworkEvent::WebRtcSendFile` (Dart handles the actual data channel send), stores in `pending_webrtc_sends` for fallback on failure. For WSS: calls `ws_stream_transfer::ws_stream_send()`.
+
+## stream_to_peer_bytes()
+
+`file_handler.rs:stream_to_peer_bytes()` -- Routes data from an in-memory buffer to a peer. Same routing logic as `stream_to_peer()`. For WSS: streams directly from memory via `ws_stream_transfer::ws_stream_send_bytes()` (no disk write). For WebRTC: writes a temp file (Dart needs a file path) then emits `WebRtcSendFile`. Used by vault_ops.rs for shard distribution to eliminate the write-then-read disk round-trip (~44MB saved per vault upload).
 
 ---
 

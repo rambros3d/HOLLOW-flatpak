@@ -198,6 +198,99 @@ pub async fn ws_stream_send(
     hollow_log!("[HOLLOW-WS-STREAM] Sent {id} ({total_size} bytes) to {target_peer} in {chunk_count} chunks");
 }
 
+/// Send data to a peer via chunked WS binary frames, reading from an in-memory buffer.
+/// Same wire format as `ws_stream_send` but avoids the disk round-trip.
+pub async fn ws_stream_send_bytes(
+    ws_cmd_tx: &mpsc::UnboundedSender<WsCommand>,
+    room_code: &str,
+    target_peer: &str,
+    kind: &StreamKind,
+    id: &str,
+    data: &[u8],
+) {
+    use std::io::Read;
+
+    let total_size = data.len() as u64;
+    let mut cursor = std::io::Cursor::new(data);
+
+    let id_padded = pad_id(id);
+    let extra_len: usize = match kind {
+        StreamKind::File => 0,
+        StreamKind::Shard { .. } => 2,
+        StreamKind::ShareChunk { .. } => 4,
+    };
+    let header_len = 1 + 64 + 8 + extra_len;
+    let first_data_cap = WS_CHUNK_SIZE.saturating_sub(header_len).min(data.len());
+
+    let mut first_chunk = Vec::with_capacity(header_len + first_data_cap);
+    first_chunk.push(match kind {
+        StreamKind::File => TYPE_FILE,
+        StreamKind::Shard { .. } => TYPE_SHARD,
+        StreamKind::ShareChunk { .. } => TYPE_SHARE_CHUNK,
+    });
+    first_chunk.extend_from_slice(&id_padded);
+    first_chunk.extend_from_slice(&total_size.to_le_bytes());
+    match kind {
+        StreamKind::Shard { shard_index } => {
+            first_chunk.extend_from_slice(&shard_index.to_le_bytes());
+        }
+        StreamKind::ShareChunk { chunk_index } => {
+            first_chunk.extend_from_slice(&chunk_index.to_le_bytes());
+        }
+        StreamKind::File => {}
+    }
+
+    let mut read_buf = vec![0u8; first_data_cap];
+    let first_read = match cursor.read(&mut read_buf) {
+        Ok(n) => n,
+        Err(e) => {
+            hollow_log!("[HOLLOW-WS-STREAM] Failed to read first chunk from bytes: {e}");
+            return;
+        }
+    };
+    first_chunk.extend_from_slice(&read_buf[..first_read]);
+
+    let _ = ws_cmd_tx.send(WsCommand::SendBinaryDirect {
+        room_code: room_code.to_string(),
+        target_peer: target_peer.to_string(),
+        data: first_chunk,
+    });
+
+    let mut bytes_sent = first_read as u64;
+    let mut chunk_count: u64 = 1;
+    let cont_data_cap = WS_CHUNK_SIZE.saturating_sub(65);
+    let mut cont_buf = vec![0u8; cont_data_cap];
+
+    while bytes_sent < total_size {
+        tokio::task::yield_now().await;
+
+        let n = match cursor.read(&mut cont_buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) => {
+                hollow_log!("[HOLLOW-WS-STREAM] Read error from bytes at offset {bytes_sent}: {e}");
+                break;
+            }
+        };
+
+        let mut chunk = Vec::with_capacity(65 + n);
+        chunk.push(TYPE_CONTINUATION);
+        chunk.extend_from_slice(&id_padded);
+        chunk.extend_from_slice(&cont_buf[..n]);
+
+        let _ = ws_cmd_tx.send(WsCommand::SendBinaryDirect {
+            room_code: room_code.to_string(),
+            target_peer: target_peer.to_string(),
+            data: chunk,
+        });
+
+        bytes_sent += n as u64;
+        chunk_count += 1;
+    }
+
+    hollow_log!("[HOLLOW-WS-STREAM] Sent {id} ({total_size} bytes, in-memory) to {target_peer} in {chunk_count} chunks");
+}
+
 /// Process a received WS binary chunk. Called from the swarm when BinaryDirect arrives.
 /// Returns `Some(StreamRequest)` when the transfer is complete (all bytes received).
 pub fn ws_stream_receive(
