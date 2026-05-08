@@ -878,10 +878,11 @@ async fn run_event_loop(
                         ).await;
                     }
 
-                    NodeCommand::VaultUploadFile {
-                        server_id, channel_id, file_name, mime_type, message_id,
-                        ciphertext, aes_key, aes_nonce, original_size, content_id,
-                    } => {
+                    NodeCommand::VaultUploadFile(box_payload) => {
+                        let VaultUploadFilePayload {
+                            server_id, channel_id, file_name, mime_type, message_id,
+                            ciphertext, aes_key, aes_nonce, original_size, content_id,
+                        } = *box_payload;
                         vault_ops::handle_vault_upload_file(
                             &mut server_states, &mut olm, &crypto_store, &mut mls,
                             &event_tx, &ws_cmd_tx, &ws_room_peers,
@@ -927,7 +928,8 @@ async fn run_event_loop(
                     }
 
                     // -- File sharing (Phase 3.5) --
-                    NodeCommand::SendFile { peer_id, server_id, channel_id, file_path, message_id, message_text, vthumb, override_width, override_height, share_ref } => {
+                    NodeCommand::SendFile(box_payload) => {
+                        let SendFilePayload { peer_id, server_id, channel_id, file_path, message_id, message_text, vthumb, override_width, override_height, share_ref } = *box_payload;
                         file_handler::handle_send_file(
                             peer_id, server_id, channel_id, file_path, message_id, message_text,
                             vthumb, override_width, override_height, share_ref,

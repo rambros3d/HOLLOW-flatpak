@@ -1944,8 +1944,7 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 - [ ] Proper README with feature grid, architecture diagram, screenshots (visual repo presentation)
 - [ ] Apply for OTF Security Lab cryptographic audit (free, major credibility — no Discord alternative has this)
 - [ ] Clean repo pre-launch (remove secrets, debug hacks, dead code paths)
-- [ ] Target communities: r/SelfHosting, r/DiscordAlternatives, Hacker News, Twitter open-source accounts
-- [ ] Apply for open-source infrastructure programs (Hetzner, OVH, Cloudflare) once repo is public
+- [ ] Target communities: r/SelfHosting, r/DiscordAlternatives, Hacker News, Twitter open-source accounts (streaming to twitch and at least doing some content instead of targeting, you silly-willy. weak ass devs use you for targeting with their bs products, but we're building actual software here. little self promotion is maybe alright, but not being a freaking spammer. i hate those)
 
 📋 INFRASTRUCTURE MASTER PLAN: "The Swarm"
 

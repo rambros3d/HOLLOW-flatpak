@@ -259,6 +259,32 @@ pub(crate) struct ShareEntryRef {
     pub context_type: Option<String>,
 }
 
+pub(crate) struct SendFilePayload {
+    pub peer_id: Option<String>,
+    pub server_id: Option<String>,
+    pub channel_id: Option<String>,
+    pub file_path: String,
+    pub message_id: String,
+    pub message_text: String,
+    pub vthumb: Option<VideoThumbRef>,
+    pub override_width: Option<u32>,
+    pub override_height: Option<u32>,
+    pub share_ref: Option<ShareRef>,
+}
+
+pub(crate) struct VaultUploadFilePayload {
+    pub server_id: String,
+    pub channel_id: String,
+    pub file_name: String,
+    pub mime_type: String,
+    pub message_id: String,
+    pub ciphertext: Vec<u8>,
+    pub aes_key: Vec<u8>,
+    pub aes_nonce: Vec<u8>,
+    pub original_size: u64,
+    pub content_id: String,
+}
+
 /// Commands the FFI layer can send into the swarm event loop.
 pub(crate) enum NodeCommand {
     SendMessage { peer_id: String, text: String, message_id: String, reply_to_mid: Option<String>, link_preview: Option<LinkPreviewRef> },
@@ -322,29 +348,7 @@ pub(crate) enum NodeCommand {
     // -- Storage pledge (Phase 4) --
     SetStoragePledge { server_id: String, pledge_bytes: u64 },
     // -- File sharing (Phase 3.5) --
-    SendFile {
-        peer_id: Option<String>,           // For DMs (None for channels)
-        server_id: Option<String>,         // For channels
-        channel_id: Option<String>,        // For channels
-        file_path: String,                 // Local path to file
-        message_id: String,
-        message_text: String,
-        /// Video thumbnail back-reference (Phase 6.75 video preview).
-        /// When set, the file at `file_path` is a thumbnail image for the
-        /// vault-stored video identified by `vthumb.cid`. Forwarded into
-        /// the FileHeader envelope so receivers can render a play button.
-        vthumb: Option<VideoThumbRef>,
-        /// Override width for the FileHeader. Used by the video preview
-        /// pipeline (Phase 6.75) to populate the underlying VIDEO's pixel
-        /// dimensions in the FileHeader so receivers can render the bubble at
-        /// the correct aspect ratio before downloading the video itself.
-        /// Ignored for image files (Rust extracts those dimensions itself).
-        override_width: Option<u32>,
-        override_height: Option<u32>,
-        /// When set, file bytes are delivered via Share infrastructure — the
-        /// FileHeader carries this ref and no binary data follows.
-        share_ref: Option<ShareRef>,
-    },
+    SendFile(Box<SendFilePayload>),
     RequestFile {
         file_id: String,
         peer_id: String,
@@ -352,18 +356,7 @@ pub(crate) enum NodeCommand {
     },
     // -- Vault shard distribution (Phase 4) --
     VaultDownloadFile { server_id: String, content_id: String },
-    VaultUploadFile {
-        server_id: String,
-        channel_id: String,
-        file_name: String,
-        mime_type: String,
-        message_id: String,
-        ciphertext: Vec<u8>,
-        aes_key: Vec<u8>,
-        aes_nonce: Vec<u8>,
-        original_size: u64,
-        content_id: String,
-    },
+    VaultUploadFile(Box<VaultUploadFilePayload>),
     DeleteVaultContent { server_id: String, content_id: String },
     RequestShardFromPeer {
         server_id: String,

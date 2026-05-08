@@ -105,9 +105,9 @@ impl NativeKeypair {
     }
 
     /// Sign a message with Ed25519. Returns the 64-byte signature.
-    pub fn sign(&self, msg: &[u8]) -> Vec<u8> {
+    pub fn sign(&self, msg: &[u8]) -> [u8; 64] {
         let sig = self.signing_key.sign(msg);
-        sig.to_bytes().to_vec()
+        sig.to_bytes()
     }
 
     /// 36-byte protobuf encoding of the public key.

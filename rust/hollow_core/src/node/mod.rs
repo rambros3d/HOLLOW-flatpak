@@ -21,6 +21,6 @@ mod swarm;
 pub(crate) mod ws_client;
 
 pub(crate) use crdt_store::CrdtStore;
-pub(crate) use types::{LinkPreviewRef, NetworkEvent, NodeCommand, ShareRef, VideoThumbRef};
+pub(crate) use types::{LinkPreviewRef, NetworkEvent, NodeCommand, SendFilePayload, ShareRef, VaultUploadFilePayload, VideoThumbRef};
 pub(crate) use crypto_handler::{message_signing_payload, verify_message_signature};
 pub(crate) use swarm::spawn_node;

@@ -286,7 +286,7 @@ Commands sent from the Flutter FFI layer into the Rust swarm event loop via `mps
 
 ### File Sharing
 
-- **`SendFile { peer_id, server_id, channel_id, file_path, message_id, message_text, vthumb, override_width, override_height, share_ref }`** — send a file. `peer_id` set for DMs, `server_id`+`channel_id` set for channels. `vthumb: Option<VideoThumbRef>` for video thumbnail pipeline. `override_width`/`override_height` used by video preview for aspect ratio. `share_ref: Option<ShareRef>` for >34 MB files delivered via Share infrastructure. Handler: `file_handler.rs:handle_send_file()`.
+- **`SendFile(Box<SendFilePayload>)`** — send a file. Boxed to reduce enum size. `SendFilePayload` fields: `peer_id` (DMs), `server_id`+`channel_id` (channels), `file_path`, `message_id`, `message_text`, `vthumb: Option<VideoThumbRef>`, `override_width`/`override_height` (video preview), `share_ref: Option<ShareRef>` (>34 MB files). Handler: `file_handler.rs:handle_send_file()`.
 - **`RequestFile { file_id, peer_id, chunks }`** — request file chunks from a peer. `chunks` empty = all. Handler: `file_handler.rs:handle_request_file()`.
 
 ### Storage Pledge
@@ -295,7 +295,7 @@ Commands sent from the Flutter FFI layer into the Rust swarm event loop via `mps
 
 ### Vault Operations
 
-- **`VaultUploadFile { server_id, channel_id, file_name, mime_type, message_id, ciphertext, aes_key, aes_nonce, original_size, content_id }`** — upload a file to the vault (erasure-coded shard distribution). Handler: `vault_ops.rs:handle_vault_upload()`.
+- **`VaultUploadFile(Box<VaultUploadFilePayload>)`** — upload a file to the vault (erasure-coded shard distribution). Boxed to reduce enum size. `VaultUploadFilePayload` fields: `server_id`, `channel_id`, `file_name`, `mime_type`, `message_id`, `ciphertext`, `aes_key`, `aes_nonce`, `original_size`, `content_id`. Handler: `vault_ops.rs:handle_vault_upload()`.
 - **`VaultDownloadFile { server_id, content_id }`** — download a file from the vault (collect shards, reconstruct). Handler: `vault_ops.rs:handle_vault_download()`.
 - **`DeleteVaultContent { server_id, content_id }`** — delete vault content (admin-only). Handler: `vault_ops.rs`.
 - **`RequestShardFromPeer { server_id, content_id, shard_index, shard_key, target_peer }`** — request a specific shard from a specific peer. Handler: `vault_ops.rs`.

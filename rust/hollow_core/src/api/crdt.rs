@@ -1067,7 +1067,7 @@ pub fn vault_upload_file(
     rt.block_on(
         state
             .cmd_tx
-            .send(node::NodeCommand::VaultUploadFile {
+            .send(node::NodeCommand::VaultUploadFile(Box::new(node::VaultUploadFilePayload {
                 server_id,
                 channel_id,
                 file_name,
@@ -1078,7 +1078,7 @@ pub fn vault_upload_file(
                 aes_nonce: encrypted.nonce.to_vec(),
                 original_size,
                 content_id: content_id.clone(),
-            }),
+            }))),
     )
     .map_err(|e| format!("Failed to send command: {e}"))?;
 

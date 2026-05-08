@@ -540,10 +540,23 @@ ServerState serialized to JSON twice and two `save_state` messages sent within t
 22. **M13: In-memory shard streaming** — Added `ws_stream_send_bytes()` (Cursor-based) and `stream_to_peer_bytes()`. 3 vault_ops sites (upload distribution, store-on-peer relay, shard request response) stream directly from memory. WebRTC fallback still writes temp file (Dart reads from path). Eliminates ~44MB disk round-trip per vault upload. DONE.
 23. **M12: Pre-compute StateVector per-server in RoomMembers** — `sv_cache: HashMap<&str, String>` built once before the peer loop. 20 peers × 5 servers drops from 100 StateVector computations to 5. M11 (code dedup) skipped — helper needs ~20 params. DONE.
 
-### Phase 8: Polish (LOW items + deferred fixes)
-24-43. All LOW items — individually small but collectively meaningful.
-44. **Proactive Olm re-key on stale peers** — If PeerJoined key exchange is lost, neither side retries. Add periodic re-key probe for peers in shared rooms with no active session.
-45. **Stale share cleanup** — Old share entries persist in SQLCipher across builds. Prune on startup where source file no longer exists on disk, or add manual "clear stale shares" action.
+### Phase 8: Polish (LOW items) — DONE
+24. **L4: add_known_peer 4→1 allocation** — Single `.to_string()` at entry, reused via `.clone()`. DONE.
+25. **L7: Remove dead _topic allocation** — Removed unused `String::from_utf8_lossy` in ws_client.rs topic broadcast handler. DONE.
+26. **L8: sign() returns [u8; 64]** — Stack-allocated instead of heap `Vec<u8>`. All 5 callers unchanged (accept `&[u8]`). DONE.
+27. **L10: Voice rate-limit map eviction** — Evicts entries >10min idle when map exceeds 16 entries. DONE.
+28. **L12: Mention parsing early exit** — `if !text.contains('@')` skips split_whitespace loop. DONE.
+29. **L13: count_unread_dm/channel single query** — Combined two queries into single COALESCE subquery. Both DM and channel variants. DONE.
+30. **L14: reset_stale_file_paths transaction** — Wrapped N UPDATE loop in BEGIN/COMMIT with ROLLBACK on error. DONE.
+31. **L15: edit_channel/dm_message transaction** — Wrapped INSERT (edit history) + UPDATE (message) in explicit transaction. Both functions. DONE.
+32. **L17: Box fat NodeCommand variants** — `SendFile(Box<SendFilePayload>)`, `VaultUploadFile(Box<VaultUploadFilePayload>)`. DONE.
+
+**Deferred (not optimization — new behavior):**
+- Proactive Olm re-key on stale peers
+- Stale share cleanup
+- L6 (reverse peer index — complex data structure change, O(rooms) scan is fast enough)
+- L18 (NetworkEvent boxing — touches frb_generated.rs, needs codegen run)
+- L20 (to_ffi_event double match — ~500-line mechanical merge, low ROI)
 
 ---
 

@@ -201,19 +201,17 @@ impl GossipOverlay {
     /// Register a peer as online in this server.
     /// Returns `Some(peer_id)` if this peer should become a new neighbor.
     pub fn add_known_peer(&mut self, peer_id: &str) -> Option<String> {
-        self.known_peers.insert(peer_id.to_string());
-
-        // Ensure we have a score entry.
+        let owned = peer_id.to_string();
+        self.known_peers.insert(owned.clone());
         self.peer_scores
-            .entry(peer_id.to_string())
+            .entry(owned.clone())
             .or_insert_with(PeerScore::new);
 
-        // If we need more neighbors, add this peer immediately.
         if self.neighbors.len() < MIN_GOSSIP_NEIGHBORS
             && !self.neighbors.contains(peer_id)
         {
-            self.neighbors.insert(peer_id.to_string());
-            return Some(peer_id.to_string());
+            self.neighbors.insert(owned.clone());
+            return Some(owned);
         }
 
         None

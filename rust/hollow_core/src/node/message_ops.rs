@@ -224,12 +224,15 @@ pub(crate) async fn handle_send_channel_message(
 
     // Broadcast notification hint via SendToRoom (reaches all room members, even unsubscribed).
     {
-        let has_everyone = text.contains("@everyone");
+        let has_at = text.contains('@');
+        let has_everyone = has_at && text.contains("@everyone");
         let mut mentioned_names = Vec::new();
-        for word in text.split_whitespace() {
-            if let Some(name) = word.strip_prefix('@') {
-                if !name.is_empty() && name != "everyone" {
-                    mentioned_names.push(name.to_string());
+        if has_at {
+            for word in text.split_whitespace() {
+                if let Some(name) = word.strip_prefix('@') {
+                    if !name.is_empty() && name != "everyone" {
+                        mentioned_names.push(name.to_string());
+                    }
                 }
             }
         }

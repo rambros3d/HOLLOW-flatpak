@@ -69,10 +69,9 @@ pub(crate) async fn handle_create_server(
 
     // Auto-pledge default storage (512 MB) for the owner
     if let Some(state) = server_states.get_mut(&server_id) {
-        let owner_peer = local_peer_str.to_string();
         let default_pledge = 512u64 * 1024 * 1024;
         let pledge_op = state.create_op(CrdtPayload::StoragePledgeChanged {
-            peer_id: owner_peer,
+            peer_id: local_peer_str.to_string(),
             pledge_bytes: default_pledge,
         });
         let _ = state.apply_op(&pledge_op);

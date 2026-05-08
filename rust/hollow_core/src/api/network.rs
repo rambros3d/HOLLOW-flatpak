@@ -1634,7 +1634,7 @@ pub fn send_file(
     rt.block_on(
         state
             .cmd_tx
-            .send(node::NodeCommand::SendFile {
+            .send(node::NodeCommand::SendFile(Box::new(node::SendFilePayload {
                 peer_id: peer,
                 server_id,
                 channel_id,
@@ -1645,7 +1645,7 @@ pub fn send_file(
                 override_width,
                 override_height,
                 share_ref,
-            }),
+            }))),
     )
     .map_err(|e| format!("Failed to send command: {e}"))?;
 

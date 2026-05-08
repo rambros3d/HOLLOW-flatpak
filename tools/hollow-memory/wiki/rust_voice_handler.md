@@ -203,11 +203,12 @@ Parameters:
 - `VC_SIGNAL_RATE_REFILL = 10` — tokens per second refill rate (defined in `types.rs`)
 
 Algorithm:
-1. Get or create the peer's token bucket entry (initial: 30 tokens, now)
-2. Calculate elapsed time since last refill, compute tokens to add at 10/sec rate
-3. If refill > 0, add tokens (capped at burst limit of 30) and reset refill timer
-4. If 0 tokens remain, log a security warning and return `false` (signal is dropped)
-5. Otherwise, decrement tokens and return `true`
+1. **Eviction:** If the map exceeds 16 entries, evicts all entries older than 10 minutes to prevent unbounded growth.
+2. Get or create the peer's token bucket entry (initial: 30 tokens, now)
+3. Calculate elapsed time since last refill, compute tokens to add at 10/sec rate
+4. If refill > 0, add tokens (capped at burst limit of 30) and reset refill timer
+5. If 0 tokens remain, log a security warning and return `false` (signal is dropped)
+6. Otherwise, decrement tokens and return `true`
 
 This prevents a malicious peer from flooding the node with VC signal envelopes. Normal WebRTC negotiation produces a burst of ~10-20 signals during connection setup, well within the 30-token burst limit.
 

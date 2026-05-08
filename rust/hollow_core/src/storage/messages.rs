@@ -1375,22 +1375,15 @@ impl MessageStore {
     /// Count unread DM messages: messages with autoincrement id greater than
     /// the row matching `last_seen_message_id`. Returns 0 if not found.
     pub fn count_unread_dm(&self, peer_id: &str, last_seen_message_id: &str) -> u32 {
-        // Find the autoincrement id of the last-seen message.
-        let seen_id: Option<i64> = self
-            .conn
-            .query_row(
-                "SELECT id FROM messages WHERE peer_id = ?1 AND message_id = ?2",
-                params![peer_id, last_seen_message_id],
-                |row| row.get(0),
-            )
-            .ok();
-
-        let threshold = seen_id.unwrap_or(0);
         self.conn
             .query_row(
                 "SELECT COUNT(*) FROM messages
-                 WHERE peer_id = ?1 AND id > ?2 AND hidden_at IS NULL AND is_mine = 0",
-                params![peer_id, threshold],
+                 WHERE peer_id = ?1
+                   AND id > COALESCE(
+                       (SELECT id FROM messages WHERE peer_id = ?1 AND message_id = ?2), 0
+                   )
+                   AND hidden_at IS NULL AND is_mine = 0",
+                params![peer_id, last_seen_message_id],
                 |row| row.get::<_, i64>(0),
             )
             .unwrap_or(0) as u32
@@ -1404,24 +1397,16 @@ impl MessageStore {
         channel_id: &str,
         last_seen_message_id: &str,
     ) -> u32 {
-        // Find the autoincrement id of the last-seen message.
-        let seen_id: Option<i64> = self
-            .conn
-            .query_row(
-                "SELECT id FROM channel_messages
-                 WHERE server_id = ?1 AND channel_id = ?2 AND message_id = ?3",
-                params![server_id, channel_id, last_seen_message_id],
-                |row| row.get(0),
-            )
-            .ok();
-
-        let threshold = seen_id.unwrap_or(0);
         self.conn
             .query_row(
                 "SELECT COUNT(*) FROM channel_messages
-                 WHERE server_id = ?1 AND channel_id = ?2 AND id > ?3
+                 WHERE server_id = ?1 AND channel_id = ?2
+                   AND id > COALESCE(
+                       (SELECT id FROM channel_messages
+                        WHERE server_id = ?1 AND channel_id = ?2 AND message_id = ?3), 0
+                   )
                    AND hidden_at IS NULL AND is_mine = 0",
-                params![server_id, channel_id, threshold],
+                params![server_id, channel_id, last_seen_message_id],
                 |row| row.get::<_, i64>(0),
             )
             .unwrap_or(0) as u32
@@ -2041,28 +2026,32 @@ impl MessageStore {
             return Ok(false); // No change.
         }
 
-        // 2. Preserve the old text + previous signature in message_edits.
-        self.conn
-            .execute(
-                "INSERT INTO message_edits (message_id, old_text, new_text, edited_at, signature, public_key, prev_signature, prev_public_key, prev_timestamp)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![message_id, old_text, new_text, edited_at, signature, public_key, prev_sig, prev_pk, prev_ts],
-            )
-            .map_err(|e| format!("Failed to insert edit history: {e}"))?;
+        self.conn.execute_batch("BEGIN").map_err(|e| format!("BEGIN: {e}"))?;
 
-        // 3. Update the message text, edited_at, and overwrite the main-row
-        // signature/public_key so the canonical payload (built from the new
-        // text + edited_at) matches the stored signature on cold loads.
-        // The full edit chain with prior signatures still lives in message_edits.
-        let rows = self
-            .conn
-            .execute(
-                "UPDATE channel_messages SET text = ?1, edited_at = ?2, signature = ?3, public_key = ?4, updated_at = ?2 WHERE message_id = ?5",
-                params![new_text, edited_at, signature, public_key, message_id],
-            )
-            .map_err(|e| format!("Failed to update channel message: {e}"))?;
+        if let Err(e) = self.conn.execute(
+            "INSERT INTO message_edits (message_id, old_text, new_text, edited_at, signature, public_key, prev_signature, prev_public_key, prev_timestamp)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![message_id, old_text, new_text, edited_at, signature, public_key, prev_sig, prev_pk, prev_ts],
+        ) {
+            let _ = self.conn.execute_batch("ROLLBACK");
+            return Err(format!("Failed to insert edit history: {e}"));
+        }
 
-        Ok(rows > 0)
+        let result = self.conn.execute(
+            "UPDATE channel_messages SET text = ?1, edited_at = ?2, signature = ?3, public_key = ?4, updated_at = ?2 WHERE message_id = ?5",
+            params![new_text, edited_at, signature, public_key, message_id],
+        );
+
+        match result {
+            Ok(rows) => {
+                let _ = self.conn.execute_batch("COMMIT");
+                Ok(rows > 0)
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(format!("Failed to update channel message: {e}"))
+            }
+        }
     }
 
     /// Edit a DM message by message_id. Preserves old text in message_edits table.
@@ -2093,27 +2082,32 @@ impl MessageStore {
             return Ok(false);
         }
 
-        // 2. Preserve old text + previous signature.
-        self.conn
-            .execute(
-                "INSERT INTO message_edits (message_id, old_text, new_text, edited_at, signature, public_key, prev_signature, prev_public_key, prev_timestamp)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![message_id, old_text, new_text, edited_at, signature, public_key, prev_sig, prev_pk, prev_ts],
-            )
-            .map_err(|e| format!("Failed to insert edit history: {e}"))?;
+        self.conn.execute_batch("BEGIN").map_err(|e| format!("BEGIN: {e}"))?;
 
-        // 3. Update the message. Overwrite the main-row signature/public_key
-        // alongside text+edited_at so the canonical payload matches the
-        // stored signature on cold loads. Prior signatures stay in message_edits.
-        let rows = self
-            .conn
-            .execute(
-                "UPDATE messages SET text = ?1, edited_at = ?2, signature = ?3, public_key = ?4, updated_at = ?2 WHERE message_id = ?5",
-                params![new_text, edited_at, signature, public_key, message_id],
-            )
-            .map_err(|e| format!("Failed to update DM message: {e}"))?;
+        if let Err(e) = self.conn.execute(
+            "INSERT INTO message_edits (message_id, old_text, new_text, edited_at, signature, public_key, prev_signature, prev_public_key, prev_timestamp)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![message_id, old_text, new_text, edited_at, signature, public_key, prev_sig, prev_pk, prev_ts],
+        ) {
+            let _ = self.conn.execute_batch("ROLLBACK");
+            return Err(format!("Failed to insert edit history: {e}"));
+        }
 
-        Ok(rows > 0)
+        let result = self.conn.execute(
+            "UPDATE messages SET text = ?1, edited_at = ?2, signature = ?3, public_key = ?4, updated_at = ?2 WHERE message_id = ?5",
+            params![new_text, edited_at, signature, public_key, message_id],
+        );
+
+        match result {
+            Ok(rows) => {
+                let _ = self.conn.execute_batch("COMMIT");
+                Ok(rows > 0)
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(format!("Failed to update DM message: {e}"))
+            }
+        }
     }
 
     // ── Message Deletion / Hiding (Phase 3.5) ──
@@ -3318,14 +3312,19 @@ impl MessageStore {
         }
 
         let count = stale_ids.len() as u32;
+        self.conn.execute_batch("BEGIN").map_err(|e| format!("BEGIN: {e}"))?;
         for file_id in &stale_ids {
             self.conn
                 .execute(
                     "UPDATE files SET disk_path = NULL, completed_at = NULL WHERE file_id = ?1",
                     rusqlite::params![file_id],
                 )
-                .map_err(|e| format!("Failed to reset stale file {file_id}: {e}"))?;
+                .map_err(|e| {
+                    let _ = self.conn.execute_batch("ROLLBACK");
+                    format!("Failed to reset stale file {file_id}: {e}")
+                })?;
         }
+        self.conn.execute_batch("COMMIT").map_err(|e| format!("COMMIT: {e}"))?;
 
         Ok(count)
     }

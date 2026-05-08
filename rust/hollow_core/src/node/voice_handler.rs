@@ -642,6 +642,12 @@ pub(crate) fn vc_rate_check(
     vc_signal_rate_tokens: &mut HashMap<String, (u32, std::time::Instant)>,
     sender_peer_id: &str,
 ) -> bool {
+    // Evict stale entries (>10 min idle) to prevent unbounded growth.
+    if vc_signal_rate_tokens.len() > 16 {
+        let cutoff = std::time::Duration::from_secs(600);
+        vc_signal_rate_tokens.retain(|_, (_, last)| last.elapsed() < cutoff);
+    }
+
     let entry = vc_signal_rate_tokens
         .entry(sender_peer_id.to_string())
         .or_insert((VC_SIGNAL_RATE_BURST, std::time::Instant::now()));

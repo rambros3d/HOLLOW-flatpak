@@ -212,7 +212,6 @@ async fn ws_client_loop(
                                                     let room = String::from_utf8_lossy(&rest[..room_end]).to_string();
                                                     let after_room = &rest[room_end + 1..];
                                                     if let Some(topic_end) = after_room.iter().position(|&b| b == 0) {
-                                                        let _topic = String::from_utf8_lossy(&after_room[..topic_end]).to_string();
                                                         let after_topic = &after_room[topic_end + 1..];
                                                         if let Some(sender_end) = after_topic.iter().position(|&b| b == 0) {
                                                             let from = String::from_utf8_lossy(&after_topic[..sender_end]).to_string();
