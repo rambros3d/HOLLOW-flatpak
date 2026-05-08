@@ -415,10 +415,10 @@ Signature: `fn import_backup(backup_path: String, passphrase: String) -> Result<
 ### Global store singleton functions (use STORE static):
 `storage.rs`: All functions -- `open_message_store`, `save_message`, `load_messages`, `load_all_dm_messages`, `load_message_edits`, `count_dm_messages`, `count_channel_messages_ffi`, `save_channel_message`, `load_channel_messages`, `load_all_channel_messages`, `search_channel_messages`, `search_dm_messages`, `load_reactions`, `get_profile`, `get_all_profiles`, `save_setting`, `load_setting`, `set_peer_verified`, `remove_peer_verified`, `is_peer_verified`, `get_verified_peers`, `count_unread_dm`, `count_unread_channel`, `count_all_unread_dm`, `count_all_unread_channel`, `get_dm_peer_ids`, `load_friends`, `get_file_metadata`, `get_content_id_for_file`, `get_files_for_message`, `get_incomplete_files`, `mark_file_complete`, `get_missing_file_ids`, `reset_stale_files`, `get_missing_image_file_ids_for_server`, `save_mnemonic`, `get_mnemonic`, `has_identity`, `export_backup`, `import_backup`
 
-## DB Access Pattern Difference
+## DB Access Pattern
 
-`api/crdt.rs` query functions open a fresh `MessageStore` connection on every call, independently deriving the passphrase from identity each time. This is because CRDT queries need to deserialize `ServerState` from the `server_states` table, and the crdt module was designed to be callable even if the global store hasn't been initialized.
+Both `api/crdt.rs` and `api/storage.rs` use the global `STORE` singleton (`OnceLock<Mutex<Option<MessageStore>>>`, initialized by `open_message_store()`). Every function acquires the mutex and unwraps the Option. If the store hasn't been opened, all functions return `"Message store is not open"`.
 
-`api/storage.rs` uses the global `STORE` singleton (initialized by `open_message_store()`). Every function acquires the mutex and unwraps the Option. If the store hasn't been opened, all functions return `"Message store is not open"`. The singleton pattern avoids repeated DB open overhead for the high-frequency message operations.
+For the 3 crdt.rs functions that need the local peer_id (`get_my_role`, `get_my_permissions`, `get_storage_stats`), a separate `CACHED_PEER_ID` OnceLock caches it on first access via `get_peer_id()`.
 
-Both use the same DB file (`~/.hollow/messages.db`) and the same identity-derived passphrase, so they operate on the same SQLCipher database.
+Functions that need `ContentStore` access (`get_storage_stats`, `get_vault_file_statuses`, `vault_download_file`) still derive `db_path`/`passphrase` via `derive_db_key_public()` because ContentStore opens its own connection.

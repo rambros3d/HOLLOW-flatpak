@@ -565,7 +565,7 @@ Tables created in `MessageStore::open()` constructor order:
 
 Source: `rust/hollow_core/src/identity/native_identity.rs`
 
-`NativeKeypair` is a thin wrapper around `ed25519_dalek::SigningKey`. It replaces the removed libp2p identity module while producing identical PeerId strings and signatures.
+`NativeKeypair` wraps `ed25519_dalek::SigningKey` with a cached `cached_peer_id: String` field. PeerId is computed once at construction via `compute_peer_id()` and returned by `peer_id()` as a clone. Replaces the removed libp2p identity module while producing identical PeerId strings and signatures.
 
 ### Construction
 
@@ -580,12 +580,12 @@ Source: `rust/hollow_core/src/identity/native_identity.rs`
 
 ### PeerId Derivation
 
-`native_identity.rs:NativeKeypair::peer_id()` -- Produces libp2p-compatible `12D3KooW...` PeerId strings:
-1. Get 36-byte `public_key_protobuf()`
+`native_identity.rs:NativeKeypair::peer_id()` -- Returns the cached `cached_peer_id: String` (clone). The PeerId is computed once at construction by `compute_peer_id()`:
+1. Get 36-byte public key protobuf: `[0x08, 0x01, 0x12, 0x20, public(32)]`
 2. Wrap in identity multihash: `[0x00, 0x24, ...36_bytes]` (code 0x00 = identity, 0x24 = length 36)
 3. Base58 encode with Bitcoin alphabet
 
-The identity multihash is used because the 36-byte protobuf-encoded public key is <= 42 bytes (the libp2p inline threshold). Keys > 42 bytes would use SHA-256 (code 0x12) instead.
+The identity multihash is used because the 36-byte protobuf-encoded public key is <= 42 bytes (the libp2p inline threshold).
 
 ### Signing and Verification
 

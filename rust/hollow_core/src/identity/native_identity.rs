@@ -10,6 +10,19 @@ use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 #[derive(Clone)]
 pub(crate) struct NativeKeypair {
     signing_key: SigningKey,
+    cached_peer_id: String,
+}
+
+fn compute_peer_id(signing_key: &SigningKey) -> String {
+    let public = signing_key.verifying_key().to_bytes();
+    let mut pubkey_proto = Vec::with_capacity(36);
+    pubkey_proto.extend_from_slice(&[0x08, 0x01, 0x12, 0x20]);
+    pubkey_proto.extend_from_slice(&public);
+    let mut multihash = Vec::with_capacity(2 + pubkey_proto.len());
+    multihash.push(0x00);
+    multihash.push(pubkey_proto.len() as u8);
+    multihash.extend_from_slice(&pubkey_proto);
+    bs58::encode(&multihash).with_alphabet(bs58::Alphabet::BITCOIN).into_string()
 }
 
 impl NativeKeypair {
@@ -18,15 +31,19 @@ impl NativeKeypair {
         let seed = mnemonic.to_seed("");
         let mut secret_bytes = [0u8; 32];
         secret_bytes.copy_from_slice(&seed[..32]);
+        let signing_key = SigningKey::from_bytes(&secret_bytes);
         Ok(Self {
-            signing_key: SigningKey::from_bytes(&secret_bytes),
+            cached_peer_id: compute_peer_id(&signing_key),
+            signing_key,
         })
     }
 
     /// Construct from raw 32-byte secret key.
     pub fn from_secret_bytes(bytes: &[u8; 32]) -> Self {
+        let signing_key = SigningKey::from_bytes(bytes);
         Self {
-            signing_key: SigningKey::from_bytes(bytes),
+            cached_peer_id: compute_peer_id(&signing_key),
+            signing_key,
         }
     }
 
@@ -47,8 +64,10 @@ impl NativeKeypair {
         }
         let mut secret = [0u8; 32];
         secret.copy_from_slice(&bytes[4..36]);
+        let signing_key = SigningKey::from_bytes(&secret);
         let keypair = Self {
-            signing_key: SigningKey::from_bytes(&secret),
+            cached_peer_id: compute_peer_id(&signing_key),
+            signing_key,
         };
         // Verify the public key matches.
         let expected_pub = &bytes[36..68];
@@ -82,14 +101,7 @@ impl NativeKeypair {
     ///
     /// For keys > 42 bytes, SHA-256 would be used instead (code 0x12).
     pub fn peer_id(&self) -> String {
-        let pubkey_proto = self.public_key_protobuf(); // 36 bytes
-        // Identity multihash: code 0x00 + length as unsigned varint + raw bytes
-        // 36 = 0x24, fits in one varint byte
-        let mut multihash = Vec::with_capacity(2 + pubkey_proto.len());
-        multihash.push(0x00); // Identity multihash code
-        multihash.push(pubkey_proto.len() as u8); // 36 = 0x24
-        multihash.extend_from_slice(&pubkey_proto);
-        bs58::encode(&multihash).with_alphabet(bs58::Alphabet::BITCOIN).into_string()
+        self.cached_peer_id.clone()
     }
 
     /// Sign a message with Ed25519. Returns the 64-byte signature.

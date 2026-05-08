@@ -525,9 +525,9 @@ ServerState serialized to JSON twice and two `save_state` messages sent within t
 13. **M3: compute_delta without cloning** — Returns `Vec<&CrdtOp>` instead of `Vec<CrdtOp>`. Zero-copy delta. DONE.
 14. **M4: CrdtStore flush in single transaction** — Wrap entire drain cycle (process_cmd + flush) in one transaction. DONE.
 
-### Phase 5: FFI optimization
-15. **C4: Batch FFI get_server_info()** — 7x fewer DB opens per server switch.
-16. **L9: Cache peer_id on NativeKeypair** — Eliminate cascading allocs.
+### Phase 5: FFI optimization — DONE
+15. **C4: Use STORE singleton in crdt.rs** — All 14 FFI functions use cached DB connection instead of re-opening. `CACHED_PEER_ID` OnceLock for the 3 that need it. 7x fewer DB opens per server switch. DONE.
+16. **L9: Cache peer_id on NativeKeypair** — `cached_peer_id: String` field computed once at construction. `peer_id()` is a clone, not 3 allocs. DONE.
 
 ### Phase 6: Memory optimization
 17. **H6: Serialize-once broadcast pattern** — Eliminate clone amplification.

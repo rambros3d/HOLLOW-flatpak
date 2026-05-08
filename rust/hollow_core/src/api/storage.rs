@@ -30,7 +30,20 @@ pub(crate) fn get_store() -> &'static Mutex<Option<MessageStore>> {
     STORE.get_or_init(|| Mutex::new(None))
 }
 
-/// Derive a hex encryption key from the Ed25519 keypair on disk.
+static CACHED_PEER_ID: OnceLock<String> = OnceLock::new();
+
+pub(crate) fn get_peer_id() -> Result<&'static str, String> {
+    if let Some(pid) = CACHED_PEER_ID.get() {
+        return Ok(pid.as_str());
+    }
+    let id = identity::load_or_create_identity()?;
+    Ok(CACHED_PEER_ID.get_or_init(|| id.peer_id))
+}
+
+pub(crate) fn derive_db_key_public() -> Result<String, String> {
+    derive_db_key()
+}
+
 fn derive_db_key() -> Result<String, String> {
     let id = identity::load_or_create_identity()?;
     let proto = id

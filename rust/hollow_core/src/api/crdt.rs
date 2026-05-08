@@ -128,22 +128,8 @@ pub fn remove_channel(server_id: String, channel_id: String) -> Result<(), Strin
 /// Get all servers the user has joined. Reads from the local DB.
 #[frb]
 pub fn get_joined_servers() -> Result<Vec<ServerFfi>, String> {
-    let hollow_dir = crate::identity::data_dir()?;
-    let db_path = hollow_dir
-        .join("messages.db")
-        .to_str()
-        .ok_or("Invalid path")?
-        .to_string();
-
-    // Derive passphrase from identity (same as start_node)
-    let id = crate::identity::load_or_create_identity()?;
-    let proto = id
-        .keypair
-        .to_protobuf_encoding()
-        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-
-    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let store_guard = super::storage::get_store().lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let store = store_guard.as_ref().ok_or("Message store is not open")?;
     let servers = store.load_all_servers()?;
 
     let mut result = Vec::new();
@@ -165,21 +151,8 @@ pub fn get_joined_servers() -> Result<Vec<ServerFfi>, String> {
 /// Get channels for a specific server. Reads from the local DB.
 #[frb]
 pub fn get_server_channels(server_id: String) -> Result<Vec<ChannelFfi>, String> {
-    let hollow_dir = crate::identity::data_dir()?;
-    let db_path = hollow_dir
-        .join("messages.db")
-        .to_str()
-        .ok_or("Invalid path")?
-        .to_string();
-
-    let id = crate::identity::load_or_create_identity()?;
-    let proto = id
-        .keypair
-        .to_protobuf_encoding()
-        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-
-    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let store_guard = super::storage::get_store().lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let store = store_guard.as_ref().ok_or("Message store is not open")?;
     let state_json = store
         .load_server_state(&server_id)?
         .ok_or(format!("Server {server_id} not found"))?;
@@ -221,21 +194,8 @@ pub fn get_server_channels(server_id: String) -> Result<Vec<ChannelFfi>, String>
 /// Get members for a specific server. Reads from the local DB.
 #[frb]
 pub fn get_server_members(server_id: String) -> Result<Vec<MemberFfi>, String> {
-    let hollow_dir = crate::identity::data_dir()?;
-    let db_path = hollow_dir
-        .join("messages.db")
-        .to_str()
-        .ok_or("Invalid path")?
-        .to_string();
-
-    let id = crate::identity::load_or_create_identity()?;
-    let proto = id
-        .keypair
-        .to_protobuf_encoding()
-        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-
-    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let store_guard = super::storage::get_store().lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let store = store_guard.as_ref().ok_or("Message store is not open")?;
     let state_json = store
         .load_server_state(&server_id)?
         .ok_or(format!("Server {server_id} not found"))?;
@@ -270,21 +230,8 @@ pub fn get_server_members(server_id: String) -> Result<Vec<MemberFfi>, String> {
 /// Get a server setting value by key. Returns empty string if not set.
 #[frb]
 pub fn get_server_setting(server_id: String, key: String) -> Result<String, String> {
-    let hollow_dir = crate::identity::data_dir()?;
-    let db_path = hollow_dir
-        .join("messages.db")
-        .to_str()
-        .ok_or("Invalid path")?
-        .to_string();
-
-    let id = crate::identity::load_or_create_identity()?;
-    let proto = id
-        .keypair
-        .to_protobuf_encoding()
-        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-
-    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let store_guard = super::storage::get_store().lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let store = store_guard.as_ref().ok_or("Message store is not open")?;
     let state_json = store
         .load_server_state(&server_id)?
         .ok_or(format!("Server {server_id} not found"))?;
@@ -411,21 +358,8 @@ pub fn join_server(server_id: String, twitch_proof_json: Option<String>) -> Resu
 /// Returns "owner", "admin", "moderator", or "member".
 #[frb]
 pub fn get_my_role(server_id: String) -> Result<String, String> {
-    let hollow_dir = crate::identity::data_dir()?;
-    let db_path = hollow_dir
-        .join("messages.db")
-        .to_str()
-        .ok_or("Invalid path")?
-        .to_string();
-
-    let id = crate::identity::load_or_create_identity()?;
-    let proto = id
-        .keypair
-        .to_protobuf_encoding()
-        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-
-    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let store_guard = super::storage::get_store().lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let store = store_guard.as_ref().ok_or("Message store is not open")?;
     let state_json = store
         .load_server_state(&server_id)?
         .ok_or(format!("Server {server_id} not found"))?;
@@ -434,28 +368,15 @@ pub fn get_my_role(server_id: String) -> Result<String, String> {
         serde_json::from_str::<crate::crdt::server_state::ServerState>(&state_json)
             .map_err(|e| format!("Failed to parse server state: {e}"))?;
 
-    let peer_id = id.peer_id.to_string();
-    Ok(state.get_role(&peer_id).as_str().to_string())
+    let peer_id = super::storage::get_peer_id()?;
+    Ok(state.get_role(peer_id).as_str().to_string())
 }
 
 /// Get the local user's permissions bitmask in a server.
 #[frb]
 pub fn get_my_permissions(server_id: String) -> Result<u32, String> {
-    let hollow_dir = crate::identity::data_dir()?;
-    let db_path = hollow_dir
-        .join("messages.db")
-        .to_str()
-        .ok_or("Invalid path")?
-        .to_string();
-
-    let id = crate::identity::load_or_create_identity()?;
-    let proto = id
-        .keypair
-        .to_protobuf_encoding()
-        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-
-    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let store_guard = super::storage::get_store().lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let store = store_guard.as_ref().ok_or("Message store is not open")?;
     let state_json = store
         .load_server_state(&server_id)?
         .ok_or(format!("Server {server_id} not found"))?;
@@ -464,8 +385,8 @@ pub fn get_my_permissions(server_id: String) -> Result<u32, String> {
         serde_json::from_str::<crate::crdt::server_state::ServerState>(&state_json)
             .map_err(|e| format!("Failed to parse server state: {e}"))?;
 
-    let peer_id = id.peer_id.to_string();
-    Ok(state.get_permissions(&peer_id))
+    let peer_id = super::storage::get_peer_id()?;
+    Ok(state.get_permissions(peer_id))
 }
 
 /// Change a member's role in a server.
@@ -571,21 +492,8 @@ pub fn update_channel_layout(server_id: String, layout_json: String) -> Result<(
 /// Get the channel layout for a server. Returns a JSON array of ChannelLayoutItem.
 #[frb]
 pub fn get_channel_layout(server_id: String) -> Result<String, String> {
-    let hollow_dir = crate::identity::data_dir()?;
-    let db_path = hollow_dir
-        .join("messages.db")
-        .to_str()
-        .ok_or("Invalid path")?
-        .to_string();
-
-    let id = crate::identity::load_or_create_identity()?;
-    let proto = id
-        .keypair
-        .to_protobuf_encoding()
-        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-
-    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let store_guard = super::storage::get_store().lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let store = store_guard.as_ref().ok_or("Message store is not open")?;
     let state_json = store
         .load_server_state(&server_id)?
         .ok_or(format!("Server {server_id} not found"))?;
@@ -641,21 +549,8 @@ pub fn unpin_message(server_id: String, channel_id: String, message_id: String) 
 /// Get pinned message IDs for a channel.
 #[frb]
 pub fn get_pinned_messages(server_id: String, channel_id: String) -> Result<Vec<String>, String> {
-    let hollow_dir = crate::identity::data_dir()?;
-    let db_path = hollow_dir
-        .join("messages.db")
-        .to_str()
-        .ok_or("Invalid path")?
-        .to_string();
-
-    let id = crate::identity::load_or_create_identity()?;
-    let proto = id
-        .keypair
-        .to_protobuf_encoding()
-        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-
-    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let store_guard = super::storage::get_store().lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let store = store_guard.as_ref().ok_or("Message store is not open")?;
     let state_json = store
         .load_server_state(&server_id)?
         .ok_or(format!("Server {server_id} not found"))?;
@@ -748,12 +643,8 @@ pub fn unassign_label(server_id: String, label_id: String, peer_id: String) -> R
 /// Get all labels defined in a server.
 #[frb]
 pub fn get_server_labels(server_id: String) -> Result<Vec<LabelFfi>, String> {
-    let hollow_dir = crate::identity::data_dir()?;
-    let db_path = hollow_dir.join("messages.db").to_str().ok_or("Invalid path")?.to_string();
-    let id = crate::identity::load_or_create_identity()?;
-    let proto = id.keypair.to_protobuf_encoding().map_err(|e| format!("Failed to encode keypair: {e}"))?;
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let store_guard = super::storage::get_store().lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let store = store_guard.as_ref().ok_or("Message store is not open")?;
     let state_json = store.load_server_state(&server_id)?.ok_or(format!("Server {server_id} not found"))?;
     let state = serde_json::from_str::<crate::crdt::server_state::ServerState>(&state_json)
         .map_err(|e| format!("Failed to parse server state: {e}"))?;
@@ -846,21 +737,8 @@ pub fn unban_member(server_id: String, peer_id: String) -> Result<(), String> {
 /// Get the list of banned peer IDs for a server.
 #[frb]
 pub fn get_banned_members(server_id: String) -> Result<Vec<String>, String> {
-    let hollow_dir = crate::identity::data_dir()?;
-    let db_path = hollow_dir
-        .join("messages.db")
-        .to_str()
-        .ok_or("Invalid path")?
-        .to_string();
-
-    let id = crate::identity::load_or_create_identity()?;
-    let proto = id
-        .keypair
-        .to_protobuf_encoding()
-        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-
-    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let store_guard = super::storage::get_store().lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let store = store_guard.as_ref().ok_or("Message store is not open")?;
     let state_json = store
         .load_server_state(&server_id)?
         .ok_or(format!("Server {server_id} not found"))?;
@@ -895,21 +773,8 @@ pub fn change_role_permissions(server_id: String, role: String, permissions: u32
 /// Get the permissions bitmask for a role (custom or default).
 #[frb]
 pub fn get_role_permissions(server_id: String, role: String) -> Result<u32, String> {
-    let hollow_dir = crate::identity::data_dir()?;
-    let db_path = hollow_dir
-        .join("messages.db")
-        .to_str()
-        .ok_or("Invalid path")?
-        .to_string();
-
-    let id = crate::identity::load_or_create_identity()?;
-    let proto = id
-        .keypair
-        .to_protobuf_encoding()
-        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-
-    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let store_guard = super::storage::get_store().lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let store = store_guard.as_ref().ok_or("Message store is not open")?;
     let state_json = store
         .load_server_state(&server_id)?
         .ok_or(format!("Server {server_id} not found"))?;
@@ -962,22 +827,8 @@ pub fn set_storage_pledge(server_id: String, pledge_bytes: u64) -> Result<(), St
 /// Get storage stats for a server (pledges from CRDT state, usage from vault_shards table).
 #[frb]
 pub fn get_storage_stats(server_id: String) -> Result<StorageStatsFfi, String> {
-    let hollow_dir = crate::identity::data_dir()?;
-    let db_path = hollow_dir
-        .join("messages.db")
-        .to_str()
-        .ok_or("Invalid path")?
-        .to_string();
-
-    let id = crate::identity::load_or_create_identity()?;
-    let proto = id
-        .keypair
-        .to_protobuf_encoding()
-        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-
-    // Load CRDT state for pledge data
-    let store = crate::storage::MessageStore::open(&db_path, &passphrase)?;
+    let store_guard = super::storage::get_store().lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let store = store_guard.as_ref().ok_or("Message store is not open")?;
     let state_json = store
         .load_server_state(&server_id)?
         .ok_or(format!("Server {server_id} not found"))?;
@@ -986,30 +837,28 @@ pub fn get_storage_stats(server_id: String) -> Result<StorageStatsFfi, String> {
         serde_json::from_str::<crate::crdt::server_state::ServerState>(&state_json)
             .map_err(|e| format!("Failed to parse server state: {e}"))?;
 
-    let peer_id = id.peer_id.to_string();
+    let peer_id = super::storage::get_peer_id()?;
     let total_pledged_bytes = state.total_pledged_bytes();
-    let my_pledge_bytes = state.get_storage_pledge(&peer_id);
+    let my_pledge_bytes = state.get_storage_pledge(peer_id);
     let member_count = state.members.len() as u32;
     let min_pledge_mb = state.min_pledge_mb();
 
     // Load storage usage.
+    let hollow_dir = crate::identity::data_dir()?;
+    let db_path = hollow_dir.join("messages.db").to_str().ok_or("Invalid path")?.to_string();
+    let passphrase = super::storage::derive_db_key_public()?;
     let vault_dir = hollow_dir.join("vault");
     let (server_total, my_local) = if let Ok(content_store) =
         crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir)
     {
-        // Server total: sum of original file sizes from all manifests (what the server "has").
         let manifest_total = content_store.total_manifest_size(&server_id).unwrap_or(0);
-        // Local: vault shards stored on this machine.
         let local_shards = content_store.total_storage_used(&server_id).unwrap_or(0);
         (manifest_total, local_shards)
     } else {
         (0, 0)
     };
 
-    // Also count completed files stored locally for this server (P2P file sharing).
     let file_used = store.total_file_storage_for_server(&server_id).unwrap_or(0);
-
-    // Count message text sizes (always fully replicated to all members).
     let msg_used = store.total_message_storage_for_server(&server_id).unwrap_or(0);
 
     // Server Storage: use manifest total if vault has data, otherwise P2P file total.
@@ -1033,19 +882,8 @@ pub fn get_storage_stats(server_id: String) -> Result<StorageStatsFfi, String> {
 #[frb]
 pub fn get_vault_file_statuses(server_id: String) -> Result<Vec<VaultFileStatusFfi>, String> {
     let hollow_dir = crate::identity::data_dir()?;
-    let db_path = hollow_dir
-        .join("messages.db")
-        .to_str()
-        .ok_or("Invalid path")?
-        .to_string();
-
-    let id = crate::identity::load_or_create_identity()?;
-    let proto = id
-        .keypair
-        .to_protobuf_encoding()
-        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
-
+    let db_path = hollow_dir.join("messages.db").to_str().ok_or("Invalid path")?.to_string();
+    let passphrase = super::storage::derive_db_key_public()?;
     let vault_dir = hollow_dir.join("vault");
     let content_store =
         crate::vault::content_store::ContentStore::open(&db_path, &passphrase, &vault_dir)
@@ -1253,20 +1091,9 @@ pub fn vault_upload_file(
 /// watches VaultDownloadComplete event for the disk_path).
 #[frb]
 pub fn vault_download_file(server_id: String, content_id: String) -> Result<String, String> {
-    // Quick cache check — no node needed
     let hollow_dir = crate::identity::data_dir()?;
-    let db_path = hollow_dir
-        .join("messages.db")
-        .to_str()
-        .ok_or("Invalid path")?
-        .to_string();
-
-    let id = crate::identity::load_or_create_identity()?;
-    let proto = id
-        .keypair
-        .to_protobuf_encoding()
-        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
-    let passphrase = hex::encode(&proto[..32.min(proto.len())]);
+    let db_path = hollow_dir.join("messages.db").to_str().ok_or("Invalid path")?.to_string();
+    let passphrase = super::storage::derive_db_key_public()?;
     let vault_dir = hollow_dir.join("vault");
 
     // Try to load manifest and check cache
