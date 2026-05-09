@@ -9,16 +9,13 @@ import 'package:hollow/src/ui/components/hollow_button.dart';
 import 'package:hollow/src/ui/components/hollow_dialog.dart';
 import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
+import 'package:hollow/src/core/providers/relay_domain_provider.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
-/// Shows the welcome dialog on first launch (no identity).
-/// Returns:
-/// - `'create_new'` — user chose to create a new account
-/// - `'restored_mnemonic'` — identity restored from recovery phrase
-/// - `'restored_backup'` — identity imported from backup file
-/// - `null` — dialog somehow dismissed without selection
-Future<String?> showWelcomeDialog(BuildContext context) {
-  return showHollowDialog<String>(
+typedef WelcomeResult = ({String action, String relayDomain});
+
+Future<WelcomeResult?> showWelcomeDialog(BuildContext context) {
+  return showHollowDialog<WelcomeResult>(
     context: context,
     barrierDismissible: false,
     builder: (dialogContext) => const _WelcomeContent(),
@@ -37,12 +34,20 @@ enum _WelcomeView { menu, restorePhrase }
 class _WelcomeContentState extends State<_WelcomeContent> {
   _WelcomeView _view = _WelcomeView.menu;
   final _phraseController = TextEditingController();
+  final _relayController = TextEditingController(text: kDefaultRelayDomain);
   String? _phraseError;
   bool _restoring = false;
+  bool _showAdvanced = false;
+
+  String get _relayDomain {
+    final text = _relayController.text.trim();
+    return text.isEmpty ? kDefaultRelayDomain : text;
+  }
 
   @override
   void dispose() {
     _phraseController.dispose();
+    _relayController.dispose();
     super.dispose();
   }
 
@@ -63,7 +68,7 @@ class _WelcomeContentState extends State<_WelcomeContent> {
     try {
       await identity_api.restoreIdentityFromMnemonic(phrase: text);
       if (!mounted) return;
-      Navigator.of(context).pop('restored_mnemonic');
+      Navigator.of(context).pop((action: 'restored_mnemonic', relayDomain: _relayDomain));
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -124,7 +129,7 @@ class _WelcomeContentState extends State<_WelcomeContent> {
     try {
       await storage_api.importBackup(backupPath: path, passphrase: passphrase);
       if (!mounted) return;
-      Navigator.of(context).pop('restored_backup');
+      Navigator.of(context).pop((action: 'restored_backup', relayDomain: _relayDomain));
     } catch (e) {
       if (!mounted) return;
       HollowToast.show(context, 'Import failed: $e', type: HollowToastType.error);
@@ -218,7 +223,7 @@ class _WelcomeContentState extends State<_WelcomeContent> {
           title: 'Create New Account',
           subtitle: 'Generate a new identity with a fresh recovery phrase',
           hollow: hollow,
-          onTap: () => Navigator.of(context).pop('create_new'),
+          onTap: () => Navigator.of(context).pop((action: 'create_new', relayDomain: _relayDomain)),
         ),
 
         const SizedBox(height: HollowSpacing.sm),
@@ -240,6 +245,48 @@ class _WelcomeContentState extends State<_WelcomeContent> {
           hollow: hollow,
           onTap: _onRestoreFromBackup,
         ),
+
+        const SizedBox(height: HollowSpacing.lg),
+
+        // Advanced section — relay domain for self-hosters.
+        GestureDetector(
+          onTap: () => setState(() => _showAdvanced = !_showAdvanced),
+          child: Row(
+            children: [
+              Icon(
+                _showAdvanced ? LucideIcons.chevronDown : LucideIcons.chevronRight,
+                size: 14,
+                color: hollow.textSecondary,
+              ),
+              const SizedBox(width: HollowSpacing.xs),
+              Text(
+                'Advanced',
+                style: HollowTypography.caption.copyWith(
+                  color: hollow.textSecondary,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        if (_showAdvanced) ...[
+          const SizedBox(height: HollowSpacing.sm),
+          HollowTextField(
+            controller: _relayController,
+            hintText: kDefaultRelayDomain,
+            prefixIcon: Icon(LucideIcons.server, size: 16, color: hollow.textSecondary),
+            isDense: true,
+          ),
+          const SizedBox(height: HollowSpacing.xs),
+          Text(
+            'Self-hosters: enter your relay domain. Leave default for the official network.',
+            style: HollowTypography.caption.copyWith(
+              color: hollow.textSecondary,
+              fontSize: 11,
+            ),
+          ),
+        ],
       ],
     );
   }

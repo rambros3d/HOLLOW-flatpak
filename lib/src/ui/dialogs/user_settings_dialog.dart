@@ -14,6 +14,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart' as webrtc;
 import 'package:record/record.dart' as rec;
 import 'package:win32audio/win32audio.dart' as win32audio;
 import 'package:hollow/src/core/providers/accent_color_provider.dart';
+import 'package:hollow/src/core/providers/relay_domain_provider.dart';
 import 'package:hollow/src/core/providers/avatar_provider.dart';
 import 'package:hollow/src/core/providers/background_provider.dart';
 import 'package:hollow/src/core/providers/banner_provider.dart';
@@ -161,6 +162,10 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
   int _initialCacheCap = 1024;
   bool _cacheCapInitialized = false;
   double _initialAccentHue = defaultAccentHue;
+  late String _initialRelayDomain;
+  late String _selectedRelay;
+  bool _showAddRelay = false;
+  final _newRelayController = TextEditingController();
 
   @override
   void initState() {
@@ -171,6 +176,9 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
     widget.displayNameController.addListener(_onFieldChanged);
     widget.statusController.addListener(_onFieldChanged);
     _initialAccentHue = ref.read(accentHueProvider);
+
+    _initialRelayDomain = ref.read(relayDomainProvider);
+    _selectedRelay = _initialRelayDomain;
 
     _pendingDarkMode =
         ref.read(themeModeProvider) == ThemeMode.dark;
@@ -330,6 +338,7 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
   void dispose() {
     widget.displayNameController.removeListener(_onFieldChanged);
     widget.statusController.removeListener(_onFieldChanged);
+    _newRelayController.dispose();
     super.dispose();
   }
 
@@ -967,6 +976,146 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
 
   // ── System tab ───────────────────────────────────────────────────
 
+  Widget _buildRelayRow(HollowTheme hollow, String domain) {
+    final isSelected = domain == _selectedRelay;
+    final isActive = domain == _initialRelayDomain;
+    final isOfficial = domain == kDefaultRelayDomain;
+
+    return GestureDetector(
+      onTap: () => setState(() => _selectedRelay = domain),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(
+          horizontal: HollowSpacing.md,
+          vertical: HollowSpacing.sm,
+        ),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? hollow.accent.withValues(alpha: 0.08)
+              : hollow.surface.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(hollow.radiusMd),
+          border: Border.all(
+            color: isSelected
+                ? hollow.accent.withValues(alpha: 0.4)
+                : hollow.border.withValues(alpha: 0.3),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isSelected ? LucideIcons.checkCircle : LucideIcons.circle,
+              size: 16,
+              color: isSelected ? hollow.accent : hollow.textSecondary,
+            ),
+            const SizedBox(width: HollowSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    domain,
+                    style: HollowTypography.body.copyWith(
+                      color: hollow.textPrimary,
+                      fontSize: 13,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
+                  if (isActive)
+                    Text(
+                      'Currently active',
+                      style: HollowTypography.caption.copyWith(
+                        color: hollow.textSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (isOfficial)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: HollowSpacing.sm,
+                  vertical: 2,
+                ),
+                decoration: BoxDecoration(
+                  color: hollow.accent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(hollow.radiusSm),
+                ),
+                child: Text(
+                  'Official',
+                  style: HollowTypography.caption.copyWith(
+                    color: hollow.accent,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            if (!isOfficial) ...[
+              const SizedBox(width: HollowSpacing.sm),
+              GestureDetector(
+                onTap: () async {
+                  await ref.read(savedRelayListProvider.notifier).removeRelay(domain);
+                  if (_selectedRelay == domain) {
+                    setState(() => _selectedRelay = kDefaultRelayDomain);
+                  }
+                },
+                child: Icon(
+                  LucideIcons.x,
+                  size: 14,
+                  color: hollow.textSecondary,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAddRelayField(HollowTheme hollow) {
+    return Row(
+      children: [
+        Expanded(
+          child: SizedBox(
+            height: 36,
+            child: HollowTextField(
+              controller: _newRelayController,
+              hintText: 'relay.example.com',
+              isDense: true,
+              autofocus: true,
+            ),
+          ),
+        ),
+        const SizedBox(width: HollowSpacing.sm),
+        HollowButton.filled(
+          compact: true,
+          onPressed: () async {
+            final domain = _newRelayController.text.trim();
+            if (domain.isEmpty) return;
+            final list = ref.read(savedRelayListProvider);
+            if (list.contains(domain)) return;
+            await ref.read(savedRelayListProvider.notifier).addRelay(domain);
+            setState(() {
+              _selectedRelay = domain;
+              _newRelayController.clear();
+              _showAddRelay = false;
+            });
+          },
+          child: const Text('Add'),
+        ),
+        const SizedBox(width: HollowSpacing.xs),
+        HollowButton.ghost(
+          compact: true,
+          onPressed: () => setState(() {
+            _newRelayController.clear();
+            _showAddRelay = false;
+          }),
+          child: const Text('Cancel'),
+        ),
+      ],
+    );
+  }
+
   Widget _buildSystemTab(HollowTheme hollow) {
     final isDesktop =
         Platform.isWindows || Platform.isLinux || Platform.isMacOS;
@@ -977,6 +1126,66 @@ class _UserSettingsContentState extends ConsumerState<_UserSettingsContent> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Network ──
+          _SectionLabel(label: 'NETWORK'),
+          const SizedBox(height: HollowSpacing.xs),
+          Text(
+            'Your relay determines your network. Friends and servers on a different relay won\'t be reachable.',
+            style: HollowTypography.caption.copyWith(
+              color: hollow.textSecondary,
+              fontSize: 11,
+            ),
+          ),
+          const SizedBox(height: HollowSpacing.sm),
+
+          // Relay list
+          for (final domain in ref.watch(savedRelayListProvider)) ...[
+            _buildRelayRow(hollow, domain),
+            const SizedBox(height: HollowSpacing.xs),
+          ],
+
+          // Add relay inline field
+          if (_showAddRelay)
+            _buildAddRelayField(hollow)
+          else
+            Align(
+              alignment: Alignment.centerLeft,
+              child: HollowButton.ghost(
+                compact: true,
+                icon: const Icon(LucideIcons.plus, size: 14),
+                onPressed: () => setState(() => _showAddRelay = true),
+                child: const Text('Add Relay'),
+              ),
+            ),
+
+          // Apply & Restart button (when selection differs from active)
+          if (_selectedRelay != _initialRelayDomain) ...[
+            const SizedBox(height: HollowSpacing.md),
+            SizedBox(
+              width: double.infinity,
+              child: HollowButton.filled(
+                onPressed: () async {
+                  // Persist the new relay domain and ensure it's in the saved list.
+                  await ref.read(relayDomainProvider.notifier).setDomain(_selectedRelay);
+                  await ref.read(savedRelayListProvider.notifier).addRelay(_selectedRelay);
+
+                  try {
+                    await network_api.notifyShutdown();
+                    await Future.delayed(const Duration(milliseconds: 200));
+                  } catch (_) {}
+
+                  final exe = Platform.resolvedExecutable;
+                  await Process.start(exe, [], mode: ProcessStartMode.detached);
+                  await Future.delayed(const Duration(milliseconds: 100));
+                  exit(0);
+                },
+                child: const Text('Apply & Restart'),
+              ),
+            ),
+          ],
+
+          const SizedBox(height: HollowSpacing.xl),
+
           // ── Appearance ──
           _SectionLabel(label: 'APPEARANCE'),
           const SizedBox(height: HollowSpacing.sm),

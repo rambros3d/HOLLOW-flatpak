@@ -5,13 +5,13 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../rust/api/network.dart' as network_api;
+import 'relay_domain_provider.dart';
 
 /// Log to hollow_debug.log (visible in release builds + debug file).
 void _iceLog(String msg) {
   network_api.logFromDart(message: msg);
 }
 
-const _kSignalingUrl = 'https://relay.anonlisten.com';
 const _kRefreshInterval = Duration(minutes: 50); // credentials last 1 hour
 
 /// ICE server configuration with STUN and TURN servers.
@@ -27,25 +27,27 @@ class IceConfigNotifier extends Notifier<Map<String, dynamic>> {
     // Start with STUN-only, fetch TURN credentials async.
     _fetchTurnCredentials();
     ref.onDispose(() => _refreshTimer?.cancel());
-    return _stunOnlyConfig;
+    return _stunOnlyConfig();
   }
 
-  /// STUN-only fallback config (works for 85-90% of peers).
-  static final _stunOnlyConfig = {
+  String get _domain => ref.read(relayDomainProvider);
+
+  Map<String, dynamic> _stunOnlyConfig() => {
     'iceServers': [
-      {'urls': 'stun:relay.anonlisten.com:3478'},
+      {'urls': 'stun:$_domain:3478'},
       {'urls': 'stun:stun.cloudflare.com:3478'},
       {'urls': 'stun:stun.l.google.com:19302'},
     ],
   };
 
   Future<void> _fetchTurnCredentials() async {
-    _iceLog('[HOLLOW-ICE] Fetching TURN credentials from $_kSignalingUrl/turn-credentials');
+    final signalingUrl = 'https://$_domain';
+    _iceLog('[HOLLOW-ICE] Fetching TURN credentials from $signalingUrl/turn-credentials');
     try {
       final client = HttpClient();
       client.connectionTimeout = const Duration(seconds: 5);
       final request =
-          await client.getUrl(Uri.parse('$_kSignalingUrl/turn-credentials'));
+          await client.getUrl(Uri.parse('$signalingUrl/turn-credentials'));
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
       client.close();
@@ -60,12 +62,7 @@ class IceConfigNotifier extends Notifier<Map<String, dynamic>> {
       final password = json['password'] as String;
       final uris = (json['uris'] as List).cast<String>();
 
-      // Build full ICE config with STUN + TURN.
       // IMPORTANT: Each TURN URI must be a SEPARATE iceServer entry.
-      // flutter_webrtc's native C++ layer (FlutterWebRTCBase::CreateIceServers)
-      // has a single `uri` field per IceServer struct — a list of URLs gets
-      // overwritten to only the last one. Splitting ensures all transports
-      // (UDP, TCP, TLS) are tried with proper credentials.
       final turnServers = uris
           .map((uri) => <String, dynamic>{
                 'urls': uri,
@@ -76,24 +73,19 @@ class IceConfigNotifier extends Notifier<Map<String, dynamic>> {
 
       state = {
         'iceServers': [
-          // Own STUN (coturn doubles as STUN)
-          {'urls': 'stun:relay.anonlisten.com:3478'},
-          // Fallback STUN servers
+          {'urls': 'stun:$_domain:3478'},
           {'urls': 'stun:stun.cloudflare.com:3478'},
           {'urls': 'stun:stun.l.google.com:19302'},
-          // TURN servers — one entry per transport (UDP, TCP, TLS)
           ...turnServers,
         ],
       };
 
       _iceLog('[HOLLOW-ICE] TURN credentials OK: ${uris.length} URIs, username=${username.split(':').first}...');
 
-      // Schedule refresh before expiry.
       _refreshTimer?.cancel();
       _refreshTimer = Timer(_kRefreshInterval, _fetchTurnCredentials);
     } catch (e) {
       _iceLog('[HOLLOW-ICE] TURN credentials fetch EXCEPTION: $e');
-      // Retry in 30 seconds on failure.
       _refreshTimer?.cancel();
       _refreshTimer = Timer(const Duration(seconds: 30), _fetchTurnCredentials);
     }
@@ -114,9 +106,10 @@ final iceConfigProvider =
 /// Pass this map to `RTCPeerConnection` factory calls whose room ID begins
 /// with `share:`. Mirrors `IceConfigNotifier._stunOnlyConfig`.
 final shareIceConfigProvider = Provider<Map<String, dynamic>>((ref) {
-  return const {
+  final domain = ref.watch(relayDomainProvider);
+  return {
     'iceServers': [
-      {'urls': 'stun:relay.anonlisten.com:3478'},
+      {'urls': 'stun:$domain:3478'},
       {'urls': 'stun:stun.cloudflare.com:3478'},
       {'urls': 'stun:stun.l.google.com:19302'},
     ],

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/file_transfer_provider.dart';
 import 'package:hollow/src/core/providers/ice_config_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/relay_domain_provider.dart';
 import 'package:hollow/src/core/services/webrtc_service.dart';
 import 'package:hollow/src/ui/app.dart' show hollowNavigatorKey;
 import 'package:hollow/src/ui/components/hollow_toast.dart';
@@ -26,7 +27,8 @@ class WebRtcNotifier extends Notifier<WebRtcState> {
     if (_service == null) {
       final localPeerId = ref.read(identityProvider).peerId ?? '';
       final iceConfig = ref.read(iceConfigProvider);
-      _service = WebRtcService(localPeerId: localPeerId, iceServers: iceConfig);
+      final relayDomain = ref.read(relayDomainProvider);
+      _service = WebRtcService(localPeerId: localPeerId, iceServers: iceConfig, relayDomain: relayDomain);
       _wireCallbacks();
     } else {
       // Keep ICE config up to date (TURN credentials refresh).

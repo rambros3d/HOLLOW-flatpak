@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
 
-const SIGNALING_URL: &str = "https://relay.anonlisten.com";
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(120); // 2 minutes (must be < stale threshold of 3 min)
 
 // -- Commands & Events --
@@ -71,11 +70,12 @@ struct BootstrapPeerWire {
 pub(crate) fn spawn_signaling_task(
     keypair: NativeKeypair,
     peer_id_str: String,
+    signaling_url: String,
 ) -> (mpsc::Sender<SignalingCmd>, mpsc::Receiver<SignalingEvent>) {
     let (cmd_tx, cmd_rx) = mpsc::channel::<SignalingCmd>(32);
     let (event_tx, event_rx) = mpsc::channel::<SignalingEvent>(32);
 
-    tokio::spawn(signaling_loop(keypair, peer_id_str, cmd_rx, event_tx));
+    tokio::spawn(signaling_loop(keypair, peer_id_str, signaling_url, cmd_rx, event_tx));
 
     (cmd_tx, event_rx)
 }
@@ -83,11 +83,12 @@ pub(crate) fn spawn_signaling_task(
 async fn signaling_loop(
     keypair: NativeKeypair,
     peer_id_str: String,
+    signaling_url: String,
     mut cmd_rx: mpsc::Receiver<SignalingCmd>,
     event_tx: mpsc::Sender<SignalingEvent>,
 ) {
     let client = reqwest::Client::new();
-    let signaling_url = SIGNALING_URL;
+    let signaling_url = &signaling_url;
 
     // Encode the public key as base64 protobuf (36 bytes for Ed25519).
     let pub_key_proto = keypair.public_key_protobuf();

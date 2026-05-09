@@ -971,6 +971,24 @@ The node provider is the orchestrator of the Rust node lifecycle. The event stre
 
 ---
 
+## Relay Domain Provider
+
+File: `lib/src/core/providers/relay_domain_provider.dart`
+
+### relayDomainProvider -- `NotifierProvider<RelayDomainNotifier, String>`
+- Active relay domain. Default: `relay.anonlisten.com` (`kDefaultRelayDomain` constant).
+- Persisted in SQLCipher as `relay_domain` setting.
+- `loadCached()` — reads from DB. Called in `_bootstrap()` after identity load.
+- `setDomain(String)` — writes to DB + updates state.
+- Read by all providers that build relay URLs (ICE config, relay status, relay stats).
+- Passed to Rust via `network_api.setRelayUrl(domain:)` before `start_node()`.
+
+### savedRelayListProvider -- `NotifierProvider<SavedRelayListNotifier, List<String>>`
+- List of saved relay domains for the Settings UI selector.
+- Persisted in SQLCipher as `relay_domain_list` (comma-separated).
+- Always includes `kDefaultRelayDomain` as first entry.
+- `loadCached()`, `addRelay(String)`, `removeRelay(String)` — all persist to DB.
+
 ## Relay Stats Provider
 
 File: `lib/src/core/providers/relay_stats_provider.dart`
@@ -988,7 +1006,7 @@ Provider: `relayStatsProvider` -- `NotifierProvider<RelayStatsNotifier, RelaySta
 - `bandwidthLabel` -- Formatted string: `"X / Y Mbps"`.
 
 ### RelayStatsNotifier
-- Polls `https://relay.anonlisten.com/server-stats` every 7 seconds via `Timer.periodic`.
+- Polls `https://{relayDomain}/server-stats` every 7 seconds via `Timer.periodic`. Domain read from `relayDomainProvider`.
 - Uses raw `HttpClient` (not http package) with 10-second timeout.
 - Initial fetch fires immediately via `Future.microtask`.
 - On error: silently keeps last known state.

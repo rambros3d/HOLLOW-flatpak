@@ -6,13 +6,12 @@ class RelayStatus {
   const RelayStatus({this.licenseRequired = false});
 }
 
-const _kRelayStatusUrl = 'https://relay.anonlisten.com/relay-status';
-
-Future<RelayStatus> fetchRelayStatus() async {
+Future<RelayStatus> fetchRelayStatus({required String domain}) async {
   try {
+    final url = 'https://$domain/relay-status';
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 5);
-    final request = await client.getUrl(Uri.parse(_kRelayStatusUrl));
+    final request = await client.getUrl(Uri.parse(url));
     final response = await request.close();
     final body = await response.transform(utf8.decoder).join();
     client.close();

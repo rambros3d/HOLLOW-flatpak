@@ -343,6 +343,13 @@ fn get_license_key() -> &'static Mutex<Option<String>> {
     LICENSE_KEY.get_or_init(|| Mutex::new(None))
 }
 
+// Relay domain — set from Dart before start_node(). Defaults to relay.anonlisten.com.
+static RELAY_DOMAIN: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+fn get_relay_domain() -> &'static Mutex<Option<String>> {
+    RELAY_DOMAIN.get_or_init(|| Mutex::new(None))
+}
+
 fn get_event_rx() -> &'static Mutex<Option<mpsc::Receiver<node::NetworkEvent>>> {
     EVENT_RX.get_or_init(|| Mutex::new(None))
 }
@@ -866,6 +873,14 @@ pub fn set_license_key(key: Option<String>) -> Result<(), String> {
     Ok(())
 }
 
+#[frb]
+pub fn set_relay_url(domain: Option<String>) -> Result<(), String> {
+    let rd = get_relay_domain();
+    let mut guard = rd.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    *guard = domain;
+    Ok(())
+}
+
 /// Start the libp2p node with mDNS peer discovery and E2EE.
 /// Uses the persistent identity from disk.
 /// Returns the local peer ID as a string.
@@ -953,12 +968,18 @@ pub fn start_node() -> Result<String, String> {
         .map_err(|e| format!("Lock poisoned: {e}"))?
         .clone();
 
+    let relay_domain = get_relay_domain()
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {e}"))?
+        .clone()
+        .unwrap_or_else(|| "relay.anonlisten.com".to_string());
+
     let (event_tx, event_rx) = mpsc::channel::<node::NetworkEvent>(100);
     let (cmd_tx, cmd_rx) = mpsc::channel::<node::NodeCommand>(100);
 
     let cmd_tx_clone = cmd_tx.clone();
     let (peer_id_str, handle) = rt
-        .block_on(node::spawn_node(id.keypair, event_tx, cmd_rx, cmd_tx_clone, olm, crypto_store, crdt_store, license_key, initial_invisible))
+        .block_on(node::spawn_node(id.keypair, event_tx, cmd_rx, cmd_tx_clone, olm, crypto_store, crdt_store, license_key, initial_invisible, relay_domain))
         .map_err(|e| format!("Failed to start node: {e}"))?;
 
     // Store event receiver separately so watch_network_events() can take it.

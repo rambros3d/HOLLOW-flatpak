@@ -1930,7 +1930,7 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 - [ ] Add LICENSE (AGPL-3.0) + COMMERCIAL_LICENSE.md explaining dual model to repo
 
 **Self-hosting:**
-- [ ] Add configurable relay URL in app settings (self-hosted relay = isolated network, no cross-contamination with official)
+- [X] Add configurable relay URL in app settings (self-hosted relay = isolated network, no cross-contamination with official)
 - [ ] Docker Compose one-command setup: relay + Caddy reverse proxy + auto Let's Encrypt TLS
 - [ ] Self-hosting documentation (docs/self-hosting.md or repo wiki)
 

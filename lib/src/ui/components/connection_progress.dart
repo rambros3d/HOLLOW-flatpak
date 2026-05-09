@@ -11,9 +11,12 @@ enum ConnectionStage {
 
   /// Fully encrypted session established.
   encrypted,
+
+  /// User is on a custom (non-official) relay network.
+  customNetwork,
 }
 
-/// Simple connection status indicator: "Offline" or lock + "Encrypted".
+/// Simple connection status indicator: "Offline", lock + "Encrypted", or "Custom Network".
 class ConnectionProgress extends StatelessWidget {
   final ConnectionStage stage;
 
@@ -32,6 +35,20 @@ class ConnectionProgress extends StatelessWidget {
           Text(
             'Encrypted',
             style: HollowTypography.caption.copyWith(color: hollow.success),
+          ),
+        ],
+      );
+    }
+
+    if (stage == ConnectionStage.customNetwork) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(LucideIcons.radio, size: 14, color: hollow.warning),
+          const SizedBox(width: HollowSpacing.xs),
+          Text(
+            'Custom Network',
+            style: HollowTypography.caption.copyWith(color: hollow.warning),
           ),
         ],
       );

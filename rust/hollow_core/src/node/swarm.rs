@@ -41,6 +41,7 @@ pub(crate) async fn spawn_node(
     crdt_store: super::crdt_store::CrdtStore,
     license_key: Option<String>,
     initial_invisible: bool,
+    relay_domain: String,
 ) -> Result<(String, tokio::task::JoinHandle<()>), String> {
     // Clone keypair for signaling task (it needs to sign register requests).
     let sig_keypair = native_keypair.clone();
@@ -50,8 +51,9 @@ pub(crate) async fn spawn_node(
     let peer_id_str = native_keypair.peer_id();
 
     // Spawn the signaling background task.
+    let signaling_url = format!("https://{relay_domain}");
     let (sig_cmd_tx, sig_event_rx) =
-        signaling::spawn_signaling_task(sig_keypair, peer_id_str.clone());
+        signaling::spawn_signaling_task(sig_keypair, peer_id_str.clone(), signaling_url);
 
     // Spawn the WebSocket relay client.
     let ws_proto = bundle_keypair.to_protobuf_encoding().unwrap_or_default();
@@ -60,7 +62,7 @@ pub(crate) async fn spawn_node(
     );
     let (ws_cmd_tx, ws_cmd_rx) = tokio::sync::mpsc::unbounded_channel();
     let (ws_event_tx, ws_event_rx) = tokio::sync::mpsc::unbounded_channel();
-    let ws_relay_url = "wss://relay.anonlisten.com/ws".to_string();
+    let ws_relay_url = format!("wss://{relay_domain}/ws");
     let _ws_handle = super::ws_client::spawn_ws_client(
         ws_relay_url, peer_id_str.clone(), ws_proto, ws_pub_b64,
         license_key, ws_cmd_rx, ws_event_tx,
@@ -203,13 +205,6 @@ async fn run_event_loop(
                                 if state.op_log.is_empty() {
                                     if let Ok(ops) = store.load_ops_for_server(&server_id) {
                                         state.restore_op_log(ops);
-                                    }
-                                }
-                                // Log custom relay URL if set.
-                                if let Some(relay_reg) = state.settings.get("relay_url") {
-                                    let url = relay_reg.read();
-                                    if !url.is_empty() && url != "wss://relay.anonlisten.com/ws" {
-                                        hollow_log!("[HOLLOW] Server {server_id} uses custom relay: {url}");
                                     }
                                 }
                                 server_states.insert(server_id.clone(), state);

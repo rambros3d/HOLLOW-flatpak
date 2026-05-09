@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-05-09-v031",
+    "date": "May 9, 2026",
+    "title": "v0.3.1 — Performance (again)",
+    "body": "This was supposed to be the proper v0.3, but this version focuses more on the performance optimization on the UI side (what you feel as a user) and backend. Lots of fixes, the app should feel faster now because apparently there were lots of bad practices like constant rebuildings of the UI when not needed.\n\n I wanted to focus on new features, but like... if the app works like ****, then what's the point of those features, right? No worries, all lessons from optimizations are learned, so I won't repeat them again! New stuff coming soon. Thanks!"
+  },
+  {
     "id": "2026-05-06-v030",
     "date": "May 6, 2026",
     "title": "v0.3.0 — Performance & Quality Overhaul",

@@ -33,6 +33,7 @@ import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:hollow/src/ui/chat/message_action_bar.dart';
 import 'package:hollow/src/ui/chat/message_bubble.dart';
 import 'package:hollow/src/ui/components/connection_progress.dart';
+import 'package:hollow/src/core/providers/relay_domain_provider.dart';
 import 'package:hollow/src/ui/animations/hollow_curves.dart';
 import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/components/hollow_avatar.dart';
@@ -899,9 +900,15 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
               Builder(builder: (_) {
                 final peer = ref.watch(peersProvider)[widget.peerId];
                 final isInvisible = ref.watch(invisiblePeersProvider).contains(widget.peerId);
-                final stage = (peer != null && peer.isEncrypted && !isInvisible)
-                    ? ConnectionStage.encrypted
-                    : ConnectionStage.offline;
+                final isCustomRelay = ref.watch(relayDomainProvider) != kDefaultRelayDomain;
+                final ConnectionStage stage;
+                if (peer != null && peer.isEncrypted && !isInvisible) {
+                  stage = ConnectionStage.encrypted;
+                } else if (isCustomRelay) {
+                  stage = ConnectionStage.customNetwork;
+                } else {
+                  stage = ConnectionStage.offline;
+                }
                 return ConnectionProgress(
                   key: ValueKey('dm-conn-${widget.peerId}-${stage.index}'),
                   stage: stage,

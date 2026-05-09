@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:hollow/src/core/providers/ice_config_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/relay_domain_provider.dart';
 import 'package:hollow/src/core/providers/settings_provider.dart';
 import 'package:hollow/src/core/services/screen_share_service.dart';
 import 'package:hollow/src/core/services/voice_service.dart';
@@ -129,8 +130,9 @@ class CallNotifier extends Notifier<CallState> {
     if (_voiceService == null) {
       final localPeerId = ref.read(identityProvider).peerId ?? '';
       final iceConfig = ref.read(iceConfigProvider);
+      final relayDomain = ref.read(relayDomainProvider);
       _voiceService = VoiceService(
-          localPeerId: localPeerId, iceServers: iceConfig);
+          localPeerId: localPeerId, iceServers: iceConfig, relayDomain: relayDomain);
       _wireCallbacks();
     } else {
       // Keep ICE config up to date (TURN credentials refresh).

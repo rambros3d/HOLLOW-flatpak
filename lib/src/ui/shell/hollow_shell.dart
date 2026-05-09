@@ -51,6 +51,7 @@ import 'package:hollow/src/ui/dialogs/user_settings_dialog.dart';
 import 'package:hollow/src/ui/dialogs/welcome_dialog.dart';
 import 'package:hollow/src/ui/dialogs/license_key_dialog.dart';
 import 'package:hollow/src/core/providers/license_key_provider.dart';
+import 'package:hollow/src/core/providers/relay_domain_provider.dart';
 import 'package:hollow/src/core/providers/relay_status_provider.dart';
 import 'package:hollow/src/core/providers/settings_provider.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
@@ -197,15 +198,13 @@ class _HollowShellState extends ConsumerState<HollowShell>
     final hasExisting = await storage_api.hasIdentity();
 
     // First launch — show welcome dialog before creating identity.
+    WelcomeResult? welcomeResult;
     if (!hasExisting && mounted) {
-      final result = await showWelcomeDialog(context);
+      welcomeResult = await showWelcomeDialog(context);
       if (!mounted) return;
 
       // 'restored_mnemonic' / 'restored_backup' — identity already on disk.
       // 'create_new' / null — proceed to normal load (will generate new).
-      if (result == 'restored_mnemonic' || result == 'restored_backup') {
-        // Identity was just written to disk; load() will pick it up.
-      }
     }
 
     await ref.read(identityProvider.notifier).load();
@@ -235,9 +234,19 @@ class _HollowShellState extends ConsumerState<HollowShell>
       showMnemonicDialog(context, identity.mnemonic!);
     }
 
+    // Load relay domain and saved relay list from DB.
+    await ref.read(relayDomainProvider.notifier).loadCached();
+    await ref.read(savedRelayListProvider.notifier).loadCached();
+    if (welcomeResult != null && welcomeResult.relayDomain != kDefaultRelayDomain) {
+      await ref.read(relayDomainProvider.notifier).setDomain(welcomeResult.relayDomain);
+      await ref.read(savedRelayListProvider.notifier).addRelay(welcomeResult.relayDomain);
+    }
+    final relayDomain = ref.read(relayDomainProvider);
+    await network_api.setRelayUrl(domain: relayDomain);
+
     // License key gate — check relay status and prompt if required.
     await ref.read(licenseKeyProvider.notifier).loadCached();
-    final relayStatus = await fetchRelayStatus();
+    final relayStatus = await fetchRelayStatus(domain: relayDomain);
     if (relayStatus.licenseRequired) {
       var cachedKey = ref.read(licenseKeyProvider);
       if (cachedKey == null && mounted) {

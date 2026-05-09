@@ -61,8 +61,8 @@ class VoiceService {
   FrameCryptorService? _frameCryptor;
   FrameCryptorService? get frameCryptor => _frameCryptor;
 
-  VoiceService({required this.localPeerId, Map<String, dynamic>? iceServers})
-      : iceServers = iceServers ?? _defaultIceServers;
+  VoiceService({required this.localPeerId, Map<String, dynamic>? iceServers, String relayDomain = 'relay.anonlisten.com'})
+      : iceServers = iceServers ?? _defaultIceServers(domain: relayDomain);
 
   bool get isMuted => _isMuted;
   bool get hasActiveCall => _pc != null;
@@ -1008,9 +1008,9 @@ class VoiceService {
 }
 
 /// Default ICE servers (STUN only — used if no config injected).
-final _defaultIceServers = {
+Map<String, dynamic> _defaultIceServers({String domain = 'relay.anonlisten.com'}) => {
   'iceServers': [
-    {'urls': 'stun:relay.anonlisten.com:3478'},
+    {'urls': 'stun:$domain:3478'},
     {'urls': 'stun:stun.cloudflare.com:3478'},
     {'urls': 'stun:stun.l.google.com:19302'},
   ],

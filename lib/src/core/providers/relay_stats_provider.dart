@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/providers/relay_domain_provider.dart';
 
 class RelayStats {
   final int memTotalKb;
@@ -49,7 +50,6 @@ class RelayStatsNotifier extends Notifier<RelayStats> {
   Timer? _timer;
   final HttpClient _client = HttpClient();
 
-  static const _url = 'https://relay.anonlisten.com/server-stats';
   static const _interval = Duration(seconds: 7);
 
   @override
@@ -60,15 +60,16 @@ class RelayStatsNotifier extends Notifier<RelayStats> {
       _timer?.cancel();
       _client.close();
     });
-    // Fire initial fetch.
     Future.microtask(_fetch);
     return const RelayStats();
   }
 
   Future<void> _fetch() async {
     try {
+      final domain = ref.read(relayDomainProvider);
+      final url = 'https://$domain/server-stats';
       final request = await _client
-          .getUrl(Uri.parse(_url))
+          .getUrl(Uri.parse(url))
           .timeout(const Duration(seconds: 10));
       final response = await request.close();
       if (response.statusCode == 200) {

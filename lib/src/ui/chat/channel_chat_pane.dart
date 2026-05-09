@@ -37,6 +37,7 @@ import 'package:hollow/src/ui/chat/message_action_bar.dart';
 import 'package:hollow/src/ui/dialogs/message_proof_dialog.dart';
 import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/components/connection_progress.dart';
+import 'package:hollow/src/core/providers/relay_domain_provider.dart';
 import 'package:hollow/src/ui/chat/hollow_link_utils.dart';
 import 'package:hollow/src/ui/chat/staged_hollow_link_card.dart';
 import 'package:hollow/src/ui/chat/staged_link_preview_card.dart';
@@ -2252,9 +2253,15 @@ class _ChannelConnectionStatus extends ConsumerWidget {
             .toList();
 
         // With MLS, online members in a WS room are already encrypted (MLS group broadcast).
-        final stage = onlineMembers.isEmpty
-            ? ConnectionStage.offline
-            : ConnectionStage.encrypted;
+        final isCustomRelay = ref.watch(relayDomainProvider) != kDefaultRelayDomain;
+        final ConnectionStage stage;
+        if (onlineMembers.isNotEmpty) {
+          stage = ConnectionStage.encrypted;
+        } else if (isCustomRelay) {
+          stage = ConnectionStage.customNetwork;
+        } else {
+          stage = ConnectionStage.offline;
+        }
 
         return Row(
           mainAxisSize: MainAxisSize.min,

@@ -110,7 +110,7 @@ Uses `scrollable_positioned_list` package with sentinel pattern: `itemCount: mes
 
 ## Connection and Sync Status Display
 
-`_ChannelConnectionStatus`: Watches `peersProvider` (connected peers map), `serverMembersProvider(serverId)`, `identityProvider`. Determines connection stage: if any other server members are in the connected peers map, stage is `ConnectionStage.encrypted` (MLS group = always encrypted). Otherwise `ConnectionStage.offline`. Renders `ConnectionProgress` widget + sync/vault indicators when encrypted.
+`_ChannelConnectionStatus`: Watches `peersProvider` (connected peers map), `serverMembersProvider(serverId)`, `identityProvider`, `relayDomainProvider`. Determines connection stage: if any other server members are in the connected peers map, stage is `ConnectionStage.encrypted` (MLS group = always encrypted). If on a custom (non-default) relay and no online members, stage is `ConnectionStage.customNetwork`. Otherwise `ConnectionStage.offline`. Renders `ConnectionProgress` widget + sync/vault indicators when encrypted.
 
 `_SyncIndicator`: Watches `serverSyncStatusProvider(serverId)` and `syncProgressProvider[serverId]`. Four states:
 - **syncing** -- accent color spinning refresh icon, label "Syncing N/M..." (or just "Syncing...").

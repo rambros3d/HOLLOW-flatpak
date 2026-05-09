@@ -748,9 +748,11 @@ File: `lib/src/ui/components/connection_progress.dart`
 
 `StatelessWidget`. Simple two-state connection indicator.
 
-**Enum `ConnectionStage`:** `offline`, `encrypted`.
+**Enum `ConnectionStage`:** `offline`, `encrypted`, `customNetwork`.
 
 **Encrypted:** Row with `LucideIcons.lock` (14px, success color) + "Encrypted" text in success color.
+
+**Custom Network:** Row with `LucideIcons.radio` (14px, warning color) + "Custom Network" text in warning color. Shown when user is on a non-default relay and peers are offline — replaces "Offline" to indicate isolation is the likely cause.
 
 **Offline:** Row with `LucideIcons.wifiOff` (14px, secondary) + "Offline" text in secondary color.
 

@@ -10,7 +10,7 @@ File: `rust/hollow_core/src/node/ws_client.rs`
 
 ### Purpose
 
-Persistent WSS connection to the uWebSockets C++ relay at `relay.anonlisten.com:443`. All text messages (CRDT ops, key exchange, sync) and binary data (file/shard streaming, room broadcasts) flow through this single multiplexed connection. Auto-reconnects with exponential backoff.
+Persistent WSS connection to the relay (configurable domain, default `relay.anonlisten.com:443`). All text messages (CRDT ops, key exchange, sync) and binary data (file/shard streaming, room broadcasts) flow through this single multiplexed connection. Auto-reconnects with exponential backoff. Relay URL is constructed from the `relay_domain` parameter passed through `spawn_node()` from the Dart-side `relayDomainProvider`.
 
 ### Public Entry Point
 
@@ -240,11 +240,10 @@ File: `rust/hollow_core/src/node/signaling.rs`
 
 ### Purpose
 
-HTTP-based peer registration and discovery against the relay server (`https://relay.anonlisten.com`). Peers register themselves when joining a room, send heartbeats to stay listed, and bootstrap by querying the relay for other registered peers. All requests are Ed25519-signed to prevent spoofing.
+HTTP-based peer registration and discovery against the relay server. Peers register themselves when joining a room, send heartbeats to stay listed, and bootstrap by querying the relay for other registered peers. All requests are Ed25519-signed to prevent spoofing. The signaling URL is passed as a parameter from `spawn_node()` (constructed from the configurable relay domain, e.g. `https://relay.anonlisten.com`).
 
 ### Constants
 
-- `SIGNALING_URL` = `"https://relay.anonlisten.com"` — base URL for all HTTP endpoints
 - `HEARTBEAT_INTERVAL` = 120 seconds — must be less than the relay's 3-minute stale threshold
 
 ### Commands and Events

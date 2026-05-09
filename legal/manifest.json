@@ -1,6 +1,12 @@
 {
-  "latest": "0.3.0",
+  "latest": "0.3.1",
   "versions": [
+    {
+      "version": "0.3.1",
+      "date": "May 9, 2026",
+      "url": "https://anonlisten.com/hollow/releases/hollow-0.3.1-win64.zip",
+      "notes": "Actual performance optimization"
+    },
     {
       "version": "0.3.0",
       "date": "May 6, 2026",

@@ -32,9 +32,9 @@ const _kIdleTimeout = Duration(seconds: 90);
 const _kKeepaliveInterval = Duration(seconds: 30);
 
 /// Default ICE servers (STUN only — used if no config injected).
-final _defaultIceServers = {
+Map<String, dynamic> _defaultIceServers({String domain = 'relay.anonlisten.com'}) => {
   'iceServers': [
-    {'urls': 'stun:relay.anonlisten.com:3478'},
+    {'urls': 'stun:$domain:3478'},
     {'urls': 'stun:stun.cloudflare.com:3478'},
     {'urls': 'stun:stun.l.google.com:19302'},
   ],
@@ -90,8 +90,8 @@ class WebRtcService {
   /// Peers connected with STUN-only config (Share). Used to fire the right callback on failure.
   final Set<String> _stunOnlyPeers = {};
 
-  WebRtcService({required this.localPeerId, Map<String, dynamic>? iceServers})
-      : iceServers = iceServers ?? _defaultIceServers;
+  WebRtcService({required this.localPeerId, Map<String, dynamic>? iceServers, String relayDomain = 'relay.anonlisten.com'})
+      : iceServers = iceServers ?? _defaultIceServers(domain: relayDomain);
 
   /// Check if a peer has an active data channel.
   bool hasPeerChannel(String peerId) {
