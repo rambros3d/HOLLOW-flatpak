@@ -61,6 +61,8 @@ vendor/ffmpeg/
 *.key
 *.pem
 alpha_keys.txt
+keys.json
+turnserver.conf
 
 # Deprecated (replaced by relay/)
 signaling/

@@ -1923,15 +1923,15 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 
 **Licensing:**
 - [ ] Open-source client under AGPL-3.0 (forks must publish source — kills closed-fork theft)
-- [ ] Relay stays MIT (thin uWebSockets glue, encourages self-hosting adoption)
+- [X] Relay stays MIT (thin uWebSockets glue, encourages self-hosting adoption)
 - [ ] Dual license: AGPL default, commercial license for companies that don't want copyleft obligations
   - Small business / startup: ~$1k/year (non-AGPL license, no source disclosure requirement)
   - Enterprise: custom pricing (SSO/SAML, 2FA integration, priority support, custom stuff), contact collab@anonlisten.com
-- [ ] Add LICENSE (AGPL-3.0) + COMMERCIAL_LICENSE.md explaining dual model to repo
+- [X] Add LICENSE (AGPL-3.0) to repo root + MIT LICENSE in relay-uws/
 
 **Self-hosting:**
 - [X] Add configurable relay URL in app settings (self-hosted relay = isolated network, no cross-contamination with official)
-- [ ] Docker Compose one-command setup: relay + Caddy reverse proxy + auto Let's Encrypt TLS
+- [X] Docker Compose one-command setup: relay + certbot (auto Let's Encrypt) + coturn (TURN)
 - [ ] Self-hosting documentation (docs/self-hosting.md or repo wiki)
 
 **Sustainability (donation-funded, no feature gates):**

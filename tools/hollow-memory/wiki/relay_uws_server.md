@@ -821,6 +821,21 @@ ulimit -n 500000
 
 ---
 
+## Docker self-hosting
+
+Files in `relay-uws/`: `Dockerfile`, `docker-compose.yml`, `.env.example`, `turnserver.conf.example`.
+
+Docker Compose runs three services:
+- **relay** — builds from Dockerfile (multi-stage: debian bookworm build → slim runtime), TLS on port 443, certs from shared volume
+- **certbot** — auto-provisions Let's Encrypt certs, renews every 12h, copies to shared volume
+- **coturn** — TURN server on host network (ports 3478/5349)
+
+Self-hoster setup: `cp .env.example .env` (edit domain/IP/secret), `cp turnserver.conf.example turnserver.conf` (edit realm/secret), `docker compose up -d`.
+
+The relay binary is SSL-only (`uWS::SSLApp`) — cannot run without TLS certs. No `--no-tls` mode exists. This is intentional: every self-hosted relay is TLS-secured by default.
+
+---
+
 ## Error conditions and failure modes
 
 | Condition | Behavior |
