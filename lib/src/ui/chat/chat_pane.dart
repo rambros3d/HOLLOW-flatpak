@@ -1278,8 +1278,27 @@ class _ChatPaneState extends ConsumerState<ChatPane> {
                                   onEditStart: msg.messageId != null &&
                                           msg.isMe &&
                                           msg.fileAttachment == null
-                                      ? () => setState(() =>
-                                          _editingMessageId = msg.messageId)
+                                      ? () {
+                                          final positions = _itemPositionsListener
+                                              .itemPositions.value;
+                                          final current = positions
+                                              .where((p) => p.index == index)
+                                              .firstOrNull;
+                                          final alignment =
+                                              current?.itemLeadingEdge ?? 0.7;
+                                          setState(() =>
+                                              _editingMessageId = msg.messageId);
+                                          WidgetsBinding.instance
+                                              .addPostFrameCallback((_) {
+                                            if (!mounted ||
+                                                !_itemScrollController
+                                                    .isAttached) return;
+                                            _itemScrollController.jumpTo(
+                                              index: index,
+                                              alignment: alignment,
+                                            );
+                                          });
+                                        }
                                       : null,
                                   onEditSubmit: (newText) {
                                     setState(

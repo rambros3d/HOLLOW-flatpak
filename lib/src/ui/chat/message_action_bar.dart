@@ -160,6 +160,15 @@ class _MessageHoverWrapperState extends State<MessageHoverWrapper> {
         return KeyEventResult.ignored;
       },
     );
+    if (widget.isEditing) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _editFocusNode.requestFocus();
+        _editController.selection = TextSelection.collapsed(
+          offset: _editController.text.length,
+        );
+      });
+    }
   }
 
   @override

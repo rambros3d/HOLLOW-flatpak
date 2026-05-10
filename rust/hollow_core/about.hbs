@@ -1,0 +1,11 @@
+{{#each licenses}}
+====LICENSE_START====
+License: {{{name}}}
+Used by:
+{{#each used_by}}
+  {{{crate.name}}} {{{crate.version}}}
+{{/each}}
+---TEXT---
+{{{text}}}
+====LICENSE_END====
+{{/each}}

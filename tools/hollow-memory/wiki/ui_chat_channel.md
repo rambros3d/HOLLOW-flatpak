@@ -178,7 +178,7 @@ Wrapped in `ChatDropZone` (for drag-and-drop file attach). Main structure is a `
 Each message item: checks `shouldGroup()` for grouping consecutive messages from same sender within time window. If not grouped, `showHeader = true`. Wraps each message in a `MessageHoverWrapper` which provides the action bar (edit, delete, reply, react, pin, download, copy, copy image, info).
 
 **`MessageHoverWrapper` callbacks**:
-- `onEditStart`: only for own messages without file attachment. Sets `_editingMessageId`.
+- `onEditStart`: only for own messages without file attachment. Captures the item's current `itemLeadingEdge` from `_itemPositionsListener`, sets `_editingMessageId`, then in a post-frame callback uses `_itemScrollController.jumpTo()` at the same alignment to preserve scroll position (prevents the edit view's height change from shifting the message behind the input bar).
 - `onEditSubmit(newText)`: clears `_editingMessageId`, calls `channelChatProvider.notifier.editMessage()`.
 - `onEditCancel`: clears `_editingMessageId`.
 - `onDelete`: only for own messages. Calls `channelChatProvider.notifier.deleteMessage()`.

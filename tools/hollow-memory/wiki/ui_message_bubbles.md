@@ -600,7 +600,7 @@ When `isEditing` is true, `MessageHoverWrapper.build()` returns `_buildEditView(
 - Shift+Enter: inserts newline at cursor position.
 - Tap outside (`onTapOutside`): cancels editing.
 
-When entering edit mode (`didUpdateWidget`): dismisses any hover overlay, updates controller text, requests focus, moves cursor to end.
+When entering edit mode (`didUpdateWidget`): dismisses any hover overlay, updates controller text, requests focus, moves cursor to end. Also handled in `initState` when `widget.isEditing` is already true (happens when `ScrollablePositionedList.jumpTo()` destroys and recreates the widget during scroll-position restoration — `didUpdateWidget` never fires in that case).
 
 ---
 

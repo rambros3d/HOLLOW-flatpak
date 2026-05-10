@@ -30,7 +30,7 @@ import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/components/status_dot.dart';
 import 'package:hollow/src/ui/dialogs/mnemonic_dialog.dart';
 import 'package:hollow/src/ui/dialogs/user_settings_dialog.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:simple_icons/simple_icons.dart';
 import 'package:hollow/src/rust/api/twitch.dart' as twitch_api;

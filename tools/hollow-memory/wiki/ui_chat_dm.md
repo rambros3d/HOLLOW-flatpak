@@ -226,7 +226,7 @@ Returns a `List<Widget>` used by both the normal layout and the screen-share ove
 - If `index >= messages.length`: returns `SizedBox.shrink()` (sentinel)
 - Determines `showHeader` via `shouldGroup()` (first message always shows header)
 - Builds a `MessageHoverWrapper` with all action callbacks:
-  - `onEditStart`: Only for own text messages (no file attachment). Sets `_editingMessageId`
+  - `onEditStart`: Only for own text messages (no file attachment). Captures the item's current `itemLeadingEdge` from `_itemPositionsListener`, sets `_editingMessageId`, then in a post-frame callback uses `_itemScrollController.jumpTo()` at the same alignment to preserve scroll position (prevents the edit view's height change from shifting the message behind the input bar)
   - `onEditSubmit`: Clears edit state, calls `chatProvider.notifier.editMessage()`
   - `onEditCancel`: Clears edit state
   - `onDelete`: Only for own messages. Calls `chatProvider.notifier.deleteMessage()`

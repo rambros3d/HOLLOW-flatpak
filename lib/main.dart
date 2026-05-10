@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/rust_licenses.dart';
 import 'package:fvp/fvp.dart' as fvp;
 import 'package:hollow/src/core/providers/member_panel_provider.dart';
 import 'package:hollow/src/core/providers/webrtc_provider.dart';
@@ -137,6 +138,8 @@ void _initCrashLogging() {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  registerRustLicenses();
 
   // Single-instance check — exit if another instance is running.
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {

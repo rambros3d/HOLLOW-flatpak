@@ -1922,7 +1922,7 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 ### Open-Source & Sustainability
 
 **Licensing:**
-- [ ] Open-source client under AGPL-3.0 (forks must publish source — kills closed-fork theft)
+- [X] Open-source client under AGPL-3.0 (forks must publish source — kills closed-fork theft)
 - [X] Relay stays MIT (thin uWebSockets glue, encourages self-hosting adoption)
 - [X] Dual license: AGPL default, commercial license for companies that don't want copyleft obligations
   - Small business / startup: ~$1k/year (non-AGPL license, no source disclosure requirement)
@@ -1936,7 +1936,7 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 
 **Sustainability (donation-funded, no feature gates):**
 - [ ] Credits tab in Settings — Blender-style donor/sponsor wall (tiered: Supporters, Sponsors, Contributors)
-- [ ] Patreon / Ko-fi / GitHub Sponsors for individual donations
+- [X] Patreon / Ko-fi / GitHub Sponsors for individual donations
 - [ ] Infrastructure sponsor program (companies providing dedicated servers get logo in Credits)
 - [X] No paywalls, no cosmetic microtransactions, no user-facing limits — full app for everyone
 
