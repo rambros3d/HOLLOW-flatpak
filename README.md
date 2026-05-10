@@ -12,7 +12,8 @@
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License">
   <img src="https://img.shields.io/badge/platform-Windows-0078D4" alt="Platform">
   <img src="https://img.shields.io/badge/encryption-end--to--end-blueviolet" alt="Encryption">
-  <a href="https://codecov.io/gh/VitalikPro13/HOLLOW"><img src="https://codecov.io/gh/VitalikPro13/HOLLOW/branch/main/graph/badge.svg?flag=rust" alt="Rust Coverage"></a>
+  <a href="https://codecov.io/gh/VitalikPro13/HOLLOW" > 
+  <img src="https://codecov.io/gh/VitalikPro13/HOLLOW/graph/badge.svg?token=F0TBC256BF" alt="Rust Coverage"></a>
   <img src="https://img.shields.io/badge/status-alpha-orange" alt="Status">
 </p>
 
