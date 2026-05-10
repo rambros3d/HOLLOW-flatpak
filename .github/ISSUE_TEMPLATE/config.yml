@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: mailto:privacy@anonlisten.com
+    about: Do not report security issues publicly. Email privacy@anonlisten.com instead.
+  - name: General questions
+    url: https://github.com/VitalikPro13/HOLLOW/discussions
+    about: Ask questions and discuss Hollow in GitHub Discussions.

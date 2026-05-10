@@ -1,0 +1,85 @@
+name: Bug Report
+description: Something isn't working correctly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Fill out the fields below so we can understand and reproduce the issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: "Example: Voice call connects but no audio is heard by the other peer."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Open a DM conversation
+        2. Start a voice call
+        3. Speak into the microphone
+        4. Other peer hears nothing
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened instead?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Hollow version
+      description: Check Settings > About, or the window title bar.
+      placeholder: "0.3.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 10
+        - Windows 11
+        - macOS
+        - Linux
+    validations:
+      required: true
+
+  - type: dropdown
+    id: network
+    attributes:
+      label: Relay
+      description: Are you using the default relay or a self-hosted one?
+      options:
+        - Default (relay.anonlisten.com)
+        - Self-hosted
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (optional)
+      description: |
+        If relevant, paste from `hollow_debug.log` or `hollow_crash.log` (found in `~/.hollow/`).
+        Sensitive information (peer IDs, IPs) will be handled confidentially.
+      render: text
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or recordings (optional)
+      description: Attach any visuals that help illustrate the issue.

@@ -1,0 +1,49 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea for Hollow? Describe it below. If it's a large architectural change, consider reading the [Whitepaper](https://github.com/VitalikPro13/HOLLOW/blob/main/WHITEPAPER.md) first for context on how the system works.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What would you like to see?
+      description: A clear description of the feature or improvement.
+      placeholder: "Example: Ability to pin messages in a channel so important info stays visible."
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why is this useful?
+      description: What problem does this solve, or what workflow does it improve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered (optional)
+      description: Have you thought of other ways to achieve this?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of Hollow does this relate to?
+      options:
+        - Messaging
+        - Voice / Video
+        - File sharing / Vault
+        - Servers / Channels
+        - UI / UX
+        - Relay / Networking
+        - Cryptography / Security
+        - Self-hosting
+        - Other
+    validations:
+      required: true

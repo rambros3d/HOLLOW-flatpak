@@ -5,7 +5,7 @@
 <h1 align="center">Hollow</h1>
 
 <p align="center">
-  Distributed, encrypted communication. No central servers. No accounts. No compromise.
+  Distributed, encrypted communication. No central servers or APIs. No accounts. No compromise.
 </p>
 
 <p align="center">
@@ -123,10 +123,11 @@ flutter build windows
 
 ## Contributing
 
-Contributions are welcome. Open an issue to discuss your idea before submitting a pull request.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, coding conventions, and how to submit a pull request.
 
 - Report bugs and request features via [Issues](../../issues)
-- See the [Whitepaper](WHITEPAPER.md) for protocol-level context
+- Read the [Whitepaper](WHITEPAPER.md) for protocol-level context
+- Report security vulnerabilities privately -- see [SECURITY.md](SECURITY.md)
 
 ## License
 
