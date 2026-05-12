@@ -4,6 +4,8 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:math';
 
+import 'package:hollow/src/core/hollow_data_dir.dart';
+
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../rust/api/network.dart' as network_api;
@@ -867,16 +869,7 @@ class WebRtcService {
   }
 
   static String _computeFilesDir() {
-    final home = Platform.environment['USERPROFILE'] ??
-        Platform.environment['HOME'] ??
-        '.';
-    final hollowDataDir = Platform.environment['HOLLOW_DATA_DIR'];
-    if (hollowDataDir != null && hollowDataDir.isNotEmpty) {
-      final dir = '$hollowDataDir/files';
-      Directory(dir).createSync(recursive: true);
-      return dir;
-    }
-    final dir = '$home/.hollow/files';
+    final dir = '$hollowDataDir${Platform.pathSeparator}files';
     Directory(dir).createSync(recursive: true);
     return dir;
   }

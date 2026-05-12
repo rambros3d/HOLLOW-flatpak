@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:hollow/src/core/hollow_data_dir.dart';
 import 'package:path/path.dart' as p;
 
 import '../../rust/api/network.dart' as network_api;
@@ -109,13 +110,7 @@ class VideoThumbnailService {
   }
 
   static String _hollowFilesDir() {
-    final home = Platform.environment['USERPROFILE'] ??
-        Platform.environment['HOME'] ??
-        '.';
-    final hollowDataDir = Platform.environment['HOLLOW_DATA_DIR'];
-    final dir = (hollowDataDir != null && hollowDataDir.isNotEmpty)
-        ? '$hollowDataDir/files'
-        : '$home/.hollow/files';
+    final dir = '$hollowDataDir${Platform.pathSeparator}files';
     Directory(dir).createSync(recursive: true);
     return dir;
   }

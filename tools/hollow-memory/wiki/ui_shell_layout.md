@@ -210,7 +210,16 @@ Active tab: `hollow.accent` + w600. Inactive: `hollow.textSecondary` + w400. Bad
 
 **MobileSettingsTab** (`ConsumerWidget`): Profile avatar + status, peer ID with tap-to-copy, Network status, About section. Uses ASOT-style section dividers.
 
-**Chat navigation:** `MobileChatRoute` pushes onto root navigator (`Navigator.of(context, rootNavigator: true).push()`), so the bottom nav disappears. System back pops the route. Uses `_MobileChatHeader` (48px, back arrow + avatar + name). Currently wraps desktop `ChatPane`/`ChannelChatPane` — needs mobile-specific rewrite.
+**Chat navigation:** `MobileChatRoute` pushes onto root navigator (`Navigator.of(context, rootNavigator: true).push()`), so the bottom nav disappears. System back pops the route.
+
+**MobileChatRoute** (`ConsumerStatefulWidget`, `lib/src/ui/mobile/mobile_chat_route.dart`): Custom mobile chat — does NOT wrap desktop ChatPane. Reuses `MessageBubble`/`ChannelMessageBubble` widgets directly. Features:
+- `_MobileChatHeader` (52px): back arrow + avatar with status dot + tappable name (opens profile bottom sheet) + online/offline subtitle.
+- Message list: `ScrollablePositionedList` with same grouping logic as desktop (5-min window, same sender = continuation). Header messages get `Padding(top: sm+2)`, continuations have no extra padding. Auto-scrolls to bottom on open and new messages.
+- `_MobileInputBar`: paperclip (file_picker) + pill-shaped TextField (up to 5 lines) + teal send button.
+- `_ReplyPreview`: teal accent line + sender name + text, shown above input bar. Long-press message to reply.
+- `_TypingBar`: "X is typing..." indicator above input bar.
+- `_ProfileSheet`: bottom sheet with 180px banner (AnimatedGifImage for GIFs, gradient fallback), avatar overlapping banner, name, online status, bio text.
+- File sending via `network_api.sendFile()` with `file_picker` and 34MB DM limit.
 
 **Provider:** `mobileTabProvider` (StateProvider<int>, default 0, defined in `mobile_nav.dart`) is reused.
 

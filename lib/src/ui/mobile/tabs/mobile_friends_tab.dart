@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/friends_provider.dart';
@@ -26,8 +25,6 @@ class MobileFriendsTab extends ConsumerWidget {
     final friends = ref.watch(friendsProvider);
     final peers = ref.watch(peersProvider);
     final profiles = ref.watch(profileProvider);
-
-    debugPrint('[MOBILE-FRIENDS] Provider has ${friends.length} entries: ${friends.values.map((f) => '${f.peerId.substring(0, 12)}...(${f.status}/${f.direction})').join(', ')}');
 
     final accepted = <FriendInfo>[];
     final incoming = <FriendInfo>[];

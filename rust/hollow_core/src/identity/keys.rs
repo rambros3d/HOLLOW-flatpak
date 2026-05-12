@@ -17,9 +17,8 @@ static DATA_DIR_OVERRIDE: OnceLock<String> = OnceLock::new();
 /// Set the data directory path from Dart (Android/iOS pass their app data dir).
 /// Must be called before any identity or storage operations.
 pub fn set_data_dir(path: String) -> Result<(), String> {
-    DATA_DIR_OVERRIDE
-        .set(path)
-        .map_err(|_| "Data dir already set".to_string())
+    let _ = DATA_DIR_OVERRIDE.set(path);
+    Ok(())
 }
 
 /// Get the Hollow data directory.
