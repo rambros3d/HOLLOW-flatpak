@@ -2,11 +2,14 @@ import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/models/channel_chat_message.dart';
 import 'package:hollow/src/core/models/chat_message.dart';
 import 'package:hollow/src/core/providers/banner_provider.dart';
 import 'package:hollow/src/core/providers/chat_provider.dart';
 import 'package:hollow/src/core/providers/channel_chat_provider.dart';
+import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/core/providers/typing_provider.dart';
@@ -21,6 +24,8 @@ import 'package:hollow/src/ui/components/hollow_avatar.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/components/status_dot.dart';
+import 'package:hollow/src/ui/dialogs/message_proof_dialog.dart';
+import 'package:hollow/src/ui/mobile/mobile_message_actions.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
@@ -54,6 +59,9 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
   String? _replyToMessageId;
   String? _replyToText;
   String? _replyToSenderName;
+  String? _editingMessageId;
+  final _editController = TextEditingController();
+  final _editFocusNode = FocusNode();
   DateTime? _lastTypingSent;
   bool _isInAutoScrollZone = true;
 
@@ -88,6 +96,8 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
   void dispose() {
     _controller.dispose();
     _focusNode.dispose();
+    _editController.dispose();
+    _editFocusNode.dispose();
     super.dispose();
   }
 
@@ -99,6 +109,14 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
         ? (ref.read(chatProvider)[widget.peerId!]?.length ?? 0)
         : (ref.read(channelChatProvider)[widget.channelId!]?.length ?? 0);
     _isInAutoScrollZone = maxIndex >= count - 2;
+  }
+
+  String _formatTime(DateTime dt) {
+    final now = DateTime.now();
+    if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
+      return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    }
+    return '${dt.month}/${dt.day}';
   }
 
   void _scrollToBottom() {
@@ -276,17 +294,67 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
             prev.isMe != msg.isMe ||
             msg.timestamp.difference(prev.timestamp).inMinutes > 5;
 
-        final bubble = GestureDetector(
-          onLongPress: () {
-            final name = msg.isMe
-                ? 'You'
-                : displayNameFor(profiles, widget.peerId!);
-            _setReply(msg.messageId ?? '', name, msg.text);
-          },
+        final localPeerId = ref.read(identityProvider).peerId ?? '';
+        final senderName = msg.isMe
+            ? 'You'
+            : displayNameFor(profiles, widget.peerId!);
+
+        // Edit mode: show inline editor instead of bubble.
+        if (_editingMessageId != null && _editingMessageId == msg.messageId) {
+          final editWidget = _buildEditView(
+            originalText: msg.text,
+            onSave: (newText) {
+              ref.read(chatProvider.notifier).editMessage(
+                    widget.peerId!, msg.messageId!, newText);
+              setState(() => _editingMessageId = null);
+            },
+            onCancel: () => setState(() => _editingMessageId = null),
+          );
+          return showDate
+              ? Column(mainAxisSize: MainAxisSize.min, children: [
+                  _DateSeparator(date: msg.timestamp), editWidget])
+              : editWidget;
+        }
+
+        // Look up reply target for this message.
+        String? replySender;
+        String? replyText;
+        if (msg.replyToMid != null) {
+          final idx = messages.indexWhere((m) => m.messageId == msg.replyToMid);
+          if (idx != -1) {
+            final original = messages[idx];
+            replyText = original.fileAttachment != null
+                ? (original.fileAttachment!.isImage
+                    ? '📷 Image'
+                    : '📎 ${original.fileAttachment!.fileName}')
+                : original.text;
+            final origSenderId = original.isMe ? localPeerId : widget.peerId!;
+            replySender = displayNameFor(profiles, origSenderId);
+          }
+        }
+
+        final bubble = _LongPressMessage(
+          onLongPress: () => _showDmActions(msg, senderName, localPeerId),
           child: MessageBubble(
             message: msg,
             peerId: widget.peerId!,
             showHeader: showHeader,
+            replyToSenderName: replySender,
+            replyToText: replyText,
+            onToggleReaction: msg.messageId != null
+                ? (emoji) {
+                    final hasReacted =
+                        msg.reactions[emoji]?.contains(localPeerId) ?? false;
+                    final notifier = ref.read(chatProvider.notifier);
+                    if (hasReacted) {
+                      notifier.removeReaction(
+                          widget.peerId!, msg.messageId!, emoji);
+                    } else {
+                      notifier.addReaction(
+                          widget.peerId!, msg.messageId!, emoji);
+                    }
+                  }
+                : null,
           ),
         );
 
@@ -348,15 +416,64 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
             prev.senderId != msg.senderId ||
             msg.timestamp.difference(prev.timestamp).inMinutes > 5;
 
-        final bubble = GestureDetector(
-          onLongPress: () {
-            final name = displayNameFor(profiles, msg.senderId);
-            _setReply(msg.messageId ?? '', name, msg.text);
-          },
+        final localPeerId = ref.read(identityProvider).peerId ?? '';
+        final senderName = displayNameFor(profiles, msg.senderId);
+
+        // Edit mode: show inline editor instead of bubble.
+        if (_editingMessageId != null && _editingMessageId == msg.messageId) {
+          final editWidget = _buildEditView(
+            originalText: msg.text,
+            onSave: (newText) {
+              ref.read(channelChatProvider.notifier).editMessage(
+                    widget.serverId!, widget.channelId!, msg.messageId!, newText);
+              setState(() => _editingMessageId = null);
+            },
+            onCancel: () => setState(() => _editingMessageId = null),
+          );
+          return showDate
+              ? Column(mainAxisSize: MainAxisSize.min, children: [
+                  _DateSeparator(date: msg.timestamp), editWidget])
+              : editWidget;
+        }
+
+        // Look up reply target for this message.
+        String? replySender;
+        String? replyText;
+        if (msg.replyToMid != null) {
+          final idx = messages.indexWhere((m) => m.messageId == msg.replyToMid);
+          if (idx != -1) {
+            final original = messages[idx];
+            replyText = original.fileAttachment != null
+                ? (original.fileAttachment!.isImage
+                    ? '📷 Image'
+                    : '📎 ${original.fileAttachment!.fileName}')
+                : original.text;
+            replySender = displayNameFor(profiles, original.senderId);
+          }
+        }
+
+        final bubble = _LongPressMessage(
+          onLongPress: () => _showChannelActions(msg, senderName, localPeerId),
           child: ChannelMessageBubble(
             message: msg,
             serverId: widget.serverId!,
             showHeader: showHeader,
+            replyToSenderName: replySender,
+            replyToText: replyText,
+            onToggleReaction: msg.messageId != null
+                ? (emoji) {
+                    final hasReacted =
+                        msg.reactions[emoji]?.contains(localPeerId) ?? false;
+                    final notifier = ref.read(channelChatProvider.notifier);
+                    if (hasReacted) {
+                      notifier.removeReaction(widget.serverId!,
+                          widget.channelId!, msg.messageId!, emoji);
+                    } else {
+                      notifier.addReaction(widget.serverId!,
+                          widget.channelId!, msg.messageId!, emoji);
+                    }
+                  }
+                : null,
           ),
         );
 
@@ -378,6 +495,233 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
         }
         return messageWidget;
       },
+    );
+  }
+
+  // ─────────────────────────────────────────────────
+  // Action sheet triggers
+  // ─────────────────────────────────────────────────
+
+  void _showDmActions(ChatMessage msg, String senderName, String localPeerId) {
+    showMobileMessageActions(
+      context: context,
+      messageText: msg.text,
+      senderName: senderName,
+      timestamp: _formatTime(msg.timestamp),
+      isMe: msg.isMe,
+      onReply: msg.messageId != null
+          ? () => _setReply(msg.messageId!, senderName, msg.text)
+          : null,
+      onEdit: msg.messageId != null && msg.isMe && msg.fileAttachment == null
+          ? () => setState(() => _editingMessageId = msg.messageId)
+          : null,
+      onDelete: msg.messageId != null && msg.isMe
+          ? () => ref.read(chatProvider.notifier)
+              .deleteMessage(widget.peerId!, msg.messageId!)
+          : null,
+      onCopy: msg.text.isNotEmpty && !msg.text.startsWith('[file:')
+          ? () {
+              Clipboard.setData(ClipboardData(text: msg.text));
+              HollowToast.show(context, 'Copied to clipboard',
+                  type: HollowToastType.success);
+            }
+          : null,
+      onReaction: msg.messageId != null
+          ? (emoji) {
+              final hasReacted =
+                  msg.reactions[emoji]?.contains(localPeerId) ?? false;
+              final notifier = ref.read(chatProvider.notifier);
+              if (hasReacted) {
+                notifier.removeReaction(
+                    widget.peerId!, msg.messageId!, emoji);
+              } else {
+                notifier.addReaction(widget.peerId!, msg.messageId!, emoji);
+              }
+            }
+          : null,
+      onInfo: msg.messageId != null
+          ? () {
+              final senderId = msg.isMe ? localPeerId : widget.peerId!;
+              showMessageProofDialog(
+                context,
+                MessageProofData(
+                  senderPeerId: senderId,
+                  senderDisplayName: senderName,
+                  text: msg.text,
+                  timestampMs: (msg.editedAt ?? msg.timestamp)
+                      .millisecondsSinceEpoch,
+                  signature: msg.signature,
+                  publicKey: msg.publicKey,
+                  messageId: msg.messageId,
+                  context: msg.isMe ? widget.peerId! : localPeerId,
+                  msgType: 'dm',
+                  fileAttachment: msg.fileAttachment,
+                ),
+              );
+            }
+          : null,
+    );
+  }
+
+  void _showChannelActions(ChannelChatMessage msg, String senderName, String localPeerId) {
+    showMobileMessageActions(
+      context: context,
+      messageText: msg.text,
+      senderName: senderName,
+      timestamp: _formatTime(msg.timestamp),
+      isMe: msg.isMe,
+      onReply: msg.messageId != null
+          ? () => _setReply(msg.messageId!, senderName, msg.text)
+          : null,
+      onEdit: msg.messageId != null && msg.isMe && msg.fileAttachment == null
+          ? () => setState(() => _editingMessageId = msg.messageId)
+          : null,
+      onDelete: msg.messageId != null && msg.isMe
+          ? () => ref.read(channelChatProvider.notifier)
+              .deleteMessage(widget.serverId!, widget.channelId!, msg.messageId!)
+          : null,
+      onCopy: msg.text.isNotEmpty && !msg.text.startsWith('[file:')
+          ? () {
+              Clipboard.setData(ClipboardData(text: msg.text));
+              HollowToast.show(context, 'Copied to clipboard',
+                  type: HollowToastType.success);
+            }
+          : null,
+      onReaction: msg.messageId != null
+          ? (emoji) {
+              final hasReacted =
+                  msg.reactions[emoji]?.contains(localPeerId) ?? false;
+              final notifier = ref.read(channelChatProvider.notifier);
+              if (hasReacted) {
+                notifier.removeReaction(widget.serverId!,
+                    widget.channelId!, msg.messageId!, emoji);
+              } else {
+                notifier.addReaction(widget.serverId!,
+                    widget.channelId!, msg.messageId!, emoji);
+              }
+            }
+          : null,
+      onInfo: msg.messageId != null
+          ? () {
+              showMessageProofDialog(
+                context,
+                MessageProofData(
+                  senderPeerId: msg.senderId,
+                  senderDisplayName: senderName,
+                  text: msg.text,
+                  timestampMs: (msg.editedAt ?? msg.timestamp)
+                      .millisecondsSinceEpoch,
+                  signature: msg.signature,
+                  publicKey: msg.publicKey,
+                  messageId: msg.messageId,
+                  context: '${widget.serverId!}:${widget.channelId!}',
+                  msgType: 'ch',
+                  fileAttachment: msg.fileAttachment,
+                ),
+              );
+            }
+          : null,
+    );
+  }
+
+  // ─────────────────────────────────────────────────
+  // Inline edit view
+  // ─────────────────────────────────────────────────
+
+  Widget _buildEditView({
+    required String originalText,
+    required void Function(String) onSave,
+    required VoidCallback onCancel,
+  }) {
+    final hollow = HollowTheme.of(context);
+
+    _editController.text = originalText;
+    _editController.selection = TextSelection.fromPosition(
+      TextPosition(offset: originalText.length),
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _editFocusNode.requestFocus();
+    });
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: HollowSpacing.sm,
+        vertical: HollowSpacing.xs,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: hollow.accent),
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
+              color: hollow.elevated,
+            ),
+            child: TextField(
+              controller: _editController,
+              focusNode: _editFocusNode,
+              maxLines: 5,
+              minLines: 1,
+              textInputAction: TextInputAction.newline,
+              style: HollowTypography.body.copyWith(color: hollow.textPrimary),
+              decoration: InputDecoration(
+                contentPadding: const EdgeInsets.all(HollowSpacing.sm),
+                border: InputBorder.none,
+                hintText: 'Edit your message...',
+                hintStyle: HollowTypography.body.copyWith(
+                  color: hollow.textSecondary,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: HollowSpacing.xs),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              HollowPressable(
+                onTap: onCancel,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: HollowSpacing.sm,
+                    vertical: HollowSpacing.xs,
+                  ),
+                  child: Text('Cancel',
+                      style: HollowTypography.caption
+                          .copyWith(color: hollow.textSecondary)),
+                ),
+              ),
+              const SizedBox(width: HollowSpacing.sm),
+              HollowPressable(
+                onTap: () {
+                  final newText = _editController.text.trim();
+                  if (newText.isNotEmpty && newText != originalText) {
+                    onSave(newText);
+                  } else {
+                    onCancel();
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: HollowSpacing.md,
+                    vertical: HollowSpacing.xs,
+                  ),
+                  decoration: BoxDecoration(
+                    color: hollow.accent,
+                    borderRadius: BorderRadius.circular(hollow.radiusSm),
+                  ),
+                  child: Text('Save',
+                      style: HollowTypography.caption.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      )),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -639,6 +983,51 @@ class _ReplyPreview extends StatelessWidget {
             child: Icon(LucideIcons.x, size: 16, color: hollow.textSecondary),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────
+// Long-press wrapper with teal highlight + full-width hit target
+// ─────────────────────────────────────────────────
+
+class _LongPressMessage extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onLongPress;
+
+  const _LongPressMessage({
+    required this.child,
+    required this.onLongPress,
+  });
+
+  @override
+  State<_LongPressMessage> createState() => _LongPressMessageState();
+}
+
+class _LongPressMessageState extends State<_LongPressMessage> {
+  bool _pressing = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPressStart: (_) => setState(() => _pressing = true),
+      onLongPress: () {
+        setState(() => _pressing = false);
+        widget.onLongPress();
+      },
+      onLongPressCancel: () => setState(() => _pressing = false),
+      onLongPressEnd: (_) => setState(() => _pressing = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          color: _pressing ? hollow.accent.withValues(alpha: 0.08) : null,
+          borderRadius: BorderRadius.circular(hollow.radiusSm),
+        ),
+        child: widget.child,
       ),
     );
   }

@@ -68,6 +68,7 @@ turnserver.conf
 signaling/
 
 # Temporary files
+tmp_next_session.md
 temporary_ssh_log.txt
 my_debug_logs.txt
 third_debug.txt

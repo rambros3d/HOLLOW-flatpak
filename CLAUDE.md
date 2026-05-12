@@ -73,6 +73,9 @@ flutter run -d windows
 # Build release
 flutter build windows
 
+# Run widget tests (no device needed, ~1s)
+flutter test test/
+
 # Check Rust code
 cd rust/hollow_core && cargo check
 cd rust/hollow_core && cargo clippy
@@ -157,6 +160,9 @@ All UI uses custom Hollow widgets — no Material defaults.
 - **CRITICAL — Android TLS: Rust crates must use `webpki-roots`, never `native-roots`.** `rustls-native-certs` can't read Android's Java KeyStore. `tokio-tungstenite` uses `rustls-tls-webpki-roots` (bundled Mozilla CAs). `reqwest` uses `rustls-tls` (also bundles). Switching to `native-roots` will silently break all WSS connections on Android.
 - **Android/iOS data directory:** `lib/src/core/hollow_data_dir.dart` provides `hollowDataDir` (sync getter) and `initHollowDataDir()` (async, call once at startup). On mobile uses `getApplicationDocumentsDirectory()/hollow`, on desktop uses `APPDATA`/`HOME` env vars. All Dart code must use this instead of raw env var lookups. Rust side: `set_data_dir()` FFI called from `main.dart` before `start_node()`.
 - **Mobile UI architecture:** `lib/src/ui/mobile/` directory. `MobileShell` (4-tab: Chats/Friends/Archive/Settings) replaces desktop layout below 600px breakpoint. Chat views push onto root navigator (bottom nav disappears). All mobile code is gated behind `Platform.isAndroid || Platform.isIOS` or the `<600px` breakpoint — desktop is completely unaffected.
+- **Mobile message actions:** `mobile_message_actions.dart` — long-press bottom sheet with message preview, quick reactions (6 + full grid), action rows (reply/edit/delete/copy/info). Uses `_LongPressMessage` wrapper with `HitTestBehavior.opaque` + teal highlight animation. Delete has inline confirmation. Edit is inline TextField + Save/Cancel.
+- **Widget test framework:** `test/helpers/test_app.dart` — `pumpHollowMobile()` mocks all FFI-dependent providers at the Riverpod level (no native library loading). `test/helpers/test_data.dart` has fake peers/servers/friends. Tests run in ~1s without device. Add tests alongside new features.
+- **Feature matrix:** `reports/FEATURE_MATRIX.md` — 288 features inventoried across 33 sections. Used as the mobile port punch list. Work through sections in order.
 - **Forked `flutter_webrtc` at `packages/flutter_webrtc/`** — pubspec points at the sibling folder via `path:`. The fork adds WASAPI loopback capture inside `getDisplayMedia({audio: true})` on Windows. The captured audio track must NOT be attached to the returned MediaStream (`stream->AddTrack` crashes libwebrtc's sender iteration); Dart calls `pc.addTrack(audioTrack, stream)` on the screen-share PC instead. When iterating on the fork's native C++, delete `build/windows/x64/plugins/flutter_webrtc/` before rebuilding, and **always build `--release` if testing from the Release folder** (Vitalik does).
 
 ## Semantic Memory Search (hollow-memory MCP)
