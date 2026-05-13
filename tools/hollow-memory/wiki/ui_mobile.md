@@ -52,6 +52,7 @@ Bottom bar (56px) with 4 `_NavTab` widgets. Badges:
 - `_editController` / `_editFocusNode` — edit TextField controllers
 - `_lastTypingSent` — 3s throttle for typing indicators
 - `_isInAutoScrollZone` — auto-scroll on new messages
+- `_stagedFilePath` / `_stagedFileName` / `_stagedFileIsImage` — staged file attachment (clipboard paste or future use)
 
 ### Widget Tree
 ```
@@ -63,6 +64,7 @@ Scaffold
 │       │   └── _LongPressMessage → MessageBubble / ChannelMessageBubble
 │       ├── _TypingBar
 │       ├── _ReplyPreview (if replying)
+│       ├── _StagedFilePreview (if file staged — thumbnail + name + cancel)
 │       └── _MobileInputBar (attach + text + send)
 ```
 
@@ -81,10 +83,16 @@ Wraps each message bubble. Provides:
 - Teal highlight animation during long-press hold (`AnimatedContainer` with `hollow.accent.withValues(alpha: 0.08)`)
 - Triggers `showMobileMessageActions()` on long-press complete
 
+### File Actions
+- `_saveFile(FileAttachment)` — reads bytes, passes to `FilePicker.platform.saveFile(bytes:)`. Android requires `bytes:` param (crashes without it). Converts WebP→PNG if needed via `network_api.convertImageFormat()`.
+- `_requestFileFromPeer(FileAttachment, senderId)` — requests file via P2P when not on disk.
+- `_handleSend()` — if `_stagedFilePath` is set, sends as file attachment via `network_api.sendFile()`, otherwise sends text.
+
 ### Action Callbacks Wired
 Both DM and channel builders wire:
 - `onToggleReaction` on bubbles → reaction pills are tappable
 - Long-press → `_showDmActions()` / `_showChannelActions()` → bottom sheet
+- `onDownload` — shows when message has file attachment. Saves locally or requests from peer. Guards duplicate downloads via `fileTransferProvider`.
 
 ---
 
@@ -104,6 +112,7 @@ Column (mainAxisSize: min)
     ├── Reply (LucideIcons.reply)
     ├── Edit Message (LucideIcons.pencil) — own messages only, no file
     ├── Copy Text (LucideIcons.copy) — text messages only
+    ├── Save File (LucideIcons.download) — file messages only
     ├── Message Info (LucideIcons.shieldCheck) — shows proof dialog
     └── Delete Message (LucideIcons.trash2, error color) — own messages only
 ```
@@ -115,9 +124,11 @@ Column (mainAxisSize: min)
 
 ### Parameters
 All action callbacks are nullable — only shown when non-null:
-- `onReply`, `onEdit`, `onDelete`, `onCopy` — `VoidCallback?`
+- `onReply`, `onEdit`, `onDelete`, `onCopy`, `onDownload` — `VoidCallback?`
 - `onReaction` — `void Function(String emoji)?`
 - `onInfo` — `VoidCallback?`
+
+Note: `onCopyImage` was removed — `super_clipboard` image operations don't work on Android. "Save File" covers the use case.
 
 ### Emoji Source
 Imports `kReactionEmojis` from `lib/src/ui/chat/emoji_picker.dart` (30 curated emojis). Does NOT use the desktop's `showEmojiPicker()` overlay — embeds the grid directly in the sheet to avoid raw `OverlayEntry`.

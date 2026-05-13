@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -6,9 +7,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/models/channel_chat_message.dart';
 import 'package:hollow/src/core/models/chat_message.dart';
+import 'package:hollow/src/core/models/file_attachment.dart';
 import 'package:hollow/src/core/providers/banner_provider.dart';
 import 'package:hollow/src/core/providers/chat_provider.dart';
 import 'package:hollow/src/core/providers/channel_chat_provider.dart';
+import 'package:hollow/src/core/providers/file_transfer_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
@@ -64,6 +67,9 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
   final _editFocusNode = FocusNode();
   DateTime? _lastTypingSent;
   bool _isInAutoScrollZone = true;
+  String? _stagedFilePath;
+  String? _stagedFileName;
+  bool _stagedFileIsImage = false;
 
   @override
   void initState() {
@@ -143,7 +149,9 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
 
   Future<void> _handleSend() async {
     final text = _controller.text.trim();
-    if (text.isEmpty) return;
+    final filePath = _stagedFilePath;
+
+    if (text.isEmpty && filePath == null) return;
     _controller.clear();
     _lastTypingSent = null;
     _focusNode.requestFocus();
@@ -152,9 +160,28 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
       _replyToMessageId = null;
       _replyToText = null;
       _replyToSenderName = null;
+      _stagedFilePath = null;
+      _stagedFileName = null;
+      _stagedFileIsImage = false;
     });
 
-    if (widget.isDm) {
+    if (filePath != null) {
+      try {
+        final messageId = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+        await network_api.sendFile(
+          peerId: widget.isDm ? widget.peerId : null,
+          serverId: widget.isDm ? null : widget.serverId,
+          channelId: widget.isDm ? null : widget.channelId,
+          filePath: filePath,
+          messageId: messageId,
+          messageText: text,
+        );
+      } catch (e) {
+        if (mounted) {
+          HollowToast.show(context, 'Failed to send file', type: HollowToastType.error);
+        }
+      }
+    } else if (widget.isDm) {
       await ref.read(chatProvider.notifier).sendMessage(
             widget.peerId!,
             text,
@@ -213,6 +240,65 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
     _focusNode.requestFocus();
   }
 
+  Future<void> _saveFile(FileAttachment attachment) async {
+    if (attachment.diskPath == null) return;
+
+    try {
+      Uint8List bytes;
+      if (attachment.isImage && attachment.fileExt == 'webp') {
+        bytes = await network_api.convertImageFormat(
+          sourcePath: attachment.diskPath!,
+          targetFormat: 'png',
+        );
+      } else {
+        bytes = await File(attachment.diskPath!).readAsBytes();
+      }
+
+      final fileName = attachment.isImage && attachment.fileExt == 'webp'
+          ? '${attachment.fileName.contains('.') ? attachment.fileName.substring(0, attachment.fileName.lastIndexOf('.')) : attachment.fileName}.png'
+          : attachment.fileName;
+
+      final savePath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save file',
+        fileName: fileName,
+        bytes: bytes,
+      );
+      if (savePath == null) return;
+
+      if (mounted) {
+        HollowToast.show(context, 'File saved', type: HollowToastType.success);
+      }
+    } catch (e) {
+      if (mounted) {
+        HollowToast.show(context, 'Save failed: $e', type: HollowToastType.error);
+      }
+    }
+  }
+
+  Future<void> _requestFileFromPeer(FileAttachment attachment, String senderId) async {
+    if (senderId.isEmpty) {
+      if (mounted) {
+        HollowToast.show(context, 'Cannot download: unknown sender', type: HollowToastType.error);
+      }
+      return;
+    }
+    try {
+      if (mounted) {
+        HollowToast.show(context, 'Requesting file from peer...', type: HollowToastType.info);
+      }
+      await network_api.requestFileFromPeer(
+        fileId: attachment.fileId,
+        peerId: senderId,
+        chunks: [],
+      );
+    } catch (e) {
+      if (mounted) {
+        HollowToast.show(context, 'File request failed: $e', type: HollowToastType.error);
+      }
+    }
+  }
+
+
   @override
   Widget build(BuildContext context) {
     final hollow = HollowTheme.of(context);
@@ -244,12 +330,24 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
                   _replyToSenderName = null;
                 }),
               ),
+            if (_stagedFilePath != null)
+              _StagedFilePreview(
+                fileName: _stagedFileName ?? '',
+                filePath: _stagedFilePath!,
+                isImage: _stagedFileIsImage,
+                onCancel: () => setState(() {
+                  _stagedFilePath = null;
+                  _stagedFileName = null;
+                  _stagedFileIsImage = false;
+                }),
+              ),
             _MobileInputBar(
               controller: _controller,
               focusNode: _focusNode,
               onSend: _handleSend,
               onPickFile: _pickFile,
               onChanged: _onTextChanged,
+              hasStagedFile: _stagedFilePath != null,
             ),
           ],
         ),
@@ -526,6 +624,21 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
                   type: HollowToastType.success);
             }
           : null,
+      onDownload: msg.fileAttachment != null
+          ? () {
+              final att = msg.fileAttachment!;
+              final transfer = ref.read(fileTransferProvider)[att.fileId];
+              if (transfer != null && transfer.isDownloading) {
+                HollowToast.show(context, 'File is already downloading...', type: HollowToastType.info);
+                return;
+              }
+              if (att.diskPath != null) {
+                _saveFile(att);
+              } else {
+                _requestFileFromPeer(att, widget.peerId!);
+              }
+            }
+          : null,
       onReaction: msg.messageId != null
           ? (emoji) {
               final hasReacted =
@@ -585,6 +698,21 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
               Clipboard.setData(ClipboardData(text: msg.text));
               HollowToast.show(context, 'Copied to clipboard',
                   type: HollowToastType.success);
+            }
+          : null,
+      onDownload: msg.fileAttachment != null
+          ? () {
+              final att = msg.fileAttachment!;
+              final transfer = ref.read(fileTransferProvider)[att.fileId];
+              if (transfer != null && transfer.isDownloading) {
+                HollowToast.show(context, 'File is already downloading...', type: HollowToastType.info);
+                return;
+              }
+              if (att.diskPath != null) {
+                _saveFile(att);
+              } else {
+                _requestFileFromPeer(att, msg.senderId);
+              }
             }
           : null,
       onReaction: msg.messageId != null
@@ -851,6 +979,7 @@ class _MobileInputBar extends StatelessWidget {
   final VoidCallback onSend;
   final VoidCallback onPickFile;
   final ValueChanged<String> onChanged;
+  final bool hasStagedFile;
 
   const _MobileInputBar({
     required this.controller,
@@ -858,6 +987,7 @@ class _MobileInputBar extends StatelessWidget {
     required this.onSend,
     required this.onPickFile,
     required this.onChanged,
+    this.hasStagedFile = false,
   });
 
   @override
@@ -915,7 +1045,7 @@ class _MobileInputBar extends StatelessWidget {
           HollowPressable(
             onTap: onSend,
             borderRadius: BorderRadius.circular(hollow.radiusMd),
-            backgroundColor: hollow.accent,
+            backgroundColor: hasStagedFile ? hollow.accent : hollow.accent,
             padding: const EdgeInsets.all(HollowSpacing.sm + 2),
             child: Icon(LucideIcons.send, color: hollow.textOnAccent, size: 20),
           ),
@@ -981,6 +1111,84 @@ class _ReplyPreview extends StatelessWidget {
             borderRadius: BorderRadius.circular(hollow.radiusSm),
             padding: const EdgeInsets.all(HollowSpacing.xs),
             child: Icon(LucideIcons.x, size: 16, color: hollow.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────
+// Staged file preview (above input bar)
+// ─────────────────────────────────────────────────
+
+class _StagedFilePreview extends StatelessWidget {
+  final String fileName;
+  final String filePath;
+  final bool isImage;
+  final VoidCallback onCancel;
+
+  const _StagedFilePreview({
+    required this.fileName,
+    required this.filePath,
+    required this.isImage,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: HollowSpacing.md,
+        vertical: HollowSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: hollow.surface,
+        border: Border(top: BorderSide(color: hollow.border)),
+      ),
+      child: Row(
+        children: [
+          if (isImage)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
+              child: Image.file(
+                File(filePath),
+                width: 48,
+                height: 48,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stack) => Container(
+                  width: 48,
+                  height: 48,
+                  color: hollow.elevated,
+                  child: Icon(LucideIcons.image, size: 20, color: hollow.textSecondary),
+                ),
+              ),
+            )
+          else
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: hollow.elevated,
+                borderRadius: BorderRadius.circular(hollow.radiusSm),
+              ),
+              child: Icon(LucideIcons.file, size: 20, color: hollow.textSecondary),
+            ),
+          const SizedBox(width: HollowSpacing.sm),
+          Expanded(
+            child: Text(
+              fileName,
+              style: HollowTypography.body.copyWith(color: hollow.textPrimary),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          HollowPressable(
+            onTap: onCancel,
+            borderRadius: BorderRadius.circular(hollow.radiusSm),
+            padding: const EdgeInsets.all(HollowSpacing.xs),
+            child: Icon(LucideIcons.x, size: 18, color: hollow.textSecondary),
           ),
         ],
       ),

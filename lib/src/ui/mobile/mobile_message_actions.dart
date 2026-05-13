@@ -19,6 +19,7 @@ void showMobileMessageActions({
   VoidCallback? onEdit,
   VoidCallback? onDelete,
   VoidCallback? onCopy,
+  VoidCallback? onDownload,
   void Function(String emoji)? onReaction,
   VoidCallback? onInfo,
 }) {
@@ -38,6 +39,7 @@ void showMobileMessageActions({
       onEdit: onEdit,
       onDelete: onDelete,
       onCopy: onCopy,
+      onDownload: onDownload,
       onReaction: onReaction,
       onInfo: onInfo,
     ),
@@ -55,6 +57,7 @@ class _MessageActionsSheet extends StatefulWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final VoidCallback? onCopy;
+  final VoidCallback? onDownload;
   final void Function(String emoji)? onReaction;
   final VoidCallback? onInfo;
 
@@ -67,6 +70,7 @@ class _MessageActionsSheet extends StatefulWidget {
     this.onEdit,
     this.onDelete,
     this.onCopy,
+    this.onDownload,
     this.onReaction,
     this.onInfo,
   });
@@ -165,6 +169,15 @@ class _MessageActionsSheetState extends State<_MessageActionsSheet> {
             onTap: () {
               Navigator.pop(context);
               widget.onCopy!();
+            },
+          ),
+        if (widget.onDownload != null)
+          _ActionRow(
+            icon: LucideIcons.download,
+            label: 'Save File',
+            onTap: () {
+              Navigator.pop(context);
+              widget.onDownload!();
             },
           ),
         if (widget.onInfo != null)

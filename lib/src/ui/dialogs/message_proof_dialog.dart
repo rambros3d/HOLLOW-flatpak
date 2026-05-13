@@ -147,6 +147,7 @@ class _MessageProofDialogContentState
 
   Future<void> _exportProofFile(BuildContext context) async {
     final json = _proofJsonString();
+    final jsonBytes = Uint8List.fromList(utf8.encode(json));
     final defaultName = 'hollow-proof-${proof.messageId ?? proof.timestampMs}.json';
     try {
       final savePath = await FilePicker.platform.saveFile(
@@ -154,10 +155,13 @@ class _MessageProofDialogContentState
         fileName: defaultName,
         type: FileType.custom,
         allowedExtensions: ['json'],
+        bytes: jsonBytes,
       );
       if (savePath == null) return;
-      final path = savePath.endsWith('.json') ? savePath : '$savePath.json';
-      await File(path).writeAsString(json);
+      if (!Platform.isAndroid && !Platform.isIOS) {
+        final path = savePath.endsWith('.json') ? savePath : '$savePath.json';
+        await File(path).writeAsString(json);
+      }
       if (context.mounted) {
         HollowToast.show(
           context,

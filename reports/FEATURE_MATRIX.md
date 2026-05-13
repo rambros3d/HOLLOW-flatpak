@@ -36,18 +36,18 @@
 
 | # | Feature | Desktop File(s) | Mobile | Interaction | Notes |
 |---|---------|-----------------|--------|-------------|-------|
-| 14 | Send file attachment | `chat_pane.dart`, `chat_drop_zone.dart` | Partial | Click paperclip / drag-drop | Mobile: file picker only, no drag-drop |
-| 15 | Image inline display | `file_attachment_widget.dart` | Partial | Click → fullscreen | Max 300×250, aspect preserved |
-| 16 | Image fullscreen lightbox | `file_attachment_widget.dart` | Not impl | Click image | Full-size modal viewer |
-| 17 | Video thumbnail display | `video_message_bubble.dart` | Not impl | Click → play | Custom player with controls |
-| 18 | Video inline playback | `video_message_bubble.dart` | Not impl | Click play | Auto-fade controls, fullscreen toggle |
-| 19 | Audio playback inline | `audio_message_bubble.dart` | Not impl | Click play | Waveform scrubber, Windows Opus transcode |
-| 20 | Download file | `file_attachment_widget.dart` | Not impl | Hover → download | Save dialog with optional conversion |
-| 21 | Copy image to clipboard | `message_action_bar.dart` | Not impl | Hover → image copy | Copies image bytes |
-| 22 | Paste image from clipboard | `chat_input_shortcuts.dart` | Not impl | Ctrl+V | Auto-detects PNG/JPEG/GIF/BMP/WebP |
-| 23 | Drag-drop file into chat | `chat_drop_zone.dart` | Not impl | Drag file over area | Overlay feedback on drag-over |
-| 24 | File progress indicator | `download_manager_popup.dart` | Not impl | Download manager popup | Active downloads with progress bars |
-| 25 | Download manager popup | `download_manager_popup.dart` | Not impl | Click icon to toggle | All active downloads with pause/cancel/retry |
+| 14 | Send file attachment | `chat_pane.dart`, `chat_drop_zone.dart` | Done | Click paperclip / file picker | Mobile: file picker only, no drag-drop (N/A on mobile) |
+| 15 | Image inline display | `file_attachment_widget.dart` | Done | Tap → fullscreen | Uses desktop widget, renders inline |
+| 16 | Image fullscreen lightbox | `file_attachment_widget.dart` | Done | Tap image | Uses desktop fullscreen viewer |
+| 17 | Video thumbnail display | `video_message_bubble.dart` | Done | Tap → play | Uses desktop video player widget |
+| 18 | Video inline playback | `video_message_bubble.dart` | Done | Tap play | Uses desktop video player widget |
+| 19 | Audio playback inline | `audio_message_bubble.dart` | Done | Tap play | Uses desktop audio player widget |
+| 20 | Download file | `file_attachment_widget.dart`, `mobile_chat_route.dart` | Done | Long-press → Save File | Bottom sheet action, save dialog with WebP conversion |
+| 21 | Copy image to clipboard | `chat_input_shortcuts.dart` | N/A | Hover → image copy | Desktop only (super_clipboard unreliable on Android); Save File covers mobile |
+| 22 | Paste image from clipboard | `chat_input_shortcuts.dart` | N/A | Ctrl+V | Desktop only; mobile uses file picker + Android native paste |
+| 23 | Drag-drop file into chat | `chat_drop_zone.dart` | N/A | Drag file over area | Desktop only |
+| 24 | File progress indicator | `download_manager_popup.dart` | Done | Inline in message | Uses desktop progress widget |
+| 25 | Download manager popup | `download_manager_popup.dart` | N/A | Click icon to toggle | Desktop popup, not applicable to mobile |
 
 ## 3. Chat — Link Previews
 
@@ -487,7 +487,7 @@
 
 | Category | Total | Done | Partial | Not Impl | N/A |
 |----------|-------|------|---------|----------|-----|
-| Chat (messaging) | 71 | 11 | 14 | 41 | 5 |
+| Chat (messaging) | 71 | 19 | 12 | 31 | 9 |
 | Server/Channel | 40 | 0 | 7 | 33 | 0 |
 | Profile/Identity | 16 | 0 | 4 | 12 | 0 |
 | Friends/Social | 17 | 10 | 2 | 5 | 0 |
@@ -504,9 +504,17 @@
 | Components | 11 | 4 | 4 | 2 | 1 |
 | Context Menus | 6 | 1 | 0 | 5 | 0 |
 | Misc | 5 | 1 | 1 | 3 | 0 |
-| **TOTAL** | **288** | **29** | **44** | **193** | **22** |
+| **TOTAL** | **288** | **37** | **42** | **183** | **26** |
 
-**Mobile coverage: 10% done, 15% partial, 67% not implemented, 8% desktop-only (N/A)**
+**Mobile coverage: 13% done, 15% partial, 64% not implemented, 9% desktop-only (N/A)**
+
+### Session 2026-05-13 Progress
+- **Section 2 complete (8 done, 4 N/A)**: Image display, lightbox, video, audio, save file, file progress all working
+- **+8 features done**: #14-20, #24. N/A: #21-23, #25 (clipboard image, drag-drop, download popup — desktop only)
+- **New mobile action**: "Save File" in long-press bottom sheet (reads bytes → FilePicker.saveFile with `bytes:` for Android)
+- **Android fix**: FilePicker.saveFile requires `bytes:` param on Android (crashes without it)
+- **Android fix**: Added super_clipboard ContentProvider to AndroidManifest.xml (image clipboard still unreliable — deferred)
+- **Staged file preview**: Shows thumbnail + filename above input bar with cancel button
 
 ### Session 2026-05-12 Progress
 - **+12 features done**: Send message, Edit, Delete, Copy, Reactions (add/remove/view), Reply (action + preview in bubble), Message action sheet, Message Info dialog
