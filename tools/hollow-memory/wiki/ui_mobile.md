@@ -52,20 +52,32 @@ Bottom bar (56px) with 4 `_NavTab` widgets. Badges:
 - `_editController` / `_editFocusNode` — edit TextField controllers
 - `_lastTypingSent` — 3s throttle for typing indicators
 - `_isInAutoScrollZone` — auto-scroll on new messages
-- `_stagedFilePath` / `_stagedFileName` / `_stagedFileIsImage` — staged file attachment (clipboard paste or future use)
+- `_stagedFilePath` / `_stagedFileName` / `_stagedFileIsImage` — staged file attachment
+- `_isRecordingVoice` — swaps input bar for VoiceRecorderBar
+- `_searchOpen` / `_searchController` / `_searchFocusNode` / `_searchResults` — channel search
+- `_highlightIndex` — search result highlight (auto-clears after 1.5s)
+- `_channelKey` — getter for `'$serverId:$channelId'` (channelChatProvider map key)
+
+### Provider Management (Critical)
+On entry: `_openDmChat` sets `selectedPeerProvider`, clears `selectedServerProvider`. `_openChannelChat` sets both `selectedServerProvider` and `selectedChannelProvider`.
+On exit: `dispose()` clears these providers so the event provider doesn't treat the user as still viewing the chat.
 
 ### Widget Tree
 ```
 Scaffold
 ├── SafeArea
 │   └── Column
-│       ├── _MobileChatHeader (back button, name, status)
-│       ├── Expanded → ScrollablePositionedList.builder
-│       │   └── _LongPressMessage → MessageBubble / ChannelMessageBubble
+│       ├── _MobileChatHeader (back, name, status, search icon, mute bell)
+│       ├── _buildSearchBar (channel only, when _searchOpen)
+│       ├── Expanded → Stack
+│       │   ├── ScrollablePositionedList.builder (initialScrollIndex: messages.length, initialAlignment: 1.0)
+│       │   │   └── _LongPressMessage → MessageBubble / ChannelMessageBubble (isHighlighted for search)
+│       │   └── Builder → unread pill (DM + channel, "N new messages")
 │       ├── _TypingBar
 │       ├── _ReplyPreview (if replying)
-│       ├── _StagedFilePreview (if file staged — thumbnail + name + cancel)
-│       └── _MobileInputBar (attach + text + send)
+│       ├── StagedHollowLinkCard / StagedLinkPreviewCard (link preview)
+│       ├── _StagedFilePreview (if file staged)
+│       └── VoiceRecorderBar (if _isRecordingVoice) OR _MobileInputBar (paperclip + mic + text + send)
 ```
 
 ### Message Rendering

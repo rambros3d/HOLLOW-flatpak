@@ -801,6 +801,7 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String serverId,
     required String channelId,
     required String fromPeer,
+    required String messageId,
     required bool hasEveryone,
     required List<String> mentionedNames,
     required bool isReply,

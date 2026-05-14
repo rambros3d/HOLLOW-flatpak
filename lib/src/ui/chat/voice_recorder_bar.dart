@@ -94,7 +94,7 @@ class _VoiceRecorderBarState extends ConsumerState<VoiceRecorderBar>
       if (!mounted) return;
       HollowToast.show(
         context,
-        'Voice encoder unavailable (ffmpeg missing)',
+        'Voice encoder unavailable',
         type: HollowToastType.error,
       );
       widget.onCancelled();
@@ -281,6 +281,5 @@ class _WaveformPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _WaveformPainter old) =>
-      old.samples.length != samples.length || old.color != color;
+  bool shouldRepaint(covariant _WaveformPainter old) => true;
 }

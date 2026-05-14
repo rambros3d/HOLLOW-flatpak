@@ -20,6 +20,7 @@ class UnreadNotifier extends Notifier<UnreadState> {
   UnreadState build() => const UnreadState();
 
   /// Load last-seen state from DB on startup and compute actual unread counts.
+  /// Respects notification settings (All/Mentions/Nothing) from the start.
   Future<void> loadAll(
       Map<String, List<String>> serverChannels,
       List<String> dmPeerIds) async {
@@ -27,27 +28,38 @@ class UnreadNotifier extends Notifier<UnreadState> {
     final dmSeen = <String, String>{};
     final channelCounts = <String, int>{};
     final dmCounts = <String, int>{};
+    final notifSettings = ref.read(notificationSettingsProvider.notifier);
+    final localPeerId = ref.read(identityProvider).peerId ?? '';
+    final localName = displayNameFor(ref.read(profileProvider), localPeerId);
 
     for (final entry in serverChannels.entries) {
+      final serverId = entry.key;
+      final nicknames = ref.read(serverNicknamesProvider(serverId));
+      final localNick = nicknames[localPeerId];
+      final mentionPatterns = <String>['@everyone', '@$localName'];
+      if (localNick != null && localNick.isNotEmpty) {
+        mentionPatterns.add('@$localNick');
+      }
+
       for (final cid in entry.value) {
-        final stateKey = '${entry.key}:$cid';
+        final stateKey = '$serverId:$cid';
+        final level = notifSettings.effectiveChannelLevel(serverId, cid);
+        if (level == NotificationLevel.nothing) continue;
+
         final val = await storage_api.loadSetting(key: 'seen:ch:$stateKey');
         try {
-          final int count;
           if (val != null) {
             channelSeen[stateKey] = val;
-            count = await storage_api.countUnreadChannel(
-              serverId: entry.key,
-              channelId: cid,
-              lastSeenMessageId: val,
-            );
-          } else {
-            // Never opened — count all messages from others.
-            count = await storage_api.countAllUnreadChannel(
-              serverId: entry.key,
-              channelId: cid,
-            );
           }
+          final result = await storage_api.countUnreadChannelWithMentions(
+            serverId: serverId,
+            channelId: cid,
+            lastSeenMessageId: val,
+            mentionPatterns: mentionPatterns,
+          );
+          final count = level == NotificationLevel.mentions
+              ? result.mentions
+              : result.total;
           if (count > 0) channelCounts[stateKey] = count;
         } catch (_) {}
       }
@@ -113,18 +125,20 @@ class UnreadNotifier extends Notifier<UnreadState> {
           mentionPatterns: mentionPatterns,
         );
 
-        final unreadCount = level == NotificationLevel.mentions
+        final dbCount = level == NotificationLevel.mentions
             ? result.mentions
             : result.total;
-        // Keep the higher of DB count vs existing in-memory count.
-        // In-memory may include hint-based increments not yet in DB.
+        // Keep the higher of DB vs in-memory. In-memory may include
+        // hint-based increments for channels whose messages haven't
+        // been synced to DB yet (only the viewed channel syncs).
+        // Message-ID dedup prevents double-counting from hints.
         final existingCount = updatedCounts[key] ?? 0;
         final existingMentions = updatedMentions[key] ?? 0;
-        final finalUnread = unreadCount > existingCount ? unreadCount : existingCount;
+        final finalCount = dbCount > existingCount ? dbCount : existingCount;
         final finalMentions = result.mentions > existingMentions ? result.mentions : existingMentions;
-        debugPrint('[HOLLOW-UNREAD] recompute $key: level=$level total=${result.total} mentions=${result.mentions} existing=$existingCount → final=$finalUnread lastSeen=$lastSeen');
-        if (finalUnread > 0) {
-          updatedCounts[key] = finalUnread;
+        debugPrint('[HOLLOW-UNREAD] recompute $key: level=$level db=$dbCount existing=$existingCount → $finalCount lastSeen=$lastSeen');
+        if (finalCount > 0) {
+          updatedCounts[key] = finalCount;
         } else {
           updatedCounts.remove(key);
         }

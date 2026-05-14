@@ -239,6 +239,7 @@ pub(crate) async fn handle_send_channel_message(
         let hint = HavenMessage::ChannelNotificationHint {
             server_id: server_id.clone(),
             channel_id: channel_id.clone(),
+            message_id: message_id.clone(),
             has_everyone,
             mentioned_names,
             is_reply: reply_to_mid.is_some(),

@@ -874,10 +874,10 @@ class _ChannelTile extends ConsumerWidget {
     final radius = BorderRadius.circular(hollow.radiusMd);
     final isMuted = ref.watch(notificationSettingsProvider
         .select((s) => s.isChannelMuted(serverId, channel.channelId)));
-    final hasUnread = !isSelected &&
-        !isMuted &&
-        ref.watch(unreadProvider
-            .select((s) => s.isChannelUnread(serverId, channel.channelId)));
+    final unreadCount = isSelected ? 0 :
+        (isMuted ? 0 : ref.watch(unreadProvider
+            .select((s) => s.channelUnreadCount(serverId, channel.channelId))));
+    final hasUnread = unreadCount > 0;
     final mentionCount = isSelected ? 0 :
         ref.watch(unreadProvider
             .select((s) => s.channelMentions(serverId, channel.channelId)));
@@ -936,11 +936,15 @@ class _ChannelTile extends ConsumerWidget {
               )
             else if (hasUnread)
               Container(
-                width: 8,
-                height: 8,
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 decoration: BoxDecoration(
-                  color: hollow.accent,
-                  shape: BoxShape.circle,
+                  color: hollow.error,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Text(
+                  unreadCount > 99 ? '99+' : '$unreadCount',
+                  style: HollowTypography.caption.copyWith(
+                    color: Colors.white, fontWeight: FontWeight.w700, fontSize: 10),
                 ),
               ),
           ],

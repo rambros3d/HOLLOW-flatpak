@@ -4,15 +4,19 @@
 
 File: `lib/src/core/services/voice_message_recorder.dart`
 
-One-shot voice message recorder that captures PCM audio from the microphone and encodes it to Opus via the bundled ffmpeg. Used by `lib/src/ui/chat/voice_recorder_bar.dart`.
+One-shot voice message recorder with platform-specific encoding paths. Used by `lib/src/ui/chat/voice_recorder_bar.dart`.
 
-### Why ffmpeg instead of native Opus
+### Platform paths
 
-Windows' Media Foundation (which `record_windows` wraps) does not ship an Opus MFT. Calling `record`'s native Opus encoder on Windows throws "Not implemented". The recorder captures raw PCM16LE via the `record` package and pipes it through the bundled ffmpeg (libopus) which works identically on every desktop platform.
+**Desktop (Windows/macOS/Linux):** Captures raw PCM16LE via `record` package `startStream()` and pipes through bundled ffmpeg (libopus) to encode Opus/OGG. Needed because Windows Media Foundation lacks Opus MFT.
+
+**Mobile (Android/iOS):** Uses `record` package native `AudioEncoder.opus` with file-based `start()`. Android's `MediaRecorder` supports native Opus. No ffmpeg needed (not bundled on mobile).
+
+`_isMobile` static getter (`Platform.isAndroid || Platform.isIOS`) selects the path. `start()`, `stop()`, `cancel()`, and `dispose()` all branch on this.
 
 ### Encoding profile
 
-- **Input:** PCM16LE, 16 kHz mono (captured via `rec.AudioRecorder.startStream()` with `rec.AudioEncoder.pcm16bits`)
+- **Input:** PCM16LE 16 kHz mono (desktop) / native Opus (mobile)
 - **Output:** Opus in Ogg container, 16 kHz mono, 24 kbps VBR, `voip` application mode
 - **Size:** ~90 KB per 30 seconds of speech
 - **Output path:** `%APPDATA%/Hollow/temp/voice_{timestamp}_{random}.ogg` (or `$HOME/Hollow/temp/` on non-Windows)

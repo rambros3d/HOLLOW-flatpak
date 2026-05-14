@@ -171,6 +171,7 @@ pub enum NetworkEvent {
     FriendRemoved { peer_id: String },
     ChannelNotificationHint {
         server_id: String, channel_id: String, from_peer: String,
+        message_id: String,
         has_everyone: bool, mentioned_names: Vec<String>, is_reply: bool,
     },
     // -- Typing indicator events (Phase 3.5) --
@@ -644,10 +645,10 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
             NetworkEvent::FriendRemoved { peer_id }
         }
         node::NetworkEvent::ChannelNotificationHint {
-            server_id, channel_id, from_peer, has_everyone, mentioned_names, is_reply,
+            server_id, channel_id, from_peer, message_id, has_everyone, mentioned_names, is_reply,
         } => {
             NetworkEvent::ChannelNotificationHint {
-                server_id, channel_id, from_peer, has_everyone, mentioned_names, is_reply,
+                server_id, channel_id, from_peer, message_id, has_everyone, mentioned_names, is_reply,
             }
         }
         node::NetworkEvent::TypingStarted { peer_id, server_id, channel_id } => {

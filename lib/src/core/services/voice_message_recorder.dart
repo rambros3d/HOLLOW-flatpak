@@ -11,12 +11,14 @@ import 'package:hollow/src/core/services/video_thumbnail_service.dart';
 
 /// Fixed encoding profile for voice messages.
 ///
-/// PCM16 captured by the `record` package is piped into the bundled ffmpeg
-/// and re-encoded as Opus in an Ogg container (16 kHz mono, 24 kbps). We go
-/// through ffmpeg instead of `record`'s native Opus encoder because on
-/// Windows the `record_windows` plugin relies on Media Foundation, which
-/// does not ship an Opus MFT — so native Opus throws "Not implemented".
-/// ffmpeg (libopus) works identically on every desktop platform.
+/// **Desktop (Windows/macOS/Linux):** PCM16 captured by the `record` package
+/// is piped into the bundled ffmpeg and re-encoded as Opus in an Ogg container
+/// (16 kHz mono, 24 kbps). We go through ffmpeg because on Windows the
+/// `record_windows` plugin relies on Media Foundation, which does not ship an
+/// Opus MFT.
+///
+/// **Mobile (Android/iOS):** The `record` package encodes Opus natively via
+/// Android's `MediaRecorder` / iOS's `AVAudioRecorder`. No ffmpeg needed.
 ///
 /// ~90 KB per 30s of speech — Discord/WhatsApp-tier quality-per-byte.
 class VoiceRecordingResult {
@@ -31,6 +33,8 @@ class VoiceMessageRecorder {
   static const int _sampleRate = 16000;
   static const int _bitRateKbps = 24;
   static const Duration _ampInterval = Duration(milliseconds: 100);
+
+  static bool get _isMobile => Platform.isAndroid || Platform.isIOS;
 
   final rec.AudioRecorder _recorder = rec.AudioRecorder();
 
@@ -55,18 +59,59 @@ class VoiceMessageRecorder {
   bool _started = false;
 
   /// Throws [RecorderPermissionException] if mic permission is denied, or
-  /// [RecorderFfmpegMissingException] if the bundled ffmpeg can't be found.
+  /// [RecorderFfmpegMissingException] if the bundled ffmpeg can't be found
+  /// (desktop only — mobile uses native Opus encoder).
   Future<void> start({String? preferredDeviceId}) async {
     if (!await _recorder.hasPermission()) {
       throw const RecorderPermissionException();
     }
 
+    _outPath = await _buildTempPath();
+
+    if (_isMobile) {
+      await _startMobile(preferredDeviceId: preferredDeviceId);
+    } else {
+      await _startDesktop(preferredDeviceId: preferredDeviceId);
+    }
+  }
+
+  /// Mobile path: record directly to .ogg via native Opus encoder.
+  Future<void> _startMobile({String? preferredDeviceId}) async {
+    await _recorder.start(
+      rec.RecordConfig(
+        encoder: rec.AudioEncoder.opus,
+        numChannels: 1,
+        sampleRate: _sampleRate,
+        bitRate: _bitRateKbps * 1000,
+        device: (preferredDeviceId != null && preferredDeviceId.isNotEmpty)
+            ? rec.InputDevice(id: preferredDeviceId, label: '')
+            : null,
+      ),
+      path: _outPath!,
+    );
+    _started = true;
+    _startedAt = DateTime.now();
+
+    _ampSub = _recorder.onAmplitudeChanged(_ampInterval).listen((amp) {
+      if (_disposed) return;
+      const minDb = -60.0;
+      final clamped = amp.current.clamp(minDb, 0.0);
+      final level = (clamped - minDb) / (0.0 - minDb);
+      _ampController.add(level);
+    });
+    _elapsedTimer = Timer.periodic(_ampInterval, (_) {
+      final start = _startedAt;
+      if (start == null || _disposed) return;
+      _elapsedController.add(DateTime.now().difference(start));
+    });
+  }
+
+  /// Desktop path: capture PCM and pipe through bundled ffmpeg for Opus encoding.
+  Future<void> _startDesktop({String? preferredDeviceId}) async {
     final ffmpegPath = VideoThumbnailService.findFfmpegBinary();
     if (ffmpegPath == null) {
       throw const RecorderFfmpegMissingException();
     }
-
-    _outPath = await _buildTempPath();
 
     // Spawn ffmpeg reading raw PCM16LE from stdin, encoding libopus → .ogg.
     _ffmpeg = await Process.start(
@@ -96,11 +141,8 @@ class VoiceMessageRecorder {
         .transform(const SystemEncoding().decoder)
         .listen(_stderrBuf.write);
 
-    // Drain stdout (ffmpeg writes nothing useful there at -loglevel error,
-    // but an unread pipe will eventually block the child).
     _ffmpeg!.stdout.drain<void>();
 
-    // Start PCM capture and forward to ffmpeg stdin.
     final stream = await _recorder.startStream(
       rec.RecordConfig(
         encoder: rec.AudioEncoder.pcm16bits,
@@ -119,9 +161,7 @@ class VoiceMessageRecorder {
       if (proc == null) return;
       try {
         proc.stdin.add(chunk);
-      } catch (_) {
-        // Pipe closed — cleanup runs in stop/cancel.
-      }
+      } catch (_) {}
     });
 
     _ampSub = _recorder.onAmplitudeChanged(_ampInterval).listen((amp) {
@@ -146,7 +186,19 @@ class VoiceMessageRecorder {
         : Duration.zero;
     await _teardownCapture();
 
-    // Close ffmpeg stdin so the encoder flushes + exits.
+    final outPath = _outPath;
+
+    if (_isMobile) {
+      // Mobile: recorder wrote directly to file, just verify output.
+      if (outPath == null) return null;
+      final outFile = File(outPath);
+      if (!await outFile.exists() || await outFile.length() == 0) {
+        return null;
+      }
+      return VoiceRecordingResult(filePath: outPath, duration: dur);
+    }
+
+    // Desktop: close ffmpeg stdin so the encoder flushes + exits.
     final proc = _ffmpeg;
     if (proc == null) return null;
     try {
@@ -163,10 +215,8 @@ class VoiceMessageRecorder {
     });
     _ffmpeg = null;
 
-    final outPath = _outPath;
     if (code != 0 || outPath == null) {
       _log('[VoiceRecorder] ffmpeg exit=$code stderr=${_stderrBuf.toString()}');
-      // Best-effort cleanup of partial file.
       if (outPath != null) {
         try { await File(outPath).delete(); } catch (_) {}
       }
@@ -182,15 +232,17 @@ class VoiceMessageRecorder {
   /// Stop recording and delete the partial file.
   Future<void> cancel() async {
     await _teardownCapture();
-    final proc = _ffmpeg;
-    if (proc != null) {
-      try { await proc.stdin.close(); } catch (_) {}
-      proc.kill();
-      try {
-        await _ffmpegExit!.future
-            .timeout(const Duration(seconds: 3), onTimeout: () => -1);
-      } catch (_) {}
-      _ffmpeg = null;
+    if (!_isMobile) {
+      final proc = _ffmpeg;
+      if (proc != null) {
+        try { await proc.stdin.close(); } catch (_) {}
+        proc.kill();
+        try {
+          await _ffmpegExit!.future
+              .timeout(const Duration(seconds: 3), onTimeout: () => -1);
+        } catch (_) {}
+        _ffmpeg = null;
+      }
     }
     final outPath = _outPath;
     if (outPath != null) {
@@ -205,11 +257,13 @@ class VoiceMessageRecorder {
     if (_disposed) return;
     _disposed = true;
     await _teardownCapture();
-    final proc = _ffmpeg;
-    if (proc != null) {
-      try { await proc.stdin.close(); } catch (_) {}
-      proc.kill();
-      _ffmpeg = null;
+    if (!_isMobile) {
+      final proc = _ffmpeg;
+      if (proc != null) {
+        try { await proc.stdin.close(); } catch (_) {}
+        proc.kill();
+        _ffmpeg = null;
+      }
     }
     await _recorder.dispose();
     await _ampController.close();

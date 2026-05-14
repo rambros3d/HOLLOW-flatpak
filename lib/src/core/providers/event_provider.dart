@@ -61,10 +61,10 @@ class EventStreamNotifier extends Notifier<bool> {
   /// Maps share rootHash → file ID for bridging Share events to file transfer state.
   final Map<String, String> _shareToFileId = {};
 
-  /// Dedup: channels that received a live ChannelMessageReceived recently.
-  /// Prevents double-counting when ChannelNotificationHint arrives for subscribed channels.
-  final Set<String> _recentLiveChannels = {};
-  Timer? _recentLiveChannelsClearTimer;
+  /// Dedup: message IDs already processed via ChannelMessageReceived.
+  /// When a ChannelNotificationHint arrives with a message_id we've
+  /// already counted, we skip it to prevent double-counting.
+  final Set<String> _processedChannelMessageIds = {};
 
   /// Servers that have completed their initial message sync.
   /// Share-backed files are only auto-downloaded for live messages (post-sync),
@@ -210,12 +210,11 @@ class EventStreamNotifier extends Notifier<bool> {
               serverId, channelId, messageId, isViewingChannel,
               isMention: isMentioned);
         }
-        // Always track live messages for dedup (even if mention-filtered).
-        if (!isChannelMuted) {
-          _recentLiveChannels.add('$serverId:$channelId');
-          _recentLiveChannelsClearTimer?.cancel();
-          _recentLiveChannelsClearTimer = Timer(
-            const Duration(seconds: 2), () => _recentLiveChannels.clear());
+        // Track message ID for hint dedup (even if mention-filtered).
+        _processedChannelMessageIds.add(messageId);
+        if (_processedChannelMessageIds.length > 500) {
+          final toRemove = _processedChannelMessageIds.take(250).toList();
+          _processedChannelMessageIds.removeAll(toRemove);
         }
         // System notification for channel message.
         if (!isViewingChannel && !isChannelMuted && !isMentionFiltered) {
@@ -332,16 +331,14 @@ class EventStreamNotifier extends Notifier<bool> {
           ref.read(channelListProvider.notifier).loadForServer(serverId);
           ref.read(channelLayoutProvider.notifier).loadForServer(serverId);
         }
-        // Recompute server unread counts after CRDT sync. This ensures
-        // badges show on startup even if channel message sync hasn't
-        // completed yet (loadAll ran before the node connected).
-        if (ref.read(selectedServerProvider) != serverId) {
-          crdt_api.getServerChannels(serverId: serverId).then((channels) {
-            final channelIds = channels.map((c) => c.channelId).toList();
-            ref.read(unreadProvider.notifier).recomputeServerUnread(
-                serverId, channelIds);
-          }).catchError((_) {});
-        }
+        // Recompute server unread counts after CRDT sync. Runs for ALL
+        // servers (including selected) to pick up messages that arrived
+        // while the app was offline.
+        crdt_api.getServerChannels(serverId: serverId).then((channels) {
+          final channelIds = channels.map((c) => c.channelId).toList();
+          ref.read(unreadProvider.notifier).recomputeServerUnread(
+              serverId, channelIds);
+        }).catchError((_) {});
 
       case NetworkEvent_ServerJoined(:final serverId, :final name):
         debugPrint('[HOLLOW] Server joined: $name ($serverId)');
@@ -600,6 +597,7 @@ class EventStreamNotifier extends Notifier<bool> {
       // -- Channel notification hints (unsubscribed channel awareness) --
       case NetworkEvent_ChannelNotificationHint(
             :final serverId, :final channelId, :final fromPeer,
+            :final messageId,
             :final hasEveryone, :final mentionedNames, :final isReply):
         // Ignore own hints.
         final localPeerId = ref.read(identityProvider).peerId ?? '';
@@ -609,13 +607,9 @@ class EventStreamNotifier extends Notifier<bool> {
             ref.read(selectedServerProvider) == serverId &&
             ref.read(selectedChannelProvider) == channelId;
         if (isViewingChannel) break;
-        // Skip if this channel is subscribed via topic routing (receives live
-        // ChannelMessageReceived events). Subscribed = selected channel OR
-        // any channel with existing unread count.
-        final isSubscribed = _recentLiveChannels.contains('$serverId:$channelId') ||
-            (ref.read(selectedServerProvider) == serverId &&
-             ref.read(unreadProvider.notifier).isChannelUnread(serverId, channelId));
-        if (isSubscribed) break;
+        // Deterministic dedup: skip if we already processed this message
+        // via ChannelMessageReceived (subscribed channel).
+        if (messageId.isNotEmpty && _processedChannelMessageIds.contains(messageId)) break;
         final channelNotifLevel = ref
             .read(notificationSettingsProvider.notifier)
             .effectiveChannelLevel(serverId, channelId);
@@ -629,9 +623,13 @@ class EventStreamNotifier extends Notifier<bool> {
             (localNick != null && mentionedNames.contains(localNick)) ||
             isReply;
         if (channelNotifLevel == NotificationLevel.mentions && !isMentioned) break;
+        // Use the real message ID (not a synthetic hint- ID).
+        final hintMid = messageId.isNotEmpty
+            ? messageId
+            : 'hint-${DateTime.now().millisecondsSinceEpoch}';
+        _processedChannelMessageIds.add(hintMid);
         ref.read(unreadProvider.notifier).onChannelMessage(
-            serverId, channelId,
-            'hint-${DateTime.now().millisecondsSinceEpoch}',
+            serverId, channelId, hintMid,
             false, isMention: isMentioned);
 
       // -- Typing indicator events (Phase 3.5) --

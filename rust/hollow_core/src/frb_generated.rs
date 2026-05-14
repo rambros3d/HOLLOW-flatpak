@@ -7706,6 +7706,7 @@ impl SseDecode for crate::api::network::NetworkEvent {
                 let mut var_serverId = <String>::sse_decode(deserializer);
                 let mut var_channelId = <String>::sse_decode(deserializer);
                 let mut var_fromPeer = <String>::sse_decode(deserializer);
+                let mut var_messageId = <String>::sse_decode(deserializer);
                 let mut var_hasEveryone = <bool>::sse_decode(deserializer);
                 let mut var_mentionedNames = <Vec<String>>::sse_decode(deserializer);
                 let mut var_isReply = <bool>::sse_decode(deserializer);
@@ -7713,6 +7714,7 @@ impl SseDecode for crate::api::network::NetworkEvent {
                     server_id: var_serverId,
                     channel_id: var_channelId,
                     from_peer: var_fromPeer,
+                    message_id: var_messageId,
                     has_everyone: var_hasEveryone,
                     mentioned_names: var_mentionedNames,
                     is_reply: var_isReply,
@@ -10123,6 +10125,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::network::NetworkEvent {
                 server_id,
                 channel_id,
                 from_peer,
+                message_id,
                 has_everyone,
                 mentioned_names,
                 is_reply,
@@ -10131,6 +10134,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::network::NetworkEvent {
                 server_id.into_into_dart().into_dart(),
                 channel_id.into_into_dart().into_dart(),
                 from_peer.into_into_dart().into_dart(),
+                message_id.into_into_dart().into_dart(),
                 has_everyone.into_into_dart().into_dart(),
                 mentioned_names.into_into_dart().into_dart(),
                 is_reply.into_into_dart().into_dart(),
@@ -12075,6 +12079,7 @@ impl SseEncode for crate::api::network::NetworkEvent {
                 server_id,
                 channel_id,
                 from_peer,
+                message_id,
                 has_everyone,
                 mentioned_names,
                 is_reply,
@@ -12083,6 +12088,7 @@ impl SseEncode for crate::api::network::NetworkEvent {
                 <String>::sse_encode(server_id, serializer);
                 <String>::sse_encode(channel_id, serializer);
                 <String>::sse_encode(from_peer, serializer);
+                <String>::sse_encode(message_id, serializer);
                 <bool>::sse_encode(has_everyone, serializer);
                 <Vec<String>>::sse_encode(mentioned_names, serializer);
                 <bool>::sse_encode(is_reply, serializer);

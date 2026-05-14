@@ -92,6 +92,7 @@ pub(crate) enum NetworkEvent {
     FriendRemoved { peer_id: String },
     ChannelNotificationHint {
         server_id: String, channel_id: String, from_peer: String,
+        message_id: String,
         has_everyone: bool, mentioned_names: Vec<String>, is_reply: bool,
     },
     // -- Typing indicator events (Phase 3.5) --
@@ -619,6 +620,8 @@ pub(crate) enum HavenMessage {
     ChannelNotificationHint {
         server_id: String,
         channel_id: String,
+        #[serde(default)]
+        message_id: String,
         #[serde(default)]
         has_everyone: bool,
         #[serde(default)]

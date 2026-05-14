@@ -62,22 +62,22 @@
 
 | # | Feature | Desktop File(s) | Mobile | Interaction | Notes |
 |---|---------|-----------------|--------|-------------|-------|
-| 30 | Record voice message | `voice_recorder_bar.dart` | Not impl | Click mic button | OGG Opus, 34hr limit, waveform viz. **Mobile:** mic button in input bar, hold-to-record or tap toggle |
-| 31 | Voice message playback | `audio_message_bubble.dart` | Not impl | Click play in bubble | Full inline player. Desktop widget should work on mobile |
+| 30 | Record voice message | `voice_recorder_bar.dart` | Done | Tap mic button | OGG Opus via native encoder (no ffmpeg), waveform viz, auto-send on stop |
+| 31 | Voice message playback | `audio_message_bubble.dart` | Done | Tap play in bubble | Desktop widget works on mobile; duration probe skipped (no ffmpeg), player reports duration |
 
 ## 5. Chat — Text Rendering & Formatting
 
 | # | Feature | Desktop File(s) | Mobile | Interaction | Notes |
 |---|---------|-----------------|--------|-------------|-------|
-| 32 | Bold `**text**` | `message_text_parser.dart` | Partial | Auto-parse | Full parser + tokenizer + cache |
-| 33 | Italic `*text*` | `message_text_parser.dart` | Partial | Auto-parse | |
-| 34 | Code block `` ```code``` `` | `message_text_parser.dart` | Partial | Auto-parse | Full-width container |
-| 35 | Inline code `` `code` `` | `message_text_parser.dart` | Partial | Auto-parse | Background pill |
-| 36 | Strikethrough `~~text~~` | `message_text_parser.dart` | Partial | Auto-parse | |
-| 37 | Spoiler `\|\|text\|\|` | `message_text_parser.dart` | Partial | Tap to reveal/hide | |
-| 38 | URL auto-linking | `message_text_parser.dart` | Partial | Clickable accent text | http(s):// and hollow:// |
-| 39 | @mention autocomplete | `channel_chat_pane.dart` | Not impl | Type @ → overlay popup | **Mobile:** bottom sheet or inline suggestion list instead of overlay popup |
-| 40 | @mention highlight | `channel_message_bubble.dart`, `message_text_parser.dart` | Not impl | Accent pill badges | Bold, accent background. Desktop widget renders on mobile |
+| 32 | Bold `**text**` | `message_text_parser.dart` | Done | Auto-parse | Desktop widget renders on mobile unchanged |
+| 33 | Italic `*text*` | `message_text_parser.dart` | Done | Auto-parse | Desktop widget renders on mobile unchanged |
+| 34 | Code block `` ```code``` `` | `message_text_parser.dart` | Done | Auto-parse | Full-width container, works on mobile |
+| 35 | Inline code `` `code` `` | `message_text_parser.dart` | Done | Auto-parse | Background pill, works on mobile |
+| 36 | Strikethrough `~~text~~` | `message_text_parser.dart` | Done | Auto-parse | Desktop widget renders on mobile unchanged |
+| 37 | Spoiler `\|\|text\|\|` | `message_text_parser.dart` | Done | Tap to reveal/hide | GestureDetector.onTap — works on mobile |
+| 38 | URL auto-linking | `message_text_parser.dart` | Done | Tap accent text | GestureDetector.onTap + url_launcher, works on mobile |
+| 39 | @mention autocomplete | `channel_chat_pane.dart` | Done | Type @ → overlay popup | OverlayEntry + HollowPressable.onTap, works on mobile |
+| 40 | @mention highlight | `channel_message_bubble.dart`, `message_text_parser.dart` | Done | Accent pill badges | WidgetSpan + Container styling, works on mobile |
 | 41 | Keyboard shortcuts (Ctrl+B/I/E) | `chat_input_shortcuts.dart` | N/A | Wrap selection | Desktop only |
 | 42 | Keyboard shortcuts (Shift+Enter) | `chat_input_shortcuts.dart` | N/A | Insert newline | Desktop: Shift+Enter. Mobile: keyboard newline |
 
@@ -85,25 +85,25 @@
 
 | # | Feature | Desktop File(s) | Mobile | Interaction | Notes |
 |---|---------|-----------------|--------|-------------|-------|
-| 43 | Typing indicator (show) | `chat_pane.dart`, `channel_chat_pane.dart` | Partial | Above input bar | Custom TypingDots animation |
-| 44 | Typing indicator (send) | `chat_pane.dart`, `channel_chat_pane.dart` | Partial | 3s throttle on input | DM only on mobile |
-| 45 | Message grouping by sender | `chat_pane.dart` | Partial | Consecutive within 5 min | Implemented on mobile |
-| 46 | Message timestamp separator | `chat_pane.dart` | Partial | "Today"/"Yesterday"/date | Implemented on mobile |
-| 47 | Scroll-to-bottom button | `chat_pane.dart`, `channel_chat_pane.dart` | Partial | Floating "N new" pill | Auto-hide at bottom |
-| 48 | Unread message indicator | `chat_pane.dart`, `channel_chat_pane.dart` | Partial | Accent pill with count | Click scrolls to unread |
-| 49 | In-channel search | `channel_chat_pane.dart` | Not impl | Ctrl+K or search icon | **Mobile per plan:** tap channel name in header → slide-down sheet with Search tab |
-| 50 | Search results navigation | `channel_chat_pane.dart` | Not impl | Click result → jump | Highlight + scroll to match |
-| 51 | Per-DM mute toggle | `chat_pane.dart` | Not impl | Click bell icon | **Mobile:** in DM long-press context menu |
+| 43 | Typing indicator (show) | `chat_pane.dart`, `channel_chat_pane.dart` | Done | Above input bar | _TypingBar with TypingDots, profiles from typingProvider |
+| 44 | Typing indicator (send) | `chat_pane.dart`, `channel_chat_pane.dart` | Done | 3s throttle on input | sendTypingIndicator in _onTextChanged, DM only |
+| 45 | Message grouping by sender | `chat_pane.dart` | Done | Consecutive within 5 min | Same logic as desktop in MobileChatRoute |
+| 46 | Message timestamp separator | `chat_pane.dart` | Done | Date label between groups | _DateSeparator with _sameDay check |
+| 47 | Scroll-to-bottom button | `chat_pane.dart`, `channel_chat_pane.dart` | Done | Floating "N new" pill | Accent pill with arrow + count, auto-hides at bottom |
+| 48 | Unread message indicator | `chat_pane.dart`, `channel_chat_pane.dart` | Done | Floating "N new" pill | DM + channel, message-ID dedup, same protocol as desktop |
+| 49 | In-channel search | `channel_chat_pane.dart` | Done | Search icon in header | TextField + results list, Rust FFI searchChannelMessages |
+| 50 | Search results navigation | `channel_chat_pane.dart` | Done | Tap result → jump | Scroll to message with 1.5s accent highlight |
+| 51 | Per-DM mute toggle | `chat_pane.dart` | Done | Bell icon in DM header | notificationSettingsProvider.setDmEnabled, toast feedback |
 
 ## 7. Chat — Layout & Panels
 
 | # | Feature | Desktop File(s) | Mobile | Interaction | Notes |
 |---|---------|-----------------|--------|-------------|-------|
-| 52 | DM chat (1:1) | `chat_pane.dart` | Partial | Full ChatPane | Mobile: basic MobileChatRoute |
-| 53 | Channel chat (server text) | `channel_chat_pane.dart` | Partial | Full ChannelChatPane | Mobile: basic MobileChatRoute |
-| 54 | Chat header bar | `chat_pane.dart`, `channel_chat_pane.dart` | Partial | Avatar, name, status, buttons | **Mobile per plan:** back arrow + name + icons (call, members, more). Tap channel name → slide-down detail sheet (members, pins, media/files/links, search) |
+| 52 | DM chat (1:1) | `chat_pane.dart` | Done | Full ChatPane | MobileChatRoute with all message features |
+| 53 | Channel chat (server text) | `channel_chat_pane.dart` | Done | Full ChannelChatPane | MobileChatRoute shared for DM + channel |
+| 54 | Chat header bar | `chat_pane.dart`, `channel_chat_pane.dart` | Done | Back + avatar + name + status | _MobileChatHeader, profile sheet on tap. Extra icons (call, members) are separate features |
 | 55 | Member panel toggle | `channel_chat_pane.dart` | Not impl | Click users icon | **Mobile per plan:** slide-out bottom sheet, not permanent side panel. Trigger from header icon or channel name sheet |
-| 56 | DM profile panel | `chat_pane.dart` | Not impl | Click user icon | **Mobile:** already have profile bottom sheet on header tap (mobile_chat_route.dart _ProfileSheet) |
+| 56 | DM profile panel | `chat_pane.dart` | Done | Tap header name | _ProfileSheet bottom sheet with avatar, name, peer ID, banner |
 | 57 | DM call buttons (voice) | `chat_pane.dart` | Not impl | Click phone icon | **Mobile:** phone icon in chat header bar |
 | 58 | DM call buttons (video) | `chat_pane.dart` | Not impl | Click video icon | **Mobile:** video icon in chat header bar |
 | 59 | Inline call panel (DM) | `chat_pane.dart` | Not impl | Slides down during call | **Mobile:** floating control pill (mute, camera, hangup) over chat |
@@ -114,11 +114,11 @@
 
 | # | Feature | Desktop File(s) | Mobile | Interaction | Notes |
 |---|---------|-----------------|--------|-------------|-------|
-| 62 | Text input field | `chat_pane.dart`, `channel_chat_pane.dart` | Partial | Max 5 lines, 4000 chars | Auto-expand, mobile 120px max |
-| 63 | Attachment button | `chat_pane.dart`, `channel_chat_pane.dart` | Partial | File picker trigger | Both platforms |
-| 64 | Microphone button | `chat_pane.dart` | Not impl | Voice recording trigger | **Mobile:** mic button in input bar, replaces send when text empty (like Telegram) |
+| 62 | Text input field | `chat_pane.dart`, `channel_chat_pane.dart` | Done | Max 5 lines, auto-expand | 120px max, rounded pill style |
+| 63 | Attachment button | `chat_pane.dart`, `channel_chat_pane.dart` | Done | Paperclip → file picker | FilePicker.platform.pickFiles() |
+| 64 | Microphone button | `chat_pane.dart` | Done | Tap mic → VoiceRecorderBar | Disabled when file staged |
 | 65 | Emoji picker button | `message_action_bar.dart` | Not impl | Shows popup picker | **Mobile:** emoji grid already in long-press bottom sheet; optional smiley button in input bar |
-| 66 | Send button | `chat_pane.dart`, `channel_chat_pane.dart` | Partial | Enter key or click | Both platforms |
+| 66 | Send button | `chat_pane.dart`, `channel_chat_pane.dart` | Done | Tap send | Accent circle, always visible |
 
 ## 9. Chat — Permissions & Sync
 
@@ -137,7 +137,7 @@
 | # | Feature | Desktop File(s) | Mobile | Interaction | Notes |
 |---|---------|-----------------|--------|-------------|-------|
 | 72 | Create server | `create_server_dialog.dart` | Not impl | Dialog (create/join tabs) | **Mobile:** FAB "+" on Chats tab → Create Server option (already wired in MobileChatsTab) |
-| 73 | Join server (invite code) | `create_server_dialog.dart` | Partial | Dialog or `hollow://join` link | **Mobile:** FAB "+" → Join Server. Also via hollow:// link cards in chat |
+| 73 | Join server (invite code) | `create_server_dialog.dart` | Done | Dialog or `hollow://join` link | FAB "+" → Join Server on Chats tab. Also via hollow:// link cards in chat |
 | 74 | Leave server | `danger_zone_tab.dart` | Not impl | Settings → Danger Zone | **Mobile per plan:** long-press server row → context menu → Leave |
 | 75 | Delete server | `danger_zone_tab.dart` | Not impl | Settings → Danger Zone | **Mobile:** in server settings (full-screen push), Danger Zone section |
 | 76 | Server name edit | `overview_tab.dart` | Not impl | Text input, max 32 chars | `renameServer` CRDT call |
@@ -158,18 +158,18 @@
 | 86 | Reorder channels (drag-drop) | `channels_tab.dart` | Not impl | Drag in settings | **Mobile:** long-press drag in server settings channel list |
 | 87 | Channel categories | `channels_tab.dart`, `channel_sidebar.dart` | Not impl | Collapsible headers | Chevron toggle, state tracked |
 | 88 | Channel visibility toggle | `channels_tab.dart` | Not impl | Settings dropdown | everyone/moderator/admin |
-| 89 | Channel sidebar display | `channel_sidebar.dart` | Partial | Always visible in server | **Mobile per plan:** animated accordion inline in Chats tab server row, not sidebar |
-| 90 | Channel switching | `channel_sidebar.dart` | Partial | Click channel | **Mobile:** tap channel in accordion → full-screen chat push |
-| 91 | Unread per channel | `unread_provider.dart`, `channel_sidebar.dart` | Partial | Blue dot / @mention badge | Mute-aware |
+| 89 | Channel sidebar display | `channel_sidebar.dart` | Done | Accordion in Chats tab | Server row expands to show channels with AnimatedCrossFade |
+| 90 | Channel switching | `channel_sidebar.dart` | Done | Tap channel → push chat | Full MobileChatRoute navigation |
+| 91 | Unread per channel | `unread_provider.dart`, `channel_sidebar.dart` | Done | Red pill with count | Per-channel in server accordion, matches desktop |
 
 ## 12. Members & Roles
 
 | # | Feature | Desktop File(s) | Mobile | Interaction | Notes |
 |---|---------|-----------------|--------|-------------|-------|
-| 92 | Member list panel | `member_panel.dart` | Partial | Right sidebar 240px | **Mobile per plan:** slide-out bottom sheet, not permanent panel |
-| 93 | Member online/offline status | `member_panel.dart` | Partial | Status dot on avatar | Green = online, gray = offline |
-| 94 | Member profile popup | `member_panel.dart`, `profile_card_popup.dart` | Partial | Click member | Peer ID, role, Twitch, labels |
-| 95 | Member sync indicator | `member_panel.dart` | Partial | Spinning refresh icon | Replaces status dot during sync |
+| 92 | Member list panel | `member_panel.dart` | Not impl | Right sidebar 240px | **Mobile per plan:** slide-out bottom sheet, not permanent panel |
+| 93 | Member online/offline status | `member_panel.dart` | Not impl | Status dot on avatar | Requires member panel first |
+| 94 | Member profile popup | `member_panel.dart`, `profile_card_popup.dart` | Not impl | Click member | Requires member panel first |
+| 95 | Member sync indicator | `member_panel.dart` | Not impl | Spinning refresh icon | Requires member panel first |
 | 96 | Assign roles | `members_tab.dart` | Not impl | Settings dropdown | Owner/Admin only |
 | 97 | Change member role | `members_tab.dart` | Not impl | Settings role selector | Priority-based (lower-rank only) |
 | 98 | Kick members | `members_tab.dart` | Not impl | Settings button | Admin+ only |
@@ -209,10 +209,10 @@
 | 120 | Banner clear | `user_settings_dialog.dart` | Not impl | Trash icon | Gradient fallback |
 | 121 | Banner GIF support | `user_settings_dialog.dart` | Not impl | File picker accepts .gif | Skip crop, raw bytes |
 | 122 | Twitch connect/disconnect | `user_settings_dialog.dart` | Not impl | Device code auth button | Profile tab |
-| 123 | Peer ID display + copy | `profile_card_popup.dart`, `user_bar.dart` | Partial | Tap to copy | Last 8 chars shown, full ID copied |
-| 124 | Recovery phrase display | `mnemonic_dialog.dart` | Partial | Modal dialog | 24-word BIP-39, selectable + copy |
-| 125 | Identity creation flow | `welcome_dialog.dart` | Partial | First launch dialog | Create / restore mnemonic / restore backup |
-| 126 | Restore from mnemonic | `welcome_dialog.dart` | Partial | Text input (24 words) | Derives Ed25519 keypair |
+| 123 | Peer ID display + copy | `profile_card_popup.dart`, `user_bar.dart` | Done | Tap to copy | Last 8 chars shown, full ID copied |
+| 124 | Recovery phrase display | `mnemonic_dialog.dart` | Done | Modal dialog | showHollowDialog, 24-word BIP-39, selectable + copy |
+| 125 | Identity creation flow | `welcome_dialog.dart` | Done | First launch dialog | Create / restore mnemonic / restore backup, cross-platform |
+| 126 | Restore from mnemonic | `welcome_dialog.dart` | Done | Text input (24 words) | Full validation + Rust identity_api call |
 | 127 | Restore from backup | `welcome_dialog.dart` | Not impl | File picker + passphrase | Decrypt `.hollow` backup |
 
 ## 15. Friends & Social
@@ -228,14 +228,14 @@
 | 134 | Friends list | `friends_bar.dart`, `mobile_friends_tab.dart` | Done | Horizontal bar / tab | Online-first then alphabetical |
 | 135 | Friends manager dialog | `friends_bar.dart` | Not impl | Full-screen dialog | **Mobile:** Friends tab already serves this role. Add sections for Incoming/Outgoing requests |
 | 136 | Add friend dialog | `friends_bar.dart`, `mobile_friends_tab.dart` | Done | Input dialog | Peer ID text field |
-| 137 | Pending friend badge | `friends_bar.dart` | Partial | Red badge | Count of incoming requests |
+| 137 | Pending friend badge | `friends_bar.dart` | Done | Red badge | Count on Friends tab in MobileNavBar |
 | 138 | Start DM conversation | `peer_card.dart`, `mobile_friends_tab.dart` | Done | Tap friend | Navigate to DM chat |
 | 139 | Friend search/filter | `friends_bar.dart` | Not impl | Search field | Case-insensitive substring |
 | 140 | DM unread count | `friends_bar.dart`, `peer_card.dart` | Done | Red badge on avatar | Respects mute |
 | 141 | Last message preview | `peer_card.dart` | Done | Text + timestamp | Truncated, "You:" prefix |
 | 142 | Encryption status icon | `peer_card.dart` | Done | Green lock icon | E2E cipher active |
 | 143 | Online/offline status | `user_bar.dart`, `peers_provider.dart` | Done | Status dot + text | Color-coded |
-| 144 | Invisible mode | `settings_provider.dart`, `user_bar.dart` | Partial | Toggle | Suppresses typing + online status |
+| 144 | Invisible mode | `settings_provider.dart`, `user_bar.dart` | Done | Toggle | Suppresses typing + online status, provider-level (no UI needed) |
 
 ---
 
@@ -392,12 +392,12 @@
 |---|---------|-----------------|--------|-------------|-------|
 | 231 | System tray notifications | `system_notification_provider.dart` | Not impl | Native OS toast | **Mobile per plan (post-launch):** needs FCM (Android) / APNs (iOS). `local_notifier` is desktop-only |
 | 232 | In-app notification overlay | `notification_overlay.dart` | Not impl | Card popup in chat | **Mobile:** toast-style notification when in different chat |
-| 233 | In-app toast (success) | `hollow_toast.dart` | Partial | Green slide-up | Auto-dismiss 3s |
-| 234 | In-app toast (error) | `hollow_toast.dart` | Partial | Red slide-up | Auto-dismiss 3s |
-| 235 | In-app toast (info) | `hollow_toast.dart` | Partial | Blue slide-up | Auto-dismiss 3s |
-| 236 | Unread badge (per DM) | `unread_provider.dart` | Partial | Pill badge | Count on DM list item |
-| 237 | Unread badge (per channel) | `unread_provider.dart` | Partial | Pill badge | Count on channel item |
-| 238 | Unread badge (per server) | `unread_provider.dart` | Partial | Pill badge | Aggregate on server icon |
+| 233 | In-app toast (success) | `hollow_toast.dart` | Done | Green slide-up | Auto-dismiss 3s, all three types used on mobile |
+| 234 | In-app toast (error) | `hollow_toast.dart` | Done | Red slide-up | Auto-dismiss 3s |
+| 235 | In-app toast (info) | `hollow_toast.dart` | Done | Blue slide-up | Auto-dismiss 3s |
+| 236 | Unread badge (per DM) | `unread_provider.dart` | Done | Red pill with count | In conversation list |
+| 237 | Unread badge (per channel) | `unread_provider.dart` | Done | Red pill with count | In server accordion channel row |
+| 238 | Unread badge (per server) | `unread_provider.dart` | Done | Red pill with count | On server row in conversation list |
 | 239 | Unread badge (home button) | `server_strip.dart` | Not impl | Pill on home icon | Total DM unread |
 | 240 | Notification level (server) | `notification_provider.dart` | Not impl | Dropdown | All/Mentions/Muted |
 | 241 | Notification level (channel) | `notification_provider.dart` | Not impl | Dropdown | Inherit/All/Mentions/Muted |
@@ -441,7 +441,7 @@
 | 262 | Panel slide animations | `hollow_shell.dart` | Not impl | On open/close | Slide+fade+clip |
 | 263 | Crossfade view switching | `hollow_shell.dart` | Not impl | AnimatedSwitcher | Pane transitions |
 | 264 | Tooltip fade+slide | `hollow_tooltip.dart` | Not impl | 400ms hover | 100ms fade + 4px slide |
-| 265 | Toast slide+fade | `hollow_toast.dart` | Partial | Auto-dismiss | Slide up + fade out |
+| 265 | Toast slide+fade | `hollow_toast.dart` | Done | Auto-dismiss | Slide up + fade out, works on mobile |
 | 266 | Selection shimmer | `selection_shimmer.dart` | Not impl | Text selection | Shimmer during multi-message select |
 
 ## 31. Components (Reusable)
@@ -451,14 +451,14 @@
 | 267 | HollowAvatar | `hollow_avatar.dart` | Done | Circular image | Lazy-load, initials fallback, GIF |
 | 268 | HollowButton | `hollow_button.dart` | Done | Click | filled/ghost/outline/danger variants |
 | 269 | HollowTextField | `hollow_text_field.dart` | Done | Text input | Border animation, error state |
-| 270 | HollowPressable | `hollow_pressable.dart` | Partial | Press | Opacity+scale spring, subtle mode |
-| 271 | HollowDialog | `hollow_dialog.dart` | Partial | Modal | Scale+fade, glassmorphism blur |
+| 270 | HollowPressable | `hollow_pressable.dart` | Done | Press | Opacity+scale spring, hover is no-op on touch |
+| 271 | HollowDialog | `hollow_dialog.dart` | Done | Modal | Scale+fade, glassmorphism blur, cross-platform |
 | 272 | HollowToggle | `hollow_toggle.dart` | Not impl | Click | Spring thumb, color crossfade |
 | 273 | HollowTooltip | `hollow_tooltip.dart` | N/A | 400ms hover | Desktop hover only |
-| 274 | HollowToast | `hollow_toast.dart` | Partial | Auto-dismiss | Success/error/info |
+| 274 | HollowToast | `hollow_toast.dart` | Done | Auto-dismiss | Success/error/info, all used on mobile |
 | 275 | HollowCard | `hollow_card.dart` | Not impl | Container | Elevated, bordered, rounded |
 | 276 | StatusDot | `status_dot.dart` | Done | Visual indicator | Optional pulse glow |
-| 277 | ConnectionProgress | `connection_progress.dart` | Partial | Display | Encrypted/Custom/Offline states |
+| 277 | ConnectionProgress | `connection_progress.dart` | Not impl | Display | Widget is cross-platform but not wired into mobile chat |
 
 ## 32. Context Menus
 
@@ -478,7 +478,7 @@
 | 284 | Update checker | `updater_provider.dart` | N/A | Background | **Mobile:** app store handles updates |
 | 285 | News/blog display | `news_provider.dart` | Not impl | Home dashboard | **Mobile per plan:** in Settings tab under About section |
 | 286 | Relay stats display | `relay_stats_provider.dart` | Not impl | Home network column | **Mobile per plan:** in Settings tab under Network section |
-| 287 | Animated GIF display | `animated_gif_image.dart` | Partial | Auto-play | Messages + profiles |
+| 287 | Animated GIF display | `animated_gif_image.dart` | Done | Auto-play | Frame decode via instantiateImageCodec, used in mobile profile |
 | 288 | Responsive layout | `hollow_shell.dart` | Done | LayoutBuilder | <600 mobile, 600-1024 tablet, 1024+ desktop |
 
 ---
@@ -487,39 +487,15 @@
 
 | Category | Total | Done | Partial | Not Impl | N/A |
 |----------|-------|------|---------|----------|-----|
-| Chat (messaging) | 71 | 23 | 12 | 26 | 10 |
-| Server/Channel | 40 | 0 | 7 | 33 | 0 |
-| Profile/Identity | 16 | 0 | 4 | 12 | 0 |
-| Friends/Social | 17 | 10 | 2 | 5 | 0 |
-| Voice (DM calls) | 15 | 0 | 0 | 13 | 2 |
-| Voice (channels) | 19 | 0 | 0 | 15 | 4 |
-| Voice (settings) | 11 | 0 | 0 | 9 | 2 |
-| Voice (encryption) | 5 | 0 | 0 | 5 | 0 |
-| Settings | 18 | 0 | 1 | 13 | 4 |
-| Archive/Vault | 17 | 0 | 1 | 16 | 0 |
-| Share | 2 | 0 | 0 | 0 | 2 |
-| Notifications | 12 | 0 | 5 | 6 | 1 |
-| Shell/Navigation | 12 | 2 | 4 | 1 | 5 |
-| Window/Chrome | 5 | 0 | 0 | 0 | 5 |
-| Animations | 7 | 0 | 1 | 6 | 0 |
-| Components | 11 | 4 | 4 | 2 | 1 |
-| Context Menus | 6 | 1 | 0 | 3 | 2 |
-| Misc | 5 | 1 | 1 | 2 | 1 |
-| **TOTAL** | **288** | **41** | **50** | **163** | **34** |
+| All features | 288 | 90 | 5 | 159 | 34 |
 
-**Mobile coverage (excluding 34 N/A): 16% done, 20% partial, 64% not implemented (254 actionable features)**
+**Actionable (excl. N/A): 254 total, 90 Done (35%), 5 Partial, 159 Not impl.**
 
-### Session 2026-05-13 Progress
-- **Section 2 complete (8 done, 4 N/A)**: Image display, lightbox, video, audio, save file, file progress all working
-- **+8 features done**: #14-20, #24. N/A: #21-23, #25 (clipboard image, drag-drop, download popup — desktop only)
-- **New mobile action**: "Save File" in long-press bottom sheet (reads bytes → FilePicker.saveFile with `bytes:` for Android)
-- **Android fix**: FilePicker.saveFile requires `bytes:` param on Android (crashes without it)
-- **Android fix**: Added super_clipboard ContentProvider to AndroidManifest.xml (image clipboard still unreliable — deferred)
-- **Staged file preview**: Shows thumbnail + filename above input bar with cancel button
+*Updated 2026-05-14. Sections 1-8 done or audited. Section 6 complete. Voice messages, search, mute, unread badges (DM+channel+server), notification dedup rework all implemented.*
 
-### Session 2026-05-12 Progress
-- **+12 features done**: Send message, Edit, Delete, Copy, Reactions (add/remove/view), Reply (action + preview in bubble), Message action sheet, Message Info dialog
-- **UX polish**: Long-press teal highlight animation + full-width hit target (`HitTestBehavior.opaque`)
-- **Known sync gap**: DM edits/deletes are live-only events — offline peers never receive them. Channel sync batch doesn't include edit/delete history. Needs Rust-side sync protocol extension.
-- **Section 1 status**: 11/13 done. #10-11 (pin messages) remaining — needs permission provider wiring
-- **Test framework**: 16 widget tests passing (mobile shell, nav badges, responsive breakpoints, themes)
+**Mobile coverage (excluding 34 N/A): 35% done (90), 2% partial (5), 63% not implemented (159)**
+
+### Session 2026-05-14 Progress
+- **Sections 1-8 complete or audited.** Section 6 fully done. Voice messages, search, mute, unread badges, notification dedup rework.
+- **Desktop fix:** Channel notification dedup reworked from timer-based to message-ID-based (Rust + Dart). Channel sidebar upgraded to red numbered badges.
+- **Mobile:** Full unread system (DM + channel + server), voice recording, in-channel search, per-DM mute, scroll-to-bottom pill, channel key fix, initial scroll fix, provider management fix.

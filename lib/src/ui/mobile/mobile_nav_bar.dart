@@ -15,8 +15,8 @@ class MobileNavBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final hollow = HollowTheme.of(context);
     final currentTab = ref.watch(mobileTabProvider);
-    final unread = ref.watch(unreadProvider);
     final pendingFriends = ref.watch(pendingFriendCountProvider);
+    final unread = ref.watch(unreadProvider);
 
     int totalUnread = 0;
     for (final count in unread.dmUnreadCounts.values) {

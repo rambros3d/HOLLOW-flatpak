@@ -47,6 +47,7 @@ class _MobileChatsTabState extends ConsumerState<MobileChatsTab> {
 
   void _openDmChat(String peerId) {
     ref.read(selectedPeerProvider.notifier).state = peerId;
+    ref.read(selectedServerProvider.notifier).state = null;
     Navigator.of(context, rootNavigator: true).push(
       MaterialPageRoute(
         builder: (_) => MobileChatRoute(peerId: peerId),
@@ -55,6 +56,7 @@ class _MobileChatsTabState extends ConsumerState<MobileChatsTab> {
   }
 
   void _openChannelChat(String serverId, ChannelInfo channel) {
+    ref.read(selectedServerProvider.notifier).state = serverId;
     ref.read(selectedChannelProvider.notifier).state = channel.channelId;
     Navigator.of(context, rootNavigator: true).push(
       MaterialPageRoute(
@@ -74,9 +76,9 @@ class _MobileChatsTabState extends ConsumerState<MobileChatsTab> {
     final peers = ref.watch(peersProvider);
     final lastMessages = ref.watch(lastDmMessageProvider);
     final servers = ref.watch(serverListProvider);
-    final unread = ref.watch(unreadProvider);
     final hiddenDms = ref.watch(hiddenArchiveDmsProvider);
     final profiles = ref.watch(profileProvider);
+    final unread = ref.watch(unreadProvider);
 
     // Build unified list items
     final items = <_ConversationItem>[];
@@ -99,12 +101,11 @@ class _MobileChatsTabState extends ConsumerState<MobileChatsTab> {
 
     // Servers
     for (final server in servers.values) {
-      final serverUnread = unread.serverUnreadCount(server.serverId);
       items.add(_ConversationItem(
         type: _ItemType.server,
         id: server.serverId,
         name: server.name,
-        unreadCount: serverUnread,
+        unreadCount: unread.serverUnreadCount(server.serverId),
         isOnline: false,
         memberCount: server.memberCount,
       ));
@@ -257,8 +258,10 @@ class _DmRow extends ConsumerWidget {
     final hollow = HollowTheme.of(context);
     final isDmMuted = !ref.watch(
         notificationSettingsProvider.select((s) => s.isDmEnabled(peerId)));
-    final hasUnread =
-        !isDmMuted && ref.watch(unreadProvider.select((s) => s.isDmUnread(peerId)));
+    final dmUnreadCount = isDmMuted
+        ? 0
+        : ref.watch(unreadProvider.select((s) => s.dmUnreadCount(peerId)));
+    final hasUnread = dmUnreadCount > 0;
 
     return HollowPressable(
       onTap: onTap,
@@ -327,7 +330,7 @@ class _DmRow extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: HollowSpacing.sm),
-          // Timestamp + unread dot
+          // Timestamp + unread badge
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             mainAxisSize: MainAxisSize.min,
@@ -336,17 +339,24 @@ class _DmRow extends ConsumerWidget {
                 Text(
                   formatTime(lastMessage!.timestamp),
                   style: HollowTypography.caption.copyWith(
-                    color: hasUnread ? hollow.accent : hollow.textSecondary,
+                    color: hasUnread ? hollow.error : hollow.textSecondary,
                   ),
                 ),
               if (hasUnread) ...[
                 const SizedBox(height: 4),
                 Container(
-                  width: 8,
-                  height: 8,
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                   decoration: BoxDecoration(
-                    color: hollow.accent,
-                    shape: BoxShape.circle,
+                    color: hollow.error,
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Text(
+                    dmUnreadCount > 99 ? '99+' : '$dmUnreadCount',
+                    style: HollowTypography.caption.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 10,
+                    ),
                   ),
                 ),
               ],
@@ -454,13 +464,13 @@ class _ServerRow extends ConsumerWidget {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: hollow.accent,
+                    color: hollow.error,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
                     unreadCount > 99 ? '99+' : '$unreadCount',
                     style: HollowTypography.caption.copyWith(
-                      color: hollow.textOnAccent,
+                      color: Colors.white,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -542,8 +552,17 @@ class _ChannelListState extends ConsumerState<_ChannelList> {
   @override
   Widget build(BuildContext context) {
     final hollow = HollowTheme.of(context);
-    final unread = ref.watch(unreadProvider);
     final voiceState = ref.watch(voiceChannelProvider);
+    final unread = ref.watch(unreadProvider);
+
+    // Re-fetch channels when server/channel state changes (CRDT sync, channel added/removed).
+    ref.listen(serverListProvider.select((s) => s[widget.serverId]),
+        (prev, next) {
+      if (prev != next) _loadChannels();
+    });
+    ref.listen(channelListProvider, (prev, next) {
+      if (prev != next) _loadChannels();
+    });
 
     if (_loading) {
       return Padding(
@@ -586,7 +605,7 @@ class _ChannelListState extends ConsumerState<_ChannelList> {
           _ChannelRow(
             channel: channel,
             serverId: widget.serverId,
-            hasUnread: unread.isChannelUnread(widget.serverId, channel.channelId),
+            unreadCount: unread.channelUnreadCount(widget.serverId, channel.channelId),
             voiceParticipants: channel.channelType == ChannelType.voice
                 ? (voiceState.participants[widget.serverId]
                         ?[channel.channelId]
@@ -604,17 +623,19 @@ class _ChannelListState extends ConsumerState<_ChannelList> {
 class _ChannelRow extends StatelessWidget {
   final ChannelInfo channel;
   final String serverId;
-  final bool hasUnread;
+  final int unreadCount;
   final int voiceParticipants;
   final VoidCallback onTap;
 
   const _ChannelRow({
     required this.channel,
     required this.serverId,
-    required this.hasUnread,
+    required this.unreadCount,
     required this.voiceParticipants,
     required this.onTap,
   });
+
+  bool get hasUnread => unreadCount > 0;
 
   @override
   Widget build(BuildContext context) {
@@ -679,12 +700,19 @@ class _ChannelRow extends StatelessWidget {
           ],
           if (hasUnread && !isVoice)
             Container(
-              width: 8,
-              height: 8,
               margin: const EdgeInsets.only(left: HollowSpacing.sm),
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
               decoration: BoxDecoration(
-                color: hollow.accent,
-                shape: BoxShape.circle,
+                color: hollow.error,
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Text(
+                unreadCount > 99 ? '99+' : '$unreadCount',
+                style: HollowTypography.caption.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 10,
+                ),
               ),
             ),
         ],

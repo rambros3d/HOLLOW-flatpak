@@ -6317,10 +6317,10 @@ async fn handle_incoming_request(
             }).await;
         }
 
-        HavenMessage::ChannelNotificationHint { server_id, channel_id, has_everyone, mentioned_names, is_reply } => {
+        HavenMessage::ChannelNotificationHint { server_id, channel_id, message_id, has_everyone, mentioned_names, is_reply } => {
             let _ = event_tx.send(NetworkEvent::ChannelNotificationHint {
                 server_id, channel_id, from_peer: peer_str.to_string(),
-                has_everyone, mentioned_names, is_reply,
+                message_id, has_everyone, mentioned_names, is_reply,
             }).await;
         }
 

@@ -11,10 +11,13 @@ import 'package:hollow/src/core/models/file_attachment.dart';
 import 'package:hollow/src/core/providers/banner_provider.dart';
 import 'package:hollow/src/core/providers/chat_provider.dart';
 import 'package:hollow/src/core/providers/channel_chat_provider.dart';
+import 'package:hollow/src/core/providers/channel_provider.dart';
 import 'package:hollow/src/core/providers/file_transfer_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
+import 'package:hollow/src/core/providers/selected_peer_provider.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:hollow/src/core/providers/typing_provider.dart';
 import 'package:hollow/src/core/providers/unread_provider.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
@@ -28,11 +31,15 @@ import 'package:hollow/src/ui/chat/staged_hollow_link_card.dart';
 import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/components/hollow_avatar.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/ui/chat/voice_recorder_bar.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/components/status_dot.dart';
 import 'package:hollow/src/ui/dialogs/message_proof_dialog.dart';
 import 'package:hollow/src/ui/mobile/mobile_message_actions.dart';
+import 'package:hollow/src/core/providers/notification_provider.dart';
+import 'package:hollow/src/core/services/voice_message_recorder.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
+import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
@@ -79,6 +86,14 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
   bool _stagedPreviewLoading = false;
   HollowLink? _stagedHollowLink;
   Timer? _urlDebounce;
+  bool _isRecordingVoice = false;
+  bool _searchOpen = false;
+
+  String get _channelKey => '${widget.serverId}:${widget.channelId}';
+  final _searchController = TextEditingController();
+  final _searchFocusNode = FocusNode();
+  List<storage_api.StoredChannelMessage> _searchResults = [];
+  int? _highlightIndex;
 
   @override
   void initState() {
@@ -86,7 +101,10 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
     _positionsListener.itemPositions.addListener(_checkAutoScroll);
     if (widget.isDm) {
       ref.read(chatProvider.notifier).loadHistory(widget.peerId!).then((_) {
-        if (mounted) _scrollToBottom();
+        if (mounted) {
+          setState(() {});
+          _jumpToBottom();
+        }
       });
       ref.read(unreadProvider.notifier).markDmSeen(
             widget.peerId!,
@@ -97,7 +115,10 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
             widget.serverId!,
             widget.channelId!,
           ).then((_) {
-        if (mounted) _scrollToBottom();
+        if (mounted) {
+          setState(() {});
+          _jumpToBottom();
+        }
       });
       ref.read(unreadProvider.notifier).markChannelSeen(
             widget.serverId!,
@@ -114,6 +135,14 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
     _focusNode.dispose();
     _editController.dispose();
     _editFocusNode.dispose();
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    if (widget.isDm) {
+      ref.read(selectedPeerProvider.notifier).state = null;
+    } else {
+      ref.read(selectedServerProvider.notifier).state = null;
+      ref.read(selectedChannelProvider.notifier).state = null;
+    }
     super.dispose();
   }
 
@@ -123,8 +152,28 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
     final maxIndex = positions.map((p) => p.index).reduce((a, b) => a > b ? a : b);
     final count = widget.isDm
         ? (ref.read(chatProvider)[widget.peerId!]?.length ?? 0)
-        : (ref.read(channelChatProvider)[widget.channelId!]?.length ?? 0);
+        : (ref.read(channelChatProvider)[_channelKey]?.length ?? 0);
+    final wasInZone = _isInAutoScrollZone;
     _isInAutoScrollZone = maxIndex >= count - 2;
+    if (wasInZone != _isInAutoScrollZone) {
+      setState(() {});
+      if (_isInAutoScrollZone) {
+        _markSeen();
+      }
+    }
+  }
+
+  void _markSeen() {
+    if (widget.isDm) {
+      final msgs = ref.read(chatProvider)[widget.peerId!];
+      final latestId = msgs != null && msgs.isNotEmpty ? msgs.last.messageId : null;
+      ref.read(unreadProvider.notifier).markDmSeen(widget.peerId!, latestId);
+    } else {
+      final msgs = ref.read(channelChatProvider)[_channelKey];
+      final latestId = msgs != null && msgs.isNotEmpty ? msgs.last.messageId : null;
+      ref.read(unreadProvider.notifier).markChannelSeen(
+          widget.serverId!, widget.channelId!, latestId);
+    }
   }
 
   String _formatTime(DateTime dt) {
@@ -135,16 +184,59 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
     return '${dt.month}/${dt.day}';
   }
 
+  void _jumpToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.isAttached) return;
+      final count = widget.isDm
+          ? (ref.read(chatProvider)[widget.peerId!]?.length ?? 0)
+          : (ref.read(channelChatProvider)[_channelKey]?.length ?? 0);
+      if (count > 0) {
+        _scrollController.jumpTo(index: count, alignment: 1.0);
+      }
+    });
+  }
+
+  void _scrollToMessage(int index) {
+    if (!_scrollController.isAttached) return;
+    setState(() => _highlightIndex = index);
+    _scrollController.scrollTo(
+      index: index,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      alignment: 0.3,
+    );
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (mounted) setState(() => _highlightIndex = null);
+    });
+  }
+
+  Future<void> _onSearch(String query) async {
+    if (query.trim().isEmpty) {
+      setState(() => _searchResults = []);
+      return;
+    }
+    try {
+      final results = await storage_api.searchChannelMessages(
+        serverId: widget.serverId!,
+        channelId: widget.channelId!,
+        query: query.trim(),
+        limit: 20,
+      );
+      if (mounted) setState(() => _searchResults = results);
+    } catch (_) {}
+  }
+
   void _scrollToBottom() {
     final count = widget.isDm
         ? (ref.read(chatProvider)[widget.peerId!]?.length ?? 0)
-        : (ref.read(channelChatProvider)[widget.channelId!]?.length ?? 0);
+        : (ref.read(channelChatProvider)[_channelKey]?.length ?? 0);
     if (count > 0) {
       _scrollController.scrollTo(
         index: count,
         duration: const Duration(milliseconds: 150),
       );
     }
+    _markSeen();
   }
 
   void _onTextChanged(String text) {
@@ -250,6 +342,39 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
             type: HollowToastType.error);
       }
     }
+  }
+
+  Future<void> _stageVoiceMessage(VoiceRecordingResult result) async {
+    setState(() => _isRecordingVoice = false);
+    final file = File(result.filePath);
+    if (!await file.exists()) return;
+    final size = await file.length();
+    const maxDmBytes = 34 * 1024 * 1024;
+    if (widget.isDm && size > maxDmBytes) {
+      if (mounted) {
+        HollowToast.show(context, 'Voice message too large (34 MB limit)',
+            type: HollowToastType.error);
+      }
+      try { await file.delete(); } catch (_) {}
+      return;
+    }
+    try {
+      final messageId = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+      await network_api.sendFile(
+        peerId: widget.isDm ? widget.peerId : null,
+        serverId: widget.isDm ? null : widget.serverId,
+        channelId: widget.isDm ? null : widget.channelId,
+        filePath: result.filePath,
+        messageId: messageId,
+        messageText: '',
+      );
+    } catch (e) {
+      if (mounted) {
+        HollowToast.show(context, 'Failed to send voice message',
+            type: HollowToastType.error);
+      }
+    }
+    try { await file.delete(); } catch (_) {}
   }
 
   void _setReply(String messageId, String senderName, String text) {
@@ -385,9 +510,75 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
             _MobileChatHeader(
               peerId: widget.peerId,
               channelName: widget.channelName,
+              searchOpen: _searchOpen,
+              onSearchToggle: widget.isDm ? null : () {
+                setState(() {
+                  _searchOpen = !_searchOpen;
+                  if (!_searchOpen) {
+                    _searchController.clear();
+                    _searchResults = [];
+                  }
+                });
+                if (_searchOpen) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _searchFocusNode.requestFocus();
+                  });
+                }
+              },
             ),
+            if (_searchOpen)
+              _buildSearchBar(hollow),
             Expanded(
-              child: widget.isDm ? _buildDmMessages() : _buildChannelMessages(),
+              child: Stack(
+                children: [
+                  widget.isDm ? _buildDmMessages() : _buildChannelMessages(),
+                  Builder(builder: (context) {
+                    final unreadCount = widget.isDm
+                        ? ref.watch(unreadProvider.select(
+                            (s) => s.dmUnreadCounts[widget.peerId!] ?? 0))
+                        : ref.watch(unreadProvider.select((s) =>
+                            s.channelUnreadCounts[_channelKey] ?? 0));
+                    if (unreadCount > 0 && !_isInAutoScrollZone) {
+                      final label = unreadCount == 1
+                          ? '1 new message'
+                          : '$unreadCount new messages';
+                      return Positioned(
+                        bottom: HollowSpacing.md,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: HollowPressable(
+                            onTap: _scrollToBottom,
+                            borderRadius: BorderRadius.circular(20),
+                            backgroundColor: hollow.accent,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: HollowSpacing.md,
+                              vertical: HollowSpacing.xs + 2,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(LucideIcons.arrowDown,
+                                    size: 14, color: hollow.textOnAccent),
+                                const SizedBox(width: HollowSpacing.xs),
+                                Text(
+                                  label,
+                                  style: HollowTypography.caption.copyWith(
+                                    color: hollow.textOnAccent,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  }),
+                ],
+              ),
             ),
             _TypingBar(
               contextKey: widget.isDm
@@ -440,14 +631,29 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
                   _stagedFileIsImage = false;
                 }),
               ),
-            _MobileInputBar(
-              controller: _controller,
-              focusNode: _focusNode,
-              onSend: _handleSend,
-              onPickFile: _pickFile,
-              onChanged: _onTextChanged,
-              hasStagedFile: _stagedFilePath != null,
-            ),
+            _isRecordingVoice
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: HollowSpacing.sm,
+                      vertical: HollowSpacing.sm,
+                    ),
+                    child: VoiceRecorderBar(
+                      onFinished: _stageVoiceMessage,
+                      onCancelled: () =>
+                          setState(() => _isRecordingVoice = false),
+                    ),
+                  )
+                : _MobileInputBar(
+                    controller: _controller,
+                    focusNode: _focusNode,
+                    onSend: _handleSend,
+                    onPickFile: _pickFile,
+                    onMic: _stagedFilePath != null
+                        ? null
+                        : () => setState(() => _isRecordingVoice = true),
+                    onChanged: _onTextChanged,
+                    hasStagedFile: _stagedFilePath != null,
+                  ),
           ],
         ),
       ),
@@ -462,7 +668,9 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
     ref.listen<Map<String, List<ChatMessage>>>(chatProvider, (prev, next) {
       final prevLen = (prev?[widget.peerId!] ?? const []).length;
       final nextLen = (next[widget.peerId!] ?? const []).length;
-      if (nextLen > prevLen && _isInAutoScrollZone) _scrollToBottom();
+      if (nextLen > prevLen && _isInAutoScrollZone) {
+        _scrollToBottom();
+      }
     });
 
     if (messages.isEmpty) {
@@ -476,6 +684,8 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
     return ScrollablePositionedList.builder(
       itemScrollController: _scrollController,
       itemPositionsListener: _positionsListener,
+      initialScrollIndex: messages.length,
+      initialAlignment: 1.0,
       itemCount: messages.length + 1,
       padding: const EdgeInsets.symmetric(
         horizontal: HollowSpacing.sm,
@@ -578,13 +788,15 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
 
   Widget _buildChannelMessages() {
     final channelHistory = ref.watch(channelChatProvider);
-    final messages = channelHistory[widget.channelId!] ?? [];
+    final messages = channelHistory[_channelKey] ?? [];
     final profiles = ref.watch(profileProvider);
 
     ref.listen(channelChatProvider, (prev, next) {
-      final prevLen = (prev?[widget.channelId!] ?? const []).length;
-      final nextLen = (next[widget.channelId!] ?? const []).length;
-      if (nextLen > prevLen && _isInAutoScrollZone) _scrollToBottom();
+      final prevLen = (prev?[_channelKey] ?? const []).length;
+      final nextLen = (next[_channelKey] ?? const []).length;
+      if (nextLen > prevLen && _isInAutoScrollZone) {
+        _scrollToBottom();
+      }
     });
 
     if (messages.isEmpty) {
@@ -598,6 +810,8 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
     return ScrollablePositionedList.builder(
       itemScrollController: _scrollController,
       itemPositionsListener: _positionsListener,
+      initialScrollIndex: messages.length,
+      initialAlignment: 1.0,
       itemCount: messages.length + 1,
       padding: const EdgeInsets.symmetric(
         horizontal: HollowSpacing.sm,
@@ -655,6 +869,7 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
             message: msg,
             serverId: widget.serverId!,
             showHeader: showHeader,
+            isHighlighted: _highlightIndex == index,
             replyToSenderName: replySender,
             replyToText: replyText,
             onToggleReaction: msg.messageId != null
@@ -852,6 +1067,134 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
   }
 
   // ─────────────────────────────────────────────────
+  // Search bar (channel only)
+  // ─────────────────────────────────────────────────
+
+  Widget _buildSearchBar(HollowTheme hollow) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: HollowSpacing.md,
+        vertical: HollowSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: hollow.surface,
+        border: Border(bottom: BorderSide(color: hollow.border)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _searchController,
+            focusNode: _searchFocusNode,
+            autofocus: true,
+            style: HollowTypography.body.copyWith(
+              color: hollow.textPrimary,
+              fontSize: 13,
+            ),
+            decoration: InputDecoration(
+              hintText: 'Search in #${widget.channelName}...',
+              hintStyle: HollowTypography.body.copyWith(
+                color: hollow.textSecondary,
+                fontSize: 13,
+              ),
+              prefixIcon: Icon(LucideIcons.search,
+                  size: 16, color: hollow.textSecondary),
+              filled: true,
+              fillColor: hollow.background,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: HollowSpacing.md,
+                vertical: HollowSpacing.sm,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(hollow.radiusLg),
+                borderSide: BorderSide.none,
+              ),
+            ),
+            onChanged: _onSearch,
+          ),
+          if (_searchResults.isNotEmpty)
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 200),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _searchResults.length,
+                itemBuilder: (_, index) {
+                  final msg = _searchResults[index];
+                  final profiles = ref.watch(profileProvider);
+                  final name = displayNameFor(profiles, msg.senderId);
+                  final time = DateTime.fromMillisecondsSinceEpoch(
+                      msg.timestamp.toInt());
+                  final timeStr =
+                      '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+                  return Padding(
+                    padding: const EdgeInsets.only(top: HollowSpacing.xs),
+                    child: HollowPressable(
+                      subtle: true,
+                      onTap: () {
+                        final messages = ref.read(
+                            channelChatProvider)[_channelKey] ?? [];
+                        final idx = messages.indexWhere(
+                            (m) => m.messageId == msg.messageId);
+                        setState(() {
+                          _searchOpen = false;
+                          _searchController.clear();
+                          _searchResults = [];
+                        });
+                        if (idx != -1) _scrollToMessage(idx);
+                      },
+                      borderRadius: BorderRadius.circular(hollow.radiusSm),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: HollowSpacing.sm,
+                        vertical: HollowSpacing.xs,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                name,
+                                style: HollowTypography.caption.copyWith(
+                                  color: hollow.accent,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              const SizedBox(width: HollowSpacing.sm),
+                              Text(
+                                timeStr,
+                                style: HollowTypography.caption.copyWith(
+                                  color: hollow.textSecondary
+                                      .withValues(alpha: 0.5),
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            msg.text,
+                            style: HollowTypography.body.copyWith(
+                              color: hollow.textPrimary,
+                              fontSize: 12,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────
   // Inline edit view
   // ─────────────────────────────────────────────────
 
@@ -963,8 +1306,15 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
 class _MobileChatHeader extends ConsumerWidget {
   final String? peerId;
   final String? channelName;
+  final VoidCallback? onSearchToggle;
+  final bool searchOpen;
 
-  const _MobileChatHeader({this.peerId, this.channelName});
+  const _MobileChatHeader({
+    this.peerId,
+    this.channelName,
+    this.onSearchToggle,
+    this.searchOpen = false,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1050,6 +1400,19 @@ class _MobileChatHeader extends ConsumerWidget {
               ),
             ),
           ),
+          if (isDm)
+            _DmMuteButton(peerId: peerId!),
+          if (!isDm && onSearchToggle != null)
+            HollowPressable(
+              onTap: onSearchToggle,
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
+              padding: const EdgeInsets.all(HollowSpacing.sm),
+              child: Icon(
+                LucideIcons.search,
+                size: 20,
+                color: searchOpen ? hollow.accent : hollow.textSecondary,
+              ),
+            ),
         ],
       ),
     );
@@ -1077,6 +1440,7 @@ class _MobileInputBar extends StatelessWidget {
   final FocusNode focusNode;
   final VoidCallback onSend;
   final VoidCallback onPickFile;
+  final VoidCallback? onMic;
   final ValueChanged<String> onChanged;
   final bool hasStagedFile;
 
@@ -1085,6 +1449,7 @@ class _MobileInputBar extends StatelessWidget {
     required this.focusNode,
     required this.onSend,
     required this.onPickFile,
+    this.onMic,
     required this.onChanged,
     this.hasStagedFile = false,
   });
@@ -1142,9 +1507,22 @@ class _MobileInputBar extends StatelessWidget {
           ),
           const SizedBox(width: HollowSpacing.xs),
           HollowPressable(
+            onTap: onMic,
+            borderRadius: BorderRadius.circular(hollow.radiusMd),
+            padding: const EdgeInsets.all(HollowSpacing.sm),
+            child: Icon(
+              LucideIcons.mic,
+              color: onMic != null
+                  ? hollow.textSecondary
+                  : hollow.textSecondary.withValues(alpha: 0.3),
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: HollowSpacing.xs),
+          HollowPressable(
             onTap: onSend,
             borderRadius: BorderRadius.circular(hollow.radiusMd),
-            backgroundColor: hasStagedFile ? hollow.accent : hollow.accent,
+            backgroundColor: hollow.accent,
             padding: const EdgeInsets.all(HollowSpacing.sm + 2),
             child: Icon(LucideIcons.send, color: hollow.textOnAccent, size: 20),
           ),
@@ -1212,6 +1590,42 @@ class _ReplyPreview extends StatelessWidget {
             child: Icon(LucideIcons.x, size: 16, color: hollow.textSecondary),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────
+// DM mute toggle button (in header)
+// ─────────────────────────────────────────────────
+
+class _DmMuteButton extends ConsumerWidget {
+  final String peerId;
+  const _DmMuteButton({required this.peerId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hollow = HollowTheme.of(context);
+    final enabled = ref.watch(notificationSettingsProvider
+        .select((s) => s.isDmEnabled(peerId)));
+    return HollowPressable(
+      onTap: () {
+        ref.read(notificationSettingsProvider.notifier)
+            .setDmEnabled(peerId, !enabled);
+        HollowToast.show(
+          context,
+          enabled ? 'Notifications muted' : 'Notifications unmuted',
+          type: HollowToastType.info,
+        );
+      },
+      borderRadius: BorderRadius.circular(hollow.radiusSm),
+      padding: const EdgeInsets.all(HollowSpacing.sm),
+      child: Icon(
+        enabled ? LucideIcons.bell : LucideIcons.bellOff,
+        size: 20,
+        color: enabled
+            ? hollow.textSecondary
+            : hollow.textSecondary.withValues(alpha: 0.4),
       ),
     );
   }

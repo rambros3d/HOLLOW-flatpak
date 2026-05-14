@@ -7827,9 +7827,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           serverId: dco_decode_String(raw[1]),
           channelId: dco_decode_String(raw[2]),
           fromPeer: dco_decode_String(raw[3]),
-          hasEveryone: dco_decode_bool(raw[4]),
-          mentionedNames: dco_decode_list_String(raw[5]),
-          isReply: dco_decode_bool(raw[6]),
+          messageId: dco_decode_String(raw[4]),
+          hasEveryone: dco_decode_bool(raw[5]),
+          mentionedNames: dco_decode_list_String(raw[6]),
+          isReply: dco_decode_bool(raw[7]),
         );
       case 43:
         return NetworkEvent_TypingStarted(
@@ -9752,6 +9753,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         var var_serverId = sse_decode_String(deserializer);
         var var_channelId = sse_decode_String(deserializer);
         var var_fromPeer = sse_decode_String(deserializer);
+        var var_messageId = sse_decode_String(deserializer);
         var var_hasEveryone = sse_decode_bool(deserializer);
         var var_mentionedNames = sse_decode_list_String(deserializer);
         var var_isReply = sse_decode_bool(deserializer);
@@ -9759,6 +9761,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           serverId: var_serverId,
           channelId: var_channelId,
           fromPeer: var_fromPeer,
+          messageId: var_messageId,
           hasEveryone: var_hasEveryone,
           mentionedNames: var_mentionedNames,
           isReply: var_isReply,
@@ -11892,6 +11895,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         serverId: final serverId,
         channelId: final channelId,
         fromPeer: final fromPeer,
+        messageId: final messageId,
         hasEveryone: final hasEveryone,
         mentionedNames: final mentionedNames,
         isReply: final isReply,
@@ -11900,6 +11904,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(serverId, serializer);
         sse_encode_String(channelId, serializer);
         sse_encode_String(fromPeer, serializer);
+        sse_encode_String(messageId, serializer);
         sse_encode_bool(hasEveryone, serializer);
         sse_encode_list_String(mentionedNames, serializer);
         sse_encode_bool(isReply, serializer);
