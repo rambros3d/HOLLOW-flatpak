@@ -365,9 +365,8 @@ pub fn convert_to_webp_with_quality(
 
     let rgba = img.to_rgba8();
     let (ew, eh) = (rgba.width(), rgba.height());
-    let encoder = webp::Encoder::from_rgba(rgba.as_raw(), ew, eh);
-    let webp_mem = encoder.encode(q_value);
-    Ok((webp_mem.to_vec(), ew, eh))
+    let bytes = encode_lossy_webp_via_animation(rgba.as_raw(), ew, eh, q_value)?;
+    Ok((bytes, ew, eh))
 }
 
 /// Get image dimensions without converting.
@@ -404,9 +403,35 @@ pub fn convert_to_webp_preview(data: &[u8], max_dim_px: u32) -> Result<(Vec<u8>,
 
     let rgba = resized.to_rgba8();
     let (ew, eh) = (rgba.width(), rgba.height());
-    let encoder = webp::Encoder::from_rgba(rgba.as_raw(), ew, eh);
-    let webp_mem = encoder.encode(50.0); // Q=50 lossy
-    Ok((webp_mem.to_vec(), ew, eh))
+    let bytes = encode_lossy_webp_via_animation(rgba.as_raw(), ew, eh, 50.0)?;
+    Ok((bytes, ew, eh))
+}
+
+/// Encode a single RGBA frame as lossy WebP at the given quality (0-100)
+/// using the `webp_animation` crate's single-frame encoder. Sharing this
+/// path with the animated encoder means only one libwebp-sys variant ends
+/// up in the final binary (eliminates the macOS duplicate-symbol issue).
+fn encode_lossy_webp_via_animation(rgba: &[u8], w: u32, h: u32, quality: f32) -> Result<Vec<u8>, String> {
+    let mut encoder = webp_animation::Encoder::new_with_options(
+        (w, h),
+        webp_animation::EncoderOptions {
+            encoding_config: Some(webp_animation::EncodingConfig {
+                encoding_type: webp_animation::EncodingType::Lossy(Default::default()),
+                quality,
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    )
+    .map_err(|e| format!("WebP encoder init: {e:?}"))?;
+
+    encoder
+        .add_frame(rgba, 0)
+        .map_err(|e| format!("WebP add_frame: {e:?}"))?;
+    let webp = encoder
+        .finalize(1)
+        .map_err(|e| format!("WebP finalize: {e:?}"))?;
+    Ok(webp.to_vec())
 }
 
 #[cfg(test)]

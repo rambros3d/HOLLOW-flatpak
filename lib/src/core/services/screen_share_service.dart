@@ -1,8 +1,14 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../rust/api/network.dart' as network_api;
+
+/// Method channel exposed by the forked `flutter_webrtc` for the macOS-only
+/// system audio Process Tap (see `MacScreenShareAudioTap.m`).
+const MethodChannel _kFlutterWebRTCChannel = MethodChannel('FlutterWebRTC.Method');
 
 /// Log to hollow_debug.log (visible in release builds).
 void _log(String msg) {
@@ -44,6 +50,10 @@ class ScreenShareService {
   RTCVideoRenderer? get localRenderer => _localRenderer;
   RTCPeerConnection? get pc => _pc;
   bool get isActive => _pc != null;
+
+  /// True once the macOS system-audio Process Tap has been activated for this
+  /// share. Used so we tear it down exactly once on close.
+  bool _macSystemAudioActive = false;
 
   /// Preferred audio output device — set by CallNotifier before handleOffer.
   String? preferredAudioOutputDeviceId;
@@ -134,16 +144,56 @@ class ScreenShareService {
     _log('[HOLLOW-SCREEN] Creating offer: source=$sourceId '
         '${width}x$height @ ${fps}fps audio=$shareAudio');
 
+    // macOS / Android need explicit screen-capture permission before any
+    // source enumeration. On macOS this triggers the System Settings →
+    // Privacy & Security → Screen & System Audio Recording prompt; the
+    // first attempt always returns false, the user grants access in
+    // Settings, and the next launch reads granted. Web/Windows/Linux just
+    // return true.
+    if (Platform.isMacOS) {
+      try {
+        final granted = await Helper.requestCapturePermission();
+        _log('[HOLLOW-SCREEN] macOS screen recording permission: $granted');
+        // Debug builds are ad-hoc signed and every rebuild gets a fresh
+        // signature, so TCC reports `granted=false` until the user re-grants.
+        // We still try the capture: ScreenCaptureKit will surface its own
+        // error (and possibly show the system prompt the first time) if
+        // access is truly denied — much friendlier than hard-aborting here.
+      } catch (e) {
+        _log('[HOLLOW-SCREEN] permission probe failed: $e');
+      }
+    }
+
     // Capture screen (+ optional system audio).
     await desktopCapturer.getSources(
         types: [SourceType.Screen, SourceType.Window]);
+
+    // On macOS the WebRTC fork can't deliver system-audio inside
+    // getDisplayMedia (no custom RTCAudioSource available). Instead we ask
+    // the native Process Tap + Aggregate Device to insert system audio into
+    // the system default input; the voice call's existing mic track then
+    // carries the mix to remote peers. So we leave `audio: false` here on
+    // macOS and toggle the tap via a method channel.
+    final useNativeTap = Platform.isMacOS && shareAudio;
+    final getDisplayAudio = shareAudio && !useNativeTap;
+
+    if (useNativeTap) {
+      try {
+        await _kFlutterWebRTCChannel
+            .invokeMethod<bool>('enableScreenShareSystemAudio');
+        _macSystemAudioActive = true;
+        _log('[HOLLOW-SCREEN] macOS Process Tap enabled');
+      } catch (e) {
+        _log('[HOLLOW-SCREEN] macOS Process Tap failed: $e — continuing without system audio');
+      }
+    }
 
     _screenStream = await navigator.mediaDevices.getDisplayMedia({
       'video': {
         'deviceId': {'exact': sourceId},
         'mandatory': {'frameRate': fps.toDouble()},
       },
-      'audio': shareAudio,
+      'audio': getDisplayAudio,
     });
 
     // SECURITY (Phase 6.25): Validate stream has video tracks.
@@ -170,6 +220,39 @@ class ScreenShareService {
     // Add screen video track.
     await _pc!.addTrack(screenTrack, _screenStream!);
     _log('[HOLLOW-SCREEN] Added screen video track to PC');
+
+    // On macOS prefer VP8 for screen share. Apple's H.264 hardware encoder
+    // can emit a profile (e.g. high) that Windows libwebrtc's software
+    // decoder fails to render — frames decode to a black image with no
+    // error. VP8 has no profile axis and works identically on both ends.
+    if (Platform.isMacOS) {
+      try {
+        final caps = await getRtpSenderCapabilities('video');
+        final vp8 = caps.codecs
+                ?.where((c) => c.mimeType.toLowerCase().endsWith('vp8'))
+                .toList() ??
+            [];
+        if (vp8.isNotEmpty) {
+          final transceivers = await _pc!.getTransceivers();
+          for (final t in transceivers) {
+            if (t.sender.track?.id == screenTrack.id) {
+              // Put VP8 first; keep other codecs as fallback in case the
+              // remote peer can't negotiate VP8 for some reason.
+              final ordered = [
+                ...vp8,
+                ...(caps.codecs ?? []).where(
+                    (c) => !c.mimeType.toLowerCase().endsWith('vp8')),
+              ];
+              await t.setCodecPreferences(ordered);
+              _log('[HOLLOW-SCREEN] Forced VP8 codec preference on macOS');
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        _log('[HOLLOW-SCREEN] codec preference set failed: $e');
+      }
+    }
 
     // Apply resolution cap on the encoder (getDisplayMedia captures at native res).
     await _applyResolutionCap(width, height);
@@ -329,6 +412,19 @@ class ScreenShareService {
   /// Close the PC, stop tracks, dispose renderers. Safe to call multiple times.
   Future<void> close() async {
     _log('[HOLLOW-SCREEN] Closing screen share service');
+
+    // Tear down macOS system audio tap first so the system default input
+    // reverts before we stop the streams.
+    if (_macSystemAudioActive) {
+      try {
+        await _kFlutterWebRTCChannel
+            .invokeMethod<bool>('disableScreenShareSystemAudio');
+        _log('[HOLLOW-SCREEN] macOS Process Tap disabled');
+      } catch (e) {
+        _log('[HOLLOW-SCREEN] disableScreenShareSystemAudio failed: $e');
+      }
+      _macSystemAudioActive = false;
+    }
 
     _screenTrackPoller?.cancel();
     _screenTrackPoller = null;

@@ -56,7 +56,10 @@
       config.width = display.width;
       config.height = display.height;
       config.minimumFrameInterval = CMTimeMake(1, (int32_t)MAX(1, fps));
-      config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
+      // VideoRange (16-235) is what nearly every H.264/VP8 encoder expects.
+      // FullRange (0-255) silently produces a stream that decoders on other
+      // platforms (notably libwebrtc on Windows) render as a black frame.
+      config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
       if (@available(macOS 13.0, *)) {
         config.showsCursor = YES;
       }

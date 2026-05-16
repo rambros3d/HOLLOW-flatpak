@@ -1,4 +1,9 @@
-/// Debug log file for release builds. Writes to `hollow_debug.log` next to the executable.
+/// Debug log file for release builds.
+///
+/// On Windows the log lives next to the executable (legacy layout that the
+/// Hollow installer expects). On macOS/Linux it sits in the per-user data
+/// directory (`dirs::data_dir()/hollow/`) — keeping the log out of the .app
+/// bundle and next to `hollow_crash.log` from the Dart side.
 pub(crate) mod log {
     use std::fs::{File, OpenOptions};
     use std::io::Write;
@@ -7,11 +12,31 @@ pub(crate) mod log {
 
     static LOG_FILE: OnceLock<Mutex<File>> = OnceLock::new();
 
+    fn log_path() -> std::path::PathBuf {
+        if cfg!(target_os = "windows") {
+            return std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.join("hollow_debug.log")))
+                .unwrap_or_else(|| std::path::PathBuf::from("hollow_debug.log"));
+        }
+
+        if let Ok(custom) = std::env::var("HOLLOW_DATA_DIR") {
+            let dir = std::path::PathBuf::from(custom);
+            let _ = std::fs::create_dir_all(&dir);
+            return dir.join("hollow_debug.log");
+        }
+
+        if let Some(base) = dirs::data_dir() {
+            let dir = base.join("hollow");
+            let _ = std::fs::create_dir_all(&dir);
+            return dir.join("hollow_debug.log");
+        }
+
+        std::path::PathBuf::from("hollow_debug.log")
+    }
+
     pub fn init() {
-        let path = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.join("hollow_debug.log")))
-            .unwrap_or_else(|| std::path::PathBuf::from("hollow_debug.log"));
+        let path = log_path();
 
         // Log rotation: if file exceeds 10MB, keep only the last 2MB.
         const MAX_LOG_SIZE: u64 = 10 * 1024 * 1024;

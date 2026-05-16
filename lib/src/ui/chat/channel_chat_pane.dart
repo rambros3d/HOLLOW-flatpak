@@ -258,8 +258,14 @@ class _ChannelChatPaneState extends ConsumerState<ChannelChatPane> {
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_itemScrollController.isAttached) return;
-      _scrollOffsetController.animateScroll(
-        offset: 100000,
+      final messages = ref.read(channelChatProvider)[_stateKey] ?? [];
+      // Scroll TO the sentinel anchored at the bottom, not BY 100k pixels —
+      // `ScrollOffsetController.animateScroll(offset:)` is a delta, so a
+      // large number animated over 150ms flashed past the entire history
+      // before clamping at the end.
+      _itemScrollController.scrollTo(
+        index: messages.length,
+        alignment: 1.0,
         duration: const Duration(milliseconds: 150),
         curve: Curves.easeOut,
       );

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -472,6 +473,13 @@ class VoiceService {
 
         await _pc!.addTrack(videoTrack, _localVideoStream!);
         _log('[HOLLOW-VOICE] toggleVideo: added new video track via addTrack');
+
+        // On macOS prefer VP8 — Apple's H.264 hardware encoder emits a
+        // profile that Windows libwebrtc software-decodes to a black image.
+        // Mirrors the screen-share codec workaround.
+        if (Platform.isMacOS && videoTrack.id != null) {
+          await _preferVp8ForTrack(videoTrack.id!);
+        }
 
         _isVideoEnabled = true;
         await _initLocalRenderer();
@@ -1004,6 +1012,34 @@ class VoiceService {
       }
     }
     _log('[HOLLOW-SDP-DUMP] === END $label ===');
+  }
+
+  /// Reorder the transceiver carrying [trackId] to advertise VP8 first.
+  /// Workaround for Apple's H.264 hardware profile not decoding on Windows
+  /// libwebrtc — VP8 has no profile axis and is universally supported.
+  Future<void> _preferVp8ForTrack(String trackId) async {
+    if (_pc == null) return;
+    try {
+      final caps = await getRtpSenderCapabilities('video');
+      final all = caps.codecs ?? const <RTCRtpCodecCapability>[];
+      final vp8 =
+          all.where((c) => c.mimeType.toLowerCase().endsWith('vp8')).toList();
+      if (vp8.isEmpty) return;
+      final transceivers = await _pc!.getTransceivers();
+      for (final t in transceivers) {
+        if (t.sender.track?.id == trackId) {
+          final ordered = [
+            ...vp8,
+            ...all.where((c) => !c.mimeType.toLowerCase().endsWith('vp8')),
+          ];
+          await t.setCodecPreferences(ordered);
+          _log('[HOLLOW-VOICE] Forced VP8 codec preference for track $trackId');
+          return;
+        }
+      }
+    } catch (e) {
+      _log('[HOLLOW-VOICE] _preferVp8ForTrack failed: $e');
+    }
   }
 }
 
