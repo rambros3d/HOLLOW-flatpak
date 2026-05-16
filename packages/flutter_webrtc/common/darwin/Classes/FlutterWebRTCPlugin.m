@@ -27,6 +27,11 @@
 #import <CoreGraphics/CoreGraphics.h>
 #endif
 
+#if TARGET_OS_OSX
+#import "MacScreenShareAudioTap.h"
+#import "MacAudioDevices.h"
+#endif
+
 #import "LocalTrack.h"
 #import "LocalAudioTrack.h"
 #import "LocalVideoTrack.h"
@@ -431,6 +436,36 @@ static FlutterWebRTCPlugin *sharedSingleton;
     result([FlutterError errorWithCode:@"ERROR"
                                message:@"Not supported on iOS"
                                details:nil]);
+#endif
+  } else if ([@"enableScreenShareSystemAudio" isEqualToString:call.method]) {
+#if TARGET_OS_OSX
+    NSError *err = nil;
+    BOOL ok = [[MacScreenShareAudioTap sharedInstance] startWithError:&err];
+    if (ok) {
+      result(@(YES));
+    } else {
+      result([FlutterError errorWithCode:@"ENABLE_FAILED"
+                                 message:err.localizedDescription ?: @"Failed to enable system audio tap"
+                                 details:nil]);
+    }
+#else
+    result([FlutterError errorWithCode:@"ERROR" message:@"macOS only" details:nil]);
+#endif
+  } else if ([@"disableScreenShareSystemAudio" isEqualToString:call.method]) {
+#if TARGET_OS_OSX
+    [[MacScreenShareAudioTap sharedInstance] stop];
+    result(@(YES));
+#else
+    result([FlutterError errorWithCode:@"ERROR" message:@"macOS only" details:nil]);
+#endif
+  } else if ([@"hollowMacAudioDevices" isEqualToString:call.method]) {
+#if TARGET_OS_OSX
+    result(@{
+      @"input" : [MacAudioDevices inputDevices],
+      @"output" : [MacAudioDevices outputDevices],
+    });
+#else
+    result([FlutterError errorWithCode:@"ERROR" message:@"macOS only" details:nil]);
 #endif
   } else if ([@"createLocalMediaStream" isEqualToString:call.method]) {
     [self createLocalMediaStream:result];

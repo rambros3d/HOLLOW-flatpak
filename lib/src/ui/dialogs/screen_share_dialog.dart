@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -112,6 +113,16 @@ class _ScreenShareDialogState extends State<_ScreenShareDialog> {
 
   Future<void> _loadSources() async {
     try {
+      // macOS only enumerates shareable screens/windows after the user has
+      // granted Screen Recording in System Settings → Privacy & Security.
+      // Trigger the system prompt before getSources(); if the user denies
+      // (or hasn't granted yet) we still call getSources so the dialog can
+      // show its "no sources" state instead of staying on the loader.
+      if (Platform.isMacOS) {
+        try {
+          await Helper.requestCapturePermission();
+        } catch (_) {}
+      }
       final sources = await desktopCapturer.getSources(
         types: [SourceType.Screen, SourceType.Window],
       );

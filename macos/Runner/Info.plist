@@ -28,5 +28,24 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Hollow needs your microphone for voice calls and voice messages.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Hollow needs your camera for video calls.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Hollow needs screen recording permission to share your screen in calls.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Hollow needs permission to capture system audio so it can include the sound of shared screens in calls.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Hollow uses your local network to discover and connect with peers.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_hollow._tcp</string>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

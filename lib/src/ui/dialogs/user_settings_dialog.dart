@@ -2731,9 +2731,14 @@ class _AudioDeviceSettings extends ConsumerStatefulWidget {
       _AudioDeviceSettingsState();
 }
 
+/// Cross-platform shape for audio device listings — wraps either a
+/// `win32audio.AudioDevice` on Windows or a `webrtc.MediaDeviceInfo` on
+/// macOS/Linux so the dropdowns can render either uniformly.
+typedef _AudioDeviceInfo = ({String id, String name, bool isActive});
+
 class _AudioDeviceSettingsState extends ConsumerState<_AudioDeviceSettings> {
-  List<win32audio.AudioDevice> _audioInputs = [];
-  List<win32audio.AudioDevice> _audioOutputs = [];
+  List<_AudioDeviceInfo> _audioInputs = [];
+  List<_AudioDeviceInfo> _audioOutputs = [];
   List<webrtc.MediaDeviceInfo> _cameras = [];
   bool _loading = true;
   rec.AudioRecorder? _recorder;
@@ -2781,30 +2786,106 @@ class _AudioDeviceSettingsState extends ConsumerState<_AudioDeviceSettings> {
 
   Future<void> _loadDevices() async {
     try {
-      // Enumerate both input and output devices via win32audio.
-      // This gives us the isActive flag to auto-select the right device.
-      List<win32audio.AudioDevice> inputs = [];
-      List<win32audio.AudioDevice> outputs = [];
-      try {
-        final inDevices = await win32audio.Audio.enumDevices(
-            win32audio.AudioDeviceType.input);
-        inputs = inDevices ?? [];
-        final outDevices = await win32audio.Audio.enumDevices(
-            win32audio.AudioDeviceType.output);
-        outputs = outDevices ?? [];
-      } catch (e) {
-        debugPrint('[HOLLOW] Device enumeration failed: $e');
+      List<_AudioDeviceInfo> inputs = [];
+      List<_AudioDeviceInfo> outputs = [];
+      List<webrtc.MediaDeviceInfo> cameras = [];
+
+      // On macOS the WebRTC-SDK pinned by flutter_webrtc returns an empty
+      // audioDeviceModule.inputDevices/outputDevices list, so we enumerate
+      // audio devices through CoreAudio directly via a native method channel
+      // exposed by our fork (`hollowMacAudioDevices`). Microphone access
+      // still needs to be granted; we probe it with a short getUserMedia to
+      // trigger the system prompt before showing the picker.
+      if (Platform.isMacOS) {
+        try {
+          final stream = await webrtc.navigator.mediaDevices
+              .getUserMedia({'audio': true, 'video': false});
+          for (final t in stream.getTracks()) {
+            await t.stop();
+          }
+          await stream.dispose();
+        } catch (e) {
+          debugPrint('[HOLLOW] mic permission probe failed: $e');
+        }
+
+        try {
+          const channel = MethodChannel('FlutterWebRTC.Method');
+          final res = await channel.invokeMethod<Map<dynamic, dynamic>>(
+              'hollowMacAudioDevices');
+          if (res != null) {
+            final ins = (res['input'] as List?) ?? const [];
+            final outs = (res['output'] as List?) ?? const [];
+            inputs = ins
+                .whereType<Map>()
+                .map((m) => (
+                      id: (m['id'] as String?) ?? '',
+                      name: (m['name'] as String?) ?? '',
+                      isActive: m['isDefault'] == true || m['isDefault'] == 1,
+                    ))
+                .where((d) => d.id.isNotEmpty)
+                .toList();
+            outputs = outs
+                .whereType<Map>()
+                .map((m) => (
+                      id: (m['id'] as String?) ?? '',
+                      name: (m['name'] as String?) ?? '',
+                      isActive: m['isDefault'] == true || m['isDefault'] == 1,
+                    ))
+                .where((d) => d.id.isNotEmpty)
+                .toList();
+          }
+          debugPrint('[HOLLOW] CoreAudio enum: ${inputs.length} inputs, '
+              '${outputs.length} outputs');
+        } catch (e) {
+          debugPrint('[HOLLOW] CoreAudio enumeration failed: $e');
+        }
       }
 
-      // Enumerate cameras via flutter_webrtc.
-      List<webrtc.MediaDeviceInfo> cameras = [];
+      // Camera + Linux audio fall through to flutter_webrtc's
+      // `enumerateDevices()`. Windows audio uses `win32audio` (block below).
       try {
-        final devices =
-            await webrtc.navigator.mediaDevices.enumerateDevices();
-        cameras =
-            devices.where((d) => d.kind == 'videoinput').toList();
+        final devices = await webrtc.navigator.mediaDevices.enumerateDevices();
+        cameras = devices.where((d) => d.kind == 'videoinput').toList();
+
+        if (Platform.isLinux) {
+          inputs = devices
+              .where((d) => d.kind == 'audioinput')
+              .map((d) => (
+                    id: d.deviceId,
+                    name: d.label.isNotEmpty ? d.label : 'Microphone',
+                    isActive: d.deviceId == 'default' ||
+                        d.deviceId.toLowerCase().contains('default'),
+                  ))
+              .toList();
+          outputs = devices
+              .where((d) => d.kind == 'audiooutput')
+              .map((d) => (
+                    id: d.deviceId,
+                    name: d.label.isNotEmpty ? d.label : 'Speaker',
+                    isActive: d.deviceId == 'default' ||
+                        d.deviceId.toLowerCase().contains('default'),
+                  ))
+              .toList();
+        }
       } catch (e) {
-        debugPrint('[HOLLOW] Camera enumeration failed: $e');
+        debugPrint('[HOLLOW] Device enumeration (webrtc) failed: $e');
+      }
+
+      if (Platform.isWindows) {
+        try {
+          final inDevices = await win32audio.Audio.enumDevices(
+              win32audio.AudioDeviceType.input);
+          inputs = (inDevices ?? [])
+              .map((d) => (id: d.id, name: d.name, isActive: d.isActive))
+              .toList();
+          final outDevices = await win32audio.Audio.enumDevices(
+              win32audio.AudioDeviceType.output);
+          outputs = (outDevices ?? [])
+              .map((d) => (id: d.id, name: d.name, isActive: d.isActive))
+              .toList();
+        } catch (e) {
+          debugPrint('[HOLLOW] win32audio enumeration failed: $e');
+        }
       }
 
       if (!mounted) return;

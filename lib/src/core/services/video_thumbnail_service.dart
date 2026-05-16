@@ -61,26 +61,39 @@ class VideoThumbnailService {
     try {
       final exeDir = File(Platform.resolvedExecutable).parent;
       final binaryName = Platform.isWindows ? 'ffmpeg.exe' : 'ffmpeg';
-      final candidate = File(p.join(exeDir.path, binaryName));
-      if (candidate.existsSync()) {
-        _cachedFfmpegPath = candidate.path;
-        _log('[VideoThumbnail] ffmpeg binary located: ${candidate.path}');
-        return _cachedFfmpegPath;
+
+      final candidates = <String>[
+        // Bundled next to the executable (Windows install layout).
+        p.join(exeDir.path, binaryName),
+      ];
+
+      if (Platform.isMacOS) {
+        // On macOS `resolvedExecutable` is `<Bundle>/Contents/MacOS/hollow`.
+        // The preferred location for bundled tools is `Contents/Resources/`.
+        final contentsDir = exeDir.parent;
+        candidates.addAll([
+          p.join(contentsDir.path, 'Resources', 'ffmpeg'),
+          p.join(contentsDir.path, 'MacOS', 'ffmpeg'),
+          // Common dev fallbacks if the user installed ffmpeg manually.
+          '/opt/homebrew/bin/ffmpeg',
+          '/usr/local/bin/ffmpeg',
+        ]);
+      } else if (Platform.isLinux) {
+        candidates.addAll([
+          '/usr/local/bin/ffmpeg',
+          '/usr/bin/ffmpeg',
+        ]);
       }
 
-      // macOS .app bundles place sibling binaries in Contents/MacOS/ —
-      // resolvedExecutable already points there, so the check above covers it.
-      // This branch is a fallback in case the binary is one level up.
-      if (Platform.isMacOS) {
-        final macAlt = File(p.join(exeDir.parent.path, 'MacOS', 'ffmpeg'));
-        if (macAlt.existsSync()) {
-          _cachedFfmpegPath = macAlt.path;
-          _log('[VideoThumbnail] ffmpeg binary located (macOS alt): ${macAlt.path}');
+      for (final path in candidates) {
+        if (File(path).existsSync()) {
+          _cachedFfmpegPath = path;
+          _log('[VideoThumbnail] ffmpeg binary located: $path');
           return _cachedFfmpegPath;
         }
       }
 
-      _log('[VideoThumbnail] ffmpeg binary NOT found next to executable: ${exeDir.path}');
+      _log('[VideoThumbnail] ffmpeg binary NOT found. Tried: $candidates');
       return null;
     } catch (e) {
       _log('[VideoThumbnail] error locating ffmpeg binary: $e');
@@ -110,7 +123,7 @@ class VideoThumbnailService {
   }
 
   static String _hollowFilesDir() {
-    final dir = '$hollowDataDir${Platform.pathSeparator}files';
+    final dir = p.join(hollowDataDir, 'files');
     Directory(dir).createSync(recursive: true);
     return dir;
   }
