@@ -159,13 +159,18 @@ pub(crate) async fn handle_create_channel(
 
         // Broadcast to server members — MLS first, plaintext fallback.
         if let Ok(op_json) = serde_json::to_string(&op) {
+            let mut sent_via_mls = false;
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
-                    hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
+                match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
+                    Ok(()) => { sent_via_mls = true; }
+                    Err(e) => {
+                        hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed, falling back to plaintext: {e}");
+                    }
                 }
-            } else {
+            }
+            if !sent_via_mls {
                 let local_peer = local_peer_str.to_string();
                 for member_peer_str in state.members.keys() {
                     if member_peer_str == &local_peer { continue; }
@@ -233,13 +238,18 @@ pub(crate) async fn handle_remove_channel(
 
         // Broadcast to connected server members only.
         if let Ok(op_json) = serde_json::to_string(&op) {
+            let mut sent_via_mls = false;
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
-                    hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
+                match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
+                    Ok(()) => { sent_via_mls = true; }
+                    Err(e) => {
+                        hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed, falling back to plaintext: {e}");
+                    }
                 }
-            } else {
+            }
+            if !sent_via_mls {
                 let local_peer = local_peer_str.to_string();
                 for member_peer_str in state.members.keys() {
                     if member_peer_str == &local_peer { continue; }
@@ -302,13 +312,18 @@ pub(crate) async fn handle_rename_server(
 
         // Broadcast to connected server members only.
         if let Ok(op_json) = serde_json::to_string(&op) {
+            let mut sent_via_mls = false;
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
-                    hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
+                match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
+                    Ok(()) => { sent_via_mls = true; }
+                    Err(e) => {
+                        hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed, falling back to plaintext: {e}");
+                    }
                 }
-            } else {
+            }
+            if !sent_via_mls {
                 let local_peer = local_peer_str.to_string();
                 for member_peer_str in state.members.keys() {
                     if member_peer_str == &local_peer { continue; }
@@ -375,13 +390,18 @@ pub(crate) async fn handle_rename_channel(
 
         // Broadcast to connected server members only.
         if let Ok(op_json) = serde_json::to_string(&op) {
+            let mut sent_via_mls = false;
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
-                    hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
+                match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
+                    Ok(()) => { sent_via_mls = true; }
+                    Err(e) => {
+                        hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed, falling back to plaintext: {e}");
+                    }
                 }
-            } else {
+            }
+            if !sent_via_mls {
                 let local_peer = local_peer_str.to_string();
                 for member_peer_str in state.members.keys() {
                     if member_peer_str == &local_peer { continue; }
@@ -437,13 +457,18 @@ pub(crate) async fn handle_update_server_setting(
 
         // Broadcast to connected server members only.
         if let Ok(op_json) = serde_json::to_string(&op) {
+            let mut sent_via_mls = false;
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
-                    hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
+                match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
+                    Ok(()) => { sent_via_mls = true; }
+                    Err(e) => {
+                        hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed, falling back to plaintext: {e}");
+                    }
                 }
-            } else {
+            }
+            if !sent_via_mls {
                 let local_peer = local_peer_str.to_string();
                 for member_peer_str in state.members.keys() {
                     if member_peer_str == &local_peer { continue; }
@@ -1071,13 +1096,18 @@ pub(crate) async fn handle_unban_member(
 
         // Broadcast
         if let Ok(op_json) = serde_json::to_string(&op) {
+            let mut sent_via_mls = false;
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
-                    hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
+                match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
+                    Ok(()) => { sent_via_mls = true; }
+                    Err(e) => {
+                        hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed, falling back to plaintext: {e}");
+                    }
                 }
-            } else {
+            }
+            if !sent_via_mls {
                 for member_peer_str in state.members.keys() {
                     if member_peer_str == &local_peer { continue; }
                     if peer_is_reachable(ws_room_peers, member_peer_str) {
@@ -1143,13 +1173,18 @@ pub(crate) async fn handle_label_op(
         }).await;
 
         if let Ok(op_json) = serde_json::to_string(&op) {
+            let mut sent_via_mls = false;
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
-                    hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
+                match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
+                    Ok(()) => { sent_via_mls = true; }
+                    Err(e) => {
+                        hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed, falling back to plaintext: {e}");
+                    }
                 }
-            } else {
+            }
+            if !sent_via_mls {
                 for member_peer_str in state.members.keys() {
                     if member_peer_str == &local_peer { continue; }
                     if peer_is_reachable(ws_room_peers, member_peer_str) {
@@ -1211,13 +1246,18 @@ pub(crate) async fn handle_set_channel_visibility(
         }).await;
 
         if let Ok(op_json) = serde_json::to_string(&op) {
+            let mut sent_via_mls = false;
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
-                    hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
+                match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
+                    Ok(()) => { sent_via_mls = true; }
+                    Err(e) => {
+                        hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed, falling back to plaintext: {e}");
+                    }
                 }
-            } else {
+            }
+            if !sent_via_mls {
                 for member_peer_str in state.members.keys() {
                     if member_peer_str == &local_peer { continue; }
                     if peer_is_reachable(ws_room_peers, member_peer_str) {
@@ -1279,13 +1319,18 @@ pub(crate) async fn handle_set_channel_posting(
         }).await;
 
         if let Ok(op_json) = serde_json::to_string(&op) {
+            let mut sent_via_mls = false;
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
-                    hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
+                match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
+                    Ok(()) => { sent_via_mls = true; }
+                    Err(e) => {
+                        hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed, falling back to plaintext: {e}");
+                    }
                 }
-            } else {
+            }
+            if !sent_via_mls {
                 for member_peer_str in state.members.keys() {
                     if member_peer_str == &local_peer { continue; }
                     if peer_is_reachable(ws_room_peers, member_peer_str) {
@@ -1353,13 +1398,18 @@ pub(crate) async fn handle_change_role_permissions(
 
         // Broadcast to connected server members.
         if let Ok(op_json) = serde_json::to_string(&op) {
+            let mut sent_via_mls = false;
             let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
             if mls_ok {
                 let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
-                if let Err(e) = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
-                    hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed: {e}");
+                match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
+                    Ok(()) => { sent_via_mls = true; }
+                    Err(e) => {
+                        hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed, falling back to plaintext: {e}");
+                    }
                 }
-            } else {
+            }
+            if !sent_via_mls {
                 for member_peer_str in state.members.keys() {
                     if member_peer_str == &local_peer { continue; }
                     if peer_is_reachable(ws_room_peers, member_peer_str) {

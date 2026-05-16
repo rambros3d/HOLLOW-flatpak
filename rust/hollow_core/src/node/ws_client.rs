@@ -156,9 +156,16 @@ async fn ws_client_loop(
                 }
 
                 // Send any commands that arrived while disconnected.
-                for cmd in pending_commands.drain(..) {
-                    send_command(&mut ws_write, &cmd).await;
-                    track_room_change(&state, &cmd, &event_tx).await;
+                {
+                    let cmds: Vec<WsCommand> = pending_commands.drain(..).collect();
+                    for cmd in cmds {
+                        if !send_command(&mut ws_write, &cmd).await {
+                            hollow_log!("[HOLLOW-WS] Replay failed — connection dead again");
+                            pending_commands.push(cmd);
+                            break;
+                        }
+                        track_room_change(&state, &cmd, &event_tx).await;
+                    }
                 }
 
                 // Main message loop with periodic keepalive ping.
@@ -243,7 +250,11 @@ async fn ws_client_loop(
                         }
                         // Commands from the swarm.
                         Some(cmd) = cmd_rx.recv() => {
-                            send_command(&mut ws_write, &cmd).await;
+                            if !send_command(&mut ws_write, &cmd).await {
+                                hollow_log!("[HOLLOW-WS] Send failed — connection dead, reconnecting");
+                                pending_commands.push(cmd);
+                                break;
+                            }
                             track_room_change(&state, &cmd, &event_tx).await;
                         }
                     }
@@ -348,8 +359,8 @@ async fn connect_and_auth(
 
 type WsSink = futures_util::stream::SplitSink<WsStream, Message>;
 
-async fn send_command(write: &mut WsSink, cmd: &WsCommand) {
-    // Binary commands send raw binary frames, not JSON.
+/// Returns false if the send failed (connection dead — caller should break).
+async fn send_command(write: &mut WsSink, cmd: &WsCommand) -> bool {
     match cmd {
         WsCommand::SendBinaryDirect { room_code, target_peer, data } => {
             let room = room_code.as_bytes();
@@ -363,8 +374,9 @@ async fn send_command(write: &mut WsSink, cmd: &WsCommand) {
             frame.extend_from_slice(data);
             if let Err(e) = write.send(Message::Binary(frame.into())).await {
                 hollow_log!("[HOLLOW-WS] Binary send failed: {e}");
+                return false;
             }
-            return;
+            return true;
         }
         WsCommand::Subscribe { room_code, topics } => {
             let msg = serde_json::json!({
@@ -375,8 +387,9 @@ async fn send_command(write: &mut WsSink, cmd: &WsCommand) {
             let text = msg.to_string();
             if let Err(e) = write.send(Message::Text(text.into())).await {
                 hollow_log!("[HOLLOW-WS] Subscribe send failed: {e}");
+                return false;
             }
-            return;
+            return true;
         }
         WsCommand::SendToRoomTopic { room_code, topic, data } => {
             let mut frame = Vec::with_capacity(1 + room_code.len() + 1 + topic.len() + 1 + data.len());
@@ -388,8 +401,9 @@ async fn send_command(write: &mut WsSink, cmd: &WsCommand) {
             frame.extend_from_slice(data);
             if let Err(e) = write.send(Message::Binary(frame.into())).await {
                 hollow_log!("[HOLLOW-WS] Topic send failed: {e}");
+                return false;
             }
-            return;
+            return true;
         }
         WsCommand::SendToRoom { room_code, data } => {
             let room = room_code.as_bytes();
@@ -399,9 +413,10 @@ async fn send_command(write: &mut WsSink, cmd: &WsCommand) {
             frame.push(0x00);
             frame.extend_from_slice(data);
             if let Err(e) = write.send(Message::Binary(frame.into())).await {
-                hollow_log!("[HOLLOW-WS] Binary send failed: {e}");
+                hollow_log!("[HOLLOW-WS] Room send failed: {e}");
+                return false;
             }
-            return;
+            return true;
         }
         WsCommand::SendDirect { room_code, target_peer, data } => {
             let room = room_code.as_bytes();
@@ -414,9 +429,10 @@ async fn send_command(write: &mut WsSink, cmd: &WsCommand) {
             frame.push(0x00);
             frame.extend_from_slice(data);
             if let Err(e) = write.send(Message::Binary(frame.into())).await {
-                hollow_log!("[HOLLOW-WS] Binary send failed: {e}");
+                hollow_log!("[HOLLOW-WS] Direct send failed: {e}");
+                return false;
             }
-            return;
+            return true;
         }
         _ => {}
     }
@@ -428,14 +444,16 @@ async fn send_command(write: &mut WsSink, cmd: &WsCommand) {
         WsCommand::LeaveRoom { room_code } => {
             serde_json::to_string(&ClientMsg::Leave { room: room_code.clone() })
         }
-        _ => return,
+        _ => return true,
     };
 
     if let Ok(json) = json {
         if let Err(e) = write.send(Message::Text(json.into())).await {
             hollow_log!("[HOLLOW-WS] Send failed: {e}");
+            return false;
         }
     }
+    true
 }
 
 async fn track_room_change(state: &WsClientState, cmd: &WsCommand, event_tx: &mpsc::UnboundedSender<WsEvent>) {

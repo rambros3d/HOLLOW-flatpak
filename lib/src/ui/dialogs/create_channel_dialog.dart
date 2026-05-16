@@ -10,7 +10,11 @@ import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Shows a dialog to create a new channel in a server.
-void showCreateChannelDialog(BuildContext context, String serverId) {
+void showCreateChannelDialog(
+  BuildContext context,
+  String serverId, {
+  VoidCallback? onCreated,
+}) {
   final nameController = TextEditingController();
   var isVoice = false;
 
@@ -29,6 +33,7 @@ void showCreateChannelDialog(BuildContext context, String serverId) {
               category: null,
               channelType: isVoice ? 'voice' : 'text',
             );
+            onCreated?.call();
           }
 
           final hollow = HollowTheme.of(dialogContext);

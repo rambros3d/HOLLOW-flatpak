@@ -1,8 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/models/channel_info.dart';
+import 'package:hollow/src/core/models/channel_layout.dart';
 import 'package:hollow/src/core/providers/channel_provider.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
@@ -15,25 +14,6 @@ import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:lucide_icons/lucide_icons.dart';
-
-/// A layout item — either a category header or a channel.
-sealed class LayoutItem {
-  const LayoutItem();
-}
-
-class CategoryItem extends LayoutItem {
-  final String name;
-  const CategoryItem(this.name);
-}
-
-class ChannelItem extends LayoutItem {
-  final String channelId;
-  const ChannelItem(this.channelId);
-}
-
-class SeparatorItem extends LayoutItem {
-  const SeparatorItem();
-}
 
 /// Channels tab — drag-and-drop layout editor with categories.
 class ChannelsTab extends ConsumerStatefulWidget {
@@ -72,17 +52,7 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
   Future<void> _loadLayout() async {
     try {
       final json = await crdt_api.getChannelLayout(serverId: widget.serverId);
-      final List<dynamic> items = jsonDecode(json);
-      final layout = <LayoutItem>[];
-      for (final item in items) {
-        if (item['type'] == 'category') {
-          layout.add(CategoryItem(item['name'] as String));
-        } else if (item['type'] == 'channel') {
-          layout.add(ChannelItem(item['channel_id'] as String));
-        } else if (item['type'] == 'separator') {
-          layout.add(const SeparatorItem());
-        }
-      }
+      final layout = parseLayoutJson(json);
       if (mounted) {
         // Compute effective layout (includes newly created channels)
         // and use it as both current and saved baseline.
@@ -125,19 +95,9 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
   }
 
   void _save() {
-    final jsonList = _layout.map((item) {
-      if (item is CategoryItem) {
-        return {'type': 'category', 'name': item.name};
-      } else if (item is ChannelItem) {
-        return {'type': 'channel', 'channel_id': item.channelId};
-      } else if (item is SeparatorItem) {
-        return {'type': 'separator'};
-      }
-    }).toList();
-
     crdt_api.updateChannelLayout(
       serverId: widget.serverId,
-      layoutJson: jsonEncode(jsonList),
+      layoutJson: layoutToJson(_layout),
     );
 
     setState(() {
@@ -416,19 +376,9 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
             _layout = effective;
             _savedLayout = List.from(effective);
           });
-          // Auto-save the layout so sidebar reflects the change.
-          final jsonList = effective.map((item) {
-            if (item is CategoryItem) {
-              return {'type': 'category', 'name': item.name};
-            } else if (item is ChannelItem) {
-              return {'type': 'channel', 'channel_id': item.channelId};
-            } else if (item is SeparatorItem) {
-              return {'type': 'separator'};
-            }
-          }).toList();
           crdt_api.updateChannelLayout(
             serverId: widget.serverId,
-            layoutJson: jsonEncode(jsonList),
+            layoutJson: layoutToJson(effective),
           );
         }
       });

@@ -151,13 +151,13 @@
 
 | # | Feature | Desktop File(s) | Mobile | Interaction | Notes |
 |---|---------|-----------------|--------|-------------|-------|
-| 82 | Create channel (text) | `create_channel_dialog.dart` | Not impl | Dialog with type selector | Name input |
-| 83 | Create channel (voice) | `create_channel_dialog.dart` | Not impl | Dialog with type selector | Same dialog |
-| 84 | Delete channel | `channels_tab.dart` | Not impl | Settings context menu | Confirmation dialog |
-| 85 | Rename channel | `channels_tab.dart` | Not impl | Settings context menu | Dialog with text input |
-| 86 | Reorder channels (drag-drop) | `channels_tab.dart` | Not impl | Drag in settings | **Mobile:** long-press drag in server settings channel list |
-| 87 | Channel categories | `channels_tab.dart`, `channel_sidebar.dart` | Not impl | Collapsible headers | Chevron toggle, state tracked |
-| 88 | Channel visibility toggle | `channels_tab.dart` | Not impl | Settings dropdown | everyone/moderator/admin |
+| 82 | Create channel (text) | `create_channel_dialog.dart` | Done | Dialog with type selector | Reuses desktop dialog. "+" in accordion + server context sheet |
+| 83 | Create channel (voice) | `create_channel_dialog.dart` | Done | Dialog with type selector | Same dialog, voice type toggle |
+| 84 | Delete channel | `channels_tab.dart` | Done | Long-press → bottom sheet | Confirmation in sheet + server settings editor |
+| 85 | Rename channel | `channels_tab.dart` | Done | Long-press → bottom sheet | Rename view in sheet + server settings editor |
+| 86 | Reorder channels (drag-drop) | `channels_tab.dart` | Done | Drag in settings | ReorderableListView in MobileServerSettingsRoute |
+| 87 | Channel categories | `channels_tab.dart`, `channel_sidebar.dart` | Done | Collapsible headers | Chevron toggle in accordion, layout-aware rendering |
+| 88 | Channel visibility toggle | `channels_tab.dart` | Done | Long-press → bottom sheet | Radio-style selection (Everyone/Mod+/Admin+) + posting |
 | 89 | Channel sidebar display | `channel_sidebar.dart` | Done | Accordion in Chats tab | Server row expands to show channels with AnimatedCrossFade |
 | 90 | Channel switching | `channel_sidebar.dart` | Done | Tap channel → push chat | Full MobileChatRoute navigation |
 | 91 | Unread per channel | `unread_provider.dart`, `channel_sidebar.dart` | Done | Red pill with count | Per-channel in server accordion, matches desktop |

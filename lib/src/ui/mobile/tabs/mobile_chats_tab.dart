@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/models/chat_message.dart';
 import 'package:hollow/src/core/models/channel_info.dart';
+import 'package:hollow/src/core/models/channel_layout.dart';
 import 'package:hollow/src/core/providers/channel_provider.dart';
 import 'package:hollow/src/core/providers/chat_provider.dart';
 import 'package:hollow/src/core/providers/friends_provider.dart';
@@ -26,6 +27,8 @@ import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/core/shared_tickers.dart';
 import 'package:hollow/src/ui/animations/ambient_background.dart';
 import 'package:hollow/src/ui/dialogs/invite_dialog.dart';
+import 'package:hollow/src/ui/dialogs/create_channel_dialog.dart';
+import 'package:hollow/src/ui/mobile/mobile_channel_actions.dart';
 import 'package:hollow/src/ui/mobile/mobile_chat_route.dart';
 import 'package:hollow/src/ui/mobile/mobile_server_settings_route.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
@@ -57,7 +60,11 @@ class _MobileChatsTabState extends ConsumerState<MobileChatsTab> {
       MaterialPageRoute(
         builder: (_) => MobileChatRoute(peerId: peerId),
       ),
-    );
+    ).then((_) {
+      if (mounted) {
+        ref.read(selectedPeerProvider.notifier).state = null;
+      }
+    });
   }
 
   void _showServerSheet(BuildContext context, String serverId, String serverName) {
@@ -96,7 +103,12 @@ class _MobileChatsTabState extends ConsumerState<MobileChatsTab> {
           channelName: channel.name,
         ),
       ),
-    );
+    ).then((_) {
+      if (mounted) {
+        ref.read(selectedServerProvider.notifier).state = null;
+        ref.read(selectedChannelProvider.notifier).state = null;
+      }
+    });
   }
 
   @override
@@ -619,7 +631,8 @@ class _ChannelList extends ConsumerStatefulWidget {
 }
 
 class _ChannelListState extends ConsumerState<_ChannelList> {
-  List<ChannelInfo>? _channels;
+  List<_DisplayItem> _displayItems = [];
+  final _collapsedCategories = <String, bool>{};
   bool _loading = true;
 
   @override
@@ -629,20 +642,77 @@ class _ChannelListState extends ConsumerState<_ChannelList> {
   }
 
   Future<void> _loadChannels() async {
-    final channelMap =
-        await ChannelListNotifier.fetchChannels(widget.serverId);
+    final results = await Future.wait([
+      ChannelListNotifier.fetchChannels(widget.serverId),
+      ChannelLayoutNotifier.fetchLayout(widget.serverId),
+    ]);
     if (!mounted) return;
-    final list = channelMap.values.toList();
-    list.sort((a, b) {
-      final aType = a.channelType == ChannelType.voice ? 1 : 0;
-      final bType = b.channelType == ChannelType.voice ? 1 : 0;
-      if (aType != bType) return aType.compareTo(bType);
-      return a.name.compareTo(b.name);
-    });
+    final channelMap = results[0] as Map<String, ChannelInfo>;
+    final layoutJson = results[1] as String;
     setState(() {
-      _channels = list;
+      _displayItems = _buildDisplayItems(channelMap, layoutJson);
       _loading = false;
     });
+  }
+
+  List<_DisplayItem> _buildDisplayItems(
+    Map<String, ChannelInfo> channels,
+    String layoutJson,
+  ) {
+    final items = <_DisplayItem>[];
+    final placedIds = <String>{};
+    String? currentCategory;
+
+    final layout = parseLayoutJson(layoutJson);
+    for (final entry in layout) {
+      if (entry is CategoryItem) {
+        currentCategory = entry.name;
+        items.add(_CategoryDisplayItem(currentCategory));
+      } else if (entry is SeparatorItem) {
+        currentCategory = null;
+        items.add(_SeparatorDisplayItem());
+      } else if (entry is ChannelItem) {
+        final ch = channels[entry.channelId];
+        if (ch != null) {
+          placedIds.add(entry.channelId);
+          items.add(_ChannelDisplayItem(
+            channel: ch,
+            category: currentCategory,
+          ));
+        }
+      }
+    }
+
+    final unplaced = channels.values
+        .where((ch) => !placedIds.contains(ch.channelId))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    for (final ch in unplaced) {
+      items.add(_ChannelDisplayItem(channel: ch, category: null));
+    }
+
+    // Compute isLastInGroup: last channel before a category/separator/end
+    for (int i = 0; i < items.length; i++) {
+      if (items[i] is _ChannelDisplayItem) {
+        final next = i + 1 < items.length ? items[i + 1] : null;
+        final isLast = next == null ||
+            next is _CategoryDisplayItem ||
+            next is _SeparatorDisplayItem;
+        (items[i] as _ChannelDisplayItem).isLastInGroup = isLast;
+      }
+    }
+
+    return items;
+  }
+
+  void _showChannelActions(BuildContext context, ChannelInfo channel, bool canManage) {
+    showMobileChannelActions(
+      context: context,
+      serverId: widget.serverId,
+      channel: channel,
+      canManage: canManage,
+      onChanged: _loadChannels,
+    );
   }
 
   @override
@@ -650,8 +720,9 @@ class _ChannelListState extends ConsumerState<_ChannelList> {
     final hollow = HollowTheme.of(context);
     final voiceState = ref.watch(voiceChannelProvider);
     final unread = ref.watch(unreadProvider);
+    final perms = ref.watch(myPermissionsProvider(widget.serverId)).valueOrNull ?? 0;
+    final canManage = (perms & Permission.manageChannels) != 0;
 
-    // Re-fetch channels when server/channel state changes (CRDT sync, channel added/removed).
     ref.listen(serverListProvider.select((s) => s[widget.serverId]),
         (prev, next) {
       if (prev != next) _loadChannels();
@@ -678,8 +749,8 @@ class _ChannelListState extends ConsumerState<_ChannelList> {
       );
     }
 
-    final channels = _channels ?? [];
-    if (channels.isEmpty) {
+    final hasChannels = _displayItems.any((i) => i is _ChannelDisplayItem);
+    if (!hasChannels && !canManage) {
       return Padding(
         padding: const EdgeInsets.only(
           left: 44 + HollowSpacing.lg + HollowSpacing.md,
@@ -694,25 +765,145 @@ class _ChannelListState extends ConsumerState<_ChannelList> {
       );
     }
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (int i = 0; i < channels.length; i++)
-          _TreeChannelRow(
-            channel: channels[i],
+    final widgets = <Widget>[];
+    for (final item in _displayItems) {
+      if (item is _CategoryDisplayItem) {
+        final collapsed = _collapsedCategories[item.name] ?? false;
+        widgets.add(_CategoryHeaderRow(
+          name: item.name,
+          isCollapsed: collapsed,
+          onToggle: () => setState(() {
+            _collapsedCategories[item.name] = !collapsed;
+          }),
+        ));
+      } else if (item is _SeparatorDisplayItem) {
+        widgets.add(const _TreeSeparatorRow());
+      } else if (item is _ChannelDisplayItem) {
+        final collapsed = item.category != null &&
+            (_collapsedCategories[item.category] ?? false);
+        if (!collapsed) {
+          final ch = item.channel;
+          widgets.add(_TreeChannelRow(
+            channel: ch,
             serverId: widget.serverId,
-            unreadCount: unread.channelUnreadCount(widget.serverId, channels[i].channelId),
-            voiceParticipants: channels[i].channelType == ChannelType.voice
+            unreadCount: unread.channelUnreadCount(widget.serverId, ch.channelId),
+            voiceParticipants: ch.channelType == ChannelType.voice
                 ? (voiceState.participants[widget.serverId]
-                        ?[channels[i].channelId]
+                        ?[ch.channelId]
                         ?.length ??
                     0)
                 : 0,
-            isLast: i == channels.length - 1,
-            onTap: () => widget.onChannelTap(channels[i]),
+            isLast: item.isLastInGroup && !canManage,
+            onTap: () => widget.onChannelTap(ch),
+            onLongPress: () => _showChannelActions(context, ch, canManage),
+          ));
+        }
+      }
+    }
+
+    if (canManage) {
+      widgets.add(_CreateChannelRow(
+        isLast: true,
+        onTap: () => showCreateChannelDialog(
+          context, widget.serverId, onCreated: _loadChannels),
+      ));
+    }
+    widgets.add(const SizedBox(height: HollowSpacing.xs));
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: widgets,
+    );
+  }
+}
+
+// Display item types for layout-aware rendering
+sealed class _DisplayItem {}
+
+class _CategoryDisplayItem extends _DisplayItem {
+  final String name;
+  _CategoryDisplayItem(this.name);
+}
+
+class _SeparatorDisplayItem extends _DisplayItem {}
+
+class _ChannelDisplayItem extends _DisplayItem {
+  final ChannelInfo channel;
+  final String? category;
+  bool isLastInGroup = false;
+  _ChannelDisplayItem({required this.channel, required this.category});
+}
+
+class _TreeSeparatorRow extends StatelessWidget {
+  const _TreeSeparatorRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+    final lineColor = hollow.textSecondary.withValues(alpha: 0.7);
+    const double treeLeft = HollowSpacing.lg + 22;
+
+    return SizedBox(
+      height: 12,
+      child: Stack(
+        children: [
+          Positioned(
+            left: treeLeft,
+            top: 0,
+            bottom: 0,
+            child: SizedBox(
+              width: 1,
+              child: ColoredBox(color: lineColor),
+            ),
           ),
-        const SizedBox(height: HollowSpacing.xs),
-      ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CategoryHeaderRow extends StatelessWidget {
+  final String name;
+  final bool isCollapsed;
+  final VoidCallback onToggle;
+
+  const _CategoryHeaderRow({
+    required this.name,
+    required this.isCollapsed,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+    return HollowPressable(
+      onTap: onToggle,
+      subtle: true,
+      padding: EdgeInsets.only(
+        left: 44 + HollowSpacing.lg + HollowSpacing.md,
+        right: HollowSpacing.lg,
+        top: HollowSpacing.sm,
+        bottom: HollowSpacing.xs,
+      ),
+      child: Row(
+        children: [
+          AnimatedRotation(
+            turns: isCollapsed ? -0.25 : 0,
+            duration: const Duration(milliseconds: 200),
+            child: Icon(LucideIcons.chevronDown, size: 12, color: hollow.textSecondary),
+          ),
+          const SizedBox(width: HollowSpacing.xs),
+          Text(
+            name.toUpperCase(),
+            style: HollowTypography.caption.copyWith(
+              color: hollow.textSecondary,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.8,
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -724,6 +915,7 @@ class _TreeChannelRow extends StatelessWidget {
   final int voiceParticipants;
   final bool isLast;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
   const _TreeChannelRow({
     required this.channel,
@@ -732,6 +924,7 @@ class _TreeChannelRow extends StatelessWidget {
     required this.voiceParticipants,
     required this.isLast,
     required this.onTap,
+    this.onLongPress,
   });
 
   @override
@@ -782,6 +975,67 @@ class _TreeChannelRow extends StatelessWidget {
           unreadCount: unreadCount,
           voiceParticipants: voiceParticipants,
           onTap: onTap,
+          onLongPress: onLongPress,
+        ),
+      ],
+    );
+  }
+}
+
+class _CreateChannelRow extends StatelessWidget {
+  final bool isLast;
+  final VoidCallback onTap;
+
+  const _CreateChannelRow({required this.isLast, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+    final lineColor = hollow.textSecondary.withValues(alpha: 0.7);
+    const double treeLeft = HollowSpacing.lg + 22;
+
+    return Stack(
+      children: [
+        Positioned(
+          left: treeLeft,
+          top: 0,
+          child: SizedBox(
+            width: 1,
+            height: 19,
+            child: ColoredBox(color: lineColor),
+          ),
+        ),
+        Positioned(
+          left: treeLeft,
+          top: 18,
+          child: SizedBox(
+            width: 12,
+            height: 1,
+            child: ColoredBox(color: lineColor),
+          ),
+        ),
+        HollowPressable(
+          onTap: onTap,
+          subtle: true,
+          padding: EdgeInsets.only(
+            left: 44 + HollowSpacing.lg + HollowSpacing.md,
+            right: HollowSpacing.lg,
+            top: HollowSpacing.sm,
+            bottom: HollowSpacing.sm,
+          ),
+          child: Row(
+            children: [
+              Icon(LucideIcons.plus, size: 14, color: hollow.textSecondary),
+              const SizedBox(width: HollowSpacing.sm),
+              Text(
+                'New Channel',
+                style: HollowTypography.bodySmall.copyWith(
+                  color: hollow.textSecondary,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -794,6 +1048,7 @@ class _ChannelRow extends StatelessWidget {
   final int unreadCount;
   final int voiceParticipants;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
   const _ChannelRow({
     required this.channel,
@@ -801,6 +1056,7 @@ class _ChannelRow extends StatelessWidget {
     required this.unreadCount,
     required this.voiceParticipants,
     required this.onTap,
+    this.onLongPress,
   });
 
   bool get hasUnread => unreadCount > 0;
@@ -812,6 +1068,7 @@ class _ChannelRow extends StatelessWidget {
 
     return HollowPressable(
       onTap: onTap,
+      onLongPress: onLongPress,
       subtle: true,
       padding: EdgeInsets.only(
         left: 44 + HollowSpacing.lg + HollowSpacing.md,
@@ -1188,7 +1445,9 @@ class _ServerContextSheet extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final hollow = HollowTheme.of(context);
     final role = ref.watch(myRoleProvider(serverId)).valueOrNull ?? 'member';
+    final perms = ref.watch(myPermissionsProvider(serverId)).valueOrNull ?? 0;
     final isOwner = role == 'owner';
+    final canManageChannels = (perms & Permission.manageChannels) != 0;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: HollowSpacing.md),
@@ -1222,6 +1481,15 @@ class _ServerContextSheet extends ConsumerWidget {
             label: 'Server Settings',
             onTap: onNavigateSettings,
           ),
+          if (canManageChannels)
+            _SheetAction(
+              icon: LucideIcons.plusCircle,
+              label: 'Create Channel',
+              onTap: () {
+                Navigator.pop(context);
+                showCreateChannelDialog(context, serverId);
+              },
+            ),
           _SheetAction(
             icon: LucideIcons.userPlus,
             label: 'Invite',

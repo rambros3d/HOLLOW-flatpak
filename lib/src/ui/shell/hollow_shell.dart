@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/android_platform.dart';
 import 'package:hollow/src/core/models/channel_info.dart';
 import 'package:hollow/src/core/models/chat_message.dart';
 import 'package:hollow/src/core/models/node_status.dart';
@@ -92,7 +93,7 @@ class HollowShell extends ConsumerStatefulWidget {
 }
 
 class _HollowShellState extends ConsumerState<HollowShell>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   bool _initialized = false;
 
   // Startup reveal animation — master controller shared via InheritedWidget.
@@ -142,6 +143,11 @@ class _HollowShellState extends ConsumerState<HollowShell>
 
     // Register global keyboard shortcut handler.
     HardwareKeyboard.instance.addHandler(_handleGlobalKey);
+
+    // Mobile lifecycle observer for WS reconnection on app resume.
+    if (Platform.isAndroid || Platform.isIOS) {
+      WidgetsBinding.instance.addObserver(this);
+    }
 
     // Delay reveal until after the first frame so the window is visible.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -338,10 +344,51 @@ class _HollowShellState extends ConsumerState<HollowShell>
 
     // Initialize native notifications (for tray mode).
     await ref.read(systemNotificationProvider.notifier).init();
+
+    // Android: acquire WiFi lock to prevent network throttling, and
+    // request battery optimization exemption on first launch.
+    if (Platform.isAndroid) {
+      await acquireWifiLock();
+      final optimized = await isBatteryOptimized();
+      if (optimized && mounted) {
+        await requestBatteryExemption();
+      }
+    }
+  }
+
+  @override
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_initialized || !(Platform.isAndroid || Platform.isIOS)) return;
+    if (state == AppLifecycleState.resumed) {
+      debugPrint('[HOLLOW] App resumed — rejoining rooms + WiFi lock');
+      acquireWifiLock();
+      _rejoinRoomsOnResume();
+    } else if (state == AppLifecycleState.paused) {
+      debugPrint('[HOLLOW] App paused — releasing WiFi lock');
+      releaseWifiLock();
+    }
+  }
+
+  void _rejoinRoomsOnResume() {
+    final servers = ref.read(serverListProvider);
+    final peerId = ref.read(identityProvider).peerId;
+    if (peerId == null) return;
+    try {
+      network_api.joinRoom(roomCode: peerId);
+      for (final serverId in servers.keys) {
+        network_api.joinRoom(roomCode: serverId);
+      }
+    } catch (e) {
+      debugPrint('[HOLLOW] Rejoin failed: $e');
+    }
   }
 
   @override
   void dispose() {
+    if (Platform.isAndroid || Platform.isIOS) {
+      WidgetsBinding.instance.removeObserver(this);
+    }
     HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
     _revealController.dispose();
     super.dispose();

@@ -273,12 +273,14 @@ class EventStreamNotifier extends Notifier<bool> {
         ref
             .read(channelListProvider.notifier)
             .onChannelAdded(serverId, channelId, name, channelType: channelType);
+        ref.read(serverListProvider.notifier).onServerUpdated(serverId);
 
       case NetworkEvent_ChannelRemoved(:final serverId, :final channelId):
         debugPrint('[HOLLOW] Channel removed: $channelId in $serverId');
         ref
             .read(channelListProvider.notifier)
             .onChannelRemoved(serverId, channelId);
+        ref.read(serverListProvider.notifier).onServerUpdated(serverId);
 
       case NetworkEvent_ChannelRenamed(
             :final serverId, :final channelId, :final newName):
@@ -287,6 +289,7 @@ class EventStreamNotifier extends Notifier<bool> {
         ref
             .read(channelListProvider.notifier)
             .onChannelRenamed(serverId, channelId, newName);
+        ref.read(serverListProvider.notifier).onServerUpdated(serverId);
 
       case NetworkEvent_ServerDeleted(:final serverId):
         debugPrint('[HOLLOW] Server deleted: $serverId');

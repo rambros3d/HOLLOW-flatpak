@@ -16,7 +16,6 @@ import 'package:hollow/src/core/providers/file_transfer_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
-import 'package:hollow/src/core/providers/selected_peer_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
 import 'package:hollow/src/core/providers/typing_provider.dart';
 import 'package:hollow/src/core/providers/unread_provider.dart';
@@ -105,12 +104,9 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
         if (mounted) {
           setState(() {});
           _jumpToBottom();
+          _markSeen();
         }
       });
-      ref.read(unreadProvider.notifier).markDmSeen(
-            widget.peerId!,
-            null,
-          );
     } else {
       ref.read(channelChatProvider.notifier).loadHistory(
             widget.serverId!,
@@ -119,13 +115,9 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
         if (mounted) {
           setState(() {});
           _jumpToBottom();
+          _markSeen();
         }
       });
-      ref.read(unreadProvider.notifier).markChannelSeen(
-            widget.serverId!,
-            widget.channelId!,
-            null,
-          );
     }
   }
 
@@ -138,12 +130,6 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
     _editFocusNode.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
-    if (widget.isDm) {
-      ref.read(selectedPeerProvider.notifier).state = null;
-    } else {
-      ref.read(selectedServerProvider.notifier).state = null;
-      ref.read(selectedChannelProvider.notifier).state = null;
-    }
     super.dispose();
   }
 

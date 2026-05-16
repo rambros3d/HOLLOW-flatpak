@@ -39,14 +39,45 @@ Bottom bar (56px) with 4 `_NavTab` widgets + center `_AddButton`. Uses `LayoutBu
 **File:** `lib/src/ui/mobile/tabs/mobile_chats_tab.dart` (`_TreeChannelRow`)
 Expanded server channel list shows tree-style connectors (├── / └──). `_TreeChannelRow` wraps `_ChannelRow` in a `Stack` with vertical + horizontal `ColoredBox` lines. Vertical line aligned under server avatar center (`HollowSpacing.lg + 22`). Last channel uses `└──` (line stops at branch), others use `├──` (line continues). Line color: `hollow.textSecondary` at 0.7 alpha.
 
+### Channel Long-Press Context Sheet
+**File:** `lib/src/ui/mobile/mobile_channel_actions.dart`
+Long-press on a channel row in the expanded accordion opens `showMobileChannelActions()`:
+- Channel name header with type icon (hash/volume)
+- If `canManage` (Permission.manageChannels): **Rename** (pops sheet, opens `showHollowDialog`), **Visibility** (radio: Everyone/Mod+/Admin+), **Who Can Post** (same), **Delete** (inline confirmation)
+- If not admin: read-only channel info only
+- Uses `AnimatedSize` view switching (actions → deleteConfirm → visibility → posting)
+- `onChanged` callback triggers `_loadChannels()` to refresh the accordion
+
+### Layout-Aware Channel List
+**File:** `lib/src/ui/mobile/tabs/mobile_chats_tab.dart` (`_ChannelList`)
+Channel accordion now respects layout ordering + categories:
+- Fetches both `ChannelListNotifier.fetchChannels()` AND `ChannelLayoutNotifier.fetchLayout()` via `Future.wait`
+- Parses layout JSON into `_DisplayItem` sealed class hierarchy: `_CategoryDisplayItem`, `_ChannelDisplayItem`, `_SeparatorDisplayItem`
+- Categories render as collapsible `_CategoryHeaderRow` (uppercase, chevron toggle, `AnimatedRotation`)
+- Separators render as `_TreeSeparatorRow` (12px gap with vertical tree line)
+- Unplaced channels appended alphabetically at end
+- "+" `_CreateChannelRow` at bottom when `canManage` (calls `showCreateChannelDialog` with `onCreated: _loadChannels`)
+- Listens to `serverListProvider.select((s) => s[widget.serverId])` for per-server change detection
+
 ### Server Long-Press Context Sheet
 **File:** `lib/src/ui/mobile/tabs/mobile_chats_tab.dart` (`_ServerContextSheet`)
 Long-press on a server row opens `showModalBottomSheet` with:
 - Handle bar + server name header
 - **Server Settings** → pushes `MobileServerSettingsRoute`
+- **Create Channel** → `showCreateChannelDialog()` (gated by `Permission.manageChannels`)
 - **Invite** → `showInviteDialog()` with `hollow://join?server=` link
 - **Copy Server ID** → clipboard + toast
 - **Leave/Delete Server** → confirmation dialog (`showHollowDialog`). Owner sees Delete, others see Leave. Post-action clears `selectedServerProvider`, `selectedChannelProvider`, `channelListProvider`.
+
+### Channel Layout Editor in Server Settings
+**File:** `lib/src/ui/mobile/mobile_server_settings_route.dart` (`_ChannelLayoutEditor`)
+New "Channels" section (gated by `Permission.manageChannels`) with:
+- Centered action buttons: + Channel, + Category, + Break
+- `ReorderableListView.builder` (shrinkWrap, NeverScrollableScrollPhysics) with drag handles
+- Category rows (accent bg), channel rows (elevated bg), separator rows (divider)
+- Rename/delete via `showHollowDialog` dialogs
+- Dirty state tracking with Save Layout / Discard buttons
+- Listens to `serverListProvider.select()` for auto-refresh on channel events
 
 ---
 
@@ -82,7 +113,8 @@ Long-press on a server row opens `showModalBottomSheet` with:
 
 ### Provider Management (Critical)
 On entry: `_openDmChat` sets `selectedPeerProvider`, clears `selectedServerProvider`. `_openChannelChat` sets both `selectedServerProvider` and `selectedChannelProvider`.
-On exit: `dispose()` clears these providers so the event provider doesn't treat the user as still viewing the chat.
+On exit: Providers are cleared in `Navigator.push().then()` in `mobile_chats_tab.dart` — AFTER the route fully pops. `MobileChatRoute.dispose()` does NOT touch selection providers. This ensures `isViewingChannel` guard works during viewing but unreads accumulate after returning to Chats tab.
+Unread clearing: `_markSeen()` called after history loads in `initState` `.then()` callback (with real message IDs). Never calls `markChannelSeen`/`markDmSeen` with null.
 
 ### Widget Tree
 ```

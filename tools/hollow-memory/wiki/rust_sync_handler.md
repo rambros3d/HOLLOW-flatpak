@@ -651,11 +651,13 @@ Tier-gated operations (require outranking the target):
 
 ## Broadcast Strategy
 
-Two broadcast paths exist throughout the module:
+Two broadcast paths exist throughout the module, with mandatory fallback:
 
 **MLS path** (preferred when MLS group exists): Wrap the CRDT op in `MessageEnvelope::CrdtOp { sid, op_json }` and call `send_mls_broadcast()` — encrypts for the entire MLS group in one operation.
 
-**Plaintext fallback** (when no MLS group or MLS fails): Iterate `state.members.keys()`, skip self, check `peer_is_reachable(ws_room_peers, peer)`, send `HavenMessage::CrdtOpBroadcast { server_id, op_json }` via `send_message_to_peer()`.
+**Plaintext fallback** (when no MLS group OR MLS encryption fails): Iterate `state.members.keys()`, skip self, check `peer_is_reachable(ws_room_peers, peer)`, send `HavenMessage::CrdtOpBroadcast { server_id, op_json }` via `send_message_to_peer()`.
+
+**CRITICAL pattern:** All MLS broadcast sites use `let mut sent_via_mls = false; match send_mls_broadcast(...) { Ok(()) => sent_via_mls = true, Err(e) => log }; if !sent_via_mls { plaintext fallback }`. This ensures CRDT ops are ALWAYS delivered even when MLS epoch is stale (common after mobile micro-disconnects). Never use `if mls_ok { mls } else { plaintext }` — that silently drops ops on MLS encryption failure.
 
 Notable exceptions:
 - `handle_change_role()` — always uses plaintext broadcast (no MLS wrapper)
