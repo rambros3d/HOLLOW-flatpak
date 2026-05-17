@@ -4,6 +4,7 @@ import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:hollow/src/ui/animations/hollow_curves.dart';
 import 'package:hollow/src/ui/animations/startup_reveal.dart';
+import 'package:hollow/src/ui/annotation/annotation_toggle_button.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -41,6 +42,8 @@ class WindowTitleBar extends StatelessWidget {
     Widget buttons = Row(
       mainAxisSize: MainAxisSize.min,
       children: const [
+        AnnotationToggleButton(),
+        SizedBox(width: 4),
         _MinimizeButton(),
         _MaximizeButton(),
         _CloseButton(),
