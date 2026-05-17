@@ -51,6 +51,7 @@ jobs:
           cd /tmp/ffmpeg
 
           export PKG_CONFIG_PATH=/tmp/ffmpeg-deps/lib/pkgconfig
+          export PKG_CONFIG_LIBDIR=/tmp/ffmpeg-deps/lib/pkgconfig
 
           ./configure \
             --arch=x86_64 \
@@ -58,6 +59,7 @@ jobs:
             --cross-prefix=x86_64-w64-mingw32- \
             --prefix=/tmp/ffmpeg-out \
             --pkg-config=pkg-config \
+            --pkg-config-flags="--static" \
             --enable-static \
             --disable-shared \
             --disable-debug \
