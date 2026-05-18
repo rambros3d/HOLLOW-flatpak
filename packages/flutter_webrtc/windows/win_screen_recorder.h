@@ -39,7 +39,17 @@ class WinScreenRecorder {
   void Stop(Completion completion);
 
   // Live frame callback for screen sharing. Called on the capture thread
-  // with NV12 data (GPU-converted from BGRA via D3D11 Video Processor).
+  // with BGRA data read directly from the WGC capture texture.
+  // No D3D11 Video Processor involved — color-accurate 1:1 copy.
+  struct BGRAFrame {
+    const uint8_t* data;
+    int stride;
+    int width;
+    int height;
+  };
+  using FrameCallback = std::function<void(const BGRAFrame& frame)>;
+
+  // Legacy NV12 callback (kept for recording path compatibility).
   struct NV12Frame {
     const uint8_t* data_y;
     int stride_y;
@@ -48,10 +58,9 @@ class WinScreenRecorder {
     int width;
     int height;
   };
-  using FrameCallback = std::function<void(const NV12Frame& frame)>;
 
   // Start capture-only mode (no file recording). Uses the same native
-  // Graphics Capture pipeline as recording.
+  // Graphics Capture pipeline as recording. Delivers BGRA frames directly.
   bool StartCapture(HMONITOR monitor, uint32_t fps, FrameCallback callback);
   void StopCapture();
   bool IsCapturing() const { return capturing_.load(); }

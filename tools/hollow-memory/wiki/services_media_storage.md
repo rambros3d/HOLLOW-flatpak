@@ -227,6 +227,8 @@ Static-only service that extracts first-frame thumbnails from video files using 
 4. Returns the absolute path if found, null otherwise.
 5. Logs the result via `network_api.logFromDart()`.
 
+**Minimal build:** Windows ships a custom 5.9 MB ffmpeg (down from 164 MB) built via `.github/workflows/build-ffmpeg.yml`. Only includes codecs Hollow uses: libopus, libwebp, aac, pcm_s16le, h264/hevc/vp8/vp9 decoders, scale filter. Fetched by `scripts/fetch_ffmpeg.ps1` from GitHub release `ffmpeg-minimal-v1`.
+
 **`isAvailable`** (static getter) -- returns `findFfmpegBinary() != null`.
 
 ### Thumbnail cache

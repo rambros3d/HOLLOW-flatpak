@@ -12,6 +12,7 @@
 #if defined(_WIN32)
 namespace flutter_webrtc_plugin {
 class WasapiLoopbackCapturer;
+class ProcessAudioCapturer;
 class WinScreenShareCapturer;
 }  // namespace flutter_webrtc_plugin
 #endif
@@ -70,6 +71,8 @@ class FlutterScreenCapture : public MediaListObserver,
 #if defined(_WIN32)
   std::map<std::string, std::unique_ptr<WasapiLoopbackCapturer>>
       loopback_capturers_;
+  std::map<std::string, std::unique_ptr<ProcessAudioCapturer>>
+      process_audio_capturers_;
   std::map<std::string, std::unique_ptr<WinScreenShareCapturer>>
       screen_share_capturers_;
 #endif

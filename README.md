@@ -99,6 +99,7 @@ In the Hollow app, enter your relay domain during setup or in Settings. See [rel
 - [Privacy Policy](legal/PRIVACY_POLICY.md) -- what data exists, where, and what we can access (nothing)
 - [Terms of Use](legal/TERMS_OF_USE.md) -- plain-language terms
 - [Relay Documentation](relay-uws/README.md) -- relay architecture, benchmarks, deployment
+- [Native Screen Share](reports/NATIVE_SCREEN_SHARE.md) -- Windows native capture pipeline, custom libwebrtc DLL, build instructions
 - [Mobile Port Plan](MobilePort_Plan.md) -- Android/iOS build setup, OpenSSL cross-compilation, contributor guide
 
 ## Building from Source

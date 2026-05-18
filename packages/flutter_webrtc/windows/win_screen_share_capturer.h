@@ -11,8 +11,8 @@
 namespace flutter_webrtc_plugin {
 
 // Feeds native Windows Graphics Capture frames into a WebRTC video source.
-// GPU BGRA→NV12 via D3D11 Video Processor (zero CPU color conversion).
-// VP8/VP9/AV1 encoders consume NV12 directly.
+// BGRA frames go directly from WGC → libyuv BGRA→I420 → WebRTC encoder.
+// No D3D11 Video Processor involved — color-accurate 1:1 path.
 class WinScreenShareCapturer {
  public:
   WinScreenShareCapturer();
@@ -27,7 +27,7 @@ class WinScreenShareCapturer {
   bool IsCapturing() const;
 
  private:
-  void OnFrame(const WinScreenRecorder::NV12Frame& nv12);
+  void OnFrame(const WinScreenRecorder::BGRAFrame& bgra);
   libwebrtc::scoped_refptr<libwebrtc::RTCVideoSource> video_source_;
 };
 

@@ -236,7 +236,13 @@ bool WinScreenRecorder::InitVideoProcessor(UINT32 w, UINT32 h) {
   cs.Nominal_Range = D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_0_255;
   video_ctx_->VideoProcessorSetStreamColorSpace(video_processor_.Get(), 0, &cs);
   video_ctx_->VideoProcessorSetOutputColorSpace(video_processor_.Get(), &cs);
-  CAPLOG("VP: color space set to full range (0-255) BT.709");
+
+  // Disable auto processing — drivers apply brightness/contrast adjustments
+  // that darken the output. We want a 1:1 color-accurate conversion.
+  video_ctx_->VideoProcessorSetStreamAutoProcessingMode(
+      video_processor_.Get(), 0, FALSE);
+
+  CAPLOG("VP: color space set to full range (0-255) BT.709, auto-processing disabled");
 
   // NV12 output texture — D3D11_BIND_RENDER_TARGET is required for
   // VideoProcessorOutputView on most drivers.
@@ -488,58 +494,34 @@ void WinScreenRecorder::OnFrameArrived(
     WriteVideoFrame(tex, qpc.QuadPart);
   }
 
-  if (is_capturing && frame_callback_ && vp_available_) {
+  if (is_capturing && frame_callback_) {
     static int frame_count = 0;
-    D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC ivd = {};
-    ivd.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
-    ivd.Texture2D.MipSlice = 0;
-    ComPtr<ID3D11VideoProcessorInputView> input_view;
-    HRESULT hr = video_device_->CreateVideoProcessorInputView(
-        tex, vp_enum_.Get(), &ivd, &input_view);
+    // Deliver BGRA directly — no VP color conversion, no color space shift.
+    // Copy WGC texture to BGRA staging texture for CPU readback.
+    ctx_->CopyResource(staging_tex_.Get(), tex);
 
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    HRESULT hr = ctx_->Map(staging_tex_.Get(), 0, D3D11_MAP_READ, 0, &mapped);
     if (FAILED(hr)) {
-      if (frame_count == 0) CAPLOG("Frame: InputView failed: 0x%08X", hr);
+      if (frame_count == 0) CAPLOG("Frame: Map BGRA staging failed: 0x%08X", hr);
     } else {
-      D3D11_VIDEO_PROCESSOR_STREAM stream_data = {};
-      stream_data.Enable = TRUE;
-      stream_data.pInputSurface = input_view.Get();
-      hr = video_ctx_->VideoProcessorBlt(
-          video_processor_.Get(), vp_output_view_.Get(), 0, 1, &stream_data);
+      int w = static_cast<int>(cap_w_);
+      int h = static_cast<int>(cap_h_);
 
-      if (FAILED(hr)) {
-        if (frame_count == 0) CAPLOG("Frame: VideoProcessorBlt failed: 0x%08X", hr);
-      } else {
-        ctx_->CopyResource(nv12_staging_tex_.Get(), nv12_tex_.Get());
+      BGRAFrame bgra = {};
+      bgra.data = static_cast<const uint8_t*>(mapped.pData);
+      bgra.stride = static_cast<int>(mapped.RowPitch);
+      bgra.width = w;
+      bgra.height = h;
 
-        D3D11_MAPPED_SUBRESOURCE mapped = {};
-        hr = ctx_->Map(nv12_staging_tex_.Get(), 0, D3D11_MAP_READ, 0,
-                       &mapped);
-        if (FAILED(hr)) {
-          if (frame_count == 0) CAPLOG("Frame: Map NV12 staging failed: 0x%08X", hr);
-        } else {
-          int w = static_cast<int>(cap_w_);
-          int h = static_cast<int>(cap_h_);
-          auto* y_data = static_cast<const uint8_t*>(mapped.pData);
-          auto* uv_data = y_data + mapped.RowPitch * h;
-
-          NV12Frame nv12 = {};
-          nv12.data_y = y_data;
-          nv12.stride_y = static_cast<int>(mapped.RowPitch);
-          nv12.data_uv = uv_data;
-          nv12.stride_uv = static_cast<int>(mapped.RowPitch);
-          nv12.width = w;
-          nv12.height = h;
-
-          if (frame_count == 0) {
-            CAPLOG("Frame #0: VP Blt OK, NV12 %dx%d stride=%d, delivering to WebRTC",
-                   w, h, mapped.RowPitch);
-          }
-          frame_callback_(nv12);
-
-          ctx_->Unmap(nv12_staging_tex_.Get(), 0);
-          frame_count++;
-        }
+      if (frame_count == 0) {
+        CAPLOG("Frame #0: BGRA direct %dx%d stride=%d, delivering to WebRTC",
+               w, h, mapped.RowPitch);
       }
+      frame_callback_(bgra);
+
+      ctx_->Unmap(staging_tex_.Get(), 0);
+      frame_count++;
     }
   }
 

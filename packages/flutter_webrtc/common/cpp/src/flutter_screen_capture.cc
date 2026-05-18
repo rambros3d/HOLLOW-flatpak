@@ -2,6 +2,7 @@
 
 #if defined(_WIN32)
 #include "../../../windows/wasapi_loopback_capturer.h"
+#include "../../../windows/process_audio_capturer.h"
 #include "../../../windows/win_screen_share_capturer.h"
 #include "../../../windows/capture_log.h"
 #include <windows.h>
@@ -255,13 +256,36 @@ void FlutterScreenCapture::GetDisplayMedia(
                                             audio_track_id.c_str());
 
       if (audio_track.get()) {
-        auto capturer = std::make_unique<WasapiLoopbackCapturer>();
-        bool started = capturer->Start(
+        auto audio_cb =
             [audio_source](const void* data, int bits_per_sample,
                            int sample_rate, size_t channels, size_t frames) {
               audio_source->CaptureFrame(data, bits_per_sample, sample_rate,
                                          channels, frames);
-            });
+            };
+
+        bool started = false;
+
+        // Prefer process-specific loopback (no echo) on Win10 2004+
+        if (ProcessAudioCapturer::IsSupported()) {
+          auto proc_capturer = std::make_unique<ProcessAudioCapturer>();
+          started = proc_capturer->Start(audio_cb);
+          if (started) {
+            process_audio_capturers_[uuid] = std::move(proc_capturer);
+            CAPLOG("GetDisplayMedia: using ProcessAudioCapturer (no echo)");
+          } else {
+            CAPLOG("GetDisplayMedia: ProcessAudioCapturer failed, falling back to WASAPI loopback");
+          }
+        }
+
+        // Fallback: global WASAPI loopback (has echo loop)
+        if (!started) {
+          auto capturer = std::make_unique<WasapiLoopbackCapturer>();
+          started = capturer->Start(audio_cb);
+          if (started) {
+            loopback_capturers_[uuid] = std::move(capturer);
+            CAPLOG("GetDisplayMedia: using WasapiLoopbackCapturer (global loopback)");
+          }
+        }
 
         if (started) {
           EncodableMap audio_info;
@@ -276,7 +300,6 @@ void FlutterScreenCapture::GetDisplayMedia(
           audioTracks.push_back(EncodableValue(audio_info));
 
           base_->local_tracks_[audio_track->id().std_string()] = audio_track;
-          loopback_capturers_[uuid] = std::move(capturer);
           // Do NOT call stream->AddTrack(audio_track). The prebuilt
           // libwebrtc crashes during sender iteration / setParameters when
           // a kCustom audio track is attached to a MediaStream. Dart adds
@@ -418,6 +441,11 @@ void FlutterScreenCapture::DisposeStream(const std::string& stream_id) {
   if (sc_it != screen_share_capturers_.end()) {
     sc_it->second->Stop();
     screen_share_capturers_.erase(sc_it);
+  }
+  auto pa_it = process_audio_capturers_.find(stream_id);
+  if (pa_it != process_audio_capturers_.end()) {
+    pa_it->second->Stop();
+    process_audio_capturers_.erase(pa_it);
   }
   auto lb_it = loopback_capturers_.find(stream_id);
   if (lb_it != loopback_capturers_.end()) {

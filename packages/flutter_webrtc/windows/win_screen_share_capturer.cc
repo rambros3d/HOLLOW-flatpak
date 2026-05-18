@@ -19,8 +19,8 @@ bool WinScreenShareCapturer::Start(
   auto& recorder = WinScreenRecorder::GetInstance();
   bool ok = recorder.StartCapture(
       monitor, fps,
-      [this](const WinScreenRecorder::NV12Frame& nv12) {
-        OnFrame(nv12);
+      [this](const WinScreenRecorder::BGRAFrame& bgra) {
+        OnFrame(bgra);
       });
 
   if (!ok) {
@@ -42,27 +42,25 @@ bool WinScreenShareCapturer::IsCapturing() const {
 }
 
 void WinScreenShareCapturer::OnFrame(
-    const WinScreenRecorder::NV12Frame& nv12) {
+    const WinScreenRecorder::BGRAFrame& bgra) {
   if (!video_source_.get()) return;
-  if (nv12.width <= 0 || nv12.height <= 0) return;
+  if (bgra.width <= 0 || bgra.height <= 0) return;
 
-  // NV12 data goes straight to WebRTC — VP8/VP9/AV1 consume it directly.
-  auto frame = libwebrtc::RTCVideoFrame::CreateFromNV12(
-      nv12.width, nv12.height,
-      nv12.data_y, nv12.stride_y,
-      nv12.data_uv, nv12.stride_uv);
+  // BGRA → I420 via libyuv (AVX2/SSSE3 accelerated, color-accurate).
+  auto frame = libwebrtc::RTCVideoFrame::CreateFromBGRA(
+      bgra.width, bgra.height, bgra.data, bgra.stride);
 
   if (frame.get()) {
     static bool first = true;
     if (first) {
-      CAPLOG("OnFrame: first NV12 frame → OnCapturedFrame %dx%d", nv12.width, nv12.height);
+      CAPLOG("OnFrame: first BGRA frame → OnCapturedFrame %dx%d", bgra.width, bgra.height);
       first = false;
     }
     video_source_->OnCapturedFrame(frame);
   } else {
     static bool logged = false;
     if (!logged) {
-      CAPLOG("OnFrame: CreateFromNV12 returned null!");
+      CAPLOG("OnFrame: CreateFromBGRA returned null!");
       logged = true;
     }
   }

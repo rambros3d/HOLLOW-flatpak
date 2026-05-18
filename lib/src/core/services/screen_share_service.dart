@@ -64,11 +64,10 @@ class ScreenShareService {
     required this.iceServers,
   });
 
-  /// Apply resolution and bitrate cap on the video sender's encoding
-  /// parameters. getDisplayMedia captures at native resolution — this
-  /// constrains the encoder to downscale before transmitting AND caps
-  /// the bitrate so WebRTC's adaptive quality scaler can't ramp back up.
-  Future<void> _applyResolutionCap(int maxWidth, int maxHeight) async {
+  /// Configure the video sender for screen content: set bitrate cap and
+  /// degradation preference. Does NOT set scaleResolutionDownBy — the
+  /// native capturer already delivers frames at the requested resolution.
+  Future<void> _applyScreenShareEncoding(int maxWidth, int maxHeight) async {
     if (_pc == null) return;
     final senders = await _pc!.getSenders();
     for (final sender in senders) {
@@ -77,32 +76,10 @@ class ScreenShareService {
         if (params.encodings == null || params.encodings!.isEmpty) {
           params.encodings = [RTCRtpEncoding()];
         }
+
         for (final encoding in params.encodings!) {
-          final settings = sender.track!.getSettings();
-          final captureWidth = settings['width'] as int? ?? 1920;
-          final captureHeight = settings['height'] as int? ?? 1080;
-
-          // Downscale if the capture is larger than the target.
-          if (captureWidth > maxWidth || captureHeight > maxHeight) {
-            final scaleW = captureWidth / maxWidth;
-            final scaleH = captureHeight / maxHeight;
-            final scale = scaleW > scaleH ? scaleW : scaleH;
-            encoding.scaleResolutionDownBy = scale;
-            _log('[HOLLOW-SCREEN] Set scaleResolutionDownBy=$scale '
-                '(${captureWidth}x$captureHeight -> ${maxWidth}x$maxHeight)');
-          }
-
-          // Cap the bitrate to prevent BWE from ramping the quality back
-          // up when bandwidth is abundant. Without this, the adaptive
-          // quality scaler can override scaleResolutionDownBy.
-          // Bitrate tiers (screen share — higher than camera because
-          // screen content has sharp edges/text that compress poorly):
-          //   360p  →  800 kbps
-          //   480p  → 1500 kbps
-          //   720p  → 3000 kbps
-          //  1080p  → 6000 kbps
-          //  1440p  → 9000 kbps
-          //  4K     → 15000 kbps
+          // Bitrate tiers for screen share (higher than camera — screen
+          // content has sharp edges/text that compress poorly):
           final pixels = maxWidth * maxHeight;
           final int maxBitrateKbps;
           if (pixels <= 640 * 360) {
@@ -120,7 +97,7 @@ class ScreenShareService {
           }
           encoding.maxBitrate = maxBitrateKbps * 1000; // bps
           _log('[HOLLOW-SCREEN] Set maxBitrate=${maxBitrateKbps}kbps '
-              'for ${maxWidth}x$maxHeight');
+              'for ${maxWidth}x$maxHeight, degradation=maintain-resolution');
         }
         await sender.setParameters(params);
         break;
@@ -221,11 +198,11 @@ class ScreenShareService {
     await _pc!.addTrack(screenTrack, _screenStream!);
     _log('[HOLLOW-SCREEN] Added screen video track to PC');
 
-    // On macOS prefer VP8 for screen share. Apple's H.264 hardware encoder
-    // can emit a profile (e.g. high) that Windows libwebrtc's software
-    // decoder fails to render — frames decode to a black image with no
-    // error. VP8 has no profile axis and works identically on both ends.
-    if (Platform.isMacOS) {
+    // Prefer VP8 for screen share on all desktop platforms. VP8 has no
+    // profile axis — it works identically on all peers. H.264 profiles
+    // from hardware encoders (Apple VT, MF NVENC) can produce frames that
+    // the remote peer's software decoder fails to render.
+    if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
       try {
         final caps = await getRtpSenderCapabilities('video');
         final vp8 = caps.codecs
@@ -236,15 +213,13 @@ class ScreenShareService {
           final transceivers = await _pc!.getTransceivers();
           for (final t in transceivers) {
             if (t.sender.track?.id == screenTrack.id) {
-              // Put VP8 first; keep other codecs as fallback in case the
-              // remote peer can't negotiate VP8 for some reason.
               final ordered = [
                 ...vp8,
                 ...(caps.codecs ?? []).where(
                     (c) => !c.mimeType.toLowerCase().endsWith('vp8')),
               ];
               await t.setCodecPreferences(ordered);
-              _log('[HOLLOW-SCREEN] Forced VP8 codec preference on macOS');
+              _log('[HOLLOW-SCREEN] Forced VP8 codec preference');
               break;
             }
           }
@@ -255,7 +230,7 @@ class ScreenShareService {
     }
 
     // Apply resolution cap on the encoder (getDisplayMedia captures at native res).
-    await _applyResolutionCap(width, height);
+    await _applyScreenShareEncoding(width, height);
 
     final audioTracks = _screenStream!.getAudioTracks();
     _log('[HOLLOW-SCREEN] getDisplayMedia audio tracks: ${audioTracks.length}');
@@ -305,8 +280,36 @@ class ScreenShareService {
     await _pc!.addTrack(screenTrack, _screenStream!);
     _log('[HOLLOW-SCREEN] Added screen video track to PC');
 
-    // Apply resolution cap on the encoder.
-    await _applyResolutionCap(maxWidth, maxHeight);
+    // Force VP8 codec preference (same as createOffer path).
+    if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
+      try {
+        final caps = await getRtpSenderCapabilities('video');
+        final vp8 = caps.codecs
+                ?.where((c) => c.mimeType.toLowerCase().endsWith('vp8'))
+                .toList() ??
+            [];
+        if (vp8.isNotEmpty) {
+          final transceivers = await _pc!.getTransceivers();
+          for (final t in transceivers) {
+            if (t.sender.track?.id == screenTrack.id) {
+              final ordered = [
+                ...vp8,
+                ...(caps.codecs ?? []).where(
+                    (c) => !c.mimeType.toLowerCase().endsWith('vp8')),
+              ];
+              await t.setCodecPreferences(ordered);
+              _log('[HOLLOW-SCREEN] Forced VP8 codec preference (shared stream)');
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        _log('[HOLLOW-SCREEN] codec preference set failed: $e');
+      }
+    }
+
+    // Configure encoding for screen content.
+    await _applyScreenShareEncoding(maxWidth, maxHeight);
 
     // Add audio tracks if available.
     final audioTracks = _screenStream!.getAudioTracks();
