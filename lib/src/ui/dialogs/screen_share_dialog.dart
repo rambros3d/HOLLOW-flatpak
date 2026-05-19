@@ -7,8 +7,6 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
-import 'package:lucide_icons/lucide_icons.dart';
-
 import 'package:hollow/src/ui/components/hollow_button.dart';
 import 'package:hollow/src/ui/components/hollow_dialog.dart';
 import 'package:hollow/src/ui/components/hollow_toggle.dart';
@@ -305,27 +303,6 @@ class _ScreenShareDialogState extends State<_ScreenShareDialog> {
                       ),
                     ],
                   ),
-                  if (Platform.isWindows)
-                    Padding(
-                      padding: const EdgeInsets.only(top: HollowSpacing.xs),
-                      child: Row(
-                        children: [
-                          Icon(LucideIcons.alertTriangle,
-                              size: 13, color: Colors.amber),
-                          const SizedBox(width: 6),
-                          Flexible(
-                            child: Text(
-                              "Audio doesn't natively work on Windows 10 "
-                              '(may work on 11). Use at your own risk!',
-                              style: HollowTypography.caption.copyWith(
-                                color: Colors.amber.withValues(alpha: 0.85),
-                                fontSize: 11,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                   const SizedBox(height: HollowSpacing.lg),
 
                   // Actions

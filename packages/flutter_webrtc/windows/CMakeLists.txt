@@ -36,9 +36,7 @@ add_library(${PLUGIN_NAME} SHARED
   "flutter_webrtc_plugin.cc"
   "task_runner_windows.cc"
   "wasapi_loopback_capturer.cc"
-  "process_audio_capturer.cc"
   "win_screen_recorder.cc"
-  "win_screen_share_capturer.cc"
 )
 
 include_directories(

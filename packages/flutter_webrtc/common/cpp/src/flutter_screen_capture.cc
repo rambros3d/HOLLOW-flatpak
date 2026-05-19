@@ -2,15 +2,10 @@
 
 #if defined(_WIN32)
 #include "../../../windows/wasapi_loopback_capturer.h"
-#include "../../../windows/process_audio_capturer.h"
-#include "../../../windows/win_screen_share_capturer.h"
-#include "../../../windows/capture_log.h"
-#include <windows.h>
 #endif
 
 #include "rtc_audio_source.h"
 #include "rtc_audio_track.h"
-#include "rtc_peerconnection_factory.h"
 
 namespace flutter_webrtc_plugin {
 
@@ -256,36 +251,13 @@ void FlutterScreenCapture::GetDisplayMedia(
                                             audio_track_id.c_str());
 
       if (audio_track.get()) {
-        auto audio_cb =
+        auto capturer = std::make_unique<WasapiLoopbackCapturer>();
+        bool started = capturer->Start(
             [audio_source](const void* data, int bits_per_sample,
                            int sample_rate, size_t channels, size_t frames) {
               audio_source->CaptureFrame(data, bits_per_sample, sample_rate,
                                          channels, frames);
-            };
-
-        bool started = false;
-
-        // Prefer process-specific loopback (no echo) on Win10 2004+
-        if (ProcessAudioCapturer::IsSupported()) {
-          auto proc_capturer = std::make_unique<ProcessAudioCapturer>();
-          started = proc_capturer->Start(audio_cb);
-          if (started) {
-            process_audio_capturers_[uuid] = std::move(proc_capturer);
-            CAPLOG("GetDisplayMedia: using ProcessAudioCapturer (no echo)");
-          } else {
-            CAPLOG("GetDisplayMedia: ProcessAudioCapturer failed, falling back to WASAPI loopback");
-          }
-        }
-
-        // Fallback: global WASAPI loopback (has echo loop)
-        if (!started) {
-          auto capturer = std::make_unique<WasapiLoopbackCapturer>();
-          started = capturer->Start(audio_cb);
-          if (started) {
-            loopback_capturers_[uuid] = std::move(capturer);
-            CAPLOG("GetDisplayMedia: using WasapiLoopbackCapturer (global loopback)");
-          }
-        }
+            });
 
         if (started) {
           EncodableMap audio_info;
@@ -300,6 +272,7 @@ void FlutterScreenCapture::GetDisplayMedia(
           audioTracks.push_back(EncodableValue(audio_info));
 
           base_->local_tracks_[audio_track->id().std_string()] = audio_track;
+          loopback_capturers_[uuid] = std::move(capturer);
           // Do NOT call stream->AddTrack(audio_track). The prebuilt
           // libwebrtc crashes during sender iteration / setParameters when
           // a kCustom audio track is attached to a MediaStream. Dart adds
@@ -334,81 +307,24 @@ void FlutterScreenCapture::GetDisplayMedia(
     return;
   }
 
-  scoped_refptr<RTCVideoSource> video_source;
-  scoped_refptr<RTCDesktopCapturer> desktop_capturer;
-  bool use_native_capturer = false;
+  scoped_refptr<RTCDesktopCapturer> desktop_capturer =
+      base_->desktop_device_->CreateDesktopCapturer(source);
 
-#if defined(_WIN32)
-  // Use native Graphics Capture for screen sources (not windows).
-  if (source->type() == kScreen) {
-    // Resolve HMONITOR from source index. Source IDs for screens are
-    // sequential indices starting from 0 as reported by libwebrtc's
-    // desktop media list.
-    int screen_index = 0;
-    try { screen_index = std::stoi(source_id); } catch (...) {}
-
-    struct MonitorEnumData {
-      int target;
-      int current;
-      HMONITOR result;
-    } data = {screen_index, 0, nullptr};
-
-    EnumDisplayMonitors(
-        nullptr, nullptr,
-        [](HMONITOR hmon, HDC, LPRECT, LPARAM lp) -> BOOL {
-          auto* d = reinterpret_cast<MonitorEnumData*>(lp);
-          if (d->current == d->target) {
-            d->result = hmon;
-            return FALSE;
-          }
-          d->current++;
-          return TRUE;
-        },
-        reinterpret_cast<LPARAM>(&data));
-
-    if (!data.result) {
-      data.result = MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY);
-    }
-
-    CAPLOG("GetDisplayMedia: screen source '%s', creating custom video source",
-           source_id.c_str());
-
-    video_source = base_->factory_->CreateCustomVideoSource(
-        "native_screen_capture",
-        base_->ParseMediaConstraints(video_constraints));
-
-    if (video_source.get()) {
-      CAPLOG("GetDisplayMedia: CreateCustomVideoSource OK, starting capturer (fps=%u)",
-             static_cast<uint32_t>(fps));
-      auto capturer = std::make_unique<WinScreenShareCapturer>();
-      if (capturer->Start(data.result, static_cast<uint32_t>(fps),
-                          video_source)) {
-        screen_share_capturers_[uuid] = std::move(capturer);
-        use_native_capturer = true;
-        CAPLOG("GetDisplayMedia: native capturer started OK");
-      } else {
-        CAPLOG("GetDisplayMedia: native capturer Start() FAILED, falling back to libwebrtc");
-      }
-    } else {
-      CAPLOG("GetDisplayMedia: CreateCustomVideoSource returned null!");
-    }
+  if (!desktop_capturer.get()) {
+    result->Error("Bad Arguments", "CreateDesktopCapturer failed!");
+    return;
   }
-#endif
 
-  if (!use_native_capturer) {
-    desktop_capturer = base_->desktop_device_->CreateDesktopCapturer(source);
+  desktop_capturer->RegisterDesktopCapturerObserver(this);
 
-    if (!desktop_capturer.get()) {
-      result->Error("Bad Arguments", "CreateDesktopCapturer failed!");
-      return;
-    }
+  const char* video_source_label = "screen_capture_input";
 
-    desktop_capturer->RegisterDesktopCapturerObserver(this);
+  scoped_refptr<RTCVideoSource> video_source =
+      base_->factory_->CreateDesktopSource(
+          desktop_capturer, video_source_label,
+          base_->ParseMediaConstraints(video_constraints));
 
-    video_source = base_->factory_->CreateDesktopSource(
-        desktop_capturer, "screen_capture_input",
-        base_->ParseMediaConstraints(video_constraints));
-  }
+  // TODO: RTCVideoSource -> RTCVideoTrack
 
   scoped_refptr<RTCVideoTrack> track =
       base_->factory_->CreateVideoTrack(video_source, uuid.c_str());
@@ -428,31 +344,9 @@ void FlutterScreenCapture::GetDisplayMedia(
 
   base_->local_streams_[uuid] = stream;
 
-  if (!use_native_capturer && desktop_capturer.get()) {
-    desktop_capturer->Start(uint32_t(fps));
-  }
+  desktop_capturer->Start(uint32_t(fps));
 
   result->Success(EncodableValue(params));
-}
-
-void FlutterScreenCapture::DisposeStream(const std::string& stream_id) {
-#if defined(_WIN32)
-  auto sc_it = screen_share_capturers_.find(stream_id);
-  if (sc_it != screen_share_capturers_.end()) {
-    sc_it->second->Stop();
-    screen_share_capturers_.erase(sc_it);
-  }
-  auto pa_it = process_audio_capturers_.find(stream_id);
-  if (pa_it != process_audio_capturers_.end()) {
-    pa_it->second->Stop();
-    process_audio_capturers_.erase(pa_it);
-  }
-  auto lb_it = loopback_capturers_.find(stream_id);
-  if (lb_it != loopback_capturers_.end()) {
-    lb_it->second->Stop();
-    loopback_capturers_.erase(lb_it);
-  }
-#endif
 }
 
 }  // namespace flutter_webrtc_plugin
