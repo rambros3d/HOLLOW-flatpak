@@ -571,9 +571,26 @@ Takes `localPeerId` and `iceServers`. State:
 
 `getDesktopSources()`: Returns `List<DesktopCapturerSource>` for screen/window picker UI.
 
-### System Audio Capture
+### Screen Share Audio
 
-When `shareAudio = true` is passed to `createOffer()`, `getDisplayMedia` is called with `'audio': true`. On Windows, the forked `flutter_webrtc` at `../flutter-webrtc-1.4.1/` provides WASAPI loopback capture inside `getDisplayMedia({audio: true})`. The captured audio track must NOT be attached to the returned MediaStream at the native level (`stream->AddTrack` crashes libwebrtc's sender iteration); instead Dart adds it via `pc.addTrack(audioTrack, stream)`. Audio tracks from getDisplayMedia are added individually to the PC after the video track.
+**Windows:** Out-of-process capture and playback to avoid libwebrtc ADM interference.
+
+`startScreenAudioCapture(streamId, {pid, onPacket})`:
+1. Creates `ScreenAudioCapturer` (`lib/src/core/services/screen_audio_capturer.dart`)
+2. Spawns `screen_audio_capturer.exe --mode pipe [--pid <PID>] --duration 0`
+3. Exe captures WASAPI loopback (or per-process via `--pid`), Opus encodes, writes framed binary to stdout
+4. Dart reads stdout, parses `[uint16_le: len][uint32_le: seq][opus...]` frames
+5. Delivers packets via `onPacket` callback → `WebRtcService.sendScreenAudio()` → data channel type 0x03
+
+Receiver: `ScreenAudioRenderer` (`lib/src/core/services/screen_audio_renderer.dart`) spawns `screen_audio_capturer.exe --mode render`, pipes received packets via stdin → Opus decode → platform audio playback (waveOut/AudioQueue/PulseAudio).
+
+`_stopScreenAudioCapture()`: Sends 'Q' to exe stdin, waits 2s, force-kills if needed.
+
+Per-process window audio: `DesktopCapturerSource.pid` extracted from HWND via `GetWindowThreadProcessId` in the C++ source enumeration. PID flows through `ScreenShareSelection` → provider → exe `--pid` arg. Uses AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK INCLUDE mode (Windows 10 2004+).
+
+**macOS:** Uses Process Tap → WebRTC audio track (no data channel). `enableScreenShareSystemAudio` method channel activates the ScreenCaptureKit-based Process Tap.
+
+**getDisplayMedia audio:** Always `false` on Windows (WASAPI→AudioSource path crashes). macOS controls audio via native Process Tap separately.
 
 ---
 

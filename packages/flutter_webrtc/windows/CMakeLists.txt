@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 set(PROJECT_NAME "flutter_webrtc")
-project(${PROJECT_NAME} LANGUAGES CXX)
+project(${PROJECT_NAME} LANGUAGES CXX C)
 
 # C++20 for C++/WinRT (Windows.Graphics.Capture).
 set(CMAKE_CXX_STANDARD 20)
@@ -12,6 +12,20 @@ endif()
 
 # Add the libwebrtc dependency
 include("${CMAKE_CURRENT_SOURCE_DIR}/../third_party/CMakeLists.txt")
+
+# --- Opus v1.5.2 (for screen share audio encoding/decoding) ---
+include(FetchContent)
+set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(OPUS_INSTALL OFF CACHE BOOL "" FORCE)
+set(OPUS_INSTALL_PKG_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  opus
+  URL https://github.com/xiph/opus/archive/refs/tags/v1.5.2.tar.gz
+  EXCLUDE_FROM_ALL
+)
+FetchContent_MakeAvailable(opus)
 
 # This value is used when generating builds using this plugin, so it must
 # not be changed
@@ -37,6 +51,11 @@ add_library(${PLUGIN_NAME} SHARED
   "task_runner_windows.cc"
   "wasapi_loopback_capturer.cc"
   "win_screen_recorder.cc"
+  "opus_encoder_wrapper.cpp"
+  "opus_decoder_wrapper.cpp"
+  "process_audio_capturer.cc"
+  "wasapi_audio_renderer.cc"
+  "screen_audio_capturer.cc"
 )
 
 include_directories(
@@ -59,6 +78,7 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE
   flutter
   flutter_wrapper_plugin
   "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libwebrtc/lib/win64/libwebrtc.dll.lib"
+  opus
   mfplat.lib
   mfreadwrite.lib
   mfuuid.lib
@@ -66,6 +86,7 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE
   d3d11.lib
   dxgi.lib
   windowsapp.lib
+  RuntimeObject.lib
 )
 
 target_compile_options(${PLUGIN_NAME} PRIVATE /await)

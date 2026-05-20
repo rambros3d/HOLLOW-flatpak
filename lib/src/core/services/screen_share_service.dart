@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../rust/api/network.dart' as network_api;
+import 'screen_audio_capturer.dart';
 
 /// Method channel exposed by the forked `flutter_webrtc` for the macOS-only
 /// system audio Process Tap (see `MacScreenShareAudioTap.m`).
@@ -57,6 +59,9 @@ class ScreenShareService {
 
   /// Preferred audio output device — set by CallNotifier before handleOffer.
   String? preferredAudioOutputDeviceId;
+
+  // --- Screen audio via out-of-process capturer (Windows) ---
+  ScreenAudioCapturer? _screenAudioCapturer;
 
 
   ScreenShareService({
@@ -175,7 +180,10 @@ class ScreenShareService {
     // carries the mix to remote peers. So we leave `audio: false` here on
     // macOS and toggle the tap via a method channel.
     final useNativeTap = Platform.isMacOS && shareAudio;
-    final getDisplayAudio = shareAudio && !useNativeTap;
+    // On Windows, audio goes via data channel — never request it in
+    // getDisplayMedia (the WASAPI→AudioSource path crashes).
+    final useDataChannelAudio = Platform.isWindows && shareAudio;
+    final getDisplayAudio = shareAudio && !useNativeTap && !useDataChannelAudio;
 
     if (useNativeTap) {
       try {
@@ -308,7 +316,7 @@ class ScreenShareService {
     // Apply resolution cap on the encoder.
     await _applyResolutionCap(maxWidth, maxHeight);
 
-    // Add audio tracks if available.
+    // Add audio tracks if available (macOS Process Tap audio goes via tracks).
     final audioTracks = _screenStream!.getAudioTracks();
     if (audioTracks.isNotEmpty) {
       for (final track in audioTracks) {
@@ -406,12 +414,50 @@ class ScreenShareService {
   }
 
   // ---------------------------------------------------------------------------
+  // Screen audio capture (Windows data-channel streaming)
+  // ---------------------------------------------------------------------------
+
+  /// Start out-of-process WASAPI capture + Opus encoding. Encoded packets
+  /// are delivered to [onPacket] for sending over the data channel.
+  ///
+  /// Uses a separate exe to avoid libwebrtc's AudioDeviceModule interfering
+  /// with the WASAPI loopback capture (which causes audio looping).
+  Future<void> startScreenAudioCapture(
+    String streamId, {
+    String mode = 'system',
+    int pid = 0,
+    required void Function(Uint8List packet) onPacket,
+  }) async {
+    if (!Platform.isWindows) return;
+    if (_screenAudioCapturer?.isActive == true) return;
+
+    _log('[HOLLOW-AU-SCREEN] Starting out-of-process capture (pid=$pid)');
+
+    _screenAudioCapturer = ScreenAudioCapturer();
+    final ok = await _screenAudioCapturer!.start(pid: pid, onPacket: onPacket);
+    if (!ok) {
+      _log('[HOLLOW-AU-SCREEN] Failed to start out-of-process capturer');
+      _screenAudioCapturer = null;
+    }
+  }
+
+  Future<void> _stopScreenAudioCapture() async {
+    if (_screenAudioCapturer == null) return;
+
+    await _screenAudioCapturer!.stop();
+    _screenAudioCapturer = null;
+  }
+
+  // ---------------------------------------------------------------------------
   // Teardown
   // ---------------------------------------------------------------------------
 
   /// Close the PC, stop tracks, dispose renderers. Safe to call multiple times.
   Future<void> close() async {
     _log('[HOLLOW-SCREEN] Closing screen share service');
+
+    // Stop screen audio capture before tearing down PC.
+    await _stopScreenAudioCapture();
 
     // Tear down macOS system audio tap first so the system default input
     // reverts before we stop the streams.

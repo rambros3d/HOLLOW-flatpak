@@ -12,6 +12,9 @@
 #if defined(_WIN32)
 namespace flutter_webrtc_plugin {
 class WasapiLoopbackCapturer;
+class ScreenAudioCapturer;
+class OpusDecoderWrapper;
+class WasapiAudioRenderer;
 }  // namespace flutter_webrtc_plugin
 #endif
 
@@ -36,6 +39,15 @@ class FlutterScreenCapture : public MediaListObserver,
                                  int width,
                                  int height,
                                  std::unique_ptr<MethodResultProxy> result);
+
+  void StartScreenAudioCapture(const EncodableMap& params,
+                                std::unique_ptr<MethodResultProxy> result);
+  void StopScreenAudioCapture(const EncodableMap& params,
+                               std::unique_ptr<MethodResultProxy> result);
+  void ScreenAudioRender(const EncodableMap& params,
+                          std::unique_ptr<MethodResultProxy> result);
+  void ScreenAudioRenderStop(const EncodableMap& params,
+                              std::unique_ptr<MethodResultProxy> result);
 
  protected:
   void OnMediaSourceAdded(scoped_refptr<MediaSource> source) override;
@@ -64,10 +76,18 @@ class FlutterScreenCapture : public MediaListObserver,
   std::vector<scoped_refptr<MediaSource>> sources_;
 
 #if defined(_WIN32)
-  // Active loopback audio capturers, keyed by stream UUID. Kept alive for
-  // the lifetime of the screen-share stream. Cleared on plugin teardown.
   std::map<std::string, std::unique_ptr<WasapiLoopbackCapturer>>
       loopback_capturers_;
+
+  std::map<std::string, std::unique_ptr<ScreenAudioCapturer>>
+      screen_audio_capturers_;
+
+  struct AudioRenderSession {
+    std::unique_ptr<OpusDecoderWrapper> decoder;
+    std::unique_ptr<WasapiAudioRenderer> renderer;
+  };
+  std::map<std::string, std::unique_ptr<AudioRenderSession>>
+      audio_render_sessions_;
 #endif
 };
 

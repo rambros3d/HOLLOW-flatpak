@@ -24,6 +24,7 @@ const _kTypeFile = 0x00;
 const _kTypeShard = 0x01;
 const _kTypeShareChunk = 0x02;
 const _kTypeContinuation = 0xFF;
+const _kTypeScreenAudio = 0x03; // screen share audio (Opus packets)
 const _kTypePing = 0xFE; // keepalive ping byte
 const _kTypePong = 0xFC; // keepalive pong response byte
 
@@ -86,6 +87,11 @@ class WebRtcService {
   void Function(String transferId, String tempPath, String senderPeerId,
       String kind, int shardIndex)? onReceiveComplete;
 
+  /// Called when a screen audio packet is received from a peer.
+  /// Payload is raw bytes: [seq:4][opus_data...].
+  void Function(String peerId, Uint8List data)? onScreenAudioReceived;
+  int _screenAudioMissCount = 0;
+
   /// Called when a STUN-only (Share) connection fails — peer unreachable without TURN.
   void Function(String peerId)? onShareConnectionFailed;
 
@@ -101,6 +107,19 @@ class WebRtcService {
     return conn != null &&
         conn.dataChannel != null &&
         conn.dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen;
+  }
+
+  /// Send a screen audio packet to a peer over the existing data channel.
+  /// Format: [0x03][payload...]. Payload is [seq:4][opus_data...].
+  void sendScreenAudio(String peerId, Uint8List payload) {
+    final conn = _connections[peerId];
+    final dc = conn?.dataChannel;
+    if (dc == null || dc.state != RTCDataChannelState.RTCDataChannelOpen) return;
+
+    final packet = Uint8List(1 + payload.length);
+    packet[0] = _kTypeScreenAudio;
+    packet.setRange(1, packet.length, payload);
+    dc.send(RTCDataChannelMessage.fromBinary(packet));
   }
 
   /// Initiate a WebRTC connection to a peer (offerer side).
@@ -693,6 +712,21 @@ class WebRtcService {
       if (sentAt != null) {
         final rttMs = DateTime.now().difference(sentAt).inMilliseconds;
         network_api.webrtcPingReport(peerId: peerId, rttMs: rttMs);
+      }
+      return;
+    }
+
+    // Screen audio packet: [0x03][seq:4][opus_data...]
+    if (typeByte == _kTypeScreenAudio) {
+      if (data.length > 1) {
+        if (onScreenAudioReceived != null) {
+          onScreenAudioReceived!.call(peerId, data.sublist(1));
+        } else {
+          _screenAudioMissCount++;
+          if (_screenAudioMissCount <= 5) {
+            _log('[HOLLOW-AU-SCREEN] RX audio packet but no callback set! (#$_screenAudioMissCount)');
+          }
+        }
       }
       return;
     }

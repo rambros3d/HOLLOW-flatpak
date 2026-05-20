@@ -2,6 +2,9 @@
 
 #if defined(_WIN32)
 #include "../../../windows/wasapi_loopback_capturer.h"
+#include "../../../windows/screen_audio_capturer.h"
+#include "../../../windows/opus_decoder_wrapper.h"
+#include "../../../windows/wasapi_audio_renderer.h"
 #endif
 
 #include "rtc_audio_source.h"
@@ -67,6 +70,17 @@ void FlutterScreenCapture::GetDesktopSources(
         {EncodableValue("width"), EncodableValue(0)},
         {EncodableValue("height"), EncodableValue(0)},
     };
+#if defined(_WIN32)
+    if (source->type() == kWindow) {
+      int64_t hwnd_val = 0;
+      try { hwnd_val = std::stoll(source->id().std_string()); } catch (...) {}
+      if (hwnd_val != 0) {
+        DWORD pid = 0;
+        GetWindowThreadProcessId(reinterpret_cast<HWND>(hwnd_val), &pid);
+        info[EncodableValue("pid")] = EncodableValue(static_cast<int64_t>(pid));
+      }
+    }
+#endif
     sources.push_back(EncodableValue(info));
   }
 
@@ -347,6 +361,199 @@ void FlutterScreenCapture::GetDisplayMedia(
   desktop_capturer->Start(uint32_t(fps));
 
   result->Success(EncodableValue(params));
+}
+
+// ---------------------------------------------------------------------------
+// Screen Audio Capture (data-channel audio streaming)
+// ---------------------------------------------------------------------------
+
+void FlutterScreenCapture::StartScreenAudioCapture(
+    const EncodableMap& params,
+    std::unique_ptr<MethodResultProxy> result) {
+#if defined(_WIN32)
+  std::string stream_id = findString(params, "streamId");
+  std::string mode = findString(params, "mode");
+
+  if (stream_id.empty()) {
+    result->Error("BAD_ARGS", "streamId is required");
+    return;
+  }
+
+  // Stop any existing capturer for this stream.
+  screen_audio_capturers_.erase(stream_id);
+
+  auto capturer = std::make_unique<ScreenAudioCapturer>(
+      base_->messenger_, base_->task_runner_, stream_id);
+
+  bool started = false;
+  if (mode == "process") {
+    int pid = findInt(params, "pid");
+    bool include_mode = pid != 0;
+    started = capturer->StartProcessCapture(
+        static_cast<DWORD>(pid), include_mode);
+  } else {
+    started = capturer->StartSystemCapture();
+  }
+
+  if (started) {
+    screen_audio_capturers_[stream_id] = std::move(capturer);
+    result->Success(EncodableValue(true));
+  } else {
+    result->Error("START_FAILED", "Failed to start screen audio capture");
+  }
+#else
+  result->Error("UNSUPPORTED", "Screen audio capture is Windows-only");
+#endif
+}
+
+void FlutterScreenCapture::StopScreenAudioCapture(
+    const EncodableMap& params,
+    std::unique_ptr<MethodResultProxy> result) {
+#if defined(_WIN32)
+  std::string stream_id = findString(params, "streamId");
+  auto it = screen_audio_capturers_.find(stream_id);
+  if (it != screen_audio_capturers_.end()) {
+    it->second->Stop();
+    screen_audio_capturers_.erase(it);
+  }
+  result->Success(EncodableValue(true));
+#else
+  result->Success(EncodableValue(true));
+#endif
+}
+
+void FlutterScreenCapture::ScreenAudioRender(
+    const EncodableMap& params,
+    std::unique_ptr<MethodResultProxy> result) {
+#if defined(_WIN32)
+  std::string session_id = findString(params, "sessionId");
+  if (session_id.empty()) {
+    result->Error("BAD_ARGS", "sessionId is required");
+    return;
+  }
+
+  auto data_it = params.find(EncodableValue("data"));
+  if (data_it == params.end() || !TypeIs<std::vector<uint8_t>>(data_it->second)) {
+    result->Error("BAD_ARGS", "data (Uint8List) is required");
+    return;
+  }
+  const auto& packet = GetValue<std::vector<uint8_t>>(data_it->second);
+
+  // Lazily create decoder + renderer on first packet.
+  auto& session = audio_render_sessions_[session_id];
+  if (!session) {
+    session = std::make_unique<AudioRenderSession>();
+    session->decoder = std::make_unique<OpusDecoderWrapper>(48000, 2);
+    session->renderer = std::make_unique<WasapiAudioRenderer>();
+    if (!session->decoder->valid() || !session->renderer->Start()) {
+      audio_render_sessions_.erase(session_id);
+      result->Error("INIT_FAILED", "Failed to init decoder/renderer");
+      return;
+    }
+  }
+
+  // Skip 4-byte sequence header, decode the Opus payload.
+  if (packet.size() <= 4) {
+    result->Success(EncodableValue(true));
+    return;
+  }
+
+  // --- DEBUG: dump decoded PCM to WAV file for analysis ---
+  static FILE* debug_wav = nullptr;
+  static uint32_t debug_wav_bytes = 0;
+  static int render_count = 0;
+  render_count++;
+
+  if (!debug_wav && render_count == 1) {
+    char* appdata = nullptr;
+    size_t len = 0;
+    if (_dupenv_s(&appdata, &len, "APPDATA") == 0 && appdata) {
+      std::string path = std::string(appdata) + "\\.hollow\\screen_audio_debug.wav";
+      free(appdata);
+      fopen_s(&debug_wav, path.c_str(), "wb");
+      if (debug_wav) {
+        // Write placeholder WAV header (patched on close).
+        uint8_t hdr[44] = {};
+        memcpy(hdr, "RIFF", 4);
+        memcpy(hdr + 8, "WAVE", 4);
+        memcpy(hdr + 12, "fmt ", 4);
+        uint32_t v;
+        v = 16; memcpy(hdr + 16, &v, 4);  // fmt size
+        uint16_t s;
+        s = 1; memcpy(hdr + 20, &s, 2);   // PCM
+        s = 2; memcpy(hdr + 22, &s, 2);   // stereo
+        v = 48000; memcpy(hdr + 24, &v, 4);
+        v = 48000 * 4; memcpy(hdr + 28, &v, 4);
+        s = 4; memcpy(hdr + 32, &s, 2);
+        s = 16; memcpy(hdr + 34, &s, 2);
+        memcpy(hdr + 36, "data", 4);
+        fwrite(hdr, 1, 44, debug_wav);
+      }
+    }
+  }
+
+  // Extract sequence number for logging (first 4 bytes are seq, rest is opus).
+  uint32_t seq = packet[0] | (packet[1] << 8) |
+                 (packet[2] << 16) | (packet[3] << 24);
+
+  std::vector<int16_t> pcm;
+  int samples = session->decoder->Decode(
+      packet.data() + 4, static_cast<int>(packet.size() - 4), pcm);
+
+  if (samples > 0) {
+    session->renderer->PushAudio(pcm.data(), samples,
+                                  session->decoder->channels());
+
+    // Write decoded PCM to debug WAV.
+    if (debug_wav) {
+      size_t bytes = samples * 2 * sizeof(int16_t);
+      fwrite(pcm.data(), 1, bytes, debug_wav);
+      debug_wav_bytes += static_cast<uint32_t>(bytes);
+      fflush(debug_wav);
+    }
+  }
+
+  // Log first packets + periodic to see sequence numbers.
+  if (render_count <= 20 || render_count % 200 == 0) {
+    fprintf(stderr, "[AU-RENDER] pkt#%d seq=%u opus=%zu bytes -> %d samples\n",
+            render_count, seq, packet.size() - 4, samples);
+  }
+
+  // After 10 seconds (~1000 packets), finalize WAV for inspection.
+  if (render_count == 1000 && debug_wav) {
+    // Patch WAV header sizes.
+    fseek(debug_wav, 4, SEEK_SET);
+    uint32_t riff_size = debug_wav_bytes + 36;
+    fwrite(&riff_size, 4, 1, debug_wav);
+    fseek(debug_wav, 40, SEEK_SET);
+    fwrite(&debug_wav_bytes, 4, 1, debug_wav);
+    fclose(debug_wav);
+    debug_wav = nullptr;
+    fprintf(stderr, "[AU-RENDER] Debug WAV written: %u bytes of PCM\n",
+            debug_wav_bytes);
+  }
+
+  result->Success(EncodableValue(true));
+#else
+  result->Error("UNSUPPORTED", "Screen audio render is Windows-only");
+#endif
+}
+
+void FlutterScreenCapture::ScreenAudioRenderStop(
+    const EncodableMap& params,
+    std::unique_ptr<MethodResultProxy> result) {
+#if defined(_WIN32)
+  std::string session_id = findString(params, "sessionId");
+  auto it = audio_render_sessions_.find(session_id);
+  if (it != audio_render_sessions_.end()) {
+    if (it->second && it->second->renderer)
+      it->second->renderer->Stop();
+    audio_render_sessions_.erase(it);
+  }
+  result->Success(EncodableValue(true));
+#else
+  result->Success(EncodableValue(true));
+#endif
 }
 
 }  // namespace flutter_webrtc_plugin

@@ -7,13 +7,14 @@ import 'utils.dart';
 
 class DesktopCapturerSourceNative extends DesktopCapturerSource {
   DesktopCapturerSourceNative(
-      this._id, this._name, this._thumbnailSize, this._type);
+      this._id, this._name, this._thumbnailSize, this._type, [this._pid = 0]);
   factory DesktopCapturerSourceNative.fromMap(Map<dynamic, dynamic> map) {
     var sourceType = (map['type'] as String) == 'window'
         ? SourceType.Window
         : SourceType.Screen;
+    var pid = (map['pid'] as int?) ?? 0;
     var source = DesktopCapturerSourceNative(map['id'], map['name'],
-        ThumbnailSize.fromMap(map['thumbnailSize']), sourceType);
+        ThumbnailSize.fromMap(map['thumbnailSize']), sourceType, pid);
     if (map['thumbnail'] != null) {
       source.thumbnail = map['thumbnail'] as Uint8List;
     }
@@ -38,6 +39,7 @@ class DesktopCapturerSourceNative extends DesktopCapturerSource {
   final String _id;
   final ThumbnailSize _thumbnailSize;
   final SourceType _type;
+  final int _pid;
 
   set thumbnail(Uint8List? value) {
     _thumbnail = value;
@@ -61,6 +63,9 @@ class DesktopCapturerSourceNative extends DesktopCapturerSource {
 
   @override
   SourceType get type => _type;
+
+  @override
+  int get pid => _pid;
 }
 
 class DesktopCapturerNative extends DesktopCapturer {

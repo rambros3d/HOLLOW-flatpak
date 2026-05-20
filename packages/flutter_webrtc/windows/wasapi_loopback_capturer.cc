@@ -97,7 +97,6 @@ void WasapiLoopbackCapturer::CaptureThread() {
   IMMDevice* device = nullptr;
   IAudioClient* audio_client = nullptr;
   IAudioCaptureClient* capture_client = nullptr;
-  WAVEFORMATEX* mix_format = nullptr;
   HANDLE mm_task = nullptr;
 
   auto cleanup = [&]() {
@@ -107,10 +106,6 @@ void WasapiLoopbackCapturer::CaptureThread() {
     SafeRelease(audio_client);
     SafeRelease(device);
     SafeRelease(enumerator);
-    if (mix_format) {
-      CoTaskMemFree(mix_format);
-      mix_format = nullptr;
-    }
     if (com_initialized) CoUninitialize();
   };
 
@@ -141,36 +136,26 @@ void WasapiLoopbackCapturer::CaptureThread() {
     return;
   }
 
-  hr = audio_client->GetMixFormat(&mix_format);
-  if (FAILED(hr)) {
-    std::cerr << "[WASAPI] GetMixFormat failed: 0x" << std::hex << hr << "\n";
-    cleanup();
-    return;
-  }
+  // Use a fixed 48kHz stereo 16-bit format that WebRTC expects.
+  // AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM tells WASAPI to resample from the
+  // device's native format to our requested format automatically.
+  WAVEFORMATEX requested_format = {};
+  requested_format.wFormatTag = WAVE_FORMAT_PCM;
+  requested_format.nChannels = 2;
+  requested_format.nSamplesPerSec = 48000;
+  requested_format.wBitsPerSample = 16;
+  requested_format.nBlockAlign = requested_format.nChannels * requested_format.wBitsPerSample / 8;
+  requested_format.nAvgBytesPerSec = requested_format.nSamplesPerSec * requested_format.nBlockAlign;
+  requested_format.cbSize = 0;
 
-  const bool is_float = IsFloatFormat(mix_format);
-  const bool is_pcm = IsPcmFormat(mix_format);
-  if (!is_float && !is_pcm) {
-    std::cerr << "[WASAPI] Unsupported format\n";
-    cleanup();
-    return;
-  }
-  if (is_pcm && mix_format->wBitsPerSample != 16 &&
-      mix_format->wBitsPerSample != 32) {
-    std::cerr << "[WASAPI] Unsupported PCM bit depth: "
-              << mix_format->wBitsPerSample << "\n";
-    cleanup();
-    return;
-  }
-
-  const UINT32 sample_rate = mix_format->nSamplesPerSec;
-  const WORD channels = mix_format->nChannels;
-  const WORD bytes_per_sample = mix_format->wBitsPerSample / 8;
+  const UINT32 sample_rate = requested_format.nSamplesPerSec;
+  const WORD channels = requested_format.nChannels;
 
   hr = audio_client->Initialize(
       AUDCLNT_SHAREMODE_SHARED,
-      AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-      kBufferDurationHns, 0, mix_format, nullptr);
+      AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK |
+          AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+      kBufferDurationHns, 0, &requested_format, nullptr);
   if (FAILED(hr)) {
     std::cerr << "[WASAPI] IAudioClient::Initialize failed: 0x" << std::hex
               << hr << "\n";
@@ -233,18 +218,8 @@ void WasapiLoopbackCapturer::CaptureThread() {
 
       if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
         std::memset(out, 0, total_samples * sizeof(int16_t));
-      } else if (is_float) {
-        const float* src = reinterpret_cast<const float*>(raw);
-        for (size_t i = 0; i < total_samples; ++i) {
-          out[i] = FloatToInt16(src[i]);
-        }
-      } else if (bytes_per_sample == 2) {
-        std::memcpy(out, raw, total_samples * sizeof(int16_t));
       } else {
-        const int32_t* src = reinterpret_cast<const int32_t*>(raw);
-        for (size_t i = 0; i < total_samples; ++i) {
-          out[i] = static_cast<int16_t>(src[i] >> 16);
-        }
+        std::memcpy(out, raw, total_samples * sizeof(int16_t));
       }
 
       capture_client->ReleaseBuffer(frames_available);

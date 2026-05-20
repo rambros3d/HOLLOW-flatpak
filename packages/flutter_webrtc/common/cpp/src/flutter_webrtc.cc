@@ -1323,6 +1323,26 @@ void FlutterWebRTC::HandleMethodCall(
             shared->Error("STOP_FAILED", err);
           }
         });
+  } else if (method_call.method_name().compare("startScreenAudioCapture") == 0) {
+    const EncodableMap params =
+        GetValue<EncodableMap>(*method_call.arguments());
+    StartScreenAudioCapture(params, std::move(result));
+    return;
+  } else if (method_call.method_name().compare("stopScreenAudioCapture") == 0) {
+    const EncodableMap params =
+        GetValue<EncodableMap>(*method_call.arguments());
+    StopScreenAudioCapture(params, std::move(result));
+    return;
+  } else if (method_call.method_name().compare("screenAudioRender") == 0) {
+    const EncodableMap params =
+        GetValue<EncodableMap>(*method_call.arguments());
+    ScreenAudioRender(params, std::move(result));
+    return;
+  } else if (method_call.method_name().compare("screenAudioRenderStop") == 0) {
+    const EncodableMap params =
+        GetValue<EncodableMap>(*method_call.arguments());
+    ScreenAudioRenderStop(params, std::move(result));
+    return;
   }
 #endif
   else {

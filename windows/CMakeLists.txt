@@ -130,3 +130,18 @@ else()
     "Run scripts/fetch_ffmpeg.ps1 to populate it. "
     "Video thumbnail extraction will be disabled at runtime.")
 endif()
+
+# Copy bundled screen audio capturer (out-of-process WASAPI→Opus for screen
+# share audio). Built from packages/flutter_webrtc/test_apps/screen_audio_test/.
+set(SCREEN_AUDIO_EXE "${CMAKE_SOURCE_DIR}/../packages/flutter_webrtc/test_apps/screen_audio_test/build/Release/screen_audio_test.exe")
+if(EXISTS "${SCREEN_AUDIO_EXE}")
+  install(PROGRAMS "${SCREEN_AUDIO_EXE}"
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    RENAME "screen_audio_capturer.exe"
+    COMPONENT Runtime)
+else()
+  message(WARNING
+    "screen_audio_test.exe not found. "
+    "Build packages/flutter_webrtc/test_apps/screen_audio_test/ first. "
+    "Screen share audio will be unavailable.")
+endif()

@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:hollow/src/core/providers/ice_config_provider.dart';
@@ -10,6 +13,8 @@ import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/providers/recording_provider.dart';
 import 'package:hollow/src/core/providers/relay_domain_provider.dart';
 import 'package:hollow/src/core/providers/settings_provider.dart';
+import 'package:hollow/src/core/providers/webrtc_provider.dart';
+import 'package:hollow/src/core/services/screen_audio_renderer.dart';
 import 'package:hollow/src/core/services/screen_share_service.dart';
 import 'package:hollow/src/core/services/voice_service.dart';
 
@@ -116,6 +121,7 @@ class CallNotifier extends Notifier<CallState> {
 
   /// Separate PCs for screen sharing (one per direction).
   ScreenShareService? _outgoingScreenShare; // We share our screen to them
+  ScreenAudioRenderer? _screenAudioRenderer;
   ScreenShareService? _incomingScreenShare; // They share their screen to us
 
   /// Renderer for the incoming remote screen share. Used by UI.
@@ -166,6 +172,23 @@ class CallNotifier extends Notifier<CallState> {
           startedAt: DateTime.now(),
         );
         _scheduleStatsDump(peerId);
+
+        // Wire screen audio receiver (Windows) for DM calls.
+        // Wire screen audio receiver (Windows sender → data channel → us).
+        {
+          final webrtc = ref.read(webRtcProvider.notifier).service;
+          webrtc.onScreenAudioReceived = (fromPeer, data) async {
+            if (_screenAudioRenderer == null) {
+              _screenAudioRenderer = ScreenAudioRenderer();
+              final ok = await _screenAudioRenderer!.start();
+              if (!ok) {
+                _screenAudioRenderer = null;
+                return;
+              }
+            }
+            _screenAudioRenderer?.pushPacket(data);
+          };
+        }
 
         // Video call: auto-enable the camera now that the audio connection
         // is up. Both sides do this — the side without a camera will see
@@ -414,6 +437,7 @@ class CallNotifier extends Notifier<CallState> {
     required int height,
     required int fps,
     bool shareAudio = false,
+    int pid = 0,
   }) async {
     if (state.status != CallStatus.active) return;
 
@@ -465,6 +489,25 @@ class CallNotifier extends Notifier<CallState> {
           jsonEncode({'call_id': callId, 'sdp': offerSdp}));
       _sendSignal(peerId, 'screen_state',
           jsonEncode({'call_id': callId, 'enabled': true, 'quality': qualityLabel}));
+
+      // Start screen audio capture on Windows via data channel.
+      if (shareAudio && Platform.isWindows) {
+        final webrtc = ref.read(webRtcProvider.notifier).service;
+        // Ensure the file-transfer DC exists with this peer.
+        if (!webrtc.hasPeerChannel(peerId)) {
+          _callLog('[HOLLOW-AU-SCREEN] Ensuring WebRtcService DC for $peerId');
+          await webrtc.connectToPeer(peerId);
+        }
+        final streamId = _outgoingScreenShare!.pc?.getLocalStreams().firstOrNull?.id ?? 'call_$callId';
+        _callLog('[HOLLOW-AU-SCREEN] Starting screen audio capture (stream=$streamId)');
+        await _outgoingScreenShare!.startScreenAudioCapture(
+          streamId,
+          pid: pid,
+          onPacket: (packet) {
+            webrtc.sendScreenAudio(peerId, packet);
+          },
+        );
+      }
     } catch (e) {
       debugPrint('[HOLLOW-CALL] Failed to start screen share: $e');
       await _outgoingScreenShare?.close();
@@ -962,6 +1005,14 @@ class CallNotifier extends Notifier<CallState> {
     _statsTimer?.cancel();
     _statsTimer = null;
     _renegotiationInProgress = false;
+    // Stop out-of-process screen audio renderer.
+    if (_screenAudioRenderer != null) {
+      await _screenAudioRenderer!.stop();
+      _screenAudioRenderer = null;
+    }
+    try {
+      ref.read(webRtcProvider.notifier).service.onScreenAudioReceived = null;
+    } catch (_) {}
     // Phase 6.25: Dispose screen share services to prevent GPU/memory leaks.
     await _outgoingScreenShare?.close();
     _outgoingScreenShare = null;

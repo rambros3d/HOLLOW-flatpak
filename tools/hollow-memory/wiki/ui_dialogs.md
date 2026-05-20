@@ -207,7 +207,8 @@ Uses `HollowDialog` with title "Your Recovery Phrase".
 **`ScreenShareFps` enum:** fps5, fps15, fps30, fps60 -- each with `value`, `label`.
 
 **`ScreenShareSelection` class:**
-- Fields: `sourceId`, `width`, `height`, `fps`, `shareAudio`
+- Fields: `sourceId`, `width`, `height`, `fps`, `shareAudio`, `pid`
+- `pid`: process ID from `DesktopCapturerSource.pid` (Windows only, 0 for screens). Used for per-process audio capture
 - `qualityLabel` getter: e.g. "1080p60", "4K30"
 
 ### Widget: `_ScreenShareDialog` (StatefulWidget)
@@ -242,7 +243,7 @@ Uses `HollowDialog` with title "Your Recovery Phrase".
 - Share audio toggle: `HollowToggle` + label
 - Actions: Cancel (ghost) + Share (filled, disabled when no source selected)
 
-**Share button:** Pops dialog with `ScreenShareSelection(sourceId:, width:, height:, fps:, shareAudio:)`.
+**Share button:** Pops dialog with `ScreenShareSelection(sourceId:, width:, height:, fps:, shareAudio:, pid:)`. The `pid` is read from `_sources[_selectedSourceId]?.pid` (0 for screens, non-zero for windows on Windows).
 
 ### External dependencies
 - `flutter_webrtc` -- `desktopCapturer`, `DesktopCapturerSource`, `SourceType`

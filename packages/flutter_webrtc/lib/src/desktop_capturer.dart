@@ -43,6 +43,9 @@ abstract class DesktopCapturerSource {
   /// The type of the source.
   SourceType get type;
 
+  /// The process ID that owns this window (Windows only, 0 if unavailable).
+  int get pid => 0;
+
   StreamController<String> get onNameChanged => throw UnimplementedError();
 
   StreamController<Uint8List> get onThumbnailChanged =>

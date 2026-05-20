@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
@@ -11,8 +13,10 @@ import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/providers/recording_provider.dart';
 import 'package:hollow/src/core/providers/settings_provider.dart';
 import 'package:hollow/src/core/services/frame_cryptor_service.dart';
+import 'package:hollow/src/core/services/screen_audio_renderer.dart';
 import 'package:hollow/src/core/services/screen_share_service.dart';
 import 'package:hollow/src/core/services/voice_channel_service.dart';
+import 'package:hollow/src/core/providers/webrtc_provider.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
 
 /// Audio state for a peer in a voice channel.
@@ -236,6 +240,9 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
   RTCVideoRenderer? _localScreenPreviewRenderer;
   int _screenShareMaxWidth = 1920;
   int _screenShareMaxHeight = 1080;
+  bool _screenShareAudio = false;
+  int _screenSharePid = 0;
+  ScreenAudioRenderer? _screenAudioRenderer;
 
   /// Timer that polls for screen track ending (window closed).
   Timer? _screenTrackPoller;
@@ -365,6 +372,17 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     // Wire peer connected callback — send screen share offer once audio PC is ready.
     _service!.onPeerConnected = (peerId) {
       if (_leaving || _stoppingScreenShare) return;
+
+      // Ensure the file-transfer data channel (WebRtcService) exists with
+      // this peer — needed for screen audio streaming on Windows.
+      if (Platform.isWindows) {
+        final webrtc = ref.read(webRtcProvider.notifier).service;
+        if (!webrtc.hasPeerChannel(peerId)) {
+          network_api.logFromDart(message: '[HOLLOW-AU-SCREEN] Ensuring WebRtcService DC for $peerId');
+          webrtc.connectToPeer(peerId);
+        }
+      }
+
       if (state.isScreenSharing && _screenCaptureStream != null) {
         if (!_outgoingScreenShares.containsKey(peerId) &&
             _outgoingScreenShares.length < maxScreenShareOutgoing) {
@@ -373,6 +391,24 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
         }
       }
     };
+
+    // Wire screen audio receiver — incoming Opus packets from peers
+    // (Windows sender → data channel → us). On Windows plays via out-of-process
+    // exe; macOS/Linux not yet implemented (macOS uses Process Tap instead).
+    {
+      final webrtc = ref.read(webRtcProvider.notifier).service;
+      webrtc.onScreenAudioReceived = (peerId, data) async {
+        if (_screenAudioRenderer == null) {
+          _screenAudioRenderer = ScreenAudioRenderer();
+          final ok = await _screenAudioRenderer!.start();
+          if (!ok) {
+            _screenAudioRenderer = null;
+            return;
+          }
+        }
+        _screenAudioRenderer?.pushPacket(data);
+      };
+    }
 
     // Wire camera video callback.
     _service!.onRemoteVideoChanged = (peerId, renderer) {
@@ -536,6 +572,16 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
 
       // Clean up screen sharing.
       await _cleanupAllScreenShares();
+
+      // Stop out-of-process screen audio renderer.
+      if (_screenAudioRenderer != null) {
+        await _screenAudioRenderer!.stop();
+        _screenAudioRenderer = null;
+      }
+      // Clear screen audio callback.
+      try {
+        ref.read(webRtcProvider.notifier).service.onScreenAudioReceived = null;
+      } catch (_) {}
 
       // Clean up WebRTC (closes all PCs + stops camera/audio streams).
       if (_service != null) {
@@ -746,6 +792,7 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     int height,
     int fps, {
     bool shareAudio = false,
+    int pid = 0,
   }) async {
     if (!state.isInVoiceChannel || _leaving) return;
     if (state.isScreenSharing) return;
@@ -760,16 +807,23 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     debugPrint('[HOLLOW-VC] Starting screen share: $sourceId ${width}x$height @${fps}fps');
     _screenShareMaxWidth = width;
     _screenShareMaxHeight = height;
+    _screenShareAudio = shareAudio;
+    _screenSharePid = pid;
 
     // Capture screen ONCE.
     await desktopCapturer.getSources(
         types: [SourceType.Screen, SourceType.Window]);
+    // On Windows, audio goes via data channel (not WebRTC audio track)
+    // so never request audio in getDisplayMedia — the old WASAPI→AudioSource
+    // path crashes and produces garbled output.
+    final getDisplayAudio = shareAudio && !Platform.isWindows;
+
     _screenCaptureStream = await navigator.mediaDevices.getDisplayMedia({
       'video': {
         'deviceId': {'exact': sourceId},
         'mandatory': {'frameRate': fps.toDouble()},
       },
-      'audio': shareAudio,
+      'audio': getDisplayAudio,
     });
 
     // Create local preview renderer so the sharer can see their own screen.
@@ -942,6 +996,22 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
       signalType: 'screen_offer',
       payload: jsonEncode({'sdp': sdp}),
     );
+
+    // Start screen audio capture on Windows (data channel streaming).
+    // Sends Opus packets via the existing WebRtcService data channel.
+    if (_screenShareAudio && Platform.isWindows &&
+        _screenCaptureStream != null) {
+      final webrtc = ref.read(webRtcProvider.notifier).service;
+      debugPrint('[HOLLOW-AU-SCREEN] Starting screen audio for peer $peerId '
+          '(hasDC=${webrtc.hasPeerChannel(peerId)})');
+      await service.startScreenAudioCapture(
+        _screenCaptureStream!.id,
+        pid: _screenSharePid,
+        onPacket: (packet) {
+          webrtc.sendScreenAudio(peerId, packet);
+        },
+      );
+    }
   }
 
   /// Handle incoming screen share offer from a peer.

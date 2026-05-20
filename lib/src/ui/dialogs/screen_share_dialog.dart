@@ -44,6 +44,7 @@ class ScreenShareSelection {
   final int height;
   final int fps;
   final bool shareAudio;
+  final int pid;
 
   const ScreenShareSelection({
     required this.sourceId,
@@ -51,6 +52,7 @@ class ScreenShareSelection {
     required this.height,
     required this.fps,
     this.shareAudio = false,
+    this.pid = 0,
   });
 
   /// Human-readable quality label, e.g. "1080p60", "4K30".
@@ -317,6 +319,7 @@ class _ScreenShareDialogState extends State<_ScreenShareDialog> {
                       HollowButton.filled(
                         onPressed: _selectedSourceId != null
                             ? () {
+                                final selectedSource = _sources[_selectedSourceId!];
                                 Navigator.pop(
                                   context,
                                   ScreenShareSelection(
@@ -325,6 +328,7 @@ class _ScreenShareDialogState extends State<_ScreenShareDialog> {
                                     height: _resolution.height,
                                     fps: _fps.value,
                                     shareAudio: _shareAudio,
+                                    pid: selectedSource?.pid ?? 0,
                                   ),
                                 );
                               }
