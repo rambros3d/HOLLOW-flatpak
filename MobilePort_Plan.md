@@ -158,11 +158,61 @@ TURN is the only reliable path. This is why Share (STUN-only) is excluded.
 16. [ ] Keyboard handling — `adjustResize` behavior (already set in AndroidManifest)
 
 #### Not in scope (post-launch)
-- Notifications — `local_notifier` is desktop-only. Mobile needs FCM (Android) / APNs (iOS)
+- Push notifications (see plan below)
 - Background voice calls (Android foreground service, iOS VoIP push)
 - App store publishing (Play Store + App Store)
 - Performance optimization for mobile (battery, network switching)
 - Screen share sending
+
+#### Push notification plan (post-launch)
+
+**The problem:** Mobile OSes kill background processes. There is no way to maintain a persistent
+WebSocket connection when the app is closed. iOS forbids it entirely; Android foreground services
+are unreliable (OEM killers, Android 14+ restrictions). The only way to wake a closed app is
+FCM (Android) / APNs (iOS). This is an OS-level constraint, not a choice.
+
+**Design: Signal-style empty wake-up push (zero content leakage)**
+
+The push payload contains NO message content, NO sender info, NO room/channel ID. It's a pure
+"wake up" signal. The app wakes, connects WebSocket, syncs via CRDT, decrypts locally, and THEN
+shows the real notification with content from local decryption.
+
+What FCM/Apple learn: "Device X received a wake-up signal at time T." Nothing else. They already
+know the user has Hollow installed (app store). The only new metadata is timing.
+
+**Relay changes (minimal new state):**
+1. New endpoint: `POST /register-push` — client sends `{peer_id, device_token, platform: "fcm"|"apns"}`.
+   Called on every app open (tokens can rotate). Stored in RAM only (lost on relay restart,
+   re-registered on next app open). Optional: persist to a lightweight file for relay restarts.
+2. On message delivery failure (peer has no active WS connection but has a registered push token):
+   relay sends an empty push via FCM HTTP v1 API / APNs HTTP/2.
+3. Device token mapping: `peer_id → Vec<DeviceToken>` (supports multiple devices per user).
+4. Opt-in only. Users who don't register a token simply don't get push notifications when offline.
+
+**What the relay stores:** ONLY `peer_id → [device_tokens]`. No message content, no metadata,
+no history. Tokens are opaque strings meaningful only to FCM/APNs. Can be RAM-only or encrypted
+at rest.
+
+**Security analysis:**
+- Push payload: empty → Google/Apple learn nothing about message content or sender
+- Relay state: device tokens only → minimal addition to "stores nothing" property
+- Timing metadata: "device got poked at time T" is the same leak Signal accepts
+- Mitigation option: periodic dummy wakeups to mask real message timing (probably overkill)
+
+**Requirements:**
+- Firebase project (FCM key for Android push — free, unlimited, used ONLY as push pipe)
+- Apple Developer push certificate (APNs for iOS)
+- Relay needs outbound HTTPS to FCM/APNs endpoints
+- `firebase_messaging` Flutter package (Android) + APNs setup (iOS)
+
+**Implementation order:**
+1. [ ] Add `POST /register-push` and `DELETE /register-push` to relay (`relay-uws/`)
+2. [ ] Add FCM HTTP v1 and APNs HTTP/2 push sending to relay (lightweight, no SDK needed)
+3. [ ] Dart: `firebase_messaging` for token retrieval on Android, APNs on iOS
+4. [ ] Dart: register token with relay on app open, deregister on logout
+5. [ ] Relay: on WS message to offline peer with registered token → send empty push
+6. [ ] Dart: on push wake-up → connect WS → CRDT sync → show local notification with decrypted content
+7. [ ] Settings toggle: "Push notifications" (explains what it does)
 
 ## Architecture notes
 

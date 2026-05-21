@@ -83,32 +83,67 @@ pub(crate) fn restore_identity_from_mnemonic(phrase: &str) -> Result<IdentityDat
 }
 
 /// Load existing identity from disk, or create a new one if none exists.
+/// If the identity file is encrypted, requires a session wrapping key
+/// (set via `unlock_identity()` FFI call) to decrypt.
 pub(crate) fn load_or_create_identity() -> Result<IdentityData, String> {
     let path = keypair_path()?;
 
     if path.exists() {
-        // Load existing keypair.
         let bytes = fs::read(&path).map_err(|e| format!("Failed to read identity file: {e}"))?;
-        let keypair = NativeKeypair::from_protobuf_encoding(&bytes)
+
+        let plaintext = match super::encryption::detect_format(&bytes)? {
+            super::encryption::IdentityFormat::Plaintext => bytes,
+            super::encryption::IdentityFormat::Encrypted { .. } => {
+                let key = super::encryption::get_session_key()
+                    .ok_or("Identity is encrypted. Call unlock_identity() first.")?;
+                super::encryption::decrypt_identity(&bytes, &key)?
+            }
+        };
+
+        let keypair = NativeKeypair::from_protobuf_encoding(&plaintext)
             .map_err(|e| format!("Failed to decode identity: {e}"))?;
         let peer_id = keypair.peer_id();
 
         Ok(IdentityData {
             keypair,
             peer_id,
-            mnemonic: None, // Don't return mnemonic on load — it's a one-time backup thing.
+            mnemonic: None,
         })
     } else {
-        // No identity yet — generate a fresh one.
         generate_new_identity()
     }
 }
 
-/// Save a keypair to disk in protobuf encoding (backward compatible with libp2p).
+/// Save a keypair to disk. If encryption is active (session key set),
+/// the file is written as an encrypted HKEYV1 envelope. Otherwise plaintext protobuf.
 fn save_keypair(keypair: &NativeKeypair) -> Result<(), String> {
     let path = keypair_path()?;
-    let bytes = keypair.to_protobuf_encoding()
+    let plaintext = keypair.to_protobuf_encoding()
         .map_err(|e| format!("Failed to encode keypair: {e}"))?;
-    fs::write(&path, bytes).map_err(|e| format!("Failed to write identity file: {e}"))?;
+
+    let bytes_to_write = if let Some(key) = super::encryption::get_session_key() {
+        // Determine current protection flags by reading existing file (if any).
+        let (password_used, os_keychain_used) = if path.exists() {
+            let existing = fs::read(&path).unwrap_or_default();
+            match super::encryption::detect_format(&existing) {
+                Ok(super::encryption::IdentityFormat::Encrypted { flags, .. }) => {
+                    (super::encryption::flags_has_password(flags),
+                     super::encryption::flags_has_os_keychain(flags))
+                }
+                _ => (false, true), // Default: OS keychain only
+            }
+        } else {
+            (false, true)
+        };
+        let mut salt = [0u8; 16];
+        if password_used {
+            getrandom::fill(&mut salt).map_err(|e| format!("RNG error: {e}"))?;
+        }
+        super::encryption::encrypt_identity(&plaintext, &key, &salt, password_used, os_keychain_used)?
+    } else {
+        plaintext
+    };
+
+    fs::write(&path, bytes_to_write).map_err(|e| format!("Failed to write identity file: {e}"))?;
     Ok(())
 }

@@ -92,23 +92,53 @@ pub struct IdentityInfo {
 
 ### `load_or_create_identity() -> Result<IdentityInfo, String>`
 
-Primary entry point called during app startup. Delegates to `identity::load_or_create_identity()` in `identity/keys.rs`. Checks if `~/.hollow/identity.key` (protobuf-encoded Ed25519 keypair) exists. If yes, loads and decodes it via `NativeKeypair::from_protobuf_encoding()`, returns peer_id with `mnemonic: None`. If no file exists, generates a fresh identity: creates 32 bytes of entropy via `getrandom`, derives a 24-word BIP-39 mnemonic, derives the Ed25519 keypair via `NativeKeypair::from_mnemonic()`, saves to disk, and returns both peer_id and mnemonic. The mnemonic is only ever returned on first creation -- it is never stored persistently.
+Primary entry point called during app startup. Delegates to `identity::load_or_create_identity()` in `identity/keys.rs`. Detects identity file format: plaintext protobuf (68 bytes, header `0x08 0x01 0x12 0x40`) or HKEYV1 encrypted (119 bytes, header `HKEYV1`). If encrypted, decrypts via session wrapping key (set by `unlock_identity()`). If no file exists, generates a fresh identity.
 
 ### `generate_new_identity() -> Result<IdentityInfo, String>`
 
-Force-generates a fresh identity, replacing any existing one. Same flow as the creation path in `load_or_create_identity()`: 32 bytes entropy, BIP-39 mnemonic, keypair derivation, save to `identity.key`. Always returns the mnemonic. Used for identity reset.
+Force-generates a fresh identity, replacing any existing one. Same flow as the creation path in `load_or_create_identity()`: 32 bytes entropy, BIP-39 mnemonic, keypair derivation, save to `identity.key` (encrypted if session key active). Always returns the mnemonic. Used for identity reset.
 
 ### `restore_identity_from_mnemonic(phrase: String) -> Result<IdentityInfo, String>`
 
-Restores a keypair from a 24-word mnemonic. Parses the phrase via `Mnemonic::parse()`, derives the keypair, overwrites `identity.key` on disk. Returns peer_id and the mnemonic back. Used for account recovery and multi-device sync.
+Restores a keypair from a 24-word mnemonic. Parses the phrase via `Mnemonic::parse()`, derives the keypair, overwrites `identity.key` on disk. Returns peer_id and the mnemonic back. Used for account recovery, multi-device sync, and password recovery.
 
-### Underlying identity system (`identity/keys.rs`, `identity/native_identity.rs`)
+### `unlock_identity(password: Option<String>) -> Result<IdentityInfo, String>`
 
-- **Data directory:** `identity::data_dir()` returns `~/.hollow/` (or `HOLLOW_DATA_DIR` env var for multi-instance testing). Falls back to `dirs::data_dir().join("hollow")` which is `%APPDATA%/hollow` on Windows.
-- **Storage:** `identity.key` file in protobuf encoding (backward compatible with libp2p format).
-- **NativeKeypair:** Wraps `ed25519_dalek::SigningKey` + `VerifyingKey`. Methods: `peer_id()` (multihash of protobuf-encoded public key), `sign(msg)`, `public_key_bytes()`, `secret_key_bytes()`, `verify_peer_signature()`, `public_key_protobuf()`.
+Must be called before any identity/DB operation. Reads `identity.key`, detects format. For plaintext: auto-wraps with DPAPI/Keychain if available. For encrypted: if `flags=0x01` (password), requires password param and derives wrapping key via Argon2id. If `flags=0x02` (OS keychain), retrieves key from DPAPI/Keychain silently. Stores wrapping key in session static.
+
+### `lock_identity() -> Result<(), String>`
+
+Zeros and clears the session wrapping key. All subsequent identity operations fail until `unlock_identity()` is called again.
+
+### `enable_password_protection(password: String) -> Result<(), String>`
+
+Encrypts identity with Argon2id-derived key from password. Sets `flags=0x01`. Deletes any existing DPAPI/Keychain key. Password required on every app launch.
+
+### `change_password(old_password: String, new_password: String) -> Result<(), String>`
+
+Verifies old password, re-encrypts with new. Keeps `flags=0x01`.
+
+### `remove_password_protection(password: String) -> Result<(), String>`
+
+Verifies password. If OS keychain available: transitions to `flags=0x02` (keychain-only, silent unlock). Otherwise writes plaintext.
+
+### `get_identity_protection_status() -> Result<ProtectionStatus, String>`
+
+Returns `{ is_encrypted, has_password, has_os_keychain, os_keychain_available }`. Used by Settings UI.
+
+### `is_identity_unlocked() -> Result<bool, String>`
+
+Whether the session wrapping key is set.
+
+### Underlying identity system (`identity/keys.rs`, `identity/native_identity.rs`, `identity/encryption.rs`, `identity/platform_keystore.rs`)
+
+- **Data directory:** `identity::data_dir()` returns `~/.hollow/` (or `DATA_DIR_OVERRIDE` set by `set_data_dir()` on mobile, or `HOLLOW_DATA_DIR` env var). Falls back to `dirs::data_dir().join("hollow")` which is `%APPDATA%/hollow` on Windows.
+- **Storage:** `identity.key` file in either plaintext protobuf (68 bytes, legacy) or HKEYV1 encrypted envelope (119 bytes). Format auto-detected.
+- **NativeKeypair:** Wraps `ed25519_dalek::SigningKey` + `VerifyingKey`. Methods: `peer_id()`, `sign(msg)`, `public_key_bytes()`, `secret_key_bytes()`, `verify_peer_signature()`, `public_key_protobuf()`.
 - **Mnemonic flow:** BIP-39 24-word (256-bit entropy) -> SHA-512 HMAC seed -> first 32 bytes -> Ed25519 secret key.
-- **Peer ID derivation:** Public key -> protobuf encoding -> SHA-256 -> multihash -> base58 string.
+- **Peer ID derivation:** Public key -> protobuf encoding -> identity multihash -> base58 string.
+- **Encryption:** `encryption.rs` — HKEYV1 format, Argon2id KDF (64MB/3iter), AES-256-GCM, session key static.
+- **Platform keystore:** `platform_keystore.rs` — Windows DPAPI (`windows-sys`), macOS Keychain (`security-framework`), Linux fallback (not available).
 
 ## Twitch API (`api/twitch.rs`)
 

@@ -889,15 +889,21 @@ pub fn export_backup(output_path: String, include_vault: bool, include_files: bo
 
         let key_path = data_dir.join("identity.key");
         if key_path.exists() {
-            let data = std::fs::read(&key_path).map_err(|e| format!("Failed to read identity.key: {e}"))?;
+            // Always export the PLAINTEXT keypair — the backup ZIP has its own
+            // Argon2id encryption layer. Reading via load_or_create_identity()
+            // transparently decrypts if the file is protected.
+            let id = crate::identity::load_or_create_identity()?;
+            let data = id.keypair.to_protobuf_encoding()
+                .map_err(|e| format!("Failed to encode keypair: {e}"))?;
             zip.start_file("identity.key", options).map_err(|e| format!("Zip error: {e}"))?;
             zip.write_all(&data).map_err(|e| format!("Zip write error: {e}"))?;
         }
 
         let db_path = data_dir.join("messages.db");
         if db_path.exists() {
+            let db_passphrase = derive_db_key()?;
             if let Ok(store) = crate::storage::MessageStore::open(
-                db_path.to_str().unwrap_or_default(), &passphrase,
+                db_path.to_str().unwrap_or_default(), &db_passphrase,
             ) {
                 let _ = store.wal_checkpoint();
             }
@@ -1036,6 +1042,11 @@ pub fn import_backup(backup_path: String, passphrase: String) -> Result<(), Stri
             let mut data = Vec::new();
             entry.read_to_end(&mut data).map_err(|e| format!("Failed to read zip entry: {e}"))?;
             std::fs::write(&out_path, &data).map_err(|e| format!("Failed to write {name}: {e}"))?;
+
+            // Auto-protect identity with OS keychain after import.
+            if name == "identity.key" {
+                let _ = crate::identity::platform_keystore::auto_protect(&out_path, &data);
+            }
         }
     }
 

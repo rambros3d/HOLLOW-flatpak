@@ -43,7 +43,10 @@ import 'package:hollow/src/core/providers/voice_channel_provider.dart';
 import 'package:hollow/src/ui/chat/channel_chat_pane.dart';
 import 'package:hollow/src/ui/chat/chat_pane.dart';
 import 'package:hollow/src/ui/chat/voice_channel_pane.dart';
+import 'package:hollow/src/ui/components/hollow_button.dart';
+import 'package:hollow/src/ui/components/hollow_dialog.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/components/hollow_tooltip.dart';
 import 'package:hollow/src/ui/components/notification_overlay.dart';
@@ -58,6 +61,7 @@ import 'package:hollow/src/core/providers/license_key_provider.dart';
 import 'package:hollow/src/core/providers/relay_domain_provider.dart';
 import 'package:hollow/src/core/providers/relay_status_provider.dart';
 import 'package:hollow/src/core/providers/settings_provider.dart';
+import 'package:hollow/src/rust/api/identity.dart' as identity_api;
 import 'package:hollow/src/rust/api/network.dart' as network_api;
 import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 import 'package:hollow/src/ui/settings/server_settings_panel.dart';
@@ -228,6 +232,302 @@ class _HollowShellState extends ConsumerState<HollowShell>
     }
   }
 
+  /// Attempt to unlock the identity. Shows appropriate blocking dialog if needed.
+  /// Returns true if unlocked, false if the user cancelled.
+  Future<bool> _unlockIdentity() async {
+    try {
+      // First, try unlocking without a password (DPAPI/Keychain or plaintext).
+      await identity_api.unlockIdentity();
+      return true;
+    } catch (e) {
+      final msg = e.toString();
+      // Password required — show password lock screen.
+      if (msg.contains('password') || msg.contains('Password')) {
+        return _showPasswordUnlockDialog();
+      }
+      // DPAPI/Keychain failure (different machine) — show recovery dialog.
+      if (msg.contains('credentials') || msg.contains('device') || msg.contains('keychain')) {
+        return _showDeviceBoundRecoveryDialog();
+      }
+      // Other error (corrupted file, etc.) — show recovery as fallback.
+      if (mounted) {
+        return _showDeviceBoundRecoveryDialog(
+          errorMessage: 'Failed to unlock identity: $msg',
+        );
+      }
+      return false;
+    }
+  }
+
+  /// Full-screen blocking dialog for DPAPI/Keychain failure (identity copied
+  /// to a different machine). Only recovery option is the 24-word mnemonic.
+  Future<bool> _showDeviceBoundRecoveryDialog({String? errorMessage}) async {
+    final controller = TextEditingController();
+    final result = await showHollowDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        final hollow = HollowTheme.of(ctx);
+        return Center(
+          child: Material(
+            type: MaterialType.transparency,
+            child: Container(
+              width: 420,
+              padding: const EdgeInsets.all(HollowSpacing.xl),
+              decoration: BoxDecoration(
+                color: hollow.elevated,
+                borderRadius: BorderRadius.circular(hollow.radiusLg),
+                border: Border.all(color: hollow.error.withValues(alpha: 0.3)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(LucideIcons.shieldAlert, size: 20, color: hollow.error),
+                      const SizedBox(width: HollowSpacing.sm),
+                      Text('Identity Locked', style: HollowTypography.heading.copyWith(
+                        color: hollow.textPrimary, fontSize: 16,
+                      )),
+                    ],
+                  ),
+                  const SizedBox(height: HollowSpacing.md),
+                  Text(
+                    errorMessage ?? 'This identity was bound to another device and cannot be used here. Enter your 24-word recovery phrase to unlock your identity on this device.',
+                    style: HollowTypography.body.copyWith(
+                      color: hollow.textSecondary, fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: HollowSpacing.lg),
+                  HollowTextField(
+                    controller: controller,
+                    autofocus: true,
+                    hintText: 'Enter 24-word recovery phrase',
+                  ),
+                  const SizedBox(height: HollowSpacing.lg),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      HollowButton.filled(
+                        onPressed: () async {
+                          final phrase = controller.text.trim();
+                          final words = phrase.split(RegExp(r'\s+'));
+                          if (words.length != 24) {
+                            HollowToast.show(ctx, 'Must be exactly 24 words', type: HollowToastType.error);
+                            return;
+                          }
+                          try {
+                            await identity_api.restoreIdentityFromMnemonic(phrase: phrase);
+                            await identity_api.unlockIdentity();
+                            if (ctx.mounted) Navigator.of(ctx).pop(true);
+                          } catch (e) {
+                            if (ctx.mounted) {
+                              HollowToast.show(ctx, 'Recovery failed: $e', type: HollowToastType.error);
+                            }
+                          }
+                        },
+                        child: const Text('Recover Identity'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    return result == true;
+  }
+
+  Future<bool> _showPasswordUnlockDialog() async {
+    final controller = TextEditingController();
+    var attempts = 0;
+    while (mounted) {
+      final result = await showHollowDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) {
+          final hollow = HollowTheme.of(ctx);
+          return Center(
+            child: Material(
+              type: MaterialType.transparency,
+              child: Container(
+                width: 380,
+                padding: const EdgeInsets.all(HollowSpacing.xl),
+                decoration: BoxDecoration(
+                  color: hollow.elevated,
+                  borderRadius: BorderRadius.circular(hollow.radiusLg),
+                  border: Border.all(color: hollow.accent.withValues(alpha: 0.15)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(LucideIcons.lock, size: 20, color: hollow.accent),
+                        const SizedBox(width: HollowSpacing.sm),
+                        Text('Unlock Hollow', style: HollowTypography.heading.copyWith(
+                          color: hollow.textPrimary, fontSize: 16,
+                        )),
+                      ],
+                    ),
+                    const SizedBox(height: HollowSpacing.sm),
+                    Text(
+                      'Enter your app password to unlock your identity.',
+                      style: HollowTypography.body.copyWith(
+                        color: hollow.textSecondary, fontSize: 12,
+                      ),
+                    ),
+                    if (attempts > 0) ...[
+                      const SizedBox(height: HollowSpacing.xs),
+                      Text(
+                        'Wrong password. Try again.',
+                        style: HollowTypography.body.copyWith(
+                          color: hollow.error, fontSize: 12,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: HollowSpacing.lg),
+                    HollowTextField(
+                      controller: controller,
+                      obscureText: true,
+                      autofocus: true,
+                      hintText: 'Password',
+                      onSubmitted: (val) {
+                        if (val.isNotEmpty) Navigator.of(ctx).pop(val);
+                      },
+                    ),
+                    const SizedBox(height: HollowSpacing.lg),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        HollowButton.ghost(
+                          onPressed: () => Navigator.of(ctx).pop('__recover__'),
+                          child: Text('Recover with phrase',
+                            style: TextStyle(fontSize: 12, color: hollow.textSecondary),
+                          ),
+                        ),
+                        HollowButton.filled(
+                          onPressed: () {
+                            final pass = controller.text.trim();
+                            if (pass.isNotEmpty) Navigator.of(ctx).pop(pass);
+                          },
+                          child: const Text('Unlock'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+
+      if (result == null || !mounted) return false;
+
+      if (result == '__recover__') {
+        final recovered = await _recoverWithMnemonic();
+        if (recovered) return true;
+        controller.clear();
+        continue;
+      }
+
+      try {
+        await identity_api.unlockIdentity(password: result);
+        return true;
+      } catch (_) {
+        attempts++;
+        controller.clear();
+        continue;
+      }
+    }
+    return false;
+  }
+
+  Future<bool> _recoverWithMnemonic() async {
+    final controller = TextEditingController();
+    final result = await showHollowDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        final hollow = HollowTheme.of(ctx);
+        return Center(
+          child: Material(
+            type: MaterialType.transparency,
+            child: Container(
+              width: 420,
+              padding: const EdgeInsets.all(HollowSpacing.xl),
+              decoration: BoxDecoration(
+                color: hollow.elevated,
+                borderRadius: BorderRadius.circular(hollow.radiusLg),
+                border: Border.all(color: hollow.accent.withValues(alpha: 0.15)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Recover Identity', style: HollowTypography.heading.copyWith(
+                    color: hollow.textPrimary, fontSize: 16,
+                  )),
+                  const SizedBox(height: HollowSpacing.sm),
+                  Text(
+                    'Enter your 24-word recovery phrase to reset your identity. This will remove the existing password.',
+                    style: HollowTypography.body.copyWith(
+                      color: hollow.textSecondary, fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: HollowSpacing.lg),
+                  HollowTextField(
+                    controller: controller,
+                    autofocus: true,
+                    hintText: 'Enter 24-word recovery phrase',
+                  ),
+                  const SizedBox(height: HollowSpacing.lg),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      HollowButton.ghost(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: HollowSpacing.sm),
+                      HollowButton.filled(
+                        onPressed: () async {
+                          final phrase = controller.text.trim();
+                          final words = phrase.split(RegExp(r'\s+'));
+                          if (words.length != 24) {
+                            HollowToast.show(ctx, 'Must be exactly 24 words', type: HollowToastType.error);
+                            return;
+                          }
+                          try {
+                            await identity_api.restoreIdentityFromMnemonic(phrase: phrase);
+                            // Identity restored as plaintext — unlock it.
+                            await identity_api.unlockIdentity();
+                            if (ctx.mounted) Navigator.of(ctx).pop(true);
+                          } catch (e) {
+                            if (ctx.mounted) {
+                              HollowToast.show(ctx, 'Recovery failed: $e', type: HollowToastType.error);
+                            }
+                          }
+                        },
+                        child: const Text('Recover'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    return result == true;
+  }
+
   Future<void> _bootstrap() async {
     if (_initialized) return;
     _initialized = true;
@@ -243,6 +543,19 @@ class _HollowShellState extends ConsumerState<HollowShell>
 
       // 'restored_mnemonic' / 'restored_backup' — identity already on disk.
       // 'create_new' / null — proceed to normal load (will generate new).
+    }
+
+    // Unlock the identity (handles DPAPI/Keychain + optional password).
+    if (hasExisting && mounted) {
+      final unlocked = await _unlockIdentity();
+      if (!unlocked || !mounted) return;
+    } else {
+      // New identity or just restored — unlock without password.
+      try {
+        await identity_api.unlockIdentity();
+      } catch (_) {
+        // First launch, no identity yet — load() will create one.
+      }
     }
 
     await ref.read(identityProvider.notifier).load();

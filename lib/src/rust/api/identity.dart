@@ -29,6 +29,50 @@ Future<IdentityInfo> restoreIdentityFromMnemonic({required String phrase}) =>
       phrase: phrase,
     );
 
+/// Unlock the identity file for this session.
+/// For plaintext identities: loads directly (password ignored).
+/// For encrypted identities: decrypts using password and/or OS keychain.
+/// Must be called before open_message_store() or start_node().
+Future<IdentityInfo> unlockIdentity({String? password}) =>
+    RustLib.instance.api.crateApiIdentityUnlockIdentity(password: password);
+
+/// Clear the session wrapping key. After this, all identity operations
+/// will fail until unlock_identity() is called again.
+Future<void> lockIdentity() =>
+    RustLib.instance.api.crateApiIdentityLockIdentity();
+
+/// Enable password protection on the current identity.
+/// Password-only encryption (flags=0x01). The password is required on every launch.
+/// Any previous OS keychain key is removed since the password replaces it.
+Future<void> enablePasswordProtection({required String password}) => RustLib
+    .instance
+    .api
+    .crateApiIdentityEnablePasswordProtection(password: password);
+
+/// Change the app password. Requires the current password for verification.
+Future<void> changePassword({
+  required String oldPassword,
+  required String newPassword,
+}) => RustLib.instance.api.crateApiIdentityChangePassword(
+  oldPassword: oldPassword,
+  newPassword: newPassword,
+);
+
+/// Remove password protection. If OS keychain is available, transitions to
+/// keychain-only protection. Otherwise writes plaintext.
+Future<void> removePasswordProtection({required String password}) => RustLib
+    .instance
+    .api
+    .crateApiIdentityRemovePasswordProtection(password: password);
+
+/// Get the current protection status of the identity file.
+Future<ProtectionStatus> getIdentityProtectionStatus() =>
+    RustLib.instance.api.crateApiIdentityGetIdentityProtectionStatus();
+
+/// Check if the identity is currently unlocked (session wrapping key is set).
+Future<bool> isIdentityUnlocked() =>
+    RustLib.instance.api.crateApiIdentityIsIdentityUnlocked();
+
 /// Result of creating or loading an identity.
 class IdentityInfo {
   final String peerId;
@@ -48,4 +92,36 @@ class IdentityInfo {
           runtimeType == other.runtimeType &&
           peerId == other.peerId &&
           mnemonic == other.mnemonic;
+}
+
+/// Current protection status of the identity file.
+class ProtectionStatus {
+  final bool isEncrypted;
+  final bool hasPassword;
+  final bool hasOsKeychain;
+  final bool osKeychainAvailable;
+
+  const ProtectionStatus({
+    required this.isEncrypted,
+    required this.hasPassword,
+    required this.hasOsKeychain,
+    required this.osKeychainAvailable,
+  });
+
+  @override
+  int get hashCode =>
+      isEncrypted.hashCode ^
+      hasPassword.hashCode ^
+      hasOsKeychain.hashCode ^
+      osKeychainAvailable.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProtectionStatus &&
+          runtimeType == other.runtimeType &&
+          isEncrypted == other.isEncrypted &&
+          hasPassword == other.hasPassword &&
+          hasOsKeychain == other.hasOsKeychain &&
+          osKeychainAvailable == other.osKeychainAvailable;
 }

@@ -1897,6 +1897,32 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 - [ ] Screen share gossip relay for voice channels — current limit is 5 outgoing viewers (direct P2P). Need gossip-style forwarding or lightweight SFU relay so larger voice channels can all watch a screen share without creating N peer connections per viewer
 - [ ] Topic-routed channel notifications — with relay topic routing, unsubscribed channels don't receive real-time messages. Need to ensure @mention notifications and unread badges still work for channels the user isn't currently viewing (may require a lightweight "notification-only" subscription tier or server-side mention detection)
 
+- [ ] Native screen share video on Windows — bypass libwebrtc's desktop capturer with Graphics Capture API → hardware encode (NVENC/QSV/AMF) → data channel, same out-of-process pattern as screen audio. macOS already has native ScreenCaptureKit path with crystal-clear quality; Windows still uses libwebrtc's built-in capturer which has lower quality and no HDR support
+- [x] **Identity & database at-rest protection (two layers):**
+    - **Current state:** `identity.key` is a plaintext 68-byte Ed25519 keypair (libp2p protobuf). SQLCipher passphrase is `hex(secret_key[0:32])` derived directly from it (`api/storage.rs:derive_db_key()`). Copying `%APPDATA%\hollow\` to another machine = full account takeover with zero friction.
+    - [x] **Layer 1 — Optional app password/PIN (user-facing protection):**
+        - Opt-in from Settings → Security → "Set App Password"
+        - Derive a wrapping key from the password using **Argon2id** (same params as `.hollow` backup export: memory=64MB, iterations=3, parallelism=1) + random salt stored alongside
+        - Encrypt `identity.key` at rest with AES-256-GCM using the Argon2id-derived key. File format: `[HKEYV1 magic][flags][salt][nonce][ciphertext]` = 119 bytes
+        - On app launch: full-screen blur + password dialog → Argon2id derive → unwrap identity → derive SQLCipher passphrase as usual
+        - Without the password, the identity file is encrypted noise — protects against both "copy files to USB" AND "sit down at unlocked computer"
+        - Backward compatible: plaintext `identity.key` (protobuf header `0x08 0x01 0x12 0x40`) detected and loaded without unlock
+        - Recovery: "Recover with phrase" button in password dialog → 24-word mnemonic restores identity and removes password
+        - **Does NOT break identity export/import** — `.hollow` backup export always contains plaintext keypair (backup has its own Argon2id layer)
+        - Settings UI: enable/change/remove password in Security tab, status indicators
+    - [x] **Layer 2 — OS keychain / platform credential storage (machine binding, zero friction):**
+        - Automatic on first launch (no user action needed) — existing plaintext `identity.key` auto-wrapped on Windows/macOS
+            - **Windows:** DPAPI (`CryptProtectData` via `windows-sys`) — encrypted blob at `~/.hollow/identity.dpapi`, tied to Windows user account SID
+            - **macOS:** Keychain Services (`security-framework` crate) — stored as generic password in login keychain
+            - **Linux:** Not available — falls back to plaintext (password-only protection via Layer 1)
+            - **Android/iOS:** Deferred to Dart-side (`flutter_secure_storage`) in future
+        - Zero user friction — no extra password needed, the OS handles it transparently
+        - Mutually exclusive with Layer 1: password replaces DPAPI (flags=0x01), removing password restores DPAPI (flags=0x02)
+        - If DPAPI fails (identity copied to different machine): full-screen blocking recovery dialog with 24-word mnemonic entry. Recovery re-wraps with new machine's DPAPI automatically
+        - Fallback: if OS keychain is unavailable (e.g., headless Linux), fall back to file-based encrypted identity.key with password-only protection (Layer 1)
+- [ ] Fix Olm/MLS issue in voice channels (probably the same stale MLS with the owner not getting it self-healed)
+- [ ] First message is failing: peer A adds peer B as a friend, peer A writes a message and peer B doesn't see it; peer B writes a message but peer A sees it, the next message from peer A properly arrives to peer B - something is wrong with the initial first message or session establishment
+
 **Deliverable:** A polished, feature-complete communication platform ready for public release — with private, encrypted P2P file sharing that rivals torrent performance without any of the privacy/legal exposure.
 
 ### Phase 7: Distribution & Launch
@@ -1913,7 +1939,7 @@ DevTools profiling (Apr 6) confirmed: CPU usage in background is caused entirely
 - [ ] Documentation (user guide, FAQ)
 - [ ] Beta testing program
 - [ ] Security audit (third-party review of E2EE implementation - OTF Security Lab funding)
-- [ ] **Strip / minimize bundled ffmpeg binary** — Initial bundled binary (BtbN LGPL static, `vendor/ffmpeg/ffmpeg-win-x64.exe`) is ~164 MB unstripped and includes a huge codec/library zoo we don't actually use (libdav1d, libvpx, libsvtav1, libplacebo, vulkan, opencl, AMF, NVENC/NVDEC, libjxl, libwhisper, librav1e, libopenh264, all the audio codecs, etc.). After the video preview pipeline is shipped and stable, profile what ffmpeg arguments / codecs our actual usage requires (just thumbnail extraction via libwebp encoder + a small set of video demuxers/decoders for whichever container formats users actually upload), then either (a) strip the existing binary with `strip` to drop debug symbols (~15-20% reduction), or (b) build a custom minimal ffmpeg with only the required components (`--disable-everything --enable-encoder=libwebp --enable-decoder=h264,hevc,vp9,av1 --enable-demuxer=mov,matroska,webm` etc.) — target ~10 MB per arch. Same for macOS/Linux when those builds happen. No code changes needed when swapping the binary — just replace `vendor/ffmpeg/ffmpeg-{platform}` and rebuild.
+- [X] **Strip / minimize bundled ffmpeg binary** — Initial bundled binary (BtbN LGPL static, `vendor/ffmpeg/ffmpeg-win-x64.exe`) is ~164 MB unstripped and includes a huge codec/library zoo we don't actually use (libdav1d, libvpx, libsvtav1, libplacebo, vulkan, opencl, AMF, NVENC/NVDEC, libjxl, libwhisper, librav1e, libopenh264, all the audio codecs, etc.). After the video preview pipeline is shipped and stable, profile what ffmpeg arguments / codecs our actual usage requires (just thumbnail extraction via libwebp encoder + a small set of video demuxers/decoders for whichever container formats users actually upload), then either (a) strip the existing binary with `strip` to drop debug symbols (~15-20% reduction), or (b) build a custom minimal ffmpeg with only the required components (`--disable-everything --enable-encoder=libwebp --enable-decoder=h264,hevc,vp9,av1 --enable-demuxer=mov,matroska,webm` etc.) — target ~10 MB per arch. Same for macOS/Linux when those builds happen. No code changes needed when swapping the binary — just replace `vendor/ffmpeg/ffmpeg-{platform}` and rebuild.
 - [ ] LRU-eviction (optimization for loading only what you can see on the screen such as friends profiles or avatars)
 - [ ] **Theme system** — structured theme manifest (colors, fonts, spacing, radii, optional cosmetics like profile decorations/nickname accents), `.hollow-theme` bundle format (manifest + asset files, signed for integrity), in-app import/export UI with live preview, curated community gallery repo on GitHub. Per-user local only — themes never travel with messages. Data-only schema (no HTML/CSS/JS, no arbitrary code execution) so community-shared themes are provably safe to apply. Absorbs the old "hearts/sparkles on profiles + custom fonts" idea as one set of knobs among many. Build on existing `HollowTheme` ThemeExtension by making it loadable from a manifest instead of hardcoded.
 

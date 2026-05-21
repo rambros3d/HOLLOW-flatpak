@@ -610,16 +610,17 @@ Tests verify:
 
 ## Identity System: keys.rs (Key Management)
 
-Source: `rust/hollow_core/src/identity/keys.rs`
+Source: `rust/hollow_core/src/identity/keys.rs`, `identity/encryption.rs`, `identity/platform_keystore.rs`
 
 ### Data Dir
 
 `keys.rs:data_dir()` -- Resolves the Hollow data directory:
-1. Checks `HOLLOW_DATA_DIR` env var first (for multi-instance testing)
-2. Falls back to `dirs::data_dir()` / `hollow` (= `%APPDATA%/hollow` on Windows)
-3. Creates directory if missing via `fs::create_dir_all()`
+1. Checks `DATA_DIR_OVERRIDE` OnceLock (set by `set_data_dir()` FFI from Dart on Android/iOS)
+2. Checks `HOLLOW_DATA_DIR` env var (for multi-instance testing)
+3. Falls back to `dirs::data_dir()` / `hollow` (= `%APPDATA%/hollow` on Windows)
+4. Creates directory if missing via `fs::create_dir_all()`
 
-Keypair stored at `{data_dir}/identity.key` in protobuf encoding.
+Keypair stored at `{data_dir}/identity.key`.
 
 ### IdentityData
 
@@ -627,11 +628,27 @@ Struct returned by all identity functions: `{ keypair: NativeKeypair, peer_id: S
 
 ### Identity Lifecycle
 
-- `keys.rs:generate_new_identity()` -- Generates 32 bytes of entropy via `getrandom`, creates 24-word BIP-39 mnemonic (256 bits), derives keypair, saves to disk. Returns IdentityData with mnemonic.
+- `keys.rs:generate_new_identity()` -- Generates 32 bytes of entropy via `getrandom`, creates 24-word BIP-39 mnemonic (256 bits), derives keypair, saves to disk (encrypted if session key active). Returns IdentityData with mnemonic.
 - `keys.rs:restore_identity_from_mnemonic(phrase)` -- Parses mnemonic phrase, derives keypair, saves to disk. Returns IdentityData with mnemonic.
-- `keys.rs:load_or_create_identity()` -- Checks if `identity.key` exists. If yes: loads via `NativeKeypair::from_protobuf_encoding()`, returns without mnemonic. If no: calls `generate_new_identity()`.
-- `keys.rs:save_keypair(keypair)` -- Internal helper. Encodes keypair to protobuf, writes to `identity.key`.
+- `keys.rs:load_or_create_identity()` -- Checks if `identity.key` exists. If yes: detects format (plaintext protobuf or HKEYV1 encrypted), decrypts via session key if encrypted, returns without mnemonic. If no: calls `generate_new_identity()`.
+- `keys.rs:save_keypair(keypair)` -- Internal helper. Encodes keypair to protobuf. If session wrapping key is active, re-encrypts as HKEYV1 envelope preserving current flags. Otherwise writes plaintext.
 
 ### Storage Format
 
-The keypair is persisted as 68-byte protobuf (libp2p-compatible) at `{data_dir}/identity.key`. This format was inherited from the libp2p era and maintained for backward compatibility -- existing users' identity files load without migration.
+Two formats detected by `encryption::detect_format()`:
+1. **Plaintext (legacy):** 68-byte protobuf (`[0x08, 0x01, 0x12, 0x40, secret(32), public(32)]`). Loaded directly, auto-wrapped with DPAPI/Keychain on first `unlock_identity()`.
+2. **Encrypted (HKEYV1):** 119-byte envelope: `[magic:6 "HKEYV1"][flags:1][salt:16][nonce:12][ciphertext:84]`. Flags: `0x01`=password (Argon2id), `0x02`=OS keychain (DPAPI/macOS Keychain). Mutually exclusive.
+
+### At-Rest Protection (encryption.rs + platform_keystore.rs)
+
+**Session wrapping key:** Held in `OnceLock<Mutex<Option<[u8; 32]>>>` static. Set by `unlock_identity()` FFI, cleared by `lock_identity()`. All `load_or_create_identity()` calls use it transparently.
+
+**Layer 1 — Password:** Argon2id (memory=64MB, iterations=3, parallelism=1) derives 32-byte wrapping key from password + random 16-byte salt. AES-256-GCM encrypts the 68-byte protobuf. `flags=0x01`. No DPAPI involvement.
+
+**Layer 2 — OS Keychain:** Random 32-byte wrapping key stored in platform credential store. Windows: DPAPI via `windows-sys` (`CryptProtectData`/`CryptUnprotectData`), blob at `{data_dir}/identity.dpapi`. macOS: `security-framework` crate, Keychain Services. Linux: not available. `flags=0x02`.
+
+**FFI functions (api/identity.rs):** `unlock_identity(password?)`, `lock_identity()`, `enable_password_protection(password)`, `change_password(old, new)`, `remove_password_protection(password)`, `get_identity_protection_status()`, `is_identity_unlocked()`.
+
+**Dart bootstrap flow:** `_bootstrap()` in `hollow_shell.dart` calls `_unlockIdentity()` before `identityProvider.load()`. Silent unlock for plaintext/DPAPI. Full-screen password dialog for password-protected. Full-screen recovery dialog for DPAPI failure (different machine).
+
+**Settings UI:** Security tab in `user_settings_dialog.dart` has "APP LOCK" section with enable/change/remove password + status indicators.

@@ -28,6 +28,7 @@ import 'package:hollow/src/core/providers/theme_provider.dart';
 import 'package:hollow/src/core/shared_tickers.dart';
 import 'package:hollow/src/ui/animations/hollow_curves.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
+import 'package:hollow/src/rust/api/identity.dart' as identity_api;
 import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
@@ -1503,11 +1504,79 @@ class _SecurityTabState extends State<_SecurityTab> {
   bool _includeFiles = false;
   String? _mnemonic;
   String? _error;
+  bool _hasPassword = false;
+  bool _hasOsKeychain = false;
+  bool _osKeychainAvailable = false;
+  bool _protectionLoading = true;
 
   @override
   void initState() {
     super.initState();
     _loadMnemonic();
+    _loadProtectionStatus();
+  }
+
+  Future<void> _loadProtectionStatus() async {
+    try {
+      final status = await identity_api.getIdentityProtectionStatus();
+      if (!mounted) return;
+      setState(() {
+        _hasPassword = status.hasPassword;
+        _hasOsKeychain = status.hasOsKeychain;
+        _osKeychainAvailable = status.osKeychainAvailable;
+        _protectionLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _protectionLoading = false);
+    }
+  }
+
+  Future<void> _enablePassword() async {
+    final passphrase = await _askPassphrase(context, 'Set App Password', confirm: true, buttonLabel: 'Set Password');
+    if (passphrase == null || !mounted) return;
+
+    try {
+      await identity_api.enablePasswordProtection(password: passphrase);
+      if (!mounted) return;
+      await _loadProtectionStatus();
+      HollowToast.show(context, 'App password enabled', type: HollowToastType.success);
+    } catch (e) {
+      if (!mounted) return;
+      HollowToast.show(context, 'Failed: $e', type: HollowToastType.error);
+    }
+  }
+
+  Future<void> _changePassword() async {
+    final oldPass = await _askPassphrase(context, 'Current Password', buttonLabel: 'Next');
+    if (oldPass == null || !mounted) return;
+
+    final newPass = await _askPassphrase(context, 'New Password', confirm: true, buttonLabel: 'Change Password');
+    if (newPass == null || !mounted) return;
+
+    try {
+      await identity_api.changePassword(oldPassword: oldPass, newPassword: newPass);
+      if (!mounted) return;
+      HollowToast.show(context, 'Password changed', type: HollowToastType.success);
+    } catch (e) {
+      if (!mounted) return;
+      HollowToast.show(context, 'Failed: $e', type: HollowToastType.error);
+    }
+  }
+
+  Future<void> _removePassword() async {
+    final pass = await _askPassphrase(context, 'Enter Current Password', buttonLabel: 'Remove Password');
+    if (pass == null || !mounted) return;
+
+    try {
+      await identity_api.removePasswordProtection(password: pass);
+      if (!mounted) return;
+      await _loadProtectionStatus();
+      HollowToast.show(context, 'App password removed', type: HollowToastType.success);
+    } catch (e) {
+      if (!mounted) return;
+      HollowToast.show(context, 'Wrong password', type: HollowToastType.error);
+    }
   }
 
   Future<void> _loadMnemonic() async {
@@ -1556,7 +1625,7 @@ class _SecurityTabState extends State<_SecurityTab> {
     }
   }
 
-  Future<String?> _askPassphrase(BuildContext context, String title, {bool confirm = false}) async {
+  Future<String?> _askPassphrase(BuildContext context, String title, {bool confirm = false, String buttonLabel = 'Encrypt'}) async {
     final controller = TextEditingController();
     final confirmController = TextEditingController();
     return showHollowDialog<String>(
@@ -1618,7 +1687,7 @@ class _SecurityTabState extends State<_SecurityTab> {
                           }
                           Navigator.of(ctx).pop(pass);
                         },
-                        child: const Text('Encrypt'),
+                        child: Text(buttonLabel),
                       ),
                     ],
                   ),
@@ -1641,6 +1710,108 @@ class _SecurityTabState extends State<_SecurityTab> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── App Lock ──
+          _SectionLabel(label: 'APP LOCK'),
+          const SizedBox(height: HollowSpacing.sm),
+
+          if (_protectionLoading)
+            Padding(
+              padding: const EdgeInsets.all(HollowSpacing.md),
+              child: SizedBox(
+                width: 20, height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2, color: hollow.accent),
+              ),
+            )
+          else ...[
+            Text(
+              _hasPassword
+                  ? 'Your identity is protected with a password. The app will ask for it on launch.'
+                  : 'Set a password to protect your identity on this device. Without it, anyone with access to your computer can open Hollow as you.',
+              style: HollowTypography.body.copyWith(
+                color: hollow.textSecondary, fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: HollowSpacing.md),
+
+            if (_hasPassword) ...[
+              Row(
+                children: [
+                  Icon(LucideIcons.shieldCheck, size: 16, color: hollow.success),
+                  const SizedBox(width: HollowSpacing.xs),
+                  Text(
+                    'Password protection active',
+                    style: HollowTypography.body.copyWith(
+                      color: hollow.success, fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: HollowSpacing.md),
+              Row(
+                children: [
+                  HollowButton.ghost(
+                    onPressed: _changePassword,
+                    icon: Icon(LucideIcons.keyRound, size: 16),
+                    child: const Text('Change Password'),
+                  ),
+                  const SizedBox(width: HollowSpacing.sm),
+                  HollowButton.ghost(
+                    onPressed: _removePassword,
+                    icon: Icon(LucideIcons.shieldOff, size: 16),
+                    child: const Text('Remove Password'),
+                  ),
+                ],
+              ),
+            ] else ...[
+              if (_hasOsKeychain) ...[
+                Row(
+                  children: [
+                    Icon(LucideIcons.monitor, size: 16, color: hollow.success),
+                    const SizedBox(width: HollowSpacing.xs),
+                    Expanded(
+                      child: Text(
+                        'Device-bound — your identity is tied to this device via OS credentials and cannot be copied to another computer.',
+                        style: HollowTypography.body.copyWith(
+                          color: hollow.success, fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: HollowSpacing.md),
+              ] else if (_osKeychainAvailable) ...[
+                const SizedBox(height: HollowSpacing.md),
+              ],
+              HollowButton.filled(
+                onPressed: _enablePassword,
+                icon: Icon(LucideIcons.lock, size: 16),
+                child: const Text('Set App Password'),
+              ),
+            ],
+
+            const SizedBox(height: HollowSpacing.sm),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Icon(LucideIcons.info, size: 14, color: hollow.textSecondary),
+                ),
+                const SizedBox(width: HollowSpacing.xs),
+                Expanded(
+                  child: Text(
+                    'Forgot your password? You can recover with your 24-word recovery phrase.',
+                    style: HollowTypography.caption.copyWith(
+                      color: hollow.textSecondary, fontSize: 11,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+
+          const SizedBox(height: HollowSpacing.xl),
+
           // ── Recovery Phrase ──
           _SectionLabel(label: 'RECOVERY PHRASE'),
           const SizedBox(height: HollowSpacing.sm),
