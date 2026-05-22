@@ -122,6 +122,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   FriendFfi dco_decode_friend_ffi(dynamic raw);
 
   @protected
+  GuestReactionFfi dco_decode_guest_reaction_ffi(dynamic raw);
+
+  @protected
+  GuestSyncMessageFfi dco_decode_guest_sync_message_ffi(dynamic raw);
+
+  @protected
   int dco_decode_i_32(dynamic raw);
 
   @protected
@@ -174,6 +180,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<FriendFfi> dco_decode_list_friend_ffi(dynamic raw);
 
   @protected
+  List<GuestReactionFfi> dco_decode_list_guest_reaction_ffi(dynamic raw);
+
+  @protected
+  List<GuestSyncMessageFfi> dco_decode_list_guest_sync_message_ffi(dynamic raw);
+
+  @protected
   List<LabelFfi> dco_decode_list_label_ffi(dynamic raw);
 
   @protected
@@ -190,6 +202,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  List<PublicChannelEntryFfi> dco_decode_list_public_channel_entry_ffi(
+    dynamic raw,
+  );
 
   @protected
   List<(String, PlatformInt64)> dco_decode_list_record_string_i_64(dynamic raw);
@@ -261,6 +278,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ProtectionStatus dco_decode_protection_status(dynamic raw);
+
+  @protected
+  PublicChannelEntryFfi dco_decode_public_channel_entry_ffi(dynamic raw);
 
   @protected
   (String, PlatformInt64) dco_decode_record_string_i_64(dynamic raw);
@@ -442,6 +462,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   FriendFfi sse_decode_friend_ffi(SseDeserializer deserializer);
 
   @protected
+  GuestReactionFfi sse_decode_guest_reaction_ffi(SseDeserializer deserializer);
+
+  @protected
+  GuestSyncMessageFfi sse_decode_guest_sync_message_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
@@ -506,6 +534,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<FriendFfi> sse_decode_list_friend_ffi(SseDeserializer deserializer);
 
   @protected
+  List<GuestReactionFfi> sse_decode_list_guest_reaction_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<GuestSyncMessageFfi> sse_decode_list_guest_sync_message_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<LabelFfi> sse_decode_list_label_ffi(SseDeserializer deserializer);
 
   @protected
@@ -522,6 +560,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  List<PublicChannelEntryFfi> sse_decode_list_public_channel_entry_ffi(
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<(String, PlatformInt64)> sse_decode_list_record_string_i_64(
@@ -615,6 +658,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ProtectionStatus sse_decode_protection_status(SseDeserializer deserializer);
+
+  @protected
+  PublicChannelEntryFfi sse_decode_public_channel_entry_ffi(
+    SseDeserializer deserializer,
+  );
 
   @protected
   (String, PlatformInt64) sse_decode_record_string_i_64(
@@ -847,6 +895,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_friend_ffi(FriendFfi self, SseSerializer serializer);
 
   @protected
+  void sse_encode_guest_reaction_ffi(
+    GuestReactionFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_guest_sync_message_ffi(
+    GuestSyncMessageFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
 
   @protected
@@ -928,6 +988,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_guest_reaction_ffi(
+    List<GuestReactionFfi> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_guest_sync_message_ffi(
+    List<GuestSyncMessageFfi> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_label_ffi(List<LabelFfi> self, SseSerializer serializer);
 
   @protected
@@ -954,6 +1026,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_public_channel_entry_ffi(
+    List<PublicChannelEntryFfi> self,
     SseSerializer serializer,
   );
 
@@ -1077,6 +1155,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_protection_status(
     ProtectionStatus self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_public_channel_entry_ffi(
+    PublicChannelEntryFfi self,
     SseSerializer serializer,
   );
 

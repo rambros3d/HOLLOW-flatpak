@@ -255,6 +255,13 @@ Commands sent from the Flutter FFI layer into the Rust swarm event loop via `mps
 
 - **`SetChannelVisibility { server_id, channel_id, visibility }`** — set who can see a channel ("all", or specific role names). Handler: `sync_handler.rs`.
 - **`SetChannelPosting { server_id, channel_id, posting }`** — set who can post in a channel ("all", "moderator+", "admin+"). Handler: `sync_handler.rs`.
+- **`SetChannelPublic { server_id, channel_id, is_public }`** — toggle public (plaintext) vs private (MLS-encrypted) message transport for a channel. Handler: `sync_handler.rs:handle_set_channel_public()`.
+
+### Guest Sync
+
+- **`RequestPublicChannels { server_id }`** — if member, emit from local state; else join WS room as guest + broadcast request.
+- **`RequestPublicChannelSync { server_id, channel_id, before_timestamp }`** — if member, serve from local DB; else broadcast to room.
+- **`LeaveGuestRoom { server_id }`** — remove from `guest_rooms`, leave WS room.
 
 ### Member Metadata
 
@@ -374,6 +381,25 @@ These are the plaintext variants used before MLS is established or as fallback. 
 - **`ChannelSyncProbe { server_id, channel_id, our_latest, msg_count }`** — `"ch_sync_probe"` — lightweight probe asking "what's your latest timestamp for this channel?" Used to skip channels with no new messages before full sync.
 - **`ChannelSyncProbeResponse { server_id, channel_id, their_latest, msg_count }`** — `"ch_sync_probe_resp"` — response to a sync probe with the peer's latest timestamp and count.
 - **`DmSyncRequest { since_timestamp }`** — `"dm_sync_req"` — request missed DMs from a peer since timestamp.
+
+### Public Channel Messages (Plaintext Transport)
+
+These variants carry channel messages for public channels. They are Ed25519-signed but NOT MLS-encrypted, sent as plaintext `SendToRoom` broadcasts. All room participants receive them. Receive handlers in `swarm.rs` delegate to the same `handle_envelope_*` functions used by the MLS path.
+
+- **`PublicChannelMessage { server_id, channel_id, text, ts, sig, pk, mid, reply_to, file_id, link_preview }`** — `"pub_ch_msg"` — plaintext channel message for public channels.
+- **`PublicChannelEdit { server_id, channel_id, mid, text, ts, sig, pk }`** — `"pub_ch_edit"` — plaintext edit for public channels.
+- **`PublicChannelDelete { server_id, channel_id, mid, ts, sig, pk }`** — `"pub_ch_del"` — plaintext delete for public channels.
+- **`PublicChannelAddReaction { server_id, channel_id, mid, emoji, ts, sig, pk }`** — `"pub_ch_react"` — plaintext reaction add for public channels.
+- **`PublicChannelRemoveReaction { server_id, channel_id, mid, emoji, ts, sig, pk }`** — `"pub_ch_unreact"` — plaintext reaction remove for public channels.
+
+### Guest Sync (Public Channels Phase 3)
+
+- **`PublicChannelListRequest { server_id }`** — `"pub_ch_list_req"` — guest asks what public channels a server has.
+- **`PublicChannelListResponse { server_id, server_name, channels: Vec<PublicChannelEntry> }`** — `"pub_ch_list_resp"` — member responds with list of public text channels.
+- **`PublicChannelSyncRequest { server_id, channel_id, before_timestamp: Option<i64> }`** — `"pub_ch_sync_req"` — guest requests paginated message history.
+- **`PublicChannelSyncResponse { server_id, channel_id, messages: Vec<SyncMessageItem>, has_more: bool }`** — `"pub_ch_sync_resp"` — member responds with up to 50 messages.
+
+Helper struct: `PublicChannelEntry { channel_id, name, category }`. FFI structs: `PublicChannelEntryFfi`, `GuestSyncMessageFfi`, `GuestReactionFfi`.
 
 ### Lifecycle
 

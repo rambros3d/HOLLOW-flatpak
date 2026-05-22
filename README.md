@@ -59,7 +59,7 @@ Your identity is a cryptographic keypair. Zero registrations. One recovery phras
 
 | Platform | Link |
 |----------|------|
-| Windows | [Download latest release](https://anonlisten.com) |
+| Windows | [Download latest release](https://hollow.anonlisten.com) |
 | macOS | In progress |
 | Linux | Coming soon |
 | Android | In progress |

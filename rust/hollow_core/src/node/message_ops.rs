@@ -185,40 +185,62 @@ pub(crate) async fn handle_send_channel_message(
             link_preview: link_preview.clone(),
         }),
     };
-    // MLS path: encrypt once → single WS broadcast to room.
-    let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
-    if use_mls {
-        match send_mls_broadcast_topic(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &channel_id, &envelope, crypto_store) {
-            Ok(()) => {}
-            Err(e) => {
-                hollow_log!("[HOLLOW-MLS] Encrypt failed, falling back to Olm: {e}");
-                let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
-                for member_peer_str in server.members.keys() {
-                    if member_peer_str == &local_peer { continue; }
-                        if peer_is_reachable(ws_room_peers, member_peer_str) {
-                            send_encrypted_message(
-                                olm, crypto_store,
-                                member_peer_str, &envelope_json,
-                                event_tx,
-                                ws_cmd_tx, ws_room_peers,
-                            ).await;
-                        }
-                }
-            }
+    // Public channels: plaintext broadcast (no MLS/Olm). Guests receive it too.
+    if server.is_channel_public(&channel_id) {
+        let msg = HavenMessage::PublicChannelMessage {
+            server_id: server_id.clone(),
+            channel_id: channel_id.clone(),
+            text: text.clone(),
+            ts: timestamp,
+            sig: sig.clone(),
+            pk: pk.clone(),
+            mid: message_id.clone(),
+            reply_to: reply_to_mid.clone(),
+            file_id: None,
+            link_preview: link_preview.clone(),
+        };
+        if let Ok(data) = serde_json::to_vec(&msg) {
+            let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendToRoom {
+                room_code: server_id.clone(),
+                data,
+            });
         }
     } else {
-        // Legacy Olm fan-out path.
-        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
-        for member_peer_str in server.members.keys() {
-            if member_peer_str == &local_peer { continue; }
-                if peer_is_reachable(ws_room_peers, member_peer_str) {
-                    send_encrypted_message(
-                                olm, crypto_store,
-                                member_peer_str, &envelope_json,
-                        event_tx,
-                                                            ws_cmd_tx, ws_room_peers,
-                    ).await;
+        // MLS path: encrypt once → single WS broadcast to room.
+        let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+        if use_mls {
+            match send_mls_broadcast_topic(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &channel_id, &envelope, crypto_store) {
+                Ok(()) => {}
+                Err(e) => {
+                    hollow_log!("[HOLLOW-MLS] Encrypt failed, falling back to Olm: {e}");
+                    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+                    for member_peer_str in server.members.keys() {
+                        if member_peer_str == &local_peer { continue; }
+                            if peer_is_reachable(ws_room_peers, member_peer_str) {
+                                send_encrypted_message(
+                                    olm, crypto_store,
+                                    member_peer_str, &envelope_json,
+                                    event_tx,
+                                    ws_cmd_tx, ws_room_peers,
+                                ).await;
+                            }
+                    }
                 }
+            }
+        } else {
+            // Legacy Olm fan-out path.
+            let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+            for member_peer_str in server.members.keys() {
+                if member_peer_str == &local_peer { continue; }
+                    if peer_is_reachable(ws_room_peers, member_peer_str) {
+                        send_encrypted_message(
+                                    olm, crypto_store,
+                                    member_peer_str, &envelope_json,
+                            event_tx,
+                                                                ws_cmd_tx, ws_room_peers,
+                        ).await;
+                    }
+            }
         }
     }
 
@@ -339,55 +361,64 @@ pub(crate) async fn handle_edit_channel_message(
     }
 
     // Broadcast edit to all server members.
-    let envelope = MessageEnvelope::EditMessage {
-        mid: message_id.clone(),
-        text: new_text.clone(),
-        ts: edit_timestamp,
-        sig: sig.clone(),
-        pk: pk.clone(),
-        sid: Some(server_id.clone()),
-        cid: Some(channel_id.clone()),
-    };
-
-    let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
-    if use_mls {
-        match send_mls_broadcast_topic(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &channel_id, &envelope, crypto_store) {
-            Ok(()) => {}
-            Err(e) => {
-                hollow_log!("[HOLLOW-MLS] Edit encrypt failed, falling back to Olm: {e}");
-                let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
-                for member_peer_str in server.members.keys() {
-                    if member_peer_str == &local_peer { continue; }
-                        if peer_is_reachable(ws_room_peers, member_peer_str) {
-                            send_encrypted_message(
-                                olm, crypto_store,
-                                member_peer_str, &envelope_json,
-                                event_tx,
-                                                                            ws_cmd_tx, ws_room_peers,
-                            ).await;
-                        }
-                }
-            }
+    if server.is_channel_public(&channel_id) {
+        let msg = HavenMessage::PublicChannelEdit {
+            server_id: server_id.clone(), channel_id: channel_id.clone(),
+            mid: message_id.clone(), text: new_text.clone(),
+            ts: edit_timestamp, sig: sig.clone(), pk: pk.clone(),
+        };
+        if let Ok(data) = serde_json::to_vec(&msg) {
+            let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendToRoom {
+                room_code: server_id.clone(), data,
+            });
         }
     } else {
-        // Olm fan-out fallback.
-        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
-        for member_peer_str in server.members.keys() {
-            if member_peer_str == &local_peer { continue; }
-                if peer_is_reachable(ws_room_peers, member_peer_str) {
-                    send_encrypted_message(
-                                olm, crypto_store,
-                                member_peer_str, &envelope_json,
-                        event_tx,
-                                                            ws_cmd_tx, ws_room_peers,
-                    ).await;
+        let envelope = MessageEnvelope::EditMessage {
+            mid: message_id.clone(),
+            text: new_text.clone(),
+            ts: edit_timestamp,
+            sig: sig.clone(),
+            pk: pk.clone(),
+            sid: Some(server_id.clone()),
+            cid: Some(channel_id.clone()),
+        };
+
+        let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+        if use_mls {
+            match send_mls_broadcast_topic(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &channel_id, &envelope, crypto_store) {
+                Ok(()) => {}
+                Err(e) => {
+                    hollow_log!("[HOLLOW-MLS] Edit encrypt failed, falling back to Olm: {e}");
+                    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+                    for member_peer_str in server.members.keys() {
+                        if member_peer_str == &local_peer { continue; }
+                            if peer_is_reachable(ws_room_peers, member_peer_str) {
+                                send_encrypted_message(
+                                    olm, crypto_store,
+                                    member_peer_str, &envelope_json,
+                                    event_tx,
+                                    ws_cmd_tx, ws_room_peers,
+                                ).await;
+                            }
+                    }
                 }
+            }
+        } else {
+            let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+            for member_peer_str in server.members.keys() {
+                if member_peer_str == &local_peer { continue; }
+                    if peer_is_reachable(ws_room_peers, member_peer_str) {
+                        send_encrypted_message(
+                            olm, crypto_store,
+                            member_peer_str, &envelope_json,
+                            event_tx,
+                            ws_cmd_tx, ws_room_peers,
+                        ).await;
+                    }
+            }
         }
     }
 
-    // Emit event so Dart updates UI — include sig/pk so the
-    // in-memory message's fields match the canonical payload
-    // reconstructed by the Message Proof dialog.
     let _ = event_tx.send(NetworkEvent::ChannelMessageEdited {
         server_id,
         channel_id,
@@ -547,52 +578,63 @@ pub(crate) async fn handle_delete_channel_message(
     }
 
     // Broadcast deletion to all server members.
-    let envelope = MessageEnvelope::DeleteMessage {
-        mid: message_id.clone(),
-        ts: delete_timestamp,
-        sig: sig.clone(),
-        pk: pk.clone(),
-        sid: Some(server_id.clone()),
-        cid: Some(channel_id.clone()),
-    };
-
-    let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
-    if use_mls {
-        match send_mls_broadcast_topic(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &channel_id, &envelope, crypto_store) {
-            Ok(()) => {}
-            Err(e) => {
-                hollow_log!("[HOLLOW-MLS] Delete encrypt failed, falling back to Olm: {e}");
-                let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
-                for member_peer_str in server.members.keys() {
-                    if member_peer_str == &local_peer { continue; }
-                        if peer_is_reachable(ws_room_peers, member_peer_str) {
-                            send_encrypted_message(
-                                olm, crypto_store,
-                                member_peer_str, &envelope_json,
-                                event_tx,
-                                                                            ws_cmd_tx, ws_room_peers,
-                            ).await;
-                        }
-                }
-            }
+    if server.is_channel_public(&channel_id) {
+        let msg = HavenMessage::PublicChannelDelete {
+            server_id: server_id.clone(), channel_id: channel_id.clone(),
+            mid: message_id.clone(), ts: delete_timestamp,
+            sig: sig.clone(), pk: pk.clone(),
+        };
+        if let Ok(data) = serde_json::to_vec(&msg) {
+            let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendToRoom {
+                room_code: server_id.clone(), data,
+            });
         }
     } else {
-        // Olm fan-out fallback.
-        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
-        for member_peer_str in server.members.keys() {
-            if member_peer_str == &local_peer { continue; }
-                if peer_is_reachable(ws_room_peers, member_peer_str) {
-                    send_encrypted_message(
-                                olm, crypto_store,
-                                member_peer_str, &envelope_json,
-                        event_tx,
-                                                            ws_cmd_tx, ws_room_peers,
-                    ).await;
+        let envelope = MessageEnvelope::DeleteMessage {
+            mid: message_id.clone(),
+            ts: delete_timestamp,
+            sig: sig.clone(),
+            pk: pk.clone(),
+            sid: Some(server_id.clone()),
+            cid: Some(channel_id.clone()),
+        };
+
+        let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+        if use_mls {
+            match send_mls_broadcast_topic(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &channel_id, &envelope, crypto_store) {
+                Ok(()) => {}
+                Err(e) => {
+                    hollow_log!("[HOLLOW-MLS] Delete encrypt failed, falling back to Olm: {e}");
+                    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+                    for member_peer_str in server.members.keys() {
+                        if member_peer_str == &local_peer { continue; }
+                            if peer_is_reachable(ws_room_peers, member_peer_str) {
+                                send_encrypted_message(
+                                    olm, crypto_store,
+                                    member_peer_str, &envelope_json,
+                                    event_tx,
+                                    ws_cmd_tx, ws_room_peers,
+                                ).await;
+                            }
+                    }
                 }
+            }
+        } else {
+            let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+            for member_peer_str in server.members.keys() {
+                if member_peer_str == &local_peer { continue; }
+                    if peer_is_reachable(ws_room_peers, member_peer_str) {
+                        send_encrypted_message(
+                            olm, crypto_store,
+                            member_peer_str, &envelope_json,
+                            event_tx,
+                            ws_cmd_tx, ws_room_peers,
+                        ).await;
+                    }
+            }
         }
     }
 
-    // Emit event so Dart updates UI.
     let _ = event_tx.send(NetworkEvent::ChannelMessageDeleted {
         server_id,
         channel_id,
@@ -732,48 +774,61 @@ pub(crate) async fn handle_add_channel_reaction(
     }
 
     // Broadcast to all server members.
-    let envelope = MessageEnvelope::AddReaction {
-        mid: message_id.clone(),
-        emoji: emoji.clone(),
-        ts: reaction_ts,
-        sig: sig.clone(),
-        pk: pk.clone(),
-        sid: Some(server_id.clone()),
-        cid: Some(channel_id.clone()),
-    };
-
-    let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
-    if use_mls {
-        match send_mls_broadcast_topic(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &channel_id, &envelope, crypto_store) {
-            Ok(()) => {}
-            Err(e) => {
-                hollow_log!("[HOLLOW-MLS] Reaction encrypt failed, falling back to Olm: {e}");
-                let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
-                for member_peer_str in server.members.keys() {
-                    if member_peer_str == &local_peer { continue; }
-                        if peer_is_reachable(ws_room_peers, member_peer_str) {
-                            send_encrypted_message(
-                                olm, crypto_store,
-                                member_peer_str, &envelope_json,
-                                event_tx,
-                                                                            ws_cmd_tx, ws_room_peers,
-                            ).await;
-                        }
-                }
-            }
+    if server.is_channel_public(&channel_id) {
+        let msg = HavenMessage::PublicChannelAddReaction {
+            server_id: server_id.clone(), channel_id: channel_id.clone(),
+            mid: message_id.clone(), emoji: emoji.clone(),
+            ts: reaction_ts, sig: sig.clone(), pk: pk.clone(),
+        };
+        if let Ok(data) = serde_json::to_vec(&msg) {
+            let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendToRoom {
+                room_code: server_id.clone(), data,
+            });
         }
     } else {
-        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
-        for member_peer_str in server.members.keys() {
-            if member_peer_str == &local_peer { continue; }
-                if peer_is_reachable(ws_room_peers, member_peer_str) {
-                    send_encrypted_message(
-                                olm, crypto_store,
-                                member_peer_str, &envelope_json,
-                        event_tx,
-                                                            ws_cmd_tx, ws_room_peers,
-                    ).await;
+        let envelope = MessageEnvelope::AddReaction {
+            mid: message_id.clone(),
+            emoji: emoji.clone(),
+            ts: reaction_ts,
+            sig: sig.clone(),
+            pk: pk.clone(),
+            sid: Some(server_id.clone()),
+            cid: Some(channel_id.clone()),
+        };
+
+        let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+        if use_mls {
+            match send_mls_broadcast_topic(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &channel_id, &envelope, crypto_store) {
+                Ok(()) => {}
+                Err(e) => {
+                    hollow_log!("[HOLLOW-MLS] Reaction encrypt failed, falling back to Olm: {e}");
+                    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+                    for member_peer_str in server.members.keys() {
+                        if member_peer_str == &local_peer { continue; }
+                            if peer_is_reachable(ws_room_peers, member_peer_str) {
+                                send_encrypted_message(
+                                    olm, crypto_store,
+                                    member_peer_str, &envelope_json,
+                                    event_tx,
+                                    ws_cmd_tx, ws_room_peers,
+                                ).await;
+                            }
+                    }
                 }
+            }
+        } else {
+            let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+            for member_peer_str in server.members.keys() {
+                if member_peer_str == &local_peer { continue; }
+                    if peer_is_reachable(ws_room_peers, member_peer_str) {
+                        send_encrypted_message(
+                            olm, crypto_store,
+                            member_peer_str, &envelope_json,
+                            event_tx,
+                            ws_cmd_tx, ws_room_peers,
+                        ).await;
+                    }
+            }
         }
     }
 
@@ -907,48 +962,61 @@ pub(crate) async fn handle_remove_channel_reaction(
     }
 
     // Broadcast to all server members.
-    let envelope = MessageEnvelope::RemoveReaction {
-        mid: message_id.clone(),
-        emoji: emoji.clone(),
-        ts: remove_ts,
-        sig: sig.clone(),
-        pk: pk.clone(),
-        sid: Some(server_id.clone()),
-        cid: Some(channel_id.clone()),
-    };
-
-    let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
-    if use_mls {
-        match send_mls_broadcast_topic(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &channel_id, &envelope, crypto_store) {
-            Ok(()) => {}
-            Err(e) => {
-                hollow_log!("[HOLLOW-MLS] Remove reaction encrypt failed, Olm fallback: {e}");
-                let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
-                for member_peer_str in server.members.keys() {
-                    if member_peer_str == &local_peer { continue; }
-                        if peer_is_reachable(ws_room_peers, member_peer_str) {
-                            send_encrypted_message(
-                                olm, crypto_store,
-                                member_peer_str, &envelope_json,
-                                event_tx,
-                                                                            ws_cmd_tx, ws_room_peers,
-                            ).await;
-                        }
-                }
-            }
+    if server.is_channel_public(&channel_id) {
+        let msg = HavenMessage::PublicChannelRemoveReaction {
+            server_id: server_id.clone(), channel_id: channel_id.clone(),
+            mid: message_id.clone(), emoji: emoji.clone(),
+            ts: remove_ts, sig: sig.clone(), pk: pk.clone(),
+        };
+        if let Ok(data) = serde_json::to_vec(&msg) {
+            let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendToRoom {
+                room_code: server_id.clone(), data,
+            });
         }
     } else {
-        let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
-        for member_peer_str in server.members.keys() {
-            if member_peer_str == &local_peer { continue; }
-                if peer_is_reachable(ws_room_peers, member_peer_str) {
-                    send_encrypted_message(
-                                olm, crypto_store,
-                                member_peer_str, &envelope_json,
-                        event_tx,
-                                                            ws_cmd_tx, ws_room_peers,
-                    ).await;
+        let envelope = MessageEnvelope::RemoveReaction {
+            mid: message_id.clone(),
+            emoji: emoji.clone(),
+            ts: remove_ts,
+            sig: sig.clone(),
+            pk: pk.clone(),
+            sid: Some(server_id.clone()),
+            cid: Some(channel_id.clone()),
+        };
+
+        let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+        if use_mls {
+            match send_mls_broadcast_topic(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &channel_id, &envelope, crypto_store) {
+                Ok(()) => {}
+                Err(e) => {
+                    hollow_log!("[HOLLOW-MLS] Remove reaction encrypt failed, Olm fallback: {e}");
+                    let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+                    for member_peer_str in server.members.keys() {
+                        if member_peer_str == &local_peer { continue; }
+                            if peer_is_reachable(ws_room_peers, member_peer_str) {
+                                send_encrypted_message(
+                                    olm, crypto_store,
+                                    member_peer_str, &envelope_json,
+                                    event_tx,
+                                    ws_cmd_tx, ws_room_peers,
+                                ).await;
+                            }
+                    }
                 }
+            }
+        } else {
+            let envelope_json = serde_json::to_string(&envelope).unwrap_or_default();
+            for member_peer_str in server.members.keys() {
+                if member_peer_str == &local_peer { continue; }
+                    if peer_is_reachable(ws_room_peers, member_peer_str) {
+                        send_encrypted_message(
+                            olm, crypto_store,
+                            member_peer_str, &envelope_json,
+                            event_tx,
+                            ws_cmd_tx, ws_room_peers,
+                        ).await;
+                    }
+            }
         }
     }
 

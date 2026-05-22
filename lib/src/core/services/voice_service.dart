@@ -83,13 +83,16 @@ class VoiceService {
   // SDP: offer / answer / ICE
   // ---------------------------------------------------------------------------
 
-  /// Start mic + camera capture, create RTCPeerConnection, and generate an SDP offer.
   /// Create the initial SDP offer for a DM call. Audio is always captured.
   /// Camera is captured only if [withVideo] is true — for audio-only calls
   /// we do NOT pre-add a video transceiver, matching the voice channel
   /// pattern. When the user later enables video, [toggleVideo] uses
   /// `pc.addTrack` to create a fresh transceiver and renegotiate, which
   /// fires `onTrack` reliably on the remote peer.
+  ///
+  /// Media is captured BEFORE the peer connection is created so that ICE
+  /// gathering starts only when tracks are already available — keeping the
+  /// PC→offer window under ~15 ms (same pattern as VoiceChannelService).
   Future<String> createOffer(
     String peerId,
     String callId, {
@@ -99,18 +102,19 @@ class VoiceService {
     _activePeerId = peerId;
     _activeCallId = callId;
 
-    await _initPeerConnection(peerId, callId);
-    await _startLocalAudio();
-
-    // Only capture camera for video calls. Audio-only calls have no video
-    // m-line in the initial SDP — the transceiver is added later via
-    // toggleVideo()'s addTrack call.
+    // Pre-capture media BEFORE creating the PC.
+    await _captureLocalAudio();
     if (withVideo) {
-      final cameraOk = await _startCamera(_pc!);
-      if (cameraOk) {
-        _isVideoEnabled = true;
-        await _initLocalRenderer();
-      }
+      await _captureLocalVideo();
+    }
+
+    await _initPeerConnection(peerId, callId);
+    _addLocalAudioTracks();
+
+    if (withVideo && _localVideoStream != null) {
+      _addLocalVideoTracks();
+      _isVideoEnabled = true;
+      await _initLocalRenderer();
     }
 
     final offer = await _pc!.createOffer();
@@ -129,6 +133,8 @@ class VoiceService {
   /// a video call). If the remote offer has a video m-line but we have no
   /// camera, libwebrtc will produce an `a=recvonly` answer for the video
   /// m-line — that's fine, RTP still flows from sender to receiver.
+  ///
+  /// Media is captured BEFORE the peer connection is created (see createOffer).
   Future<String> handleOffer(
     String peerId,
     String callId,
@@ -141,15 +147,19 @@ class VoiceService {
 
     _dumpSdp('OFFER-IN', sdp);
 
-    await _initPeerConnection(peerId, callId);
-    await _startLocalAudio();
-
+    // Pre-capture media BEFORE creating the PC.
+    await _captureLocalAudio();
     if (withVideo) {
-      final cameraOk = await _startCamera(_pc!);
-      if (cameraOk) {
-        _isVideoEnabled = true;
-        await _initLocalRenderer();
-      }
+      await _captureLocalVideo();
+    }
+
+    await _initPeerConnection(peerId, callId);
+    _addLocalAudioTracks();
+
+    if (withVideo && _localVideoStream != null) {
+      _addLocalVideoTracks();
+      _isVideoEnabled = true;
+      await _initLocalRenderer();
     }
 
     await _pc!.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
@@ -731,7 +741,10 @@ class VoiceService {
   // Private — Audio
   // ---------------------------------------------------------------------------
 
-  Future<void> _startLocalAudio() async {
+  /// Capture microphone audio into [_localStream]. Called BEFORE creating the
+  /// peer connection so that getUserMedia latency (100-500 ms on Windows)
+  /// doesn't eat into the ICE gathering window.
+  Future<void> _captureLocalAudio() async {
     final audioConstraints = <String, dynamic>{
       'echoCancellation': true,
       'noiseSuppression': true,
@@ -758,10 +771,6 @@ class VoiceService {
           'tracks: ${audioTracks.length}'
           '${audioTracks.isNotEmpty ? ", label=${audioTracks.first.label}" : ""}');
 
-      for (final track in audioTracks) {
-        await _pc!.addTrack(track, _localStream!);
-      }
-
       // Apply preferred output device if set.
       if (preferredAudioOutputDeviceId != null) {
         try {
@@ -771,10 +780,18 @@ class VoiceService {
           _log('[HOLLOW-VOICE] Failed to set audio output: $e');
         }
       }
-
     } catch (e) {
       _log('[HOLLOW-VOICE] Failed to get microphone: $e');
       rethrow;
+    }
+  }
+
+  /// Add pre-captured audio tracks to the peer connection (synchronous aside
+  /// from the addTrack FFI call). Called immediately after _initPeerConnection.
+  void _addLocalAudioTracks() {
+    if (_localStream == null || _pc == null) return;
+    for (final track in _localStream!.getAudioTracks()) {
+      _pc!.addTrack(track, _localStream!);
     }
   }
 
@@ -782,12 +799,11 @@ class VoiceService {
   // Private — Video
   // ---------------------------------------------------------------------------
 
-  /// Capture the camera and add it as a fresh sender on [pc]. Returns true
-  /// on success, false if no camera is available. Only used for the initial
-  /// call setup when the user accepts/places a video call — mid-call camera
-  /// enable goes through [toggleVideo] which has its own capture path.
-  Future<bool> _startCamera(RTCPeerConnection pc) async {
-    _log('[HOLLOW-VOICE] Starting camera (front=$_useFrontCamera, '
+  /// Capture camera video into [_localVideoStream]. Called BEFORE creating the
+  /// peer connection (same pre-capture pattern as audio). Only used for the
+  /// initial call setup — mid-call camera enable goes through [toggleVideo].
+  Future<void> _captureLocalVideo() async {
+    _log('[HOLLOW-VOICE] Capturing camera (front=$_useFrontCamera, '
         'preferred=${preferredCameraDeviceId ?? "default"})');
     final videoConstraints = <String, dynamic>{
       'width': {'ideal': 640},
@@ -816,22 +832,22 @@ class VoiceService {
         _log('[HOLLOW-VOICE] No video tracks — camera not available');
         await _localVideoStream!.dispose();
         _localVideoStream = null;
-        return false;
+        return;
       }
-      final videoTrack = videoTracks.first;
-      _log('[HOLLOW-VOICE] Got camera track: ${videoTrack.id}');
-
-      await pc.addTrack(videoTrack, _localVideoStream!);
-      _log('[HOLLOW-VOICE] Added video track via addTrack');
-
-      // Caller sets _isVideoEnabled — _startCamera only captures and adds.
-      return true;
+      _log('[HOLLOW-VOICE] Got camera track: ${videoTracks.first.id}');
     } catch (e) {
-      _log('[HOLLOW-VOICE] Failed to start camera: $e');
-      // Don't rethrow — camera failure shouldn't break the call.
-      // Audio-only call continues.
-      return false;
+      _log('[HOLLOW-VOICE] Failed to capture camera: $e');
     }
+  }
+
+  /// Add pre-captured video tracks to the peer connection. Called immediately
+  /// after _initPeerConnection + _addLocalAudioTracks.
+  void _addLocalVideoTracks() {
+    if (_localVideoStream == null || _pc == null) return;
+    for (final track in _localVideoStream!.getVideoTracks()) {
+      _pc!.addTrack(track, _localVideoStream!);
+    }
+    _log('[HOLLOW-VOICE] Added video track via addTrack');
   }
 
   Future<void> _handleRemoteVideoTrack(

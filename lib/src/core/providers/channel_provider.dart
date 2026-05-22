@@ -35,6 +35,7 @@ class ChannelListNotifier extends Notifier<Map<String, ChannelInfo>> {
             : ChannelType.text,
         visibility: ch.visibility,
         posting: ch.posting,
+        isPublic: ch.isPublic,
       );
     }
     return map;
@@ -43,6 +44,15 @@ class ChannelListNotifier extends Notifier<Map<String, ChannelInfo>> {
   /// Set channels directly (used for batched provider updates).
   void setChannels(Map<String, ChannelInfo> channels) {
     state = channels;
+  }
+
+  /// Optimistically update a single channel's properties.
+  void updateChannel(String channelId, ChannelInfo Function(ChannelInfo) updater) {
+    final ch = state[channelId];
+    if (ch == null) return;
+    final updated = Map.of(state);
+    updated[channelId] = updater(ch);
+    state = updated;
   }
 
   /// Called when a ChannelAdded event arrives.

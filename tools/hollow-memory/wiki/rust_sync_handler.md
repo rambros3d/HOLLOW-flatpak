@@ -283,6 +283,18 @@ Emits: `NetworkEvent::ServerUpdated { server_id }`
 
 Standard broadcast pattern.
 
+## handle_set_channel_public()
+
+`sync_handler.rs:handle_set_channel_public()` — Toggles whether a channel uses public (plaintext) or private (MLS-encrypted) message transport.
+
+Permission: `Permission::MANAGE_CHANNELS`
+
+CrdtPayload: `ChannelPublicChanged { channel_id, is_public }`
+
+Emits: `NetworkEvent::ServerUpdated { server_id }`
+
+Standard broadcast pattern (MLS with plaintext fallback). When `is_public` is true, future messages in this channel are Ed25519-signed plaintext broadcasts instead of MLS-encrypted. Existing messages are not re-encrypted.
+
 ## handle_set_channel_visibility()
 
 `sync_handler.rs:handle_set_channel_visibility()` — Sets channel visibility mode.
@@ -476,7 +488,7 @@ Flow:
 | `RolePermissionsChanged { role }` | `MANAGE_ROLES` + must outrank target role |
 | `MemberBanned { peer_id }` | `KICK_MEMBERS` + must outrank target |
 | `MemberUnbanned` | `KICK_MEMBERS` |
-| `ChannelVisibilityChanged`, `ChannelPostingChanged` | `MANAGE_CHANNELS` |
+| `ChannelVisibilityChanged`, `ChannelPostingChanged`, `ChannelPublicChanged` | `MANAGE_CHANNELS` |
 | `LabelCreated`, `LabelDeleted`, `LabelUpdated` | `MANAGE_ROLES` |
 | `LabelAssigned { peer_id }`, `LabelUnassigned { peer_id }` | Self or `MANAGE_ROLES` |
 | `ServerCreated` | Always allowed |
@@ -495,7 +507,7 @@ Event mapping:
 - `MemberAdded` -> `NetworkEvent::MemberJoined`
 - `MemberRemoved` -> `NetworkEvent::MemberLeft`
 - `RoleChanged` -> `NetworkEvent::RoleChanged`
-- `ServerSettingChanged`, `ServerRenamed`, `RolePermissionsChanged`, `MemberBanned`, `MemberUnbanned`, `ChannelVisibilityChanged`, `ChannelPostingChanged`, all Label variants -> `NetworkEvent::ServerUpdated`
+- `ServerSettingChanged`, `ServerRenamed`, `RolePermissionsChanged`, `MemberBanned`, `MemberUnbanned`, `ChannelVisibilityChanged`, `ChannelPostingChanged`, `ChannelPublicChanged`, all Label variants -> `NetworkEvent::ServerUpdated`
 - Everything else (`_ =>`) -> `NetworkEvent::SyncCompleted { ops_applied: 1 }`
 
 ## handle_envelope_server_delete()
@@ -630,7 +642,7 @@ Tier-gated operations (require outranking the target):
 | Event | Emitting handlers |
 |---|---|
 | `ServerCreated` | `handle_create_server` |
-| `ServerUpdated` | `handle_rename_server`, `handle_update_server_setting`, `handle_unban_member`, `handle_label_op`, `handle_set_channel_visibility`, `handle_set_channel_posting`, `handle_change_role_permissions`, `handle_set_storage_pledge`, `handle_update_channel_layout`, `handle_envelope_crdt_op` (for settings/rename/permissions/ban/label variants) |
+| `ServerUpdated` | `handle_rename_server`, `handle_update_server_setting`, `handle_unban_member`, `handle_label_op`, `handle_set_channel_visibility`, `handle_set_channel_posting`, `handle_set_channel_public`, `handle_change_role_permissions`, `handle_set_storage_pledge`, `handle_update_channel_layout`, `handle_envelope_crdt_op` (for settings/rename/permissions/ban/label/public variants) |
 | `ServerDeleted` | `handle_delete_server`, `handle_leave_server`, `handle_envelope_server_delete`, `handle_envelope_member_kick` |
 | `ChannelAdded` | `handle_create_channel`, `handle_envelope_crdt_op` |
 | `ChannelRemoved` | `handle_remove_channel`, `handle_envelope_crdt_op` |

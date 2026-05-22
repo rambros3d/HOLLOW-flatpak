@@ -1349,6 +1349,79 @@ pub(crate) async fn handle_set_channel_posting(
     false
 }
 
+// ── 10f-2. SetChannelPublic ──────────────────────────────────────
+
+pub(crate) async fn handle_set_channel_public(
+    server_states: &mut HashMap<String, ServerState>,
+    mls: &mut Option<MlsManager>,
+    event_tx: &mpsc::Sender<NetworkEvent>,
+    ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
+    ws_room_peers: &HashMap<String, std::collections::HashSet<String>>,
+    bundle_keypair: &crate::identity::native_identity::NativeKeypair,
+    local_peer_str: &str,
+    server_id: String,
+    channel_id: String,
+    is_public: bool,
+    crypto_store: &CryptoStore,
+    crdt_store: &CrdtStore,
+) -> bool {
+    if let Some(state) = server_states.get_mut(&server_id) {
+        let local_peer = local_peer_str.to_string();
+        if !state.has_permission(&local_peer, Permission::MANAGE_CHANNELS) {
+            hollow_log!("[HOLLOW-CRDT] Permission denied: cannot set channel public in {server_id}");
+            let _ = event_tx.send(NetworkEvent::Error {
+                message: "Permission denied: cannot manage channels".to_string(),
+            }).await;
+            return true;
+        }
+
+        hollow_log!("[HOLLOW-CRDT] Setting channel {channel_id} is_public={is_public} in {server_id}, channel_layout has {} items", state.channel_layout.len());
+        let op = state.create_op(CrdtPayload::ChannelPublicChanged {
+            channel_id: channel_id.clone(),
+            is_public,
+        });
+        let _ = state.apply_op(&op);
+
+        crdt_store.insert_op(op.clone());
+        if let Ok(json) = serialize_state_lean(state) {
+            crdt_store.save_state(server_id.clone(), json);
+        }
+
+        let _ = event_tx.send(NetworkEvent::ServerUpdated {
+            server_id: server_id.clone(),
+        }).await;
+
+        if let Ok(op_json) = serde_json::to_string(&op) {
+            let mut sent_via_mls = false;
+            let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
+            if mls_ok {
+                let envelope = MessageEnvelope::CrdtOp { sid: server_id.clone(), op_json: op_json.clone() };
+                match send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store) {
+                    Ok(()) => { sent_via_mls = true; }
+                    Err(e) => {
+                        hollow_log!("[HOLLOW-MLS] CrdtOp broadcast failed, falling back to plaintext: {e}");
+                    }
+                }
+            }
+            if !sent_via_mls {
+                for member_peer_str in state.members.keys() {
+                    if member_peer_str == &local_peer { continue; }
+                    if peer_is_reachable(ws_room_peers, member_peer_str) {
+                        send_message_to_peer(
+                            ws_cmd_tx, ws_room_peers,
+                            member_peer_str, HavenMessage::CrdtOpBroadcast {
+                                server_id: server_id.clone(),
+                                op_json: op_json.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 // ── 10g. ChangeRolePermissions ──────────────────────────────────────
 
 pub(crate) async fn handle_change_role_permissions(
@@ -1617,14 +1690,17 @@ pub(crate) async fn handle_update_channel_layout(
             return true;
         }
 
-        hollow_log!("[HOLLOW-CRDT] Updating channel layout in {server_id}");
+        hollow_log!("[HOLLOW-CRDT] Updating channel layout in {server_id}, layout_json={layout_json}");
         let op = state.create_op(CrdtPayload::ChannelLayoutUpdated {
             layout_json: layout_json.clone(),
         });
         let _ = state.apply_op(&op);
+        hollow_log!("[HOLLOW-CRDT] After apply_op, channel_layout has {} items", state.channel_layout.len());
 
         crdt_store.insert_op(op.clone());
         if let Ok(json) = serialize_state_lean(state) {
+            let has_layout = json.contains("channel_layout");
+            hollow_log!("[HOLLOW-CRDT] Persisting state, json contains channel_layout={has_layout}, json_len={}", json.len());
             crdt_store.save_state(server_id.clone(), json);
         }
 
@@ -2038,7 +2114,8 @@ pub(crate) async fn handle_envelope_crdt_op(
                 (sender_perms & Permission::KICK_MEMBERS) != 0
             }
             CrdtPayload::ChannelVisibilityChanged { .. }
-            | CrdtPayload::ChannelPostingChanged { .. } => {
+            | CrdtPayload::ChannelPostingChanged { .. }
+            | CrdtPayload::ChannelPublicChanged { .. } => {
                 (sender_perms & Permission::MANAGE_CHANNELS) != 0
             }
             CrdtPayload::LabelCreated { .. }
@@ -2098,6 +2175,7 @@ pub(crate) async fn handle_envelope_crdt_op(
             | CrdtPayload::MemberUnbanned { .. }
             | CrdtPayload::ChannelVisibilityChanged { .. }
             | CrdtPayload::ChannelPostingChanged { .. }
+            | CrdtPayload::ChannelPublicChanged { .. }
             | CrdtPayload::LabelCreated { .. }
             | CrdtPayload::LabelDeleted { .. }
             | CrdtPayload::LabelUpdated { .. }

@@ -16,7 +16,7 @@ Every function in these modules follows one of two patterns:
 Fields: `server_id: String`, `name: String`, `member_count: u32`, `channel_count: u32`. Returned by `get_joined_servers()`.
 
 ### ChannelFfi
-Fields: `channel_id: String`, `name: String`, `category: Option<String>`, `channel_type: String` ("text" or "voice"), `visibility: String` ("everyone"/"moderator"/"admin"), `posting: String` ("everyone"/"moderator"/"admin"). Returned by `get_server_channels()`. Maps from `ChannelType`, `ChannelVisibility`, `ChannelPosting` enums to string representations.
+Fields: `channel_id: String`, `name: String`, `category: Option<String>`, `channel_type: String` ("text" or "voice"), `visibility: String` ("everyone"/"moderator"/"admin"), `posting: String` ("everyone"/"moderator"/"admin"), `is_public: bool` (whether the channel uses plaintext transport). Returned by `get_server_channels()`. Maps from `ChannelType`, `ChannelVisibility`, `ChannelPosting` enums to string representations.
 
 ### MemberFfi
 Fields: `peer_id: String`, `display_name: String`, `role: String`, `nickname: String`, `twitch_username: String`, `labels: Vec<LabelFfi>`. Returned by `get_server_members()`. Role comes from `state.get_role()`, nickname from `state.get_nickname()`, twitch from `state.get_twitch_username()`, labels from `state.get_member_labels()`.
@@ -63,6 +63,9 @@ Signature: `fn set_channel_visibility(server_id: String, channel_id: String, vis
 
 ### crdt.rs:set_channel_posting()
 Signature: `fn set_channel_posting(server_id: String, channel_id: String, posting: String) -> Result<(), String>`. Sends `NodeCommand::SetChannelPosting`. Posting values: "everyone", "moderator", "admin". Same UI-only enforcement caveat as visibility.
+
+### crdt.rs:set_channel_public()
+Signature: `fn set_channel_public(server_id: String, channel_id: String, is_public: bool) -> Result<(), String>`. Sends `NodeCommand::SetChannelPublic`. When `is_public` is true, channel messages use plaintext `HavenMessage` broadcast (Ed25519-signed, not MLS-encrypted). When false, messages use the standard MLS/Olm encrypted path. Requires MANAGE_CHANNELS permission.
 
 ### crdt.rs:update_channel_layout()
 Signature: `fn update_channel_layout(server_id: String, layout_json: String) -> Result<(), String>`. Sends `NodeCommand::UpdateChannelLayout { server_id, layout_json }`. `layout_json` is a JSON array of `ChannelLayoutItem` objects that defines channel ordering and category grouping.

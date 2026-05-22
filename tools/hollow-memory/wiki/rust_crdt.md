@@ -137,6 +137,7 @@ Self-contained: every op carries its own server, author, timestamp, and payload.
 - `ChannelVisibilityChanged { channel_id: String, visibility: String }` — sets who can see the channel. Values: `"everyone"`, `"moderator"`, `"admin"`.
 - `ChannelPostingChanged { channel_id: String, posting: String }` — sets who can post. Same value set.
 - `ChannelLayoutUpdated { layout_json: String }` — replaces the entire channel layout ordering. The JSON string is deserialized to `Vec<ChannelLayoutItem>`. Last applied wins (no LWW merge, just overwrite).
+- `ChannelPublicChanged { channel_id: String, is_public: bool }` — toggles whether a channel uses plaintext (public) or MLS-encrypted (private) message transport. When `is_public` is true, messages are Ed25519-signed but NOT MLS-encrypted — they are broadcast as plaintext `HavenMessage` variants readable by all room participants. Applied via direct field set on `ChannelInfo.is_public`.
 
 **Member operations:**
 - `MemberAdded { peer_id: String, display_name: String }` — adds member with default Member role. Uses `or_insert_with` — idempotent, won't overwrite existing member.
@@ -246,6 +247,7 @@ The complete replicated state of a Hollow server. Every field is either an add-w
 - `channel_type: ChannelType` (`#[serde(default)]`)
 - `visibility: ChannelVisibility` (`#[serde(default)]`)
 - `posting: ChannelPosting` (`#[serde(default)]`)
+- `is_public: bool` (`#[serde(default)]`) — when true, channel messages use plaintext transport instead of MLS encryption
 
 **`MemberInfo`** — `{ peer_id: String, display_name: String }`.
 
@@ -332,6 +334,8 @@ The core convergence function. Every mutation to ServerState goes through this s
 - `Everyone`: requires `SEND_MESSAGES` permission.
 - `ModeratorPlus`: requires role priority >= Moderator.
 - `AdminPlus`: requires role priority >= Admin.
+
+**`server_state.rs:ServerState::is_channel_public(channel_id) -> bool`** — Returns `true` if the channel has `is_public: true`. Returns `false` if channel not found. Used by `message_ops.rs` send handlers to decide between plaintext and MLS transport.
 
 **Important:** Channel visibility/posting is UI-filtered only. All members still receive all messages via the server-wide MLS group. True enforcement requires per-channel MLS subgroups (not yet implemented).
 
@@ -435,6 +439,6 @@ The CRDT system guarantees eventual consistency through these properties:
 
 **Sync trigger:** When a peer joins a WS room, `sync_handler.rs` exchanges StateVectors and applies deltas. This is the primary convergence mechanism.
 
-**Event emission:** New CrdtPayload variants that affect permissions, channels, labels, or bans MUST emit `NetworkEvent::ServerUpdated` in both `handle_envelope_crdt_op()` (sync_handler.rs) and `handle_incoming_request()` (swarm.rs). Falling into the `_ =>` wildcard emits `SyncCompleted` instead, which does NOT trigger provider invalidation on the Dart side.
+**Event emission:** New CrdtPayload variants that affect permissions, channels, labels, or bans MUST emit `NetworkEvent::ServerUpdated` in both `handle_envelope_crdt_op()` (sync_handler.rs) and `handle_incoming_request()` (swarm.rs). Falling into the `_ =>` wildcard emits `SyncCompleted` instead, which does NOT trigger provider invalidation on the Dart side. `ChannelPublicChanged` is listed in both `ServerUpdated` emit blocks and in the `MANAGE_CHANNELS` permission check block.
 
 **Backward compatibility:** All newer HashMap fields on ServerState use `#[serde(default)]` so that old serialized data (which lacks these fields) deserializes without error. Omitting `#[serde(default)]` on a new field will cause deserialization failure and data loss (servers vanish from the UI).

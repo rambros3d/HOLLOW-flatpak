@@ -134,6 +134,10 @@ pub enum CrdtPayload {
         channel_id: String,
         posting: String,
     },
+    ChannelPublicChanged {
+        channel_id: String,
+        is_public: bool,
+    },
 
     // Ban system (Phase 6.75)
     MemberBanned {

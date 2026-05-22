@@ -609,6 +609,27 @@ class ChannelChatNotifier
       }
     }
   }
+
+  void setGuestMessages(String serverId, String channelId,
+      List<ChannelChatMessage> messages) {
+    final key = '$serverId:$channelId';
+    final existing = state[key] ?? [];
+    final existingIds =
+        existing.map((m) => m.messageId).whereType<String>().toSet();
+    final newMsgs = messages
+        .where(
+            (m) => m.messageId == null || !existingIds.contains(m.messageId))
+        .toList();
+    final merged = [...existing, ...newMsgs]
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    state = {...state, key: merged};
+  }
+
+  void clearGuestServer(String serverId) {
+    final updated = Map.of(state);
+    updated.removeWhere((key, _) => key.startsWith('$serverId:'));
+    state = updated;
+  }
 }
 
 final channelChatProvider = NotifierProvider<ChannelChatNotifier,

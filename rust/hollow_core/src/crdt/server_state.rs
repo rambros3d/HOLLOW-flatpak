@@ -87,6 +87,8 @@ pub struct ChannelInfo {
     pub visibility: ChannelVisibility,
     #[serde(default)]
     pub posting: ChannelPosting,
+    #[serde(default)]
+    pub is_public: bool,
 }
 
 /// Metadata for a member within a server.
@@ -152,6 +154,7 @@ impl ServerState {
                 channel_type: ChannelType::Text,
                 visibility: ChannelVisibility::Everyone,
                 posting: ChannelPosting::Everyone,
+                is_public: false,
             },
         );
 
@@ -310,6 +313,7 @@ impl ServerState {
                         channel_type: ct,
                         visibility: ChannelVisibility::Everyone,
                         posting: ChannelPosting::Everyone,
+                        is_public: false,
                     }
                 });
             }
@@ -371,6 +375,12 @@ impl ServerState {
                         "admin" => ChannelPosting::AdminPlus,
                         _ => ChannelPosting::Everyone,
                     };
+                }
+            }
+
+            CrdtPayload::ChannelPublicChanged { channel_id, is_public } => {
+                if let Some(ch) = self.channels.get_mut(channel_id) {
+                    ch.is_public = *is_public;
                 }
             }
 
@@ -744,6 +754,10 @@ impl ServerState {
         } else {
             false
         }
+    }
+
+    pub fn is_channel_public(&self, channel_id: &str) -> bool {
+        self.channels.get(channel_id).map_or(false, |ch| ch.is_public)
     }
 
     /// Check if a peer can post in a channel.

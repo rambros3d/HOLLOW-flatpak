@@ -189,7 +189,9 @@ Three sealed classes represent layout items:
 - Removes layout entries for channels that no longer exist in provider
 - Returns the reconciled list
 
-**Auto-sync:** In `build()`, if `effective.length != _layout.length` (channels created/deleted externally), schedules a post-frame callback that updates both `_layout` and `_savedLayout`, then auto-saves the layout JSON via `crdt_api.updateChannelLayout()`.
+**Auto-sync:** In `build()`, if `channels.isNotEmpty && effective.length != _layout.length` (channels created/deleted externally), schedules a post-frame callback that updates both `_layout` and `_savedLayout`, then auto-saves the layout JSON via `crdt_api.updateChannelLayout()`. The `channels.isNotEmpty` guard prevents layout corruption when `channelListProvider` is cleared during server deselection (switching to Home tab) while the settings panel is still mounted.
+
+**Channel property controls:** Each `_ChannelRow` has `onVisibilityChanged`, `onPostingChanged`, `onPublicToggled` callbacks. These use optimistic UI updates via `channelListProvider.updateChannel()` BEFORE calling the FFI. The visibility/posting chips are `_AccessChip` dropdowns. The public toggle is a globe icon (accent when public).
 
 ### Actions
 
@@ -256,6 +258,7 @@ Row contains:
   - Drag handle
   - Channel icon (hash for text, volume2 for voice)
   - Channel name
+  - **Public toggle** (globe icon) -- `HollowPressable` toggle button. When `is_public` is true: accent-tinted globe icon with filled background. When false: neutral globe icon. Tap calls `crdt_api.setChannelPublic(serverId, channelId, !isPublic)` with **optimistic update** via `channelListProvider.updateChannel()` BEFORE the FFI call. Only shown for text channels. Public channels send messages as Ed25519-signed plaintext (not MLS-encrypted).
   - **Visibility `_AccessChip`** (eye icon) -- `PopupMenuButton` cycling through `'everyone'` / `'moderator'` / `'admin'`
   - **Posting `_AccessChip`** (messageSquare icon) -- same options
   - Rename button (pencil icon)
@@ -265,7 +268,7 @@ Row contains:
 - `'everyone'` -> "All" (neutral styling)
 - `'moderator'` -> "Mod+" (warning color background)
 - `'admin'` -> "Admin+" (warning color background)
-- On select: calls `crdt_api.setChannelVisibility()` or `crdt_api.setChannelPosting()` -- CRDT operations
+- On select: applies **optimistic update** via `channelListProvider.updateChannel()` BEFORE calling `crdt_api.setChannelVisibility()` or `crdt_api.setChannelPosting()` -- CRDT operations. The optimistic update is needed because CrdtStore is fire-and-forget via mpsc, so the DB write may not be flushed when `ServerUpdated` fires (causing stale reads without the optimistic path).
 
 **Save/Discard bar:** Only shown when `_dirty`. Two buttons:
 - "Discard" (`HollowButton.ghost`) -- sets `_loaded = false`, calls `_loadLayout()` to reload from DB

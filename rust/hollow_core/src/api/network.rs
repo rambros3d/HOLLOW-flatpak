@@ -303,6 +303,9 @@ pub enum NetworkEvent {
     // -- Room budget events --
     RoomBudgetUpdate { joined: u32, limit: u32 },
     RoomCapHit { room: String },
+    // -- Guest sync events (Public Channels Phase 3) --
+    PublicChannelListReceived { server_id: String, server_name: String, channels: Vec<PublicChannelEntryFfi> },
+    PublicChannelSyncReceived { server_id: String, channel_id: String, messages: Vec<GuestSyncMessageFfi>, has_more: bool },
 }
 
 /// Lightweight FFI mirror of node::types::ShareEntryRef.
@@ -320,6 +323,34 @@ pub struct ShareEntry {
     pub created_at: i64,
     pub server_id: Option<String>,
     pub context_type: Option<String>,
+}
+
+/// FFI-facing public channel entry for guest viewer.
+pub struct PublicChannelEntryFfi {
+    pub channel_id: String,
+    pub name: String,
+    pub category: Option<String>,
+}
+
+/// FFI-facing guest sync message.
+pub struct GuestSyncMessageFfi {
+    pub sender_id: String,
+    pub text: String,
+    pub timestamp: i64,
+    pub message_id: Option<String>,
+    pub signature: Option<String>,
+    pub public_key: Option<String>,
+    pub edited_at: Option<i64>,
+    pub reply_to: Option<String>,
+    pub hidden_at: Option<i64>,
+    pub reactions: Vec<GuestReactionFfi>,
+}
+
+/// FFI-facing guest reaction.
+pub struct GuestReactionFfi {
+    pub emoji: String,
+    pub peer_id: String,
+    pub added_at: i64,
 }
 
 /// Holds all mutable state for the running node.
@@ -519,6 +550,12 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::CallSignal { peer_id, signal_type, .. } => {
             hollow_log!("[HOLLOW-CALL] Signal {signal_type} from {peer_id}");
+        }
+        node::NetworkEvent::PublicChannelListReceived { server_id, server_name, .. } => {
+            hollow_log!("[HOLLOW] Public channel list received for {server_name} ({server_id})");
+        }
+        node::NetworkEvent::PublicChannelSyncReceived { server_id, channel_id, messages, .. } => {
+            hollow_log!("[HOLLOW] Public channel sync received: {} messages for {channel_id} in {server_id}", messages.len());
         }
         _ => {}
     }
@@ -862,6 +899,36 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         node::NetworkEvent::RoomCapHit { room } => {
             hollow_log!("[HOLLOW] Room cap hit — failed to join: {room}");
             NetworkEvent::RoomCapHit { room }
+        }
+        // -- Guest sync events (Public Channels Phase 3) --
+        node::NetworkEvent::PublicChannelListReceived { server_id, server_name, channels } => {
+            NetworkEvent::PublicChannelListReceived {
+                server_id, server_name,
+                channels: channels.into_iter().map(|c| PublicChannelEntryFfi {
+                    channel_id: c.channel_id,
+                    name: c.name,
+                    category: c.category,
+                }).collect(),
+            }
+        }
+        node::NetworkEvent::PublicChannelSyncReceived { server_id, channel_id, messages, has_more } => {
+            NetworkEvent::PublicChannelSyncReceived {
+                server_id, channel_id, has_more,
+                messages: messages.into_iter().map(|m| GuestSyncMessageFfi {
+                    sender_id: m.sender_id,
+                    text: m.text,
+                    timestamp: m.timestamp,
+                    message_id: m.message_id,
+                    signature: m.signature,
+                    public_key: m.public_key,
+                    edited_at: m.edited_at,
+                    reply_to: m.reply_to,
+                    hidden_at: m.hidden_at,
+                    reactions: m.reactions.into_iter().map(|r| GuestReactionFfi {
+                        emoji: r.emoji, peer_id: r.peer_id, added_at: r.added_at,
+                    }).collect(),
+                }).collect(),
+            }
         }
     }
 }

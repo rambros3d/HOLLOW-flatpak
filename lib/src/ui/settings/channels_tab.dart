@@ -369,7 +369,8 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
     final effective = _effectiveLayout(channels);
     // Sync local state if effective differs (new channels added/removed externally).
     // Auto-save so sidebar updates immediately without requiring manual Save.
-    if (effective.length != _layout.length) {
+    // Guard: skip when channels map is empty (server deselected / switching away).
+    if (channels.isNotEmpty && effective.length != _layout.length) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           setState(() {
@@ -521,6 +522,41 @@ class _ChannelsTabState extends ConsumerState<ChannelsTab> {
                         channelId: item.channelId,
                         visibility: info?.visibility ?? 'everyone',
                         posting: info?.posting ?? 'everyone',
+                        isPublic: info?.isPublic ?? false,
+                        onVisibilityChanged: (v) async {
+                          ref.read(channelListProvider.notifier).updateChannel(
+                            item.channelId,
+                            (ch) => ch.copyWith(visibility: v),
+                          );
+                          await crdt_api.setChannelVisibility(
+                            serverId: widget.serverId,
+                            channelId: item.channelId,
+                            visibility: v,
+                          );
+                        },
+                        onPostingChanged: (v) async {
+                          ref.read(channelListProvider.notifier).updateChannel(
+                            item.channelId,
+                            (ch) => ch.copyWith(posting: v),
+                          );
+                          await crdt_api.setChannelPosting(
+                            serverId: widget.serverId,
+                            channelId: item.channelId,
+                            posting: v,
+                          );
+                        },
+                        onPublicToggled: () {
+                          final newVal = !(info?.isPublic ?? false);
+                          crdt_api.setChannelPublic(
+                            serverId: widget.serverId,
+                            channelId: item.channelId,
+                            isPublic: newVal,
+                          );
+                          ref.read(channelListProvider.notifier).updateChannel(
+                            item.channelId,
+                            (ch) => ch.copyWith(isPublic: newVal),
+                          );
+                        },
                         onRename: () =>
                             _renameChannel(item.channelId, name),
                         onDelete: () =>
@@ -654,10 +690,14 @@ class _ChannelRow extends StatelessWidget {
   final bool isLast;
   final VoidCallback onRename;
   final VoidCallback onDelete;
+  final VoidCallback onPublicToggled;
+  final Future<void> Function(String) onVisibilityChanged;
+  final Future<void> Function(String) onPostingChanged;
   final String serverId;
   final String channelId;
   final String visibility;
   final String posting;
+  final bool isPublic;
 
   const _ChannelRow({
     super.key,
@@ -668,10 +708,14 @@ class _ChannelRow extends StatelessWidget {
     this.isLast = false,
     required this.onRename,
     required this.onDelete,
+    required this.onPublicToggled,
+    required this.onVisibilityChanged,
+    required this.onPostingChanged,
     required this.serverId,
     required this.channelId,
     this.visibility = 'everyone',
     this.posting = 'everyone',
+    this.isPublic = false,
   });
 
   @override
@@ -730,20 +774,23 @@ class _ChannelRow extends StatelessWidget {
                   _AccessChip(
                     icon: LucideIcons.eye,
                     value: visibility,
-                    onChanged: (v) => crdt_api.setChannelVisibility(
-                      serverId: serverId,
-                      channelId: channelId,
-                      visibility: v,
-                    ),
+                    onChanged: onVisibilityChanged,
                   ),
                   const SizedBox(width: 4),
                   _AccessChip(
                     icon: LucideIcons.messageSquare,
                     value: posting,
-                    onChanged: (v) => crdt_api.setChannelPosting(
-                      serverId: serverId,
-                      channelId: channelId,
-                      posting: v,
+                    onChanged: onPostingChanged,
+                  ),
+                  const SizedBox(width: 4),
+                  HollowPressable(
+                    onTap: onPublicToggled,
+                    borderRadius: BorderRadius.circular(hollow.radiusSm),
+                    padding: const EdgeInsets.all(HollowSpacing.xs),
+                    child: Icon(
+                      LucideIcons.globe,
+                      size: 14,
+                      color: isPublic ? hollow.accent : hollow.textSecondary,
                     ),
                   ),
                   const SizedBox(width: HollowSpacing.xs),

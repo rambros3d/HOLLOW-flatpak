@@ -80,6 +80,8 @@ import 'package:hollow/src/ui/shell/member_panel.dart';
 import 'package:hollow/src/ui/shell/mobile_nav.dart';
 import 'package:hollow/src/ui/mobile/mobile_shell.dart';
 import 'package:hollow/src/ui/shell/server_strip.dart';
+import 'package:hollow/src/core/providers/guest_provider.dart';
+import 'package:hollow/src/ui/guest/guest_viewer.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -1011,6 +1013,12 @@ class _HollowShellState extends ConsumerState<HollowShell>
     required String? selectedChannelId,
     required Map<String, ChannelInfo> channels,
   }) {
+    // Guest viewer
+    final guestServerId = ref.watch(guestServerIdProvider);
+    if (guestServerId != null) {
+      return const GuestViewer();
+    }
+
     // Share tab view
     final shareOpen = ref.watch(shareTabOpenProvider);
     if (shareOpen) {

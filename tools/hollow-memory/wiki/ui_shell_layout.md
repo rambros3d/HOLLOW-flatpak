@@ -284,8 +284,9 @@ Registered globally on `HardwareKeyboard.instance` (not focus-dependent). Regist
 
 `_buildChatOrEmpty()` determines what to show in the main chat area. Resolution order:
 
-1. `shareTabOpenProvider == true` → `ShareDashboard`
-2. `archiveTabOpenProvider == true` → `ArchiveDashboard`
+1. `guestServerIdProvider != null` → `GuestViewer` (public channel guest browser, top priority)
+2. `shareTabOpenProvider == true` → `ShareDashboard`
+3. `archiveTabOpenProvider == true` → `ArchiveDashboard`
 3. `selectedChannelId != null`:
    - If `channel.channelType == ChannelType.voice` → `VoiceChannelPane` (keyed by `'vc:$channelId'`)
    - Otherwise → `ChannelChatPane` (keyed by `'ch:$channelId'`)

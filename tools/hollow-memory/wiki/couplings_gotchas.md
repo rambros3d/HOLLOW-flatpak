@@ -114,7 +114,17 @@ Comprehensive reference of every known non-obvious coupling, critical rule, and 
 2. Add an explicit match arm in `handle_incoming_request()` (swarm.rs plaintext CRDT handler) that also emits `ServerUpdated`.
 3. Verify in the Dart `_dispatch()` method that `ServerUpdated` invalidates the relevant providers.
 
-Current variants that correctly emit `ServerUpdated`: `ServerSettingChanged`, `ServerRenamed`, `RolePermissionsChanged`, `MemberBanned`, `MemberUnbanned`, `ChannelVisibilityChanged`, `ChannelPostingChanged`, all Label variants (`LabelCreated`, `LabelDeleted`, `LabelUpdated`, `LabelAssigned`, `LabelUnassigned`).
+Current variants that correctly emit `ServerUpdated`: `ServerSettingChanged`, `ServerRenamed`, `RolePermissionsChanged`, `MemberBanned`, `MemberUnbanned`, `ChannelVisibilityChanged`, `ChannelPostingChanged`, `ChannelPublicChanged`, all Label variants (`LabelCreated`, `LabelDeleted`, `LabelUpdated`, `LabelAssigned`, `LabelUnassigned`).
+
+### Channel property changes require optimistic UI updates
+
+**Rule:** Channel property changes (visibility, posting, is_public) must apply optimistic updates via `channelListProvider.updateChannel()` BEFORE the FFI call, not after.
+
+**Why:** CrdtStore is a fire-and-forget actor that batches writes via mpsc. When the `ServerUpdated` event fires (triggered by the CRDT broadcast), the DB write may not be flushed yet. The `_refreshServerState()` handler in `event_provider.dart` calls `loadForServer()` which reads from the DB -- if the write hasn't landed, it reads stale data and the UI reverts briefly. The 50ms delay on `loadForServer` in `_refreshServerState()` mitigates this but optimistic update is the primary fix.
+
+**Where:** `lib/src/ui/settings/channels_tab.dart` -- `_ChannelRow` visibility/posting `_AccessChip` and the globe (is_public) toggle. Also `event_provider.dart:_refreshServerState()`.
+
+**Correct approach:** Call `channelListProvider.updateChannel()` with the new property value immediately, then fire the FFI call. The 50ms delay in `_refreshServerState` lets CrdtStore flush before the server-state reload.
 
 ### serde(default) is mandatory on all new persisted fields
 
@@ -126,7 +136,7 @@ Current variants that correctly emit `ServerUpdated`: `ServerSettingChanged`, `S
 
 **Correct approach:** Every new field on a persisted struct gets `#[serde(default)]`. Use appropriate default values (empty HashMap, empty Vec, false, 0, None). Test by verifying that a DB created before the change still loads correctly after the change.
 
-Fields that already have `#[serde(default)]` in ServerState: `nicknames`, `twitch_usernames`, `pinned_messages`, `channel_layout`, `storage_pledges`, `settings` (actually required), `role_permissions`, `banned_members`, `labels`, `label_assignments`.
+Fields that already have `#[serde(default)]` in ServerState: `nicknames`, `twitch_usernames`, `pinned_messages`, `channel_layout`, `storage_pledges`, `settings` (actually required), `role_permissions`, `banned_members`, `labels`, `label_assignments`. Also `ChannelInfo.is_public` has `#[serde(default)]` (defaults to `false` = private/MLS-encrypted).
 
 ---
 

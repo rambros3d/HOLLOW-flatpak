@@ -1306,6 +1306,60 @@ impl MessageStore {
         Ok(messages)
     }
 
+    pub fn get_channel_messages_before(
+        &self,
+        server_id: &str,
+        channel_id: &str,
+        before_timestamp: i64,
+        limit: i32,
+    ) -> Result<Vec<StoredChannelMessage>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, server_id, channel_id, sender_id, text, is_mine, timestamp, signature, public_key, message_id, edited_at, hidden_at, reply_to_mid, file_id, link_preview_json
+                 FROM channel_messages
+                 WHERE server_id = ?1 AND channel_id = ?2 AND timestamp < ?3
+                 ORDER BY timestamp DESC
+                 LIMIT ?4",
+            )
+            .map_err(|e| format!("Failed to prepare messages_before query: {e}"))?;
+
+        let rows = stmt
+            .query_map(
+                params![server_id, channel_id, before_timestamp, limit],
+                |row| {
+                    Ok(StoredChannelMessage {
+                        id: row.get(0)?,
+                        server_id: row.get(1)?,
+                        channel_id: row.get(2)?,
+                        sender_id: row.get(3)?,
+                        text: row.get(4)?,
+                        is_mine: row.get::<_, i32>(5)? != 0,
+                        timestamp: row.get(6)?,
+                        signature: row.get(7)?,
+                        public_key: row.get(8)?,
+                        message_id: row.get(9)?,
+                        edited_at: row.get(10)?,
+                        hidden_at: row.get(11)?,
+                        reply_to_mid: row.get(12)?,
+                        file_id: row.get(13)?,
+                        link_preview: row.get::<_, Option<String>>(14)?
+                            .and_then(|s| serde_json::from_str(&s).ok()),
+                    })
+                },
+            )
+            .map_err(|e| format!("Failed to query messages_before: {e}"))?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            messages.push(
+                row.map_err(|e| format!("Failed to read messages_before row: {e}"))?,
+            );
+        }
+        messages.reverse();
+        Ok(messages)
+    }
+
     /// Total message count for a channel (for health check comparison).
     /// Count all DM messages for a peer (including hidden/deleted). Used by archive sidebar.
     pub fn count_dm_messages(&self, peer_id: &str) -> u32 {

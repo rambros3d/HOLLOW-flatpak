@@ -98,9 +98,13 @@ Parameters: `olm`, `crypto_store`, `mls`, `server_states`, `event_tx`, `ws_cmd_t
 7. **Persist locally** — `store.insert_channel_message()` with `is_mine=true` and the Rust timestamp. Link preview persisted if present via `store.update_channel_link_preview()`.
 8. **Emit event** — `NetworkEvent::ChannelMessageSent { server_id, channel_id, message_id, timestamp, signature, public_key }`.
 
-### MLS vs Olm broadcasting pattern
+### MLS vs Olm vs Public Channel broadcasting pattern
 
-This dual-path pattern (try MLS, fall back to Olm fan-out) is shared by ALL channel operations: send, edit, delete, add reaction, remove reaction. The pattern:
+All 5 channel operations (send, edit, delete, add reaction, remove reaction) branch on `server.is_channel_public(&channel_id)` before choosing the transport path:
+
+**Public channel path:** When `is_channel_public()` returns `true`, the handler builds a plaintext `HavenMessage` variant (e.g., `PublicChannelMessage`, `PublicChannelEdit`, `PublicChannelDelete`, `PublicChannelAddReaction`, `PublicChannelRemoveReaction`) and sends via `WsCommand::SendToRoom` broadcast. Messages are Ed25519-signed but NOT MLS-encrypted. All room participants (members and guests) receive the same plaintext broadcast — no per-peer fan-out, no duplication.
+
+**Private channel path (default):** The existing dual-path MLS/Olm pattern. Try MLS, fall back to Olm fan-out:
 
 ```
 let use_mls = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
@@ -113,6 +117,8 @@ if use_mls {
     /* Olm fan-out to all members */
 }
 ```
+
+The public/private branch happens BEFORE the MLS/Olm decision — public channels skip MLS entirely.
 
 ---
 
@@ -253,9 +259,11 @@ Same pattern as DM reaction add with `"unreaction:..."` signing, `store.remove_r
 
 ---
 
-## Incoming Envelope Handlers (MLS-decrypted path)
+## Incoming Envelope Handlers (MLS-decrypted and public channel path)
 
 These handle envelopes received via MLS group decryption in `swarm.rs`. They are called from the MLS decrypt match block (around line 5414 in swarm.rs). DM envelopes via Olm are handled inline in swarm.rs (around line 3087).
+
+**Public channel reuse:** The 5 `HavenMessage::PublicChannel*` variants received in `swarm.rs` are unpacked and delegated to the SAME `handle_envelope_*` functions below. No separate receive handlers exist for public channels — the existing handlers are transport-agnostic.
 
 ### handle_envelope_channel_message()
 

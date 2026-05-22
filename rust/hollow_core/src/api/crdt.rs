@@ -19,6 +19,7 @@ pub struct ChannelFfi {
     pub channel_type: String,
     pub visibility: String,
     pub posting: String,
+    pub is_public: bool,
 }
 
 /// Member info for FFI (Dart-visible).
@@ -184,6 +185,7 @@ pub fn get_server_channels(server_id: String) -> Result<Vec<ChannelFfi>, String>
                     ChannelPosting::ModeratorPlus => "moderator".to_string(),
                     ChannelPosting::AdminPlus => "admin".to_string(),
                 },
+                is_public: ch.is_public,
             }
         })
         .collect();
@@ -502,8 +504,10 @@ pub fn get_channel_layout(server_id: String) -> Result<String, String> {
         serde_json::from_str::<crate::crdt::server_state::ServerState>(&state_json)
             .map_err(|e| format!("Failed to parse server state: {e}"))?;
 
-    serde_json::to_string(&state.channel_layout)
-        .map_err(|e| format!("Failed to serialize layout: {e}"))
+    let layout_json = serde_json::to_string(&state.channel_layout)
+        .map_err(|e| format!("Failed to serialize layout: {e}"))?;
+    hollow_log!("[HOLLOW-LAYOUT] get_channel_layout({server_id}): {} items, json={layout_json}", state.channel_layout.len());
+    Ok(layout_json)
 }
 
 /// Pin a message in a channel. Requires MANAGE_CHANNELS permission.
@@ -690,6 +694,83 @@ pub fn set_channel_posting(server_id: String, channel_id: String, posting: Strin
             channel_id,
             posting,
         }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Toggle public access for a channel.
+#[frb]
+pub fn set_channel_public(server_id: String, channel_id: String, is_public: bool) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::SetChannelPublic {
+            server_id,
+            channel_id,
+            is_public,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Request the public channel list from a server (guest mode).
+/// Joins the WS room and broadcasts a list request to online members.
+#[frb]
+pub fn request_public_channels(server_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::RequestPublicChannels { server_id }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Request message history for a public channel (guest mode).
+#[frb]
+pub fn request_public_channel_sync(
+    server_id: String,
+    channel_id: String,
+    before_timestamp: Option<i64>,
+) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::RequestPublicChannelSync {
+            server_id,
+            channel_id,
+            before_timestamp,
+        }),
+    )
+    .map_err(|e| format!("Failed to send command: {e}"))?;
+
+    Ok(())
+}
+
+/// Leave a guest-mode WS room.
+#[frb]
+pub fn leave_guest_room(server_id: String) -> Result<(), String> {
+    let node = get_node();
+    let guard = node.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let state = guard.as_ref().ok_or("Node is not running")?;
+
+    let rt = get_runtime();
+    rt.block_on(
+        state.cmd_tx.send(node::NodeCommand::LeaveGuestRoom { server_id }),
     )
     .map_err(|e| format!("Failed to send command: {e}"))?;
 

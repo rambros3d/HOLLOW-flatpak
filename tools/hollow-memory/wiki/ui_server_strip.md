@@ -191,6 +191,7 @@ Nested `Row` with:
 
 Centered `Row` of `HollowPressable` icon buttons, each wrapped in `HollowTooltip`:
 
+- **Browse Public Channels** — `LucideIcons.globe`. Color: accent when `guestServerIdProvider != null`, textSecondary otherwise. Tap: `showBrowsePublicDialog(ctx, ref)` — shows dialog to paste server ID/invite link, triggers guest sync.
 - **Share** — `LucideIcons.share2`. Color: accent when `shareOpen`, textSecondary otherwise. Tap: `_openShare(ref)` — closes split, sets share tab open, clears other state.
 - **Archive** — `LucideIcons.archive`. Color: accent when `archiveOpen`, textSecondary otherwise. Tap: `_openArchive(ref)` — closes split, invalidates archive lists, resets archive selection, sets archive tab open.
 - **Download** — `DownloadIconButton(iconSize: 18)` (separate component).

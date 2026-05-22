@@ -287,6 +287,37 @@ Future<void> setChannelPosting({
   posting: posting,
 );
 
+/// Toggle public access for a channel.
+Future<void> setChannelPublic({
+  required String serverId,
+  required String channelId,
+  required bool isPublic,
+}) => RustLib.instance.api.crateApiCrdtSetChannelPublic(
+  serverId: serverId,
+  channelId: channelId,
+  isPublic: isPublic,
+);
+
+/// Request the public channel list from a server (guest mode).
+/// Joins the WS room and broadcasts a list request to online members.
+Future<void> requestPublicChannels({required String serverId}) =>
+    RustLib.instance.api.crateApiCrdtRequestPublicChannels(serverId: serverId);
+
+/// Request message history for a public channel (guest mode).
+Future<void> requestPublicChannelSync({
+  required String serverId,
+  required String channelId,
+  PlatformInt64? beforeTimestamp,
+}) => RustLib.instance.api.crateApiCrdtRequestPublicChannelSync(
+  serverId: serverId,
+  channelId: channelId,
+  beforeTimestamp: beforeTimestamp,
+);
+
+/// Leave a guest-mode WS room.
+Future<void> leaveGuestRoom({required String serverId}) =>
+    RustLib.instance.api.crateApiCrdtLeaveGuestRoom(serverId: serverId);
+
 /// Ban a member from the server. Prevents rejoin.
 Future<void> banMember({required String serverId, required String peerId}) =>
     RustLib.instance.api.crateApiCrdtBanMember(
@@ -409,6 +440,7 @@ class ChannelFfi {
   final String channelType;
   final String visibility;
   final String posting;
+  final bool isPublic;
 
   const ChannelFfi({
     required this.channelId,
@@ -417,6 +449,7 @@ class ChannelFfi {
     required this.channelType,
     required this.visibility,
     required this.posting,
+    required this.isPublic,
   });
 
   @override
@@ -426,7 +459,8 @@ class ChannelFfi {
       category.hashCode ^
       channelType.hashCode ^
       visibility.hashCode ^
-      posting.hashCode;
+      posting.hashCode ^
+      isPublic.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -438,7 +472,8 @@ class ChannelFfi {
           category == other.category &&
           channelType == other.channelType &&
           visibility == other.visibility &&
-          posting == other.posting;
+          posting == other.posting &&
+          isPublic == other.isPublic;
 }
 
 /// Label info for FFI (Dart-visible).

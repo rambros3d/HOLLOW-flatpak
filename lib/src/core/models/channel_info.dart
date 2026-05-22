@@ -9,6 +9,7 @@ class ChannelInfo {
   final ChannelType channelType;
   final String visibility;
   final String posting;
+  final bool isPublic;
 
   const ChannelInfo({
     required this.channelId,
@@ -17,6 +18,7 @@ class ChannelInfo {
     this.channelType = ChannelType.text,
     this.visibility = 'everyone',
     this.posting = 'everyone',
+    this.isPublic = false,
   });
 
   ChannelInfo copyWith({
@@ -26,6 +28,7 @@ class ChannelInfo {
     ChannelType? channelType,
     String? visibility,
     String? posting,
+    bool? isPublic,
   }) {
     return ChannelInfo(
       channelId: channelId ?? this.channelId,
@@ -34,6 +37,7 @@ class ChannelInfo {
       channelType: channelType ?? this.channelType,
       visibility: visibility ?? this.visibility,
       posting: posting ?? this.posting,
+      isPublic: isPublic ?? this.isPublic,
     );
   }
 }

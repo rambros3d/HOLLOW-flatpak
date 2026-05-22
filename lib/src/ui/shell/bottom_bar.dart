@@ -29,9 +29,11 @@ import 'package:hollow/src/ui/components/download_icon_button.dart';
 import 'package:hollow/src/ui/components/server_folder_popup.dart';
 import 'package:hollow/src/ui/components/profile_card_popup.dart';
 import 'package:hollow/src/ui/components/status_dot.dart';
+import 'package:hollow/src/ui/dialogs/browse_public_dialog.dart';
 import 'package:hollow/src/ui/dialogs/create_server_dialog.dart';
 import 'package:hollow/src/ui/dialogs/mnemonic_dialog.dart';
 import 'package:hollow/src/ui/dialogs/user_settings_dialog.dart';
+import 'package:hollow/src/core/providers/guest_provider.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 /// Horizontal bottom bar for the Dock layout.
@@ -294,6 +296,25 @@ class _BottomBarState extends ConsumerState<BottomBar> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                Builder(builder: (ctx) {
+                  final guestActive = ref.watch(guestServerIdProvider) != null;
+                  return HollowTooltip(
+                    message: 'Browse Public Channels',
+                    child: HollowPressable(
+                      onTap: () => showBrowsePublicDialog(ctx, ref),
+                      borderRadius:
+                          BorderRadius.circular(hollow.radiusSm),
+                      padding: const EdgeInsets.all(HollowSpacing.xs),
+                      child: Icon(
+                        LucideIcons.globe,
+                        size: 18,
+                        color: guestActive
+                            ? hollow.accent
+                            : hollow.textSecondary,
+                      ),
+                    ),
+                  );
+                }),
                 HollowTooltip(
                   message: 'Share',
                   child: HollowPressable(

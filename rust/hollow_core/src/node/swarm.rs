@@ -355,6 +355,9 @@ async fn run_event_loop(
     // Prevents the same channel from being sync-requested multiple times in quick succession.
     let mut channel_sync_sent: HashMap<String, std::time::Instant> = HashMap::new();
 
+    // Guest sync: rooms joined as a non-member for browsing public channels.
+    let mut guest_rooms: std::collections::HashSet<String> = std::collections::HashSet::new();
+
     // SECURITY: Per-peer rate limiter — token bucket (100 burst, refill 20/sec).
     // Prevents message flooding from malicious peers.
     let mut peer_rate_tokens: HashMap<String, (u32, std::time::Instant)> = HashMap::new();
@@ -651,6 +654,102 @@ async fn run_event_loop(
                             server_id, channel_id, posting,
                             &crypto_store, &crdt_store,
                         ).await { continue; }
+                    }
+
+                    NodeCommand::SetChannelPublic { server_id, channel_id, is_public } => {
+                        if sync_handler::handle_set_channel_public(
+                            &mut server_states, &mut mls, &event_tx, &ws_cmd_tx,
+                            &ws_room_peers, &bundle_keypair, &local_peer_str,
+                            server_id, channel_id, is_public,
+                            &crypto_store, &crdt_store,
+                        ).await { continue; }
+                    }
+
+                    // -- Guest sync commands (Public Channels Phase 3) --
+                    NodeCommand::RequestPublicChannels { server_id } => {
+                        hollow_log!("[HOLLOW-GUEST] RequestPublicChannels for {server_id}, is_member={}", server_states.contains_key(&server_id));
+                        if server_states.contains_key(&server_id) {
+                            let state = &server_states[&server_id];
+                            let channels: Vec<PublicChannelEntryFfi> = state.channels.values()
+                                .filter(|ch| ch.is_public && ch.channel_type == crate::crdt::server_state::ChannelType::Text)
+                                .map(|ch| PublicChannelEntryFfi {
+                                    channel_id: ch.channel_id.clone(),
+                                    name: ch.name.clone(),
+                                    category: ch.category.clone(),
+                                })
+                                .collect();
+                            hollow_log!("[HOLLOW-GUEST] Emitting {} public channels from local state", channels.len());
+                            let _ = event_tx.send(NetworkEvent::PublicChannelListReceived {
+                                server_id: server_id.clone(),
+                                server_name: state.name().to_string(),
+                                channels,
+                            }).await;
+                        } else {
+                            hollow_log!("[HOLLOW-GUEST] Not a member, joining room as guest: {server_id}");
+                            guest_rooms.insert(server_id.clone());
+                            let _ = ws_cmd_tx.send(super::ws_client::WsCommand::JoinRoom { room_code: server_id.clone() });
+                            let msg = HavenMessage::PublicChannelListRequest { server_id: server_id.clone() };
+                            if let Ok(data) = serde_json::to_vec(&msg) {
+                                let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendToRoom { room_code: server_id, data });
+                            }
+                        }
+                    }
+
+                    NodeCommand::RequestPublicChannelSync { server_id, channel_id, before_timestamp } => {
+                        if server_states.contains_key(&server_id) {
+                            // Already a member — serve from our own DB.
+                            if let Ok(store) = crate::storage::MessageStore::open(&db_path, &db_passphrase) {
+                                let limit = 50i32;
+                                let messages_result = if let Some(before_ts) = before_timestamp {
+                                    store.get_channel_messages_before(&server_id, &channel_id, before_ts, limit)
+                                } else {
+                                    store.get_channel_messages_since(&server_id, &channel_id, 0, limit)
+                                };
+                                if let Ok(msgs) = messages_result {
+                                    let has_more = msgs.len() as i32 >= limit;
+                                    let msg_ids: Vec<String> = msgs.iter().filter_map(|m| m.message_id.clone()).collect();
+                                    let reactions_map = store.load_reactions_for_sync(&msg_ids).unwrap_or_default();
+                                    let ffi_messages: Vec<GuestSyncMessageFfi> = msgs.iter().map(|m| {
+                                        let reactions = m.message_id.as_ref()
+                                            .and_then(|mid| reactions_map.get(mid))
+                                            .map(|rs| rs.iter().map(|(e, p, ts, _sig, _pk)| GuestReactionFfi {
+                                                emoji: e.clone(), peer_id: p.clone(), added_at: *ts,
+                                            }).collect())
+                                            .unwrap_or_default();
+                                        GuestSyncMessageFfi {
+                                            sender_id: m.sender_id.clone(),
+                                            text: m.text.clone(),
+                                            timestamp: m.timestamp,
+                                            message_id: m.message_id.clone(),
+                                            signature: m.signature.clone(),
+                                            public_key: m.public_key.clone(),
+                                            edited_at: m.edited_at,
+                                            reply_to: m.reply_to_mid.clone(),
+                                            hidden_at: m.hidden_at,
+                                            reactions,
+                                        }
+                                    }).collect();
+                                    hollow_log!("[HOLLOW-GUEST] Serving {} messages from local DB for {channel_id}", ffi_messages.len());
+                                    let _ = event_tx.send(NetworkEvent::PublicChannelSyncReceived {
+                                        server_id, channel_id, messages: ffi_messages, has_more,
+                                    }).await;
+                                }
+                            }
+                        } else {
+                            let msg = HavenMessage::PublicChannelSyncRequest {
+                                server_id: server_id.clone(),
+                                channel_id,
+                                before_timestamp,
+                            };
+                            if let Ok(data) = serde_json::to_vec(&msg) {
+                                let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendToRoom { room_code: server_id, data });
+                            }
+                        }
+                    }
+
+                    NodeCommand::LeaveGuestRoom { server_id } => {
+                        guest_rooms.remove(&server_id);
+                        let _ = ws_cmd_tx.send(super::ws_client::WsCommand::LeaveRoom { room_code: server_id });
                     }
 
                     NodeCommand::SetNickname { server_id, peer_id, nickname } => {
@@ -2222,6 +2321,7 @@ async fn run_event_loop(
                                         &mut voice_channel_gossip_mode,
                                         &mut vc_signal_rate_tokens,
                                         &mut mls_dirty,
+                                        &guest_rooms,
                                         &db_path, &db_passphrase,
                                         &local_peer_str, &from, is_invisible, msg,
                                     ).await;
@@ -2882,6 +2982,7 @@ async fn handle_incoming_request(
     voice_channel_gossip_mode: &mut HashMap<String, bool>,
     vc_signal_rate_tokens: &mut HashMap<String, (u32, std::time::Instant)>,
     mls_dirty: &mut bool,
+    guest_rooms: &std::collections::HashSet<String>,
     db_path: &str,
     db_passphrase: &str,
     local_peer_str: &str,
@@ -4853,7 +4954,8 @@ async fn handle_incoming_request(
                             (sender_perms & Permission::KICK_MEMBERS) != 0
                         }
                         CrdtPayload::ChannelVisibilityChanged { .. }
-                        | CrdtPayload::ChannelPostingChanged { .. } => {
+                        | CrdtPayload::ChannelPostingChanged { .. }
+                        | CrdtPayload::ChannelPublicChanged { .. } => {
                             (sender_perms & Permission::MANAGE_CHANNELS) != 0
                         }
                         CrdtPayload::LabelCreated { .. }
@@ -6355,6 +6457,195 @@ async fn handle_incoming_request(
 
             let _ = event_tx.send(NetworkEvent::FriendRemoved {
                 peer_id: peer_str.to_string(),
+            }).await;
+        }
+
+        HavenMessage::PublicChannelMessage { server_id, channel_id, text, ts, sig, pk, mid, reply_to, file_id, link_preview } => {
+            if peer_str == local_peer_str { return; }
+            message_ops::handle_envelope_channel_message(
+                &event_tx, &bundle_keypair, &local_peer_str,
+                peer_str.to_string(),
+                server_id, channel_id, text, ts, sig, pk,
+                Some(mid), reply_to, file_id, link_preview,
+                &db_path, &db_passphrase,
+            ).await;
+        }
+
+        HavenMessage::PublicChannelEdit { server_id, channel_id, mid, text, ts, sig, pk } => {
+            if peer_str == local_peer_str { return; }
+            message_ops::handle_envelope_edit_message(
+                &event_tx, &bundle_keypair, peer_str,
+                mid, text, ts, sig, pk,
+                Some(server_id), Some(channel_id),
+                &db_path, &db_passphrase,
+            ).await;
+        }
+
+        HavenMessage::PublicChannelDelete { server_id, channel_id, mid, ts, sig, pk } => {
+            if peer_str == local_peer_str { return; }
+            message_ops::handle_envelope_delete_message(
+                &event_tx, &bundle_keypair, peer_str,
+                mid, ts, sig, pk,
+                Some(server_id), Some(channel_id),
+                &db_path, &db_passphrase,
+            ).await;
+        }
+
+        HavenMessage::PublicChannelAddReaction { server_id, channel_id, mid, emoji, ts, sig, pk } => {
+            if peer_str == local_peer_str { return; }
+            message_ops::handle_envelope_add_reaction(
+                &event_tx, &bundle_keypair, peer_str,
+                mid, emoji, ts, sig, pk,
+                Some(server_id), Some(channel_id),
+                &db_path, &db_passphrase,
+            ).await;
+        }
+
+        HavenMessage::PublicChannelRemoveReaction { server_id, channel_id, mid, emoji, ts, sig, pk } => {
+            if peer_str == local_peer_str { return; }
+            message_ops::handle_envelope_remove_reaction(
+                &event_tx, &bundle_keypair, peer_str,
+                mid, emoji, ts, sig, pk,
+                Some(server_id), Some(channel_id),
+                &db_path, &db_passphrase,
+            ).await;
+        }
+
+        // -- Guest sync handlers (Public Channels Phase 3) --
+
+        HavenMessage::PublicChannelListRequest { server_id } => {
+            if peer_str == local_peer_str { return; }
+            if let Some(state) = server_states.get(&server_id) {
+                let channels: Vec<PublicChannelEntry> = state.channels.values()
+                    .filter(|ch| ch.is_public && ch.channel_type == crate::crdt::server_state::ChannelType::Text)
+                    .map(|ch| PublicChannelEntry {
+                        channel_id: ch.channel_id.clone(),
+                        name: ch.name.clone(),
+                        category: ch.category.clone(),
+                    })
+                    .collect();
+                if !channels.is_empty() {
+                    let resp = HavenMessage::PublicChannelListResponse {
+                        server_id: server_id.clone(),
+                        server_name: state.name().to_string(),
+                        channels,
+                    };
+                    send_message_to_peer(ws_cmd_tx, ws_room_peers, peer_str, resp);
+                }
+            }
+        }
+
+        HavenMessage::PublicChannelSyncRequest { server_id, channel_id, before_timestamp } => {
+            if peer_str == local_peer_str { return; }
+            if let Some(state) = server_states.get(&server_id) {
+                if !state.is_channel_public(&channel_id) { return; }
+
+                let dedup_key = format!("pub_sync:{server_id}:{channel_id}:resp:{peer_str}");
+                if channel_sync_sent.get(&dedup_key).is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(2)) {
+                    return;
+                }
+                channel_sync_sent.insert(dedup_key, std::time::Instant::now());
+
+                if let Ok(store) = crate::storage::MessageStore::open(db_path, db_passphrase) {
+                    let limit = 50i32;
+                    let messages_result = if let Some(before_ts) = before_timestamp {
+                        store.get_channel_messages_before(&server_id, &channel_id, before_ts, limit)
+                    } else {
+                        store.get_channel_messages_since(&server_id, &channel_id, 0, limit)
+                    };
+                    if let Ok(msgs) = messages_result {
+                        let has_more = msgs.len() as i32 >= limit;
+                        let msg_ids: Vec<String> = msgs.iter().filter_map(|m| m.message_id.clone()).collect();
+                        let reactions_map = store.load_reactions_for_sync(&msg_ids).unwrap_or_default();
+                        let file_ids: Vec<&str> = msgs.iter().filter_map(|m| m.file_id.as_deref()).collect();
+                        let file_meta_map = store.get_file_metadata_batch(&file_ids).unwrap_or_default();
+
+                        let items: Vec<SyncMessageItem> = msgs.iter().map(|m| {
+                            let reactions = m.message_id.as_ref()
+                                .and_then(|mid| reactions_map.get(mid))
+                                .map(|rs| rs.iter().map(|(e, p, ts, sig, pk)| SyncReactionItem {
+                                    e: e.clone(), p: p.clone(), ts: *ts, sig: sig.clone(), pk: pk.clone(),
+                                }).collect())
+                                .unwrap_or_default();
+                            let file_meta = m.file_id.as_ref().and_then(|fid| {
+                                file_meta_map.get(fid.as_str()).map(|f| SyncFileMetaItem {
+                                    fid: f.file_id.clone(),
+                                    name: f.file_name.clone(),
+                                    ext: f.file_ext.clone(),
+                                    mime: f.mime_type.clone(),
+                                    size: f.size_bytes,
+                                    img: f.is_image,
+                                    w: f.width,
+                                    h: f.height,
+                                    mid: f.message_id.clone(),
+                                    ts: f.created_at,
+                                    sender: m.sender_id.clone(),
+                                    vthumb: f.video_thumb.clone(),
+                                })
+                            });
+                            SyncMessageItem {
+                                s: m.sender_id.clone(),
+                                t: m.text.clone(),
+                                ts: m.timestamp,
+                                sig: m.signature.clone(),
+                                pk: m.public_key.clone(),
+                                mid: m.message_id.clone(),
+                                edited_at: m.edited_at,
+                                reply_to: m.reply_to_mid.clone(),
+                                file_id: m.file_id.clone(),
+                                file_meta,
+                                hidden_at: m.hidden_at,
+                                reactions,
+                            }
+                        }).collect();
+                        let resp = HavenMessage::PublicChannelSyncResponse {
+                            server_id: server_id.clone(),
+                            channel_id: channel_id.clone(),
+                            messages: items,
+                            has_more,
+                        };
+                        send_message_to_peer(ws_cmd_tx, ws_room_peers, peer_str, resp);
+                    }
+                }
+            }
+        }
+
+        HavenMessage::PublicChannelListResponse { server_id, server_name, channels } => {
+            if peer_str == local_peer_str { return; }
+            if !guest_rooms.contains(&server_id) { return; }
+            let entries: Vec<PublicChannelEntryFfi> = channels.into_iter()
+                .map(|c| PublicChannelEntryFfi {
+                    channel_id: c.channel_id,
+                    name: c.name,
+                    category: c.category,
+                })
+                .collect();
+            let _ = event_tx.send(NetworkEvent::PublicChannelListReceived {
+                server_id, server_name, channels: entries,
+            }).await;
+        }
+
+        HavenMessage::PublicChannelSyncResponse { server_id, channel_id, messages, has_more } => {
+            if peer_str == local_peer_str { return; }
+            if !guest_rooms.contains(&server_id) { return; }
+            let ffi_messages: Vec<GuestSyncMessageFfi> = messages.into_iter()
+                .map(|m| GuestSyncMessageFfi {
+                    sender_id: m.s,
+                    text: m.t,
+                    timestamp: m.ts,
+                    message_id: m.mid,
+                    signature: m.sig,
+                    public_key: m.pk,
+                    edited_at: m.edited_at,
+                    reply_to: m.reply_to,
+                    hidden_at: m.hidden_at,
+                    reactions: m.reactions.into_iter().map(|r| GuestReactionFfi {
+                        emoji: r.e, peer_id: r.p, added_at: r.ts,
+                    }).collect(),
+                })
+                .collect();
+            let _ = event_tx.send(NetworkEvent::PublicChannelSyncReceived {
+                server_id, channel_id, messages: ffi_messages, has_more,
             }).await;
         }
 

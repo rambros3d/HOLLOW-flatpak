@@ -40,6 +40,8 @@ import 'package:hollow/src/core/providers/share_tab_provider.dart';
 import 'package:hollow/src/core/providers/ice_config_provider.dart';
 import 'package:hollow/src/core/providers/license_key_provider.dart';
 import 'package:hollow/src/core/providers/room_budget_provider.dart';
+import 'package:hollow/src/core/providers/guest_provider.dart';
+import 'package:hollow/src/core/models/channel_chat_message.dart';
 import 'package:hollow/src/ui/app.dart' show hollowNavigatorKey;
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
@@ -104,8 +106,13 @@ class EventStreamNotifier extends Notifier<bool> {
     ref.invalidate(myPermissionsProvider(serverId));
     ref.invalidate(myRoleProvider(serverId));
     if (ref.read(selectedServerProvider) == serverId) {
-      ref.read(channelListProvider.notifier).loadForServer(serverId);
-      ref.read(channelLayoutProvider.notifier).loadForServer(serverId);
+      // CrdtStore persists via fire-and-forget mpsc — the DB write may not
+      // have flushed yet when ServerUpdated fires. A short delay lets the
+      // actor drain before we re-read. Optimistic UI updates cover the gap.
+      Future.delayed(const Duration(milliseconds: 50), () {
+        ref.read(channelListProvider.notifier).loadForServer(serverId);
+        ref.read(channelLayoutProvider.notifier).loadForServer(serverId);
+      });
     }
   }
 
@@ -1109,6 +1116,52 @@ class EventStreamNotifier extends Notifier<bool> {
             HollowToast.show(ctx, reason, type: HollowToastType.error);
           }
         }
+
+      // -- Guest sync events (Public Channels Phase 3) --
+      case NetworkEvent_PublicChannelListReceived(
+            :final serverId, :final serverName, :final channels):
+        debugPrint('[HOLLOW] Guest: received ${channels.length} public channels for $serverName ($serverId)');
+        ref.read(guestServerNameProvider.notifier).state = serverName;
+        ref.read(guestChannelListProvider.notifier).setChannels(
+          channels
+              .map((c) => GuestChannelEntry(
+                    channelId: c.channelId,
+                    name: c.name,
+                    category: c.category,
+                  ))
+              .toList(),
+        );
+        ref.read(guestLoadingProvider.notifier).state = false;
+
+      case NetworkEvent_PublicChannelSyncReceived(
+            :final serverId, :final channelId, :final messages, :final hasMore):
+        debugPrint('[HOLLOW] Guest: received ${messages.length} messages for $channelId in $serverId');
+        ref.read(guestHasMoreProvider.notifier).state = hasMore;
+        final chatMessages = messages.map((m) {
+          final reactions = <String, List<String>>{};
+          for (final r in m.reactions) {
+            reactions.putIfAbsent(r.emoji, () => []).add(r.peerId);
+          }
+          return ChannelChatMessage(
+            senderId: m.senderId,
+            text: m.text,
+            isMe: false,
+            timestamp: DateTime.fromMillisecondsSinceEpoch(m.timestamp.toInt()),
+            signature: m.signature,
+            publicKey: m.publicKey,
+            messageId: m.messageId,
+            editedAt: m.editedAt != null
+                ? DateTime.fromMillisecondsSinceEpoch(m.editedAt!.toInt())
+                : null,
+            hiddenAt: m.hiddenAt != null
+                ? DateTime.fromMillisecondsSinceEpoch(m.hiddenAt!.toInt())
+                : null,
+            replyToMid: m.replyTo,
+            reactions: reactions,
+          );
+        }).toList();
+        ref.read(channelChatProvider.notifier).setGuestMessages(
+              serverId, channelId, chatMessages);
 
     }
     } catch (e, st) {

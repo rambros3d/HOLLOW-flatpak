@@ -239,6 +239,9 @@ pub(crate) enum NetworkEvent {
     // -- Room budget events --
     RoomBudgetUpdate { joined: u32, limit: u32 },
     RoomCapHit { room: String },
+    // -- Guest sync events (Public Channels Phase 3) --
+    PublicChannelListReceived { server_id: String, server_name: String, channels: Vec<PublicChannelEntryFfi> },
+    PublicChannelSyncReceived { server_id: String, channel_id: String, messages: Vec<GuestSyncMessageFfi>, has_more: bool },
 }
 
 /// Lightweight ShareEntry for streaming lists to Dart. The persisted row is wider
@@ -258,6 +261,46 @@ pub(crate) struct ShareEntryRef {
     pub created_at: i64,
     pub server_id: Option<String>,
     pub context_type: Option<String>,
+}
+
+/// Public channel entry for guest sync.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct PublicChannelEntry {
+    pub channel_id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+}
+
+/// FFI-visible public channel entry for guest viewer.
+#[derive(Clone)]
+pub(crate) struct PublicChannelEntryFfi {
+    pub channel_id: String,
+    pub name: String,
+    pub category: Option<String>,
+}
+
+/// FFI-visible guest sync message.
+#[derive(Clone)]
+pub(crate) struct GuestSyncMessageFfi {
+    pub sender_id: String,
+    pub text: String,
+    pub timestamp: i64,
+    pub message_id: Option<String>,
+    pub signature: Option<String>,
+    pub public_key: Option<String>,
+    pub edited_at: Option<i64>,
+    pub reply_to: Option<String>,
+    pub hidden_at: Option<i64>,
+    pub reactions: Vec<GuestReactionFfi>,
+}
+
+/// FFI-visible guest reaction.
+#[derive(Clone)]
+pub(crate) struct GuestReactionFfi {
+    pub emoji: String,
+    pub peer_id: String,
+    pub added_at: i64,
 }
 
 pub(crate) struct SendFilePayload {
@@ -309,6 +352,11 @@ pub(crate) enum NodeCommand {
     UnbanMember { server_id: String, peer_id: String },
     SetChannelVisibility { server_id: String, channel_id: String, visibility: String },
     SetChannelPosting { server_id: String, channel_id: String, posting: String },
+    SetChannelPublic { server_id: String, channel_id: String, is_public: bool },
+    // -- Guest sync commands (Public Channels Phase 3) --
+    RequestPublicChannels { server_id: String },
+    RequestPublicChannelSync { server_id: String, channel_id: String, before_timestamp: Option<i64> },
+    LeaveGuestRoom { server_id: String },
     CreateLabel { server_id: String, name: String, color: String },
     DeleteLabel { server_id: String, label_id: String },
     UpdateLabel { server_id: String, label_id: String, name: String, color: String },
@@ -628,6 +676,114 @@ pub(crate) enum HavenMessage {
         mentioned_names: Vec<String>,
         #[serde(default)]
         is_reply: bool,
+    },
+
+    // -- Public channels (Phase 7B) --
+
+    /// Plaintext channel message for public channels. Ed25519-signed but NOT
+    /// MLS-encrypted. Broadcast via SendToRoom so guests (non-members) receive it.
+    #[serde(rename = "pub_ch_msg")]
+    PublicChannelMessage {
+        server_id: String,
+        channel_id: String,
+        text: String,
+        ts: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sig: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pk: Option<String>,
+        mid: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reply_to: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        file_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        link_preview: Option<LinkPreviewRef>,
+    },
+
+    #[serde(rename = "pub_ch_edit")]
+    PublicChannelEdit {
+        server_id: String,
+        channel_id: String,
+        mid: String,
+        text: String,
+        ts: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sig: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pk: Option<String>,
+    },
+
+    #[serde(rename = "pub_ch_del")]
+    PublicChannelDelete {
+        server_id: String,
+        channel_id: String,
+        mid: String,
+        ts: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sig: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pk: Option<String>,
+    },
+
+    #[serde(rename = "pub_ch_react")]
+    PublicChannelAddReaction {
+        server_id: String,
+        channel_id: String,
+        mid: String,
+        emoji: String,
+        ts: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sig: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pk: Option<String>,
+    },
+
+    #[serde(rename = "pub_ch_unreact")]
+    PublicChannelRemoveReaction {
+        server_id: String,
+        channel_id: String,
+        mid: String,
+        emoji: String,
+        ts: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sig: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pk: Option<String>,
+    },
+
+    // -- Guest sync (Public Channels Phase 3) --
+
+    #[serde(rename = "pub_ch_list_req")]
+    PublicChannelListRequest {
+        server_id: String,
+    },
+
+    #[serde(rename = "pub_ch_list_resp")]
+    PublicChannelListResponse {
+        server_id: String,
+        #[serde(default)]
+        server_name: String,
+        #[serde(default)]
+        channels: Vec<PublicChannelEntry>,
+    },
+
+    #[serde(rename = "pub_ch_sync_req")]
+    PublicChannelSyncRequest {
+        server_id: String,
+        channel_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before_timestamp: Option<i64>,
+    },
+
+    #[serde(rename = "pub_ch_sync_resp")]
+    PublicChannelSyncResponse {
+        server_id: String,
+        channel_id: String,
+        #[serde(default)]
+        messages: Vec<SyncMessageItem>,
+        #[serde(default)]
+        has_more: bool,
     },
 
     // -- Typing indicators (Phase 3.5) --

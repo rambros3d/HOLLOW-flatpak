@@ -34,6 +34,7 @@ The loop owns ~40 mutable state variables. They are NOT consolidated into a stru
 - `synced_peers: HashSet<String>` — peers we have already triggered sync for this session. Prevents duplicate sync when both WS and signaling fire.
 - `webrtc_peers: HashSet<String>` — peers with active WebRTC data channels. Updated via `NodeCommand::WebRtcPeerConnected/Disconnected`.
 - `active_room: Option<String>` — the current DM room code.
+- `guest_rooms: HashSet<String>` — WS rooms joined as a non-member for browsing public channels (guest sync).
 
 ### Encryption State
 - `olm: OlmManager` — mutable Olm encryption manager for DM sessions.
@@ -133,8 +134,11 @@ All timers consume their immediate first tick during initialization so they do n
 - `KickMember` / `BanMember` / `UnbanMember` -> `sync_handler::handle_*_member()`
 - `LeaveServer` -> `sync_handler::handle_leave_server()`
 - `CreateLabel` / `DeleteLabel` / `UpdateLabel` / `AssignLabel` / `UnassignLabel` -> `sync_handler::handle_label_op()` with appropriate `CrdtPayload` variant.
-- `SetChannelVisibility` / `SetChannelPosting` -> `sync_handler::handle_set_channel_*()`
+- `SetChannelVisibility` / `SetChannelPosting` / `SetChannelPublic` -> `sync_handler::handle_set_channel_*()`
 - `SetNickname` / `SetTwitchUsername` -> `sync_handler::handle_set_*()`
+- `RequestPublicChannels` -> inline: if member, emit from local state; else join WS room as guest + broadcast `PublicChannelListRequest`.
+- `RequestPublicChannelSync` -> inline: if member, serve from local DB; else broadcast `PublicChannelSyncRequest` to room.
+- `LeaveGuestRoom` -> inline: remove from `guest_rooms`, send `WsCommand::LeaveRoom`.
 - `RequestChannelSync` -> `sync_handler::handle_request_channel_sync()`
 - `UpdateChannelLayout` -> `sync_handler::handle_update_channel_layout()`
 - `PinMessage` / `UnpinMessage` -> `sync_handler::handle_*_message()`
@@ -283,6 +287,15 @@ These are handled directly in `handle_incoming_request()`:
 - `StatusUpdate` — emits PeerStatusChanged.
 - `ProfileUpdate` — validates sizes, decodes avatar/banner base64, saves to DB, updates server member display names, emits ProfileUpdated.
 - `PeerDisconnecting` ��� emits PeerDisconnected.
+
+**Public channel messages (plaintext, no MLS):**
+- `PublicChannelMessage` / `PublicChannelEdit` / `PublicChannelDelete` / `PublicChannelAddReaction` / `PublicChannelRemoveReaction` — skip-if-self, delegate to existing `message_ops::handle_envelope_*()` functions. Broadcast via SendToRoom (received by members AND guests).
+
+**Guest sync (public channels):**
+- `PublicChannelListRequest` — member responds with `PublicChannelListResponse` listing public text channels. Uses `send_message_to_peer()` for targeted response.
+- `PublicChannelListResponse` — guest-side: guards with `guest_rooms.contains()`, emits `PublicChannelListReceived`.
+- `PublicChannelSyncRequest` — member verifies `is_channel_public()`, rate-limits via `channel_sync_sent`, serves 50-msg paginated history with reactions + file metadata. Targeted response.
+- `PublicChannelSyncResponse` — guest-side: converts `SyncMessageItem` to `GuestSyncMessageFfi`, emits `PublicChannelSyncReceived`.
 
 **File transfer:**
 - `FileRequest` — reads file from disk, AES-encrypts, sends FileHeader + streams data.
