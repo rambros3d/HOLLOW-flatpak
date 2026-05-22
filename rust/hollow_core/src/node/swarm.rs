@@ -679,10 +679,16 @@ async fn run_event_loop(
                                 })
                                 .collect();
                             hollow_log!("[HOLLOW-GUEST] Emitting {} public channels from local state", channels.len());
+                            let local_avatar = state.settings.get("server_avatar")
+                                .map(|reg| reg.read().clone())
+                                .and_then(|b64| if b64.is_empty() { None } else {
+                                    base64::engine::general_purpose::STANDARD.decode(&b64).ok()
+                                });
                             let _ = event_tx.send(NetworkEvent::PublicChannelListReceived {
                                 server_id: server_id.clone(),
                                 server_name: state.name().to_string(),
                                 channels,
+                                server_avatar: local_avatar,
                             }).await;
                         } else {
                             hollow_log!("[HOLLOW-GUEST] Not a member, joining room as guest: {server_id}");
@@ -1314,6 +1320,21 @@ async fn run_event_loop(
                                         });
                                     }
                                 }
+                            }
+                        }
+                        // Re-join guest rooms for public channel browsing.
+                        for guest_sid in guest_rooms.iter() {
+                            let _ = ws_cmd_tx.send(super::ws_client::WsCommand::JoinRoom {
+                                room_code: guest_sid.clone(),
+                            });
+                            let msg = HavenMessage::PublicChannelListRequest {
+                                server_id: guest_sid.clone(),
+                            };
+                            if let Ok(data) = serde_json::to_vec(&msg) {
+                                let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendToRoom {
+                                    room_code: guest_sid.clone(),
+                                    data,
+                                });
                             }
                         }
                         // Verify local shard integrity on startup.
@@ -6525,10 +6546,14 @@ async fn handle_incoming_request(
                     })
                     .collect();
                 if !channels.is_empty() {
+                    let avatar_b64 = state.settings.get("server_avatar")
+                        .map(|reg| reg.read().clone())
+                        .unwrap_or_default();
                     let resp = HavenMessage::PublicChannelListResponse {
                         server_id: server_id.clone(),
                         server_name: state.name().to_string(),
                         channels,
+                        server_avatar_b64: avatar_b64,
                     };
                     send_message_to_peer(ws_cmd_tx, ws_room_peers, peer_str, resp);
                 }
@@ -6551,7 +6576,8 @@ async fn handle_incoming_request(
                     let messages_result = if let Some(before_ts) = before_timestamp {
                         store.get_channel_messages_before(&server_id, &channel_id, before_ts, limit)
                     } else {
-                        store.get_channel_messages_since(&server_id, &channel_id, 0, limit)
+                        // Initial request: get the latest messages (not oldest).
+                        store.get_channel_messages_before(&server_id, &channel_id, i64::MAX, limit)
                     };
                     if let Ok(msgs) = messages_result {
                         let has_more = msgs.len() as i32 >= limit;
@@ -6610,7 +6636,7 @@ async fn handle_incoming_request(
             }
         }
 
-        HavenMessage::PublicChannelListResponse { server_id, server_name, channels } => {
+        HavenMessage::PublicChannelListResponse { server_id, server_name, channels, server_avatar_b64 } => {
             if peer_str == local_peer_str { return; }
             if !guest_rooms.contains(&server_id) { return; }
             let entries: Vec<PublicChannelEntryFfi> = channels.into_iter()
@@ -6620,8 +6646,13 @@ async fn handle_incoming_request(
                     category: c.category,
                 })
                 .collect();
+            let server_avatar = if server_avatar_b64.is_empty() {
+                None
+            } else {
+                base64::engine::general_purpose::STANDARD.decode(&server_avatar_b64).ok()
+            };
             let _ = event_tx.send(NetworkEvent::PublicChannelListReceived {
-                server_id, server_name, channels: entries,
+                server_id, server_name, channels: entries, server_avatar,
             }).await;
         }
 

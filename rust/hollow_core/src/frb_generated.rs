@@ -8800,10 +8800,12 @@ impl SseDecode for crate::api::network::NetworkEvent {
                 let mut var_serverName = <String>::sse_decode(deserializer);
                 let mut var_channels =
                     <Vec<crate::api::network::PublicChannelEntryFfi>>::sse_decode(deserializer);
+                let mut var_serverAvatar = <Option<Vec<u8>>>::sse_decode(deserializer);
                 return crate::api::network::NetworkEvent::PublicChannelListReceived {
                     server_id: var_serverId,
                     server_name: var_serverName,
                     channels: var_channels,
+                    server_avatar: var_serverAvatar,
                 };
             }
             103 => {
@@ -11356,11 +11358,13 @@ impl flutter_rust_bridge::IntoDart for crate::api::network::NetworkEvent {
                 server_id,
                 server_name,
                 channels,
+                server_avatar,
             } => [
                 102.into_dart(),
                 server_id.into_into_dart().into_dart(),
                 server_name.into_into_dart().into_dart(),
                 channels.into_into_dart().into_dart(),
+                server_avatar.into_into_dart().into_dart(),
             ]
             .into_dart(),
             crate::api::network::NetworkEvent::PublicChannelSyncReceived {
@@ -13393,11 +13397,13 @@ impl SseEncode for crate::api::network::NetworkEvent {
                 server_id,
                 server_name,
                 channels,
+                server_avatar,
             } => {
                 <i32>::sse_encode(102, serializer);
                 <String>::sse_encode(server_id, serializer);
                 <String>::sse_encode(server_name, serializer);
                 <Vec<crate::api::network::PublicChannelEntryFfi>>::sse_encode(channels, serializer);
+                <Option<Vec<u8>>>::sse_encode(server_avatar, serializer);
             }
             crate::api::network::NetworkEvent::PublicChannelSyncReceived {
                 server_id,

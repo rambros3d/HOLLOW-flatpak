@@ -81,7 +81,7 @@ import 'package:hollow/src/ui/shell/mobile_nav.dart';
 import 'package:hollow/src/ui/mobile/mobile_shell.dart';
 import 'package:hollow/src/ui/shell/server_strip.dart';
 import 'package:hollow/src/core/providers/guest_provider.dart';
-import 'package:hollow/src/ui/guest/guest_viewer.dart';
+import 'package:hollow/src/ui/guest/public_channel_browser.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -850,6 +850,7 @@ class _HollowShellState extends ConsumerState<HollowShell>
       dockMode: dockMode,
       showUserBar: !dockMode,
       onPeerSelected: (peerId) {
+        ref.read(guestTabOpenProvider.notifier).state = false;
         ref.read(shareTabOpenProvider.notifier).state = false;
         ref.read(archiveTabOpenProvider.notifier).state = false;
         ref.read(selectedPeerProvider.notifier).state = peerId;
@@ -1013,10 +1014,10 @@ class _HollowShellState extends ConsumerState<HollowShell>
     required String? selectedChannelId,
     required Map<String, ChannelInfo> channels,
   }) {
-    // Guest viewer
-    final guestServerId = ref.watch(guestServerIdProvider);
-    if (guestServerId != null) {
-      return const GuestViewer();
+    // Public channel browser
+    final guestOpen = ref.watch(guestTabOpenProvider);
+    if (guestOpen) {
+      return const PublicChannelBrowser();
     }
 
     // Share tab view
@@ -1241,7 +1242,8 @@ class _HollowShellState extends ConsumerState<HollowShell>
                           },
                           child: Container(
                             key: ValueKey(
-                                ref.watch(shareTabOpenProvider) ? 'share'
+                                ref.watch(guestTabOpenProvider) ? 'guest'
+                                    : ref.watch(shareTabOpenProvider) ? 'share'
                                     : ref.watch(archiveTabOpenProvider) ? 'archive'
                                     : settingsOpen && selectedServer != null
                                     ? 'settings-${selectedServer.serverId}'
@@ -1426,7 +1428,9 @@ class _HollowShellState extends ConsumerState<HollowShell>
                                     );
                                   },
                                   child: Container(
-                                    key: ValueKey(ref.watch(shareTabOpenProvider)
+                                    key: ValueKey(ref.watch(guestTabOpenProvider)
+                                        ? 'guest'
+                                        : ref.watch(shareTabOpenProvider)
                                         ? 'share'
                                         : ref.watch(archiveTabOpenProvider)
                                         ? 'archive'

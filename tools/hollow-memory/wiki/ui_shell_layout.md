@@ -284,7 +284,7 @@ Registered globally on `HardwareKeyboard.instance` (not focus-dependent). Regist
 
 `_buildChatOrEmpty()` determines what to show in the main chat area. Resolution order:
 
-1. `guestServerIdProvider != null` → `GuestViewer` (public channel guest browser, top priority)
+1. `guestTabOpenProvider == true` → `PublicChannelBrowser` (public channel browser panel)
 2. `shareTabOpenProvider == true` → `ShareDashboard`
 3. `archiveTabOpenProvider == true` → `ArchiveDashboard`
 3. `selectedChannelId != null`:

@@ -4,6 +4,7 @@ import 'package:hollow/src/core/models/node_status.dart';
 import 'package:hollow/src/core/providers/event_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/providers/service_providers.dart';
+import 'package:hollow/src/core/providers/guest_provider.dart';
 import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 
 /// Node state: status + last error.
@@ -53,6 +54,9 @@ class NodeNotifier extends Notifier<NodeState> {
       // Stale files (reset above) will be picked up by _requestMissingFiles()
       // when SyncCompleted/MessageSyncCompleted events fire from peer connections.
       ref.read(eventStreamProvider.notifier).start();
+
+      // Auto-join saved guest rooms (realtime + onLaunch).
+      autoJoinGuestRooms(ref);
     } catch (e) {
       debugPrint('[HOLLOW] Node start error: $e');
       state = state.copyWith(status: NodeStatus.error, error: e.toString());

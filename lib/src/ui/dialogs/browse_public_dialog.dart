@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hollow/src/core/providers/channel_chat_provider.dart';
 import 'package:hollow/src/core/providers/guest_provider.dart';
+import 'package:hollow/src/core/providers/archive_provider.dart';
+import 'package:hollow/src/core/providers/channel_provider.dart';
+import 'package:hollow/src/core/providers/selected_peer_provider.dart';
+import 'package:hollow/src/core/providers/server_provider.dart';
+import 'package:hollow/src/core/providers/share_tab_provider.dart';
+import 'package:hollow/src/core/providers/split_view_provider.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:hollow/src/theme/hollow_spacing.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
@@ -89,10 +94,6 @@ void _browse(
   final input = controller.text.trim();
   if (input.isEmpty) return;
 
-  // Parse server ID from various invite formats:
-  // - Raw hex ID: d847d4f67412fa0033aa125913565f8d
-  // - Path-based: hollow://join/d847d4f6...
-  // - Query-based: https://example.com/join?server=d847d4f6...
   String serverId = input;
   final serverParam = Uri.tryParse(input)?.queryParameters['server'];
   if (serverParam != null && serverParam.isNotEmpty) {
@@ -101,20 +102,32 @@ void _browse(
     serverId = input.split('/').last;
   }
 
-  // Clear any existing guest state
-  final existingGuest = ref.read(guestServerIdProvider);
-  if (existingGuest != null) {
-    crdt_api.leaveGuestRoom(serverId: existingGuest);
-    ref.read(channelChatProvider.notifier).clearGuestServer(existingGuest);
-  }
+  // Add to saved servers (default realtime, or manual if cap reached).
+  final notifier = ref.read(savedGuestServersProvider.notifier);
+  final realtimeCount = notifier.realtimeCount;
+  final mode = realtimeCount >= 7
+      ? GuestFetchMode.manual
+      : GuestFetchMode.realtime;
+  notifier.addServer(serverId, '', mode);
 
-  ref.read(guestServerIdProvider.notifier).state = serverId;
-  ref.read(guestServerNameProvider.notifier).state = '';
-  ref.read(guestChannelListProvider.notifier).clear();
-  ref.read(guestSelectedChannelProvider.notifier).state = null;
-  ref.read(guestLoadingProvider.notifier).state = true;
-  ref.read(guestHasMoreProvider.notifier).state = false;
+  // Open the guest panel and expand this server.
+  final split = ref.read(splitViewProvider);
+  if (split.isSplit) ref.read(splitViewProvider.notifier).closeSplit();
+  ref.read(guestTabOpenProvider.notifier).state = true;
+  ref.read(shareTabOpenProvider.notifier).state = false;
+  ref.read(archiveTabOpenProvider.notifier).state = false;
+  ref.read(selectedServerProvider.notifier).state = null;
+  ref.read(channelListProvider.notifier).clear();
+  ref.read(selectedChannelProvider.notifier).state = null;
+  ref.read(selectedPeerProvider.notifier).state = null;
+  ref.read(serverSettingsOpenProvider.notifier).state = false;
+  ref.read(guestExpandedServerProvider.notifier).state = serverId;
+  ref.read(guestSelectedServerProvider.notifier).state = serverId;
 
+  // Request channels.
+  final loading = Set<String>.from(ref.read(guestLoadingProvider));
+  loading.add(serverId);
+  ref.read(guestLoadingProvider.notifier).state = loading;
   crdt_api.requestPublicChannels(serverId: serverId);
 
   Navigator.pop(context);

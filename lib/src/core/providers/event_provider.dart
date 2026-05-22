@@ -1119,10 +1119,16 @@ class EventStreamNotifier extends Notifier<bool> {
 
       // -- Guest sync events (Public Channels Phase 3) --
       case NetworkEvent_PublicChannelListReceived(
-            :final serverId, :final serverName, :final channels):
+            :final serverId, :final serverName, :final channels, :final serverAvatar):
         debugPrint('[HOLLOW] Guest: received ${channels.length} public channels for $serverName ($serverId)');
-        ref.read(guestServerNameProvider.notifier).state = serverName;
-        ref.read(guestChannelListProvider.notifier).setChannels(
+        ref.read(savedGuestServersProvider.notifier).updateServerName(serverId, serverName);
+        if (serverAvatar != null && serverAvatar.isNotEmpty) {
+          final avatarMap = Map<String, List<int>>.from(ref.read(guestServerAvatarProvider));
+          avatarMap[serverId] = serverAvatar;
+          ref.read(guestServerAvatarProvider.notifier).state = avatarMap;
+        }
+        ref.read(guestChannelMapProvider.notifier).setChannels(
+          serverId,
           channels
               .map((c) => GuestChannelEntry(
                     channelId: c.channelId,
@@ -1131,12 +1137,16 @@ class EventStreamNotifier extends Notifier<bool> {
                   ))
               .toList(),
         );
-        ref.read(guestLoadingProvider.notifier).state = false;
+        final guestLoading = Set<String>.from(ref.read(guestLoadingProvider));
+        guestLoading.remove(serverId);
+        ref.read(guestLoadingProvider.notifier).state = guestLoading;
 
       case NetworkEvent_PublicChannelSyncReceived(
             :final serverId, :final channelId, :final messages, :final hasMore):
         debugPrint('[HOLLOW] Guest: received ${messages.length} messages for $channelId in $serverId');
-        ref.read(guestHasMoreProvider.notifier).state = hasMore;
+        final guestHasMoreMap = Map<String, bool>.from(ref.read(guestHasMoreProvider));
+        guestHasMoreMap['$serverId:$channelId'] = hasMore;
+        ref.read(guestHasMoreProvider.notifier).state = guestHasMoreMap;
         final chatMessages = messages.map((m) {
           final reactions = <String, List<String>>{};
           for (final r in m.reactions) {

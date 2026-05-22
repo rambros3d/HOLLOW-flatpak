@@ -8641,6 +8641,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           serverId: dco_decode_String(raw[1]),
           serverName: dco_decode_String(raw[2]),
           channels: dco_decode_list_public_channel_entry_ffi(raw[3]),
+          serverAvatar: dco_decode_opt_list_prim_u_8_strict(raw[4]),
         );
       case 103:
         return NetworkEvent_PublicChannelSyncReceived(
@@ -10881,10 +10882,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         var var_channels = sse_decode_list_public_channel_entry_ffi(
           deserializer,
         );
+        var var_serverAvatar = sse_decode_opt_list_prim_u_8_strict(
+          deserializer,
+        );
         return NetworkEvent_PublicChannelListReceived(
           serverId: var_serverId,
           serverName: var_serverName,
           channels: var_channels,
+          serverAvatar: var_serverAvatar,
         );
       case 103:
         var var_serverId = sse_decode_String(deserializer);
@@ -13137,11 +13142,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         serverId: final serverId,
         serverName: final serverName,
         channels: final channels,
+        serverAvatar: final serverAvatar,
       ):
         sse_encode_i_32(102, serializer);
         sse_encode_String(serverId, serializer);
         sse_encode_String(serverName, serializer);
         sse_encode_list_public_channel_entry_ffi(channels, serializer);
+        sse_encode_opt_list_prim_u_8_strict(serverAvatar, serializer);
       case NetworkEvent_PublicChannelSyncReceived(
         serverId: final serverId,
         channelId: final channelId,

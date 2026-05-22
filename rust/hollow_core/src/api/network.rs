@@ -304,7 +304,7 @@ pub enum NetworkEvent {
     RoomBudgetUpdate { joined: u32, limit: u32 },
     RoomCapHit { room: String },
     // -- Guest sync events (Public Channels Phase 3) --
-    PublicChannelListReceived { server_id: String, server_name: String, channels: Vec<PublicChannelEntryFfi> },
+    PublicChannelListReceived { server_id: String, server_name: String, channels: Vec<PublicChannelEntryFfi>, server_avatar: Option<Vec<u8>> },
     PublicChannelSyncReceived { server_id: String, channel_id: String, messages: Vec<GuestSyncMessageFfi>, has_more: bool },
 }
 
@@ -901,7 +901,7 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
             NetworkEvent::RoomCapHit { room }
         }
         // -- Guest sync events (Public Channels Phase 3) --
-        node::NetworkEvent::PublicChannelListReceived { server_id, server_name, channels } => {
+        node::NetworkEvent::PublicChannelListReceived { server_id, server_name, channels, server_avatar } => {
             NetworkEvent::PublicChannelListReceived {
                 server_id, server_name,
                 channels: channels.into_iter().map(|c| PublicChannelEntryFfi {
@@ -909,6 +909,7 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
                     name: c.name,
                     category: c.category,
                 }).collect(),
+                server_avatar,
             }
         }
         node::NetworkEvent::PublicChannelSyncReceived { server_id, channel_id, messages, has_more } => {

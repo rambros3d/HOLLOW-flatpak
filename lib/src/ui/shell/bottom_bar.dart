@@ -29,7 +29,6 @@ import 'package:hollow/src/ui/components/download_icon_button.dart';
 import 'package:hollow/src/ui/components/server_folder_popup.dart';
 import 'package:hollow/src/ui/components/profile_card_popup.dart';
 import 'package:hollow/src/ui/components/status_dot.dart';
-import 'package:hollow/src/ui/dialogs/browse_public_dialog.dart';
 import 'package:hollow/src/ui/dialogs/create_server_dialog.dart';
 import 'package:hollow/src/ui/dialogs/mnemonic_dialog.dart';
 import 'package:hollow/src/ui/dialogs/user_settings_dialog.dart';
@@ -297,18 +296,24 @@ class _BottomBarState extends ConsumerState<BottomBar> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Builder(builder: (ctx) {
-                  final guestActive = ref.watch(guestServerIdProvider) != null;
+                  final guestOpen = ref.watch(guestTabOpenProvider);
                   return HollowTooltip(
                     message: 'Browse Public Channels',
                     child: HollowPressable(
-                      onTap: () => showBrowsePublicDialog(ctx, ref),
+                      onTap: () {
+                        if (guestOpen) {
+                          ref.read(guestTabOpenProvider.notifier).state = false;
+                        } else {
+                          _openGuestPanel(ref);
+                        }
+                      },
                       borderRadius:
                           BorderRadius.circular(hollow.radiusSm),
                       padding: const EdgeInsets.all(HollowSpacing.xs),
                       child: Icon(
                         LucideIcons.globe,
                         size: 18,
-                        color: guestActive
+                        color: guestOpen
                             ? hollow.accent
                             : hollow.textSecondary,
                       ),
@@ -391,6 +396,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
     if (split.isSplit) {
       ref.read(splitViewProvider.notifier).closeSplit();
     }
+    ref.read(guestTabOpenProvider.notifier).state = false;
     ref.read(archiveTabOpenProvider.notifier).state = false;
     ref.read(shareTabOpenProvider.notifier).state = false;
     ref.read(selectedServerProvider.notifier).state = null;
@@ -406,6 +412,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
       ref.read(splitViewProvider.notifier).closeSplit();
     }
     ref.read(shareTabOpenProvider.notifier).state = true;
+    ref.read(guestTabOpenProvider.notifier).state = false;
     ref.read(archiveTabOpenProvider.notifier).state = false;
     ref.read(selectedServerProvider.notifier).state = null;
     ref.read(channelListProvider.notifier).clear();
@@ -424,7 +431,23 @@ class _BottomBarState extends ConsumerState<BottomBar> {
     ref.read(archiveSelectedDmProvider.notifier).state = null;
     ref.read(archiveSelectedChannelProvider.notifier).state = null;
     ref.read(archiveTabOpenProvider.notifier).state = true;
+    ref.read(guestTabOpenProvider.notifier).state = false;
     ref.read(shareTabOpenProvider.notifier).state = false;
+    ref.read(selectedServerProvider.notifier).state = null;
+    ref.read(channelListProvider.notifier).clear();
+    ref.read(selectedChannelProvider.notifier).state = null;
+    ref.read(selectedPeerProvider.notifier).state = null;
+    ref.read(serverSettingsOpenProvider.notifier).state = false;
+  }
+
+  void _openGuestPanel(WidgetRef ref) {
+    final split = ref.read(splitViewProvider);
+    if (split.isSplit) {
+      ref.read(splitViewProvider.notifier).closeSplit();
+    }
+    ref.read(guestTabOpenProvider.notifier).state = true;
+    ref.read(shareTabOpenProvider.notifier).state = false;
+    ref.read(archiveTabOpenProvider.notifier).state = false;
     ref.read(selectedServerProvider.notifier).state = null;
     ref.read(channelListProvider.notifier).clear();
     ref.read(selectedChannelProvider.notifier).state = null;
@@ -480,6 +503,7 @@ class _BottomBarState extends ConsumerState<BottomBar> {
 
     // Batch all provider writes synchronously — single rebuild with
     // consistent server + channels + selectedChannel state.
+    ref.read(guestTabOpenProvider.notifier).state = false;
     ref.read(archiveTabOpenProvider.notifier).state = false;
     ref.read(shareTabOpenProvider.notifier).state = false;
     ref.read(selectedPeerProvider.notifier).state = null;

@@ -1059,3 +1059,37 @@ State is null when no recovery pool is active.
 **`clear()`** -- Sets state to null.
 
 The recovery pool is also fed by `NetworkEvent_VaultDownloadComplete` in the event provider, which bridges vault reconstruction to the pool when it is active for the same server.
+
+## Guest / Public Channel Browser Providers
+
+File: `lib/src/core/providers/guest_provider.dart`
+
+Providers managing the Public Channel Browser panel — a first-class shell panel (like Share/Archive) for browsing public channels on servers you're not a member of.
+
+### Panel & Selection State
+
+**`guestTabOpenProvider`** -- `StateProvider<bool>`, default `false`. Controls panel visibility. Cleared by `_goHome`, `_selectServer`, `_openShare`, `_openArchive`, `_selectFriend`.
+
+**`guestExpandedServerProvider`** -- `StateProvider<String?>`. Which server is expanded in the accordion sidebar.
+
+**`guestSelectedServerProvider`** -- `StateProvider<String?>`. Which server's channel is currently viewed.
+
+**`guestSelectedChannelProvider`** -- `StateProvider<String?>`. Which channel is displayed in the chat pane.
+
+### Per-Server/Channel State
+
+**`guestChannelMapProvider`** -- `StateNotifierProvider<GuestChannelMapNotifier, Map<String, List<GuestChannelEntry>>>`. Per-server channel lists (key: serverId). Updated by `PublicChannelListReceived` event.
+
+**`guestHasMoreProvider`** -- `StateProvider<Map<String, bool>>`. Per-channel pagination flag (key: `serverId:channelId`). Updated by `PublicChannelSyncReceived` event.
+
+**`guestLoadingProvider`** -- `StateProvider<Set<String>>`. Server IDs currently loading channel lists.
+
+**`guestServerAvatarProvider`** -- `StateProvider<Map<String, List<int>>>`. Server avatar bytes received from `PublicChannelListResponse`.
+
+### Persistence
+
+**`savedGuestServersProvider`** -- `AsyncNotifierProvider<SavedGuestServersNotifier, List<SavedGuestServer>>`. DB-backed via `app_settings` JSON key `guest_saved_servers`. Model: `SavedGuestServer { serverId, serverName, fetchMode, savedAt }`. Fetch modes: `GuestFetchMode.realtime` (max 7), `onLaunch`, `manual`, `periodic5m/15m/30m/1h`. Methods: `addServer`, `removeServer`, `updateFetchMode`, `updateServerName`.
+
+### Startup
+
+`autoJoinGuestRooms(ref)` -- called from `node_provider.dart` after `eventStreamProvider.start()`. Joins WS rooms for all saved servers with `realtime` or `onLaunch` fetch mode.
