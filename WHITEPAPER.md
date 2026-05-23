@@ -1,7 +1,8 @@
 # Hollow Protocol Whitepaper
 
 **Version 0.4.0**\
-**Author: AnonListen**
+**Author: AnonListen**\
+*This document was generated with the assistance of Claude (AI). All technical content reflects the author's architecture and design decisions.*
 
 ---
 
@@ -1099,4 +1100,4 @@ The relay operator is **not trusted** with: message contents, encryption keys, f
 
 ---
 
-*This document describes the Hollow protocol as implemented in the Alpha release. The protocol is subject to change. The relay server is open-source under the MIT License. The client application is open-source under the GNU Affero General Public License v3.0 (AGPL-3.0).*
+*This document describes the Hollow protocol as implemented in the Alpha release. The protocol is subject to change. Check the GitHub repository for the latest updates. The relay server is open-source under the MIT License. The client application is open-source under the GNU Affero General Public License v3.0 (AGPL-3.0).*

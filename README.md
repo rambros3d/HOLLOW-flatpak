@@ -61,11 +61,12 @@ Your identity is a cryptographic keypair. Zero registrations. One recovery phras
 |----------|------|
 | Windows | [Download latest release](https://hollow.anonlisten.com) |
 | macOS | In progress |
-| Linux | Coming soon |
+| Linux | In progress |
 | Android | In progress |
 | iOS | In progress |
 | Web | Not planned |
 
+Current Progress: MacOS/Linux is almost up-and-running but with certain limitations (no auto-updater/native audio capturer). Android/iOS still has some work to do. You can track the mobile port progress in the report [here.](reports/FEATURE_MATRIX.md)
 ## Tech Stack
 
 | Layer | Technology |
