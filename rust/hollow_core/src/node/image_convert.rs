@@ -689,6 +689,19 @@ pub fn process_avatar_image(data: &[u8]) -> Result<Vec<u8>, String> {
     Ok(buf)
 }
 
+/// Resize an existing avatar to a 64x64 thumbnail for public channel sync responses.
+pub fn process_sync_avatar(data: &[u8]) -> Result<Vec<u8>, String> {
+    let img = image::load_from_memory(data)
+        .map_err(|e| format!("Failed to decode avatar for sync: {e}"))?;
+    let resized = img.resize_exact(64, 64, FilterType::Lanczos3);
+    let mut buf = Vec::new();
+    let mut cursor = std::io::Cursor::new(&mut buf);
+    resized
+        .write_to(&mut cursor, ImageFormat::WebP)
+        .map_err(|e| format!("Failed to encode sync avatar: {e}"))?;
+    Ok(buf)
+}
+
 /// Process a raw image into banner format: center-crop to 3:1 aspect, resize to 600x200, encode as WebP.
 /// Accepts any image — crops the widest 3:1 region it can find, or stretches if very small.
 pub fn process_banner_image(data: &[u8]) -> Result<Vec<u8>, String> {

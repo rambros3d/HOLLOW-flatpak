@@ -235,6 +235,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<StoredReaction> dco_decode_list_stored_reaction(dynamic raw);
 
   @protected
+  List<SyncSenderProfileFfi> dco_decode_list_sync_sender_profile_ffi(
+    dynamic raw,
+  );
+
+  @protected
   List<UserProfile> dco_decode_list_user_profile(dynamic raw);
 
   @protected
@@ -314,6 +319,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   StoredReaction dco_decode_stored_reaction(dynamic raw);
+
+  @protected
+  SyncSenderProfileFfi dco_decode_sync_sender_profile_ffi(dynamic raw);
 
   @protected
   TwitchDeviceFlowResult dco_decode_twitch_device_flow_result(dynamic raw);
@@ -603,6 +611,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<SyncSenderProfileFfi> sse_decode_list_sync_sender_profile_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<UserProfile> sse_decode_list_user_profile(SseDeserializer deserializer);
 
   @protected
@@ -704,6 +717,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   StoredReaction sse_decode_stored_reaction(SseDeserializer deserializer);
+
+  @protected
+  SyncSenderProfileFfi sse_decode_sync_sender_profile_ffi(
+    SseDeserializer deserializer,
+  );
 
   @protected
   TwitchDeviceFlowResult sse_decode_twitch_device_flow_result(
@@ -1084,6 +1102,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_sync_sender_profile_ffi(
+    List<SyncSenderProfileFfi> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_user_profile(
     List<UserProfile> self,
     SseSerializer serializer,
@@ -1215,6 +1239,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_stored_reaction(
     StoredReaction self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_sync_sender_profile_ffi(
+    SyncSenderProfileFfi self,
     SseSerializer serializer,
   );
 

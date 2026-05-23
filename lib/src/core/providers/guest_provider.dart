@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
@@ -86,6 +87,13 @@ class GuestChannelEntry {
   });
 }
 
+class GuestSenderProfile {
+  final String name;
+  final Uint8List? avatar;
+
+  const GuestSenderProfile({required this.name, this.avatar});
+}
+
 // ── Providers ──
 
 /// Panel visibility — mirrors shareTabOpenProvider / archiveTabOpenProvider.
@@ -115,6 +123,9 @@ final guestLoadingProvider = StateProvider<Set<String>>((ref) => {});
 /// Server avatars received from guest sync (key: serverId, value: image bytes).
 final guestServerAvatarProvider = StateProvider<Map<String, List<int>>>((ref) => {});
 
+/// Guest sender profiles keyed by peer ID (populated from sync responses).
+final guestSenderProfilesProvider = StateProvider<Map<String, GuestSenderProfile>>((ref) => {});
+
 /// DB-backed saved server list.
 final savedGuestServersProvider = AsyncNotifierProvider<
     SavedGuestServersNotifier, List<SavedGuestServer>>(
@@ -129,6 +140,18 @@ class GuestChannelMapNotifier
 
   void setChannels(String serverId, List<GuestChannelEntry> channels) {
     state = {...state, serverId: channels};
+  }
+
+  void addChannel(String serverId, GuestChannelEntry channel) {
+    final channels = state[serverId] ?? [];
+    if (channels.any((c) => c.channelId == channel.channelId)) return;
+    state = {...state, serverId: [...channels, channel]};
+  }
+
+  void removeChannel(String serverId, String channelId) {
+    final channels = state[serverId];
+    if (channels == null) return;
+    state = {...state, serverId: channels.where((c) => c.channelId != channelId).toList()};
   }
 
   void removeServer(String serverId) {

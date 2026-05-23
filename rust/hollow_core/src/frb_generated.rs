@@ -7701,6 +7701,20 @@ impl SseDecode for Vec<crate::api::storage::StoredReaction> {
     }
 }
 
+impl SseDecode for Vec<crate::api::network::SyncSenderProfileFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::network::SyncSenderProfileFfi>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::storage::UserProfile> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -8814,11 +8828,28 @@ impl SseDecode for crate::api::network::NetworkEvent {
                 let mut var_messages =
                     <Vec<crate::api::network::GuestSyncMessageFfi>>::sse_decode(deserializer);
                 let mut var_hasMore = <bool>::sse_decode(deserializer);
+                let mut var_senderProfiles =
+                    <Vec<crate::api::network::SyncSenderProfileFfi>>::sse_decode(deserializer);
                 return crate::api::network::NetworkEvent::PublicChannelSyncReceived {
                     server_id: var_serverId,
                     channel_id: var_channelId,
                     messages: var_messages,
                     has_more: var_hasMore,
+                    sender_profiles: var_senderProfiles,
+                };
+            }
+            104 => {
+                let mut var_serverId = <String>::sse_decode(deserializer);
+                let mut var_channelId = <String>::sse_decode(deserializer);
+                let mut var_isPublic = <bool>::sse_decode(deserializer);
+                let mut var_channelName = <String>::sse_decode(deserializer);
+                let mut var_category = <Option<String>>::sse_decode(deserializer);
+                return crate::api::network::NetworkEvent::PublicChannelConfigChanged {
+                    server_id: var_serverId,
+                    channel_id: var_channelId,
+                    is_public: var_isPublic,
+                    channel_name: var_channelName,
+                    category: var_category,
                 };
             }
             _ => {
@@ -9246,6 +9277,20 @@ impl SseDecode for crate::api::storage::StoredReaction {
             emoji: var_emoji,
             peer_id: var_peerId,
             added_at: var_addedAt,
+        };
+    }
+}
+
+impl SseDecode for crate::api::network::SyncSenderProfileFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_peerId = <String>::sse_decode(deserializer);
+        let mut var_name = <Option<String>>::sse_decode(deserializer);
+        let mut var_avatar = <Option<Vec<u8>>>::sse_decode(deserializer);
+        return crate::api::network::SyncSenderProfileFfi {
+            peer_id: var_peerId,
+            name: var_name,
+            avatar: var_avatar,
         };
     }
 }
@@ -11372,12 +11417,29 @@ impl flutter_rust_bridge::IntoDart for crate::api::network::NetworkEvent {
                 channel_id,
                 messages,
                 has_more,
+                sender_profiles,
             } => [
                 103.into_dart(),
                 server_id.into_into_dart().into_dart(),
                 channel_id.into_into_dart().into_dart(),
                 messages.into_into_dart().into_dart(),
                 has_more.into_into_dart().into_dart(),
+                sender_profiles.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
+            crate::api::network::NetworkEvent::PublicChannelConfigChanged {
+                server_id,
+                channel_id,
+                is_public,
+                channel_name,
+                category,
+            } => [
+                104.into_dart(),
+                server_id.into_into_dart().into_dart(),
+                channel_id.into_into_dart().into_dart(),
+                is_public.into_into_dart().into_dart(),
+                channel_name.into_into_dart().into_dart(),
+                category.into_into_dart().into_dart(),
             ]
             .into_dart(),
             _ => {
@@ -11717,6 +11779,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::storage::StoredReaction>
     for crate::api::storage::StoredReaction
 {
     fn into_into_dart(self) -> crate::api::storage::StoredReaction {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::network::SyncSenderProfileFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.peer_id.into_into_dart().into_dart(),
+            self.name.into_into_dart().into_dart(),
+            self.avatar.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::network::SyncSenderProfileFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::network::SyncSenderProfileFfi>
+    for crate::api::network::SyncSenderProfileFfi
+{
+    fn into_into_dart(self) -> crate::api::network::SyncSenderProfileFfi {
         self
     }
 }
@@ -12409,6 +12493,16 @@ impl SseEncode for Vec<crate::api::storage::StoredReaction> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::storage::StoredReaction>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::network::SyncSenderProfileFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::network::SyncSenderProfileFfi>::sse_encode(item, serializer);
         }
     }
 }
@@ -13410,12 +13504,31 @@ impl SseEncode for crate::api::network::NetworkEvent {
                 channel_id,
                 messages,
                 has_more,
+                sender_profiles,
             } => {
                 <i32>::sse_encode(103, serializer);
                 <String>::sse_encode(server_id, serializer);
                 <String>::sse_encode(channel_id, serializer);
                 <Vec<crate::api::network::GuestSyncMessageFfi>>::sse_encode(messages, serializer);
                 <bool>::sse_encode(has_more, serializer);
+                <Vec<crate::api::network::SyncSenderProfileFfi>>::sse_encode(
+                    sender_profiles,
+                    serializer,
+                );
+            }
+            crate::api::network::NetworkEvent::PublicChannelConfigChanged {
+                server_id,
+                channel_id,
+                is_public,
+                channel_name,
+                category,
+            } => {
+                <i32>::sse_encode(104, serializer);
+                <String>::sse_encode(server_id, serializer);
+                <String>::sse_encode(channel_id, serializer);
+                <bool>::sse_encode(is_public, serializer);
+                <String>::sse_encode(channel_name, serializer);
+                <Option<String>>::sse_encode(category, serializer);
             }
             _ => {
                 unimplemented!("");
@@ -13699,6 +13812,15 @@ impl SseEncode for crate::api::storage::StoredReaction {
         <String>::sse_encode(self.emoji, serializer);
         <String>::sse_encode(self.peer_id, serializer);
         <i64>::sse_encode(self.added_at, serializer);
+    }
+}
+
+impl SseEncode for crate::api::network::SyncSenderProfileFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.peer_id, serializer);
+        <Option<String>>::sse_encode(self.name, serializer);
+        <Option<Vec<u8>>>::sse_encode(self.avatar, serializer);
     }
 }
 

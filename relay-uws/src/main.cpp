@@ -101,6 +101,26 @@ int main(int argc, char** argv) {
                 cleanup_stale_signaling(*s);
             }, 120000, 120000);
 
+            // Guest idle timeout timer (60s) — disconnect guests with no binary activity for 30 min
+            auto* guest_timer = us_create_timer(loop, 0, sizeof(RelayState*));
+            *reinterpret_cast<RelayState**>(us_timer_ext(guest_timer)) = &state;
+            us_timer_set(guest_timer, [](struct us_timer_t* t) {
+                auto* s = *reinterpret_cast<RelayState**>(us_timer_ext(t));
+                auto now = std::chrono::steady_clock::now();
+                std::vector<SSLWebSocket*> to_close;
+                for (auto* ws : s->guest_sockets) {
+                    auto* d = ws->getUserData();
+                    auto idle = std::chrono::duration_cast<std::chrono::seconds>(
+                        now - d->last_binary_activity).count();
+                    if (idle >= GUEST_IDLE_SECS) {
+                        to_close.push_back(ws);
+                    }
+                }
+                for (auto* ws : to_close) {
+                    ws->end(1008, "guest_idle");
+                }
+            }, 60000, 60000);
+
             // Shutdown check timer (1s)
             auto* shutdown_timer = us_create_timer(loop, 0, sizeof(void*));
             *reinterpret_cast<struct us_listen_socket_t**>(us_timer_ext(shutdown_timer)) = listen_socket;

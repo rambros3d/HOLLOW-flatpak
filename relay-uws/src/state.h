@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <deque>
 #include <unordered_map>
 #include <unordered_set>
 #include <chrono>
@@ -12,6 +13,13 @@
 // No soft backpressure — let uWebSockets buffer handle delivery.
 // Hard limit (.maxBackpressure = 64MB) catches truly dead connections.
 
+static constexpr size_t MAX_CONNS_PER_IP = 34;
+static constexpr size_t MAX_NEW_CONNS_PER_MIN_PER_IP = 10;
+static constexpr size_t MAX_GUEST_ROOMS = 3;
+static constexpr size_t MAX_GUESTS = 50000;
+static constexpr int GUEST_IDLE_SECS = 1800;
+static constexpr uint32_t GUEST_BINARY_PER_MIN = 10;
+
 using SSLWebSocket = uWS::WebSocket<true, true, struct PerSocketData>;
 
 struct PerSocketData {
@@ -19,6 +27,11 @@ struct PerSocketData {
     bool authenticated = false;
     struct us_timer_t* auth_timer = nullptr;
     std::string license_key;
+    bool is_guest = false;
+    std::string ip_key;
+    std::chrono::steady_clock::time_point last_binary_activity;
+    uint32_t binary_frames_this_minute = 0;
+    std::chrono::steady_clock::time_point minute_window_start;
 
     // Per-room channel subscriptions (room_code -> set of topic strings).
     // Empty set = wildcard (receive all messages for that room).
@@ -33,6 +46,11 @@ struct PeerEntry {
 
 struct WsRoom {
     std::unordered_map<std::string, SSLWebSocket*> peers;
+};
+
+struct IpState {
+    uint32_t active_count = 0;
+    std::deque<std::chrono::steady_clock::time_point> recent_connects;
 };
 
 struct ServerStatsCache {
@@ -62,6 +80,11 @@ struct RelayState {
 
     // peer_id -> WebSocket pointer (for license kicks + online count)
     std::unordered_map<std::string, SSLWebSocket*> peer_sockets;
+
+    // Per-IP connection tracking (in-memory only, never logged/persisted)
+    std::unordered_map<std::string, IpState> ip_states;
+    std::unordered_set<SSLWebSocket*> guest_sockets;
+    size_t guest_count = 0;
 
     LicenseState license;
     ServerStatsCache stats_cache;

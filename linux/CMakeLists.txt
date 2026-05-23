@@ -126,3 +126,10 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
+
+# Bundle .desktop file and icon for Linux desktop integration (Wayland + X11).
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/com.anonlisten.hollow.desktop"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+install(FILES "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}/assets/hollow_logo_rounded.png"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}" RENAME "com.anonlisten.hollow.png"
+  COMPONENT Runtime)

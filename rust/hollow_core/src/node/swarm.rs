@@ -735,9 +735,30 @@ async fn run_event_loop(
                                             reactions,
                                         }
                                     }).collect();
+                                    // Build sender profiles from local state
+                                    // Priority: server nickname > profile display name > nothing
+                                    let unique_senders: std::collections::HashSet<&str> = msgs.iter().map(|m| m.sender_id.as_str()).collect();
+                                    let mut ffi_profiles = Vec::new();
+                                    if let Some(state) = server_states.get(&server_id) {
+                                        for sender in &unique_senders {
+                                            let mut name = None;
+                                            let nickname = state.get_nickname(sender);
+                                            if !nickname.is_empty() {
+                                                name = Some(nickname);
+                                            } else if let Ok(Some(stored)) = store.load_profile_light(sender) {
+                                                if !stored.display_name.is_empty() {
+                                                    name = Some(stored.display_name);
+                                                }
+                                            }
+                                            let avatar = store.load_avatar(sender).ok().flatten().and_then(|bytes| {
+                                                crate::node::image_convert::process_sync_avatar(&bytes).ok()
+                                            });
+                                            ffi_profiles.push(SyncSenderProfileFfi { peer_id: sender.to_string(), name, avatar });
+                                        }
+                                    }
                                     hollow_log!("[HOLLOW-GUEST] Serving {} messages from local DB for {channel_id}", ffi_messages.len());
                                     let _ = event_tx.send(NetworkEvent::PublicChannelSyncReceived {
-                                        server_id, channel_id, messages: ffi_messages, has_more,
+                                        server_id, channel_id, messages: ffi_messages, has_more, sender_profiles: ffi_profiles,
                                     }).await;
                                 }
                             }
@@ -5111,6 +5132,27 @@ async fn handle_incoming_request(
                                 message_id: message_id.clone(),
                             }).await;
                         }
+                        CrdtPayload::ChannelPublicChanged { channel_id, is_public } => {
+                            let _ = event_tx.send(NetworkEvent::ServerUpdated {
+                                server_id: server_id.clone(),
+                            }).await;
+                            // Broadcast to room (including guests) so public channel browsers see the change
+                            if let Some(ch) = state.channels.get(channel_id) {
+                                let notify = HavenMessage::PublicChannelConfigChanged {
+                                    server_id: server_id.clone(),
+                                    channel_id: channel_id.clone(),
+                                    is_public: *is_public,
+                                    channel_name: ch.name.clone(),
+                                    category: ch.category.clone(),
+                                };
+                                if let Ok(data) = serde_json::to_vec(&notify) {
+                                    let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendToRoom {
+                                        room_code: server_id.clone(),
+                                        data,
+                                    });
+                                }
+                            }
+                        }
                         _ => {
                             // ServerRenamed, ServerSettingChanged, etc.
                             let _ = event_tx.send(NetworkEvent::ServerUpdated {
@@ -5807,6 +5849,7 @@ async fn handle_incoming_request(
                                     server_states, bundle_keypair, event_tx,
                                     sid, op_json,
                                     crdt_store,
+                                    ws_cmd_tx,
                                 ).await;
                             }
 
@@ -6624,11 +6667,36 @@ async fn handle_incoming_request(
                                 reactions,
                             }
                         }).collect();
+
+                        // Build sender profiles (one per unique sender)
+                        // Priority: server nickname > profile display name > nothing
+                        // Avatar: from local user_profiles DB (whatever we've cached from ProfileUpdated events)
+                        let unique_senders: std::collections::HashSet<&str> = items.iter().map(|m| m.s.as_str()).collect();
+                        let mut sender_profiles = std::collections::HashMap::new();
+                        for sender in &unique_senders {
+                            let mut profile = SyncSenderProfile { name: None, avatar_b64: None };
+                            let nickname = state.get_nickname(sender);
+                            if !nickname.is_empty() {
+                                profile.name = Some(nickname);
+                            } else if let Ok(Some(stored)) = store.load_profile_light(sender) {
+                                if !stored.display_name.is_empty() {
+                                    profile.name = Some(stored.display_name);
+                                }
+                            }
+                            if let Ok(Some(avatar_bytes)) = store.load_avatar(sender) {
+                                if let Ok(thumb) = crate::node::image_convert::process_sync_avatar(&avatar_bytes) {
+                                    profile.avatar_b64 = Some(base64::engine::general_purpose::STANDARD.encode(&thumb));
+                                }
+                            }
+                            sender_profiles.insert(sender.to_string(), profile);
+                        }
+
                         let resp = HavenMessage::PublicChannelSyncResponse {
                             server_id: server_id.clone(),
                             channel_id: channel_id.clone(),
                             messages: items,
                             has_more,
+                            sender_profiles,
                         };
                         send_message_to_peer(ws_cmd_tx, ws_room_peers, peer_str, resp);
                     }
@@ -6656,7 +6724,7 @@ async fn handle_incoming_request(
             }).await;
         }
 
-        HavenMessage::PublicChannelSyncResponse { server_id, channel_id, messages, has_more } => {
+        HavenMessage::PublicChannelSyncResponse { server_id, channel_id, messages, has_more, sender_profiles } => {
             if peer_str == local_peer_str { return; }
             if !guest_rooms.contains(&server_id) { return; }
             let ffi_messages: Vec<GuestSyncMessageFfi> = messages.into_iter()
@@ -6675,8 +6743,20 @@ async fn handle_incoming_request(
                     }).collect(),
                 })
                 .collect();
+            let ffi_profiles: Vec<SyncSenderProfileFfi> = sender_profiles.into_iter().map(|(pid, p)| {
+                let avatar = p.avatar_b64.and_then(|b64| base64::engine::general_purpose::STANDARD.decode(&b64).ok());
+                SyncSenderProfileFfi { peer_id: pid, name: p.name, avatar }
+            }).collect();
             let _ = event_tx.send(NetworkEvent::PublicChannelSyncReceived {
-                server_id, channel_id, messages: ffi_messages, has_more,
+                server_id, channel_id, messages: ffi_messages, has_more, sender_profiles: ffi_profiles,
+            }).await;
+        }
+
+        HavenMessage::PublicChannelConfigChanged { server_id, channel_id, is_public, channel_name, category } => {
+            if peer_str == local_peer_str { return; }
+            if !guest_rooms.contains(&server_id) { return; }
+            let _ = event_tx.send(NetworkEvent::PublicChannelConfigChanged {
+                server_id, channel_id, is_public, channel_name, category,
             }).await;
         }
 

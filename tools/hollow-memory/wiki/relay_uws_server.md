@@ -32,6 +32,17 @@ Reads CLI flags sequentially. `TURN_SECRET` is loaded from the environment varia
 
 ## state.h — Server State
 
+### Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `MAX_CONNS_PER_IP` | 34 | Max simultaneous WS connections per IP |
+| `MAX_NEW_CONNS_PER_MIN_PER_IP` | 10 | Max new connections per minute per IP (sliding window) |
+| `MAX_GUEST_ROOMS` | 3 | Max rooms a guest can join |
+| `MAX_GUESTS` | 50,000 | Global guest connection cap |
+| `GUEST_IDLE_SECS` | 1800 | Guest idle timeout (30 min no binary activity) |
+| `GUEST_BINARY_PER_MIN` | 10 | Max 0x03 binary frames per minute for guests |
+
 ### PerSocketData (per-connection state)
 
 Attached to every WebSocket via uWebSockets' templated user data. Fields:
@@ -42,6 +53,20 @@ Attached to every WebSocket via uWebSockets' templated user data. Fields:
 | `authenticated` | `bool` | `false` until auth handshake completes |
 | `auth_timer` | `us_timer_t*` | 10-second auth timeout timer, nulled after auth or on close |
 | `license_key` | `std::string` | The license key this peer authenticated with (empty if license not required) |
+| `is_guest` | `bool` | `true` if auth included `"guest": true` flag. Guests are invisible to members, rate-limited, room-capped |
+| `ip_key` | `std::string` | Raw IP address bytes (stored for decrement on close, never logged) |
+| `last_binary_activity` | `steady_clock::time_point` | Last 0x03 binary frame timestamp (for guest idle timeout) |
+| `binary_frames_this_minute` | `uint32_t` | Guest rate limit counter (reset every 60s) |
+| `minute_window_start` | `steady_clock::time_point` | Start of current rate limit window |
+
+### IpState (per-IP connection tracking)
+
+In-memory only — never logged, never persisted. Erased when `active_count` drops to 0.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `active_count` | `uint32_t` | Currently open connections from this IP |
+| `recent_connects` | `deque<steady_clock::time_point>` | Sliding window of connection timestamps for rate limiting |
 
 ### PeerEntry (signaling registration)
 
@@ -86,6 +111,9 @@ Caches `/server-stats` JSON for 5 seconds to avoid re-reading `/proc` on every r
 | `ws_rooms` | `unordered_map<string, WsRoom>` | WebSocket rooms: room_code -> room with peer map |
 | `peer_rooms` | `unordered_map<string, unordered_set<string>>` | Reverse index: peer_id -> set of room codes they're in |
 | `peer_sockets` | `unordered_map<string, SSLWebSocket*>` | peer_id -> WebSocket pointer (for license kicks + online count) |
+| `ip_states` | `unordered_map<string, IpState>` | Per-IP connection tracking (in-memory only, never logged) |
+| `guest_sockets` | `unordered_set<SSLWebSocket*>` | All guest WebSocket pointers (for idle timeout iteration) |
+| `guest_count` | `size_t` | Global guest connection counter |
 | `license` | `LicenseState` | License key validation state |
 | `stats_cache` | `ServerStatsCache` | Cached stats response |
 
@@ -152,6 +180,7 @@ On successful bind to `config.port`, three timers are created on the uWS event l
 |-------|----------|----------|---------|
 | License reload | 30,000 ms | `s->license.try_reload(*s)` | Hot-reload `keys.json`, kick peers with revoked keys |
 | Signaling cleanup | 120,000 ms | `cleanup_stale_signaling(*s)` | Remove HTTP signaling entries older than 180s |
+| Guest idle | 60,000 ms | Iterate `guest_sockets`, close idle guests | Disconnect guests with >30 min no binary activity |
 | Shutdown check | 1,000 ms | Check `should_shutdown` atomic | Close listen socket on SIGINT/SIGTERM |
 
 Timer state pointers are stored via `us_timer_ext()` — each timer gets a `sizeof(RelayState*)` or `sizeof(void*)` block to hold a pointer to the state or listen socket.
@@ -847,7 +876,14 @@ The relay binary is SSL-only (`uWS::SSLApp`) — cannot run without TLS certs. N
 | License key required but missing | `license_key_required`, connection closed 1008 |
 | License key invalid | `invalid_license_key`, connection closed 1008 |
 | License key in use by another peer | `license_key_in_use`, connection closed 1008 |
-| Peer joins > 2000 rooms | `{"type":"error","error":"Too many rooms"}` |
+| IP has ≥34 active connections | `ip_limit`, connection closed 1008 (pre-auth) |
+| IP opened ≥10 connections in last 60s | `rate_limit`, connection closed 1008 (pre-auth) |
+| Guest cap reached (50k) | `guest_cap`, connection closed 1008 |
+| Guest joins > 3 rooms | `{"type":"error","error":"Guest room limit reached"}` |
+| Guest sends 0x04 (SendDirect) | Silently dropped |
+| Guest sends >10 binary 0x03 frames/min | Silently dropped |
+| Guest idle >30 min (no binary activity) | `guest_idle`, connection closed 1008 |
+| Peer joins > 10,000 rooms | `{"type":"error","error":"Too many rooms"}` |
 | Invalid room code | `{"type":"error","error":"Invalid room code"}` |
 | Message to non-existent room | Silently dropped |
 | Message from non-member | Silently dropped |

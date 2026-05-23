@@ -344,6 +344,12 @@ class _GuestChatPaneState extends ConsumerState<GuestChatPane> {
   }
 
   String _senderName(String senderId) {
+    // Check guest sender profiles first (populated from sync responses)
+    final guestProfile = ref.read(guestSenderProfilesProvider)[senderId];
+    if (guestProfile != null && guestProfile.name.isNotEmpty) {
+      return guestProfile.name;
+    }
+    // Fall back to regular profiles (for member servers)
     final profiles = ref.read(profileProvider);
     final profile = profiles[senderId];
     return displayNameForPeer(profile, senderId);

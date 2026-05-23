@@ -25,6 +25,10 @@ class AvatarNotifier extends Notifier<Map<String, Uint8List>> {
     }
   }
 
+  void setAvatar(String peerId, Uint8List bytes) {
+    state = {...state, peerId: bytes};
+  }
+
   void invalidate(String peerId) {
     if (state.containsKey(peerId)) {
       final next = Map<String, Uint8List>.from(state);
