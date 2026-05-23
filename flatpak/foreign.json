@@ -1,0 +1,12 @@
+{
+    "hollow_core": {
+        "cargo_locks": [
+            "rust/hollow_core"
+        ]
+    },
+    "cargokit": {
+        "extra_pubspecs": [
+            "rust_builder/cargokit/build_tool"
+        ]
+    }
+}

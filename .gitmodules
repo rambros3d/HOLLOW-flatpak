@@ -4,3 +4,6 @@
 [submodule "relay-uws/uSockets"]
 	path = relay-uws/uSockets
 	url = https://github.com/uNetworking/uSockets.git
+[submodule "shared-modules"]
+	path = shared-modules
+	url = https://github.com/flathub/shared-modules.git

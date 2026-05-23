@@ -6,8 +6,9 @@ if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
   cmake_policy(SET CMP0135 NEW)
 endif()
 
-# Add the libwebrtc dependency
-include("${CMAKE_CURRENT_SOURCE_DIR}/../third_party/CMakeLists.txt")
+get_filename_component(REAL_PACKAGE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.." REALPATH)
+
+include("${REAL_PACKAGE_DIR}/third_party/CMakeLists.txt")
 
 set(PLUGIN_NAME "${PROJECT_NAME}_plugin")
 set (CMAKE_EXPORT_COMPILE_COMMANDS ON )
@@ -16,18 +17,19 @@ set(CMAKE_CXX_STANDARD 17)
 add_definitions(-DRTC_DESKTOP_DEVICE)
 
 add_library(${PLUGIN_NAME} SHARED
-  "../common/cpp/src/flutter_data_channel.cc"
-  "../common/cpp/src/flutter_data_packet_cryptor.cc"
-  "../common/cpp/src/flutter_frame_cryptor.cc"
-  "../common/cpp/src/flutter_media_stream.cc"
-  "../common/cpp/src/flutter_utf8_sanitize.cc"
-  "../common/cpp/src/flutter_peerconnection.cc"
-  "../common/cpp/src/flutter_frame_capturer.cc"
-  "../common/cpp/src/flutter_video_renderer.cc"
-  "../common/cpp/src/flutter_screen_capture.cc"
-  "../common/cpp/src/flutter_webrtc.cc"
-  "../common/cpp/src/flutter_webrtc_base.cc"
-  "../common/cpp/src/flutter_common.cc"
+  "${REAL_PACKAGE_DIR}/common/cpp/src/flutter_data_channel.cc"
+  "${REAL_PACKAGE_DIR}/common/cpp/src/flutter_data_packet_cryptor.cc"
+  "${REAL_PACKAGE_DIR}/common/cpp/src/flutter_frame_cryptor.cc"
+  "${REAL_PACKAGE_DIR}/common/cpp/src/flutter_media_stream.cc"
+  "${REAL_PACKAGE_DIR}/common/cpp/src/flutter_utf8_sanitize.cc"
+  "${REAL_PACKAGE_DIR}/common/cpp/src/flutter_peerconnection.cc"
+  "${REAL_PACKAGE_DIR}/common/cpp/src/flutter_frame_capturer.cc"
+  "${REAL_PACKAGE_DIR}/common/cpp/src/flutter_video_renderer.cc"
+  "${REAL_PACKAGE_DIR}/common/cpp/src/flutter_screen_capture.cc"
+  "${REAL_PACKAGE_DIR}/common/cpp/src/flutter_webrtc.cc"
+  "${REAL_PACKAGE_DIR}/common/cpp/src/flutter_webrtc_base.cc"
+  "${REAL_PACKAGE_DIR}/common/cpp/src/libwebrtc_missing_symbols.cc"
+  "${REAL_PACKAGE_DIR}/common/cpp/src/flutter_common.cc"
   "flutter_webrtc_plugin.cc"
   "flutter/core_implementations.cc"
   "flutter/standard_codec.cc"
@@ -38,9 +40,9 @@ add_library(${PLUGIN_NAME} SHARED
 include_directories(
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${CMAKE_CURRENT_SOURCE_DIR}/flutter/include"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../common/cpp/include"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libwebrtc/include"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/svpng"
+  "${REAL_PACKAGE_DIR}/common/cpp/include"
+  "${REAL_PACKAGE_DIR}/third_party/libwebrtc/include"
+  "${REAL_PACKAGE_DIR}/third_party/svpng"
 )
 
 apply_standard_settings(${PLUGIN_NAME})
@@ -49,20 +51,20 @@ set_target_properties(${PLUGIN_NAME} PROPERTIES
 target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
 target_include_directories(${PLUGIN_NAME} INTERFACE
   "${CMAKE_CURRENT_SOURCE_DIR}"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../common/cpp/include"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libwebrtc/include"
+  "${REAL_PACKAGE_DIR}/common/cpp/include"
+  "${REAL_PACKAGE_DIR}/third_party/libwebrtc/include"
 )
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GTK)
 
 
-target_link_libraries(${PLUGIN_NAME} PRIVATE 
-  "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libwebrtc/lib/${FLUTTER_TARGET_PLATFORM}/libwebrtc.so"
+target_link_libraries(${PLUGIN_NAME} PRIVATE
+  "${REAL_PACKAGE_DIR}/third_party/libwebrtc/lib/${FLUTTER_TARGET_PLATFORM}/libwebrtc.a"
 )
 
-# List of absolute paths to libraries that should be bundled with the plugin
+# Static libwebrtc — shipped from libwebrtc.lib; bundled on Linux
 set(flutter_webrtc_bundled_libraries
-  "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libwebrtc/lib/${FLUTTER_TARGET_PLATFORM}/libwebrtc.so"
+  ""
   PARENT_SCOPE
 )
 

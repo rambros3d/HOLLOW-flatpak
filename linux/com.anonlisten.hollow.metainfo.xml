@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.anonlisten.hollow</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <name>HOLLOW</name>
+  <summary>Fully distributed encrypted messaging and voice platform</summary>
+  <developer id="com.anonlisten">
+    <name>Anon Listen</name>
+  </developer>
+  <description>
+    <p>
+      HOLLOW is a fully distributed, encrypted Discord alternative.
+      No central servers. Members collectively host the server.
+      Features encrypted messaging, voice and video calls, file sharing, and more.
+    </p>
+  </description>
+  <url type="homepage">https://hollow.anonlisten.com</url>
+  <launchable type="desktop-id">com.anonlisten.hollow.desktop</launchable>
+  <project_license>AGPL-3.0-or-later</project_license>
+</component>

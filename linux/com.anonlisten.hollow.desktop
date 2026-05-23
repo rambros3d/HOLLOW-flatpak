@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=HOLLOW
+Comment=Encrypted distributed chat
+Exec=hollow
+Icon=com.anonlisten.hollow
+Terminal=false
+Type=Application
+Categories=Network;Chat;X-VoIP;Utility;
+StartupWMClass=com.anonlisten.hollow
