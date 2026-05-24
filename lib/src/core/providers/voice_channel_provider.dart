@@ -240,6 +240,7 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
   RTCVideoRenderer? _localScreenPreviewRenderer;
   int _screenShareMaxWidth = 1920;
   int _screenShareMaxHeight = 1080;
+  int _screenShareFps = 60;
   bool _screenShareAudio = false;
   int _screenSharePid = 0;
   ScreenAudioRenderer? _screenAudioRenderer;
@@ -807,6 +808,7 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     debugPrint('[HOLLOW-VC] Starting screen share: $sourceId ${width}x$height @${fps}fps');
     _screenShareMaxWidth = width;
     _screenShareMaxHeight = height;
+    _screenShareFps = fps;
     _screenShareAudio = shareAudio;
     _screenSharePid = pid;
 
@@ -821,7 +823,11 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
     _screenCaptureStream = await navigator.mediaDevices.getDisplayMedia({
       'video': {
         'deviceId': {'exact': sourceId},
-        'mandatory': {'frameRate': fps.toDouble()},
+        'mandatory': {
+          'frameRate': fps.toDouble(),
+          'width': width,
+          'height': height,
+        },
       },
       'audio': getDisplayAudio,
     });
@@ -965,6 +971,7 @@ class VoiceChannelNotifier extends Notifier<VoiceChannelState> {
       _screenCaptureStream!,
       maxWidth: _screenShareMaxWidth,
       maxHeight: _screenShareMaxHeight,
+      fps: _screenShareFps,
     );
 
     // Enable SFrame E2EE on the outgoing screen share PC.

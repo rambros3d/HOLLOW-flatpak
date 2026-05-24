@@ -223,13 +223,17 @@ Future<String?> _ensureTrayIcon() async {
     return _trayIconPath;
   }
 
-  // Try file system locations first (faster, no extraction needed).
+  // Linux/macOS tray requires PNG; Windows uses ICO.
+  final usesPng = !Platform.isWindows;
   final exeDir = File(Platform.resolvedExecutable).parent.path;
+
+  // Try file system locations first (faster, no extraction needed).
   final candidates = [
-    '$exeDir/data/flutter_assets/assets/app_icon.ico',
-    '$exeDir/app_icon.ico',
-    'windows/runner/resources/app_icon.ico',
-    '${File(Platform.resolvedExecutable).parent.parent.parent.parent.parent.path}/windows/runner/resources/app_icon.ico',
+    if (usesPng) '$exeDir/data/flutter_assets/assets/hollow_logo_rounded.png',
+    if (!usesPng) '$exeDir/data/flutter_assets/assets/app_icon.ico',
+    if (!usesPng) '$exeDir/app_icon.ico',
+    if (!usesPng) 'windows/runner/resources/app_icon.ico',
+    if (!usesPng) '${File(Platform.resolvedExecutable).parent.parent.parent.parent.parent.path}/windows/runner/resources/app_icon.ico',
   ];
 
   for (final candidate in candidates) {
@@ -241,9 +245,10 @@ Future<String?> _ensureTrayIcon() async {
 
   // Extract from Flutter assets as last resort.
   try {
-    final byteData = await rootBundle.load('assets/app_icon.ico');
+    final assetName = usesPng ? 'assets/hollow_logo_rounded.png' : 'assets/app_icon.ico';
+    final byteData = await rootBundle.load(assetName);
     final tempDir = Directory.systemTemp;
-    final iconFile = File('${tempDir.path}/hollow_tray_icon.ico');
+    final iconFile = File('${tempDir.path}/hollow_tray_icon.${usesPng ? 'png' : 'ico'}');
     await iconFile.writeAsBytes(byteData.buffer.asUint8List());
     _trayIconPath = iconFile.path;
     return _trayIconPath;
@@ -277,12 +282,15 @@ Future<void> _hideTrayIcon() async {
 class _HollowTrayListener extends TrayListener {
   @override
   void onTrayIconMouseDown() {
-    _restoreWindow();
+    // On Linux, AppIndicator shows the context menu on any click —
+    // don't restore here or it destroys the tray before the menu appears.
+    if (!Platform.isLinux) _restoreWindow();
   }
 
   @override
   void onTrayIconRightMouseDown() {
-    trayManager.popUpContextMenu();
+    // No-op on Linux (AppIndicator shows menu automatically).
+    if (!Platform.isLinux) trayManager.popUpContextMenu();
   }
 
   @override
@@ -299,6 +307,9 @@ class _HollowTrayListener extends TrayListener {
 
   void _restoreWindow() async {
     await _hideTrayIcon();
+    if (Platform.isLinux) {
+      await windowManager.restore();
+    }
     await windowManager.show();
     await windowManager.focus();
     _container.read(windowVisibleProvider.notifier).state = true;

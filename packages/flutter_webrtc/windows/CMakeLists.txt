@@ -56,6 +56,7 @@ add_library(${PLUGIN_NAME} SHARED
   "process_audio_capturer.cc"
   "wasapi_audio_renderer.cc"
   "screen_audio_capturer.cc"
+  "native_screen_capturer.cc"
 )
 
 include_directories(

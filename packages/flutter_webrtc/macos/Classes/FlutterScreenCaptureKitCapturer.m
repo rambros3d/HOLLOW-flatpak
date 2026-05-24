@@ -33,6 +33,8 @@
 
 - (void)startCaptureWithFPS:(NSInteger)fps
                    sourceId:(NSString* _Nullable)sourceId
+                      width:(NSInteger)width
+                     height:(NSInteger)height
                   onStarted:(void (^)(NSError * _Nullable error))onStarted {
 #if __has_include(<ScreenCaptureKit/ScreenCaptureKit.h>)
   if (@available(macOS 12.3, *)) {
@@ -52,32 +54,9 @@
       }
 
       SCContentFilter *filter = [[SCContentFilter alloc] initWithDisplay:display excludingWindows:@[]];
-      SCStreamConfiguration *config = [SCStreamConfiguration new];
-      config.width = display.width;
-      config.height = display.height;
-      config.minimumFrameInterval = CMTimeMake(1, (int32_t)MAX(1, fps));
-      // VideoRange (16-235) is what nearly every H.264/VP8 encoder expects.
-      // FullRange (0-255) silently produces a stream that decoders on other
-      // platforms (notably libwebrtc on Windows) render as a black frame.
-      config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
-      if (@available(macOS 13.0, *)) {
-        config.showsCursor = YES;
-      }
-
-      self.stream = [[SCStream alloc] initWithFilter:filter configuration:config delegate:nil];
-      NSError *addOutputError = nil;
-      [self.stream addStreamOutput:self
-                              type:SCStreamOutputTypeScreen
-               sampleHandlerQueue:self.captureQueue
-                            error:&addOutputError];
-      if (addOutputError != nil) {
-        onStarted(addOutputError);
-        return;
-      }
-
-      [self.stream startCaptureWithCompletionHandler:^(NSError * _Nullable startError) {
-        onStarted(startError);
-      }];
+      [self startStreamWithFilter:filter fps:fps width:width height:height
+                    nativeWidth:display.width nativeHeight:display.height
+                      onStarted:onStarted];
     }];
     return;
   }
@@ -88,6 +67,90 @@
                                          userInfo:@{NSLocalizedDescriptionKey: @"ScreenCaptureKit not available"}];
   onStarted(unavailable);
 }
+
+- (void)startWindowCaptureWithFPS:(NSInteger)fps
+                         windowID:(CGWindowID)windowID
+                            width:(NSInteger)width
+                           height:(NSInteger)height
+                        onStarted:(void (^)(NSError * _Nullable error))onStarted {
+#if __has_include(<ScreenCaptureKit/ScreenCaptureKit.h>)
+  if (@available(macOS 12.3, *)) {
+    [SCShareableContent getShareableContentExcludingDesktopWindows:NO
+                                             onScreenWindowsOnly:NO
+                                               completionHandler:^(SCShareableContent *content, NSError *error) {
+      if (error != nil) {
+        onStarted(error);
+        return;
+      }
+
+      SCWindow *targetWindow = nil;
+      for (SCWindow *window in content.windows) {
+        if (window.windowID == windowID) {
+          targetWindow = window;
+          break;
+        }
+      }
+
+      if (targetWindow == nil) {
+        NSError *noWindow = [NSError errorWithDomain:@"FlutterScreenCaptureKit"
+                                                code:-1
+                                            userInfo:@{NSLocalizedDescriptionKey: @"No matching window"}];
+        onStarted(noWindow);
+        return;
+      }
+
+      SCContentFilter *filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:targetWindow];
+      NSInteger nativeW = (NSInteger)targetWindow.frame.size.width;
+      NSInteger nativeH = (NSInteger)targetWindow.frame.size.height;
+      [self startStreamWithFilter:filter fps:fps width:width height:height
+                    nativeWidth:nativeW nativeHeight:nativeH
+                      onStarted:onStarted];
+    }];
+    return;
+  }
+#endif
+
+  NSError *unavailable = [NSError errorWithDomain:@"FlutterScreenCaptureKit"
+                                             code:-2
+                                         userInfo:@{NSLocalizedDescriptionKey: @"ScreenCaptureKit not available"}];
+  onStarted(unavailable);
+}
+
+#if __has_include(<ScreenCaptureKit/ScreenCaptureKit.h>)
+- (void)startStreamWithFilter:(SCContentFilter *)filter
+                          fps:(NSInteger)fps
+                        width:(NSInteger)width
+                       height:(NSInteger)height
+                  nativeWidth:(NSInteger)nativeWidth
+                 nativeHeight:(NSInteger)nativeHeight
+                    onStarted:(void (^)(NSError * _Nullable error))onStarted
+    API_AVAILABLE(macos(12.3)) {
+  SCStreamConfiguration *config = [SCStreamConfiguration new];
+  // Use requested dimensions if provided, otherwise native resolution.
+  config.width = (width > 0) ? width : nativeWidth;
+  config.height = (height > 0) ? height : nativeHeight;
+  config.minimumFrameInterval = CMTimeMake(1, (int32_t)MAX(1, fps));
+  config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
+  if (@available(macOS 13.0, *)) {
+    config.showsCursor = YES;
+  }
+
+  self.stream = [[SCStream alloc] initWithFilter:filter configuration:config delegate:nil];
+  NSError *addOutputError = nil;
+  [self.stream addStreamOutput:self
+                          type:SCStreamOutputTypeScreen
+           sampleHandlerQueue:self.captureQueue
+                        error:&addOutputError];
+  if (addOutputError != nil) {
+    onStarted(addOutputError);
+    return;
+  }
+
+  [self.stream startCaptureWithCompletionHandler:^(NSError * _Nullable startError) {
+    onStarted(startError);
+  }];
+}
+#endif
 
 - (void)stopCaptureWithCompletion:(void (^)(void))completion {
 #if __has_include(<ScreenCaptureKit/ScreenCaptureKit.h>)

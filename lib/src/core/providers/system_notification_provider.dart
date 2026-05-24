@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/channel_provider.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
+import 'package:hollow/src/core/providers/member_panel_provider.dart';
 import 'package:hollow/src/core/providers/notification_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
@@ -267,6 +268,11 @@ class SystemNotificationNotifier
 
   Future<bool> _isWindowHidden() async {
     try {
+      // On Linux Wayland, isVisible() returns true even when minimized to tray.
+      // Use the app-level state provider as the source of truth.
+      if (Platform.isLinux) {
+        return !ref.read(windowVisibleProvider);
+      }
       return !(await windowManager.isVisible());
     } catch (_) {
       return false;
