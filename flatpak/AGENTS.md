@@ -1,83 +1,111 @@
 # HOLLOW Flatpak Build Guide
 
-## Build Command
+## Build & Bundle
 
 ```bash
-flatpak-builder --disable-rofiles-fuse --user --install flatpak-build flatpak/com.anonlisten.hollow.yml
+# Full build (clean)
+flatpak-builder --disable-rofiles-fuse --force-clean flatpak-build flatpak/com.anonlisten.hollow.yml
+
+# Export and bundle
 flatpak build-export repo flatpak-build/
 flatpak build-bundle repo HOLLOW.flatpak com.anonlisten.hollow
+
+# Install and test locally
+flatpak install --user -y --bundle HOLLOW.flatpak
+xvfb-run flatpak run com.anonlisten.hollow
 ```
 
-Output: `HOLLOW.flatpak` (~32-69 MB).
+Output: `HOLLOW.flatpak` (~33 MB).
 
 ## Manifest Structure
 
-`flatpak/com.anonlisten.hollow.yml` — 8 modules:
+`flatpak/com.anonlisten.hollow.yml` — single `flutter-sdk` module + shared-modules libappindicator:
 
 | # | Module | System | Purpose |
 |---|--------|--------|---------|
-| 1 | `flutter-sdk` | simple | git clone flutter 3.38.5, `precache --linux` |
-| 2 | `ffmpeg` | simple | BtbN static builds, strip to `bin/ffmpeg` |
-| 3 | `intltool` | autotools | libdbusmenu dependency |
-| 4 | `dbus-glib` | autotools | libdbusmenu dependency |
-| 5 | `libdbusmenu` | **simple** | two-pass autoreconf + `HAVE_VALGRIND` sed patch |
-| 6 | `libindicator` | autotools | shell sed patch for `$LIBM` |
-| 7 | `libappindicator` | autotools | Python stubs + `-Wno-incompatible-pointer-types` |
-| 8 | `hollow` | simple | flutter pub get → flutter build linux --release |
+| 1 | `shared-modules/libappindicator/...` | autotools | GTK tray icon via `libappindicator3` |
+| 2 | `flutter-sdk` | simple | Flutter SDK + project source → `flutter build linux --release` |
 
-## Critical Module Details
+## Critical Details
 
-### libdbusmenu (module 5)
-**Must use `buildsystem: simple`** — autotools buildsystem applies `type: shell` patches AFTER autoreconf, so the `HAVE_VALGRIND` patch never takes effect.
+### Rust SDK Extension (`org.freedesktop.Sdk.Extension.rust-stable`)
 
-Build commands:
-1. `sed -i '/^AM_CONDITIONAL(\[HAVE_VALGRIND\]/d' configure.ac`
-2. `sed -i '/^AC_SUBST(DBUSMENUTESTS_CFLAGS)/i\AM_CONDITIONAL([HAVE_VALGRIND], [false])' configure.ac`
-3. `autoreconf -sfi`
-4. `./configure --prefix=/app --disable-tests --disable-gtk-doc`
-5. `make -j$(nproc) && make install`
+- Runtime 25.08 provides Rust 1.95.0 at `/usr/lib/sdk/rust-stable/bin/` (cargo, rustc)
+- **No `rustup`** — the extension bundles cargo/rustc directly
+- Cargokit's build_tool requires `rustup` for toolchain/target management
+- **Solution:** Carogkit is patched (see below) and a `rustup` shim is installed before build
 
-### libappindicator (module 7)
-Python detection requires three workarounds:
-1. `type: shell` patch: `sed -i 's/AM_PATH_PYTHON(2.3.5)/PYTHON=echo; AC_SUBST(PYTHON)/' configure.ac`
-2. `type: shell` patch: `sed -i 's/AM_CHECK_PYTHON_HEADERS.*/true/' configure.ac`
-3. `build-options.env`: `APPINDICATOR_PYTHON_CFLAGS: " "`, `APPINDICATOR_PYTHON_LIBS: " "`
-4. `CFLAGS: -Wno-error -Wno-incompatible-pointer-types` (GCC 14+ fix)
+### rustup Shim (`flatpak/scripts/rustup-wrapper.sh`)
 
-### hollow (module 8)
-- Sources: `type: dir` at `path: .` (repo root) + flutter git + libwebrtc archive + svpng download
-- `build-options.append-path`: `.../llvm19/bin:.../rust-stable/bin:...flutter/bin`
-- `build-options.env`: `CXX: /usr/bin/g++`, `CC: /usr/bin/gcc`
-- Must install `libapp.so` to `/app/bin/lib/` and copy `data/` to `/app/bin/data/`
-- Must exclude `libapp.so`, `libflutter_linux_gtk.so`, `libsuper_native_extensions.so` from the `.so` bulk install
+Installed at `/run/build/flutter-sdk/.cargo/bin/rustup` during build. Handles the commands cargokit calls:
 
-### WebRTC setup (in hollow module)
+| Command | Shim behavior |
+|---------|---------------|
+| `rustup toolchain list` | Returns `stable-x86_64-unknown-linux-gnu` |
+| `rustup target list --installed` | Returns `x86_64-unknown-linux-gnu` |
+| `rustup toolchain install` / `target add` / `component add` | No-op (exit 0) |
+| `rustup run <tc> <cmd> ...` | `exec <cmd> ...` (delegates to PATH) |
+
+### Cargokit Patches
+
+- **`run_build_tool.sh`** (line 87): `export PATH="/run/build/flutter-sdk/.cargo/bin:$PATH"` — ensures rustup shim is found by the Dart build_tool
+- **`--offline` removed** from both `dart pub get` calls (lines 75, 93) — network needed for dependency resolution
+
+### Flutter SDK Setup
+
+The manifest provisions a patched Flutter SDK (3.38.5) with:
+1. Prebuilt engine stamp (`engine.stamp`)
+2. Custom `flutter_tools.snapshot` (from `flatpak/scripts/`)
+3. LLVM 20 SDK extension for C/C++ compilation
+4. Rust SDK extension for cargo builds
+
+### Library Install
+
+All bundle `.so` files are installed to `/app/bin/lib/` (RPATH-relative, binary has `$ORIGIN/lib`):
+
+```bash
+for f in build/linux/x64/release/bundle/lib/lib*.so*; do
+  install -Dm755 "$f" /app/bin/lib/
+done
+```
+
+All libs are installed — NO exclusions. `libapp.so`, `libflutter_linux_gtk.so`, and `libsuper_native_extensions.so` are all needed.
+
+### Data Directory
+
+```bash
+cp -r build/linux/x64/release/bundle/data /app/bin/data
+```
+
+Includes `flutter_assets/` and `icudtl.dat`.
+
+### Runtime Library Path
+
+`LD_LIBRARY_PATH: /app/lib/lib:/app/bin/lib` in both top-level and module `env:` — covers both the main libs and the bundled plugin libs.
+
+### WebRTC
+
 - `crow-misia/libwebrtc-bin` 144.7559.3.0, static `.a` build
-- Copy 17 header dirs: `api audio call common_audio common_video logging media modules net p2p pc rtc_base rtc_tools sdk stats system_wrappers video`
-- Download `svpng.hpp` from `miloyip/svpng` GitHub raw
-- `packages/flutter_webrtc/linux/CMakeLists.txt` patched for static libwebrtc (`.a` instead of `.so`)
-
-## Runtime Requirements
-- `env: LD_LIBRARY_PATH: /app/lib/lib` at top-level manifest (for plugin `.so` resolution)
+- 17 header dirs copied: `api audio call common_audio common_video logging media modules net p2p pc rtc_base rtc_tools sdk stats system_wrappers video`
+- `svpng.hpp` downloaded from `miloyip/svpng` GitHub
+- `packages/flutter_webrtc/linux/CMakeLists.txt` patched for static libwebrtc
 - `libwebrtc_missing_symbols.cc` provides stubs for missing `libwebrtc.a` symbols and non-null device/capability factories
 
-## DOs and DON'Ts
+## Smoke Test
 
-### DO
-- Use `--disable-rofiles-fuse` — stale FUSE mounts from aborted runs cause failures
-- Register the runtime SDK extension paths in `append-path` — they're not on `PATH` by default
-- Set `CFLAGS: -Wno-error` on all old autotools projects (GCC 14+ is stricter)
-- Install `libapp.so` and `data/flutter_assets/` — `FlutterEngineCreateAOTData` will SIGSEGV without them
-- Use `buildsystem: simple` when `type: shell` patches modify `configure.ac` — autotools buildsystem runs autoreconf AFTER patches
-- Set `CC`/`CXX` to GCC explicitly — Flutter's bundled LLVM has issues with some native deps
-- Pass empty-but-non-null env vars to skip `PKG_CHECK_MODULES` checks (e.g. `APPINDICATOR_PYTHON_CFLAGS: " "`)
+Inside CI or a headless environment:
 
-### DON'T
-- Don't use `--no-pub` flag on `flutter build` — it doesn't exist; run `flutter pub get` separately
-- Don't exclude `libapp.so` from install — the Flutter engine AOT loader needs it
-- Don't add `install -D` flag on the binary install step — just `install -Dm755`
-- Don't use `-Dm644` on `.so` files — they need executable permission (`-Dm755`)
-- Don't delete `AC_CONFIG_FILES` entries from `configure.ac` — causes syntax errors in generated configure
-- Don't skip `HAVE_VALGRIND` check by deleting the `AM_CONDITIONAL` — flatpak-builder errors on undefined conditionals; move it outside the `AS_IF` block instead
-- Don't use `buildsystem: autotools` for modules needing `configure.ac` patches — `type: shell` patches run before autoreconf but autotools system re-runs autoreconf again, overwriting the patch
-- Don't use `--disable-python` on libappindicator — the flag doesn't exist, use the stub+env approach
+```bash
+xvfb-run flatpak run com.anonlisten.hollow
+```
+
+Expected output (within 10s):
+```
+fvp plugin version: 0.35.2
+```
+Exit code 124 (timeout) = success (app runs without crashing). Missing library errors indicate broken install.
+
+## Known Issues
+
+- XDG desktop portal warnings in headless/GitHub CI — harmless, only affects dark theme detection
+- DRI3 warnings with xvfb — no GPU available, expected

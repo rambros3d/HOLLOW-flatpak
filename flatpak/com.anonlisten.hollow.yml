@@ -1,14 +1,14 @@
 id: com.anonlisten.hollow
 runtime: org.freedesktop.Platform
-runtime-version: '24.08'
+runtime-version: '25.08'
 sdk: org.freedesktop.Sdk
 sdk-extensions:
 - org.freedesktop.Sdk.Extension.rust-stable
-- org.freedesktop.Sdk.Extension.llvm19
+- org.freedesktop.Sdk.Extension.llvm20
 command: hollow
 separate-locales: false
 env:
-  LD_LIBRARY_PATH: /app/lib/lib
+  LD_LIBRARY_PATH: /app/lib/lib:/app/bin/lib
 finish-args:
 - --share=ipc
 - --socket=fallback-x11
@@ -21,15 +21,18 @@ finish-args:
 - --talk-name=org.freedesktop.Notifications
 - --own-name=com.anonlisten.hollow
 modules:
+- ../shared-modules/libappindicator/libappindicator-gtk3-12.10.json
 - name: flutter-sdk
   buildsystem: simple
   build-options:
+    append-path: /run/build/flutter-sdk/.cargo/bin:/usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm20/bin:/run/build/hollow/flutter/bin
+    prepend-ld-library-path: /usr/lib/sdk/llvm20/lib
     build-args:
     - --share=network
     env:
       CARGO_HOME: /run/build/hollow/cargo
       PUB_CACHE: /run/build/hollow/.pub-cache
-      LD_LIBRARY_PATH: /app/lib/lib
+      LD_LIBRARY_PATH: /app/lib/lib:/app/bin/lib
       FLUTTER_PREBUILT_ENGINE_VERSION: 1527ae0ec577a4ef50e65f6fefcfc1326707d9bf
       CXX: /usr/bin/g++
       CC: /usr/bin/gcc
@@ -42,15 +45,22 @@ modules:
   - cp libwebrtc/libwebrtc.a packages/flutter_webrtc/third_party/libwebrtc/lib/linux-x64/libwebrtc.a
   - mkdir -p packages/flutter_webrtc/third_party/svpng
   - curl -sSL -o packages/flutter_webrtc/third_party/svpng/svpng.hpp https://raw.githubusercontent.com/miloyip/svpng/master/svpng.inc
+  - |
+    set -e
+    mkdir -p /run/build/flutter-sdk/.cargo/bin
+    cp flatpak/scripts/rustup-wrapper.sh /run/build/flutter-sdk/.cargo/bin/rustup
+    chmod +x /run/build/flutter-sdk/.cargo/bin/rustup
+  - cp flatpak/scripts/rustup-wrapper.sh /run/build/flutter-sdk/rust_builder/cargokit/rustup-shim
+  - chmod +x /run/build/flutter-sdk/rust_builder/cargokit/rustup-shim
   - mkdir -p bin/cache
   - echo '1527ae0ec577a4ef50e65f6fefcfc1326707d9bf' > bin/cache/engine.stamp
   - cp flatpak/scripts/flutter_tools.snapshot bin/cache/flutter_tools.snapshot
   - ./bin/flutter --version 2>&1 | head -2
   - ./bin/flutter build linux --release --verbose
   - install -Dm755 build/linux/x64/release/bundle/hollow /app/bin/hollow
-  - find build/linux/x64/release/bundle/lib -maxdepth 1 -type f -name 'lib*.so*' \
-    ! -name 'libapp.so' \ ! -name 'libflutter_linux_gtk.so' \ ! -name 'libsuper_native_extensions.so'
-    \ -exec install -Dm755 {} /app/lib/lib/ \;
+  - cp -r build/linux/x64/release/bundle/data /app/bin/data
+  - mkdir -p /app/bin/lib
+  - for f in build/linux/x64/release/bundle/lib/lib*.so*; do install -Dm755 "$f" /app/bin/lib/; done
   - install -Dm644 linux/com.anonlisten.hollow.desktop /app/share/applications/com.anonlisten.hollow.desktop
   - install -Dm644 linux/com.anonlisten.hollow.metainfo.xml /app/share/metainfo/com.anonlisten.hollow.metainfo.xml
   - install -Dm644 linux/icons/256x256/com.anonlisten.hollow.png /app/share/icons/hicolor/256x256/apps/com.anonlisten.hollow.png
@@ -68,5 +78,4 @@ modules:
     dest: libwebrtc
     only-arches:
     - x86_64
-  - type: file
-    path: scripts/copy-flutter-libs.sh
+
