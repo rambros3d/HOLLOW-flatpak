@@ -96,6 +96,12 @@ class _StorageDashboardContentState
           r"(Get-PSDrive C).Free",
         ]);
         return int.tryParse(result.stdout.toString().trim()) ?? 0;
+      } else if (Platform.isLinux || Platform.isMacOS) {
+        final result = await Process.run('df', ['-B1', '--output=avail', '/']);
+        final lines = result.stdout.toString().trim().split('\n');
+        if (lines.length >= 2) {
+          return int.tryParse(lines.last.trim()) ?? 0;
+        }
       }
     } catch (_) {}
     return 0;

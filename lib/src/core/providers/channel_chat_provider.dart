@@ -630,6 +630,14 @@ class ChannelChatNotifier
     updated.removeWhere((key, _) => key.startsWith('$serverId:'));
     state = updated;
   }
+
+  void clearGuestChannel(String serverId, String channelId) {
+    final key = '$serverId:$channelId';
+    if (!state.containsKey(key)) return;
+    final updated = Map.of(state);
+    updated.remove(key);
+    state = updated;
+  }
 }
 
 final channelChatProvider = NotifierProvider<ChannelChatNotifier,

@@ -69,11 +69,11 @@ class ScreenShareService {
     required this.iceServers,
   });
 
-  /// Apply resolution and bitrate cap on the video sender's encoding
-  /// parameters. getDisplayMedia captures at native resolution — this
-  /// constrains the encoder to downscale before transmitting AND caps
-  /// the bitrate so WebRTC's adaptive quality scaler can't ramp back up.
-  Future<void> _applyResolutionCap(int maxWidth, int maxHeight) async {
+  /// Apply resolution, framerate, and bitrate caps on the video sender's
+  /// encoding parameters. Even though getDisplayMedia now receives width/height
+  /// constraints, the desktop capturer may still deliver native-resolution
+  /// frames — this enforces the cap at the encoder level as a second layer.
+  Future<void> _applyResolutionCap(int maxWidth, int maxHeight, int fps) async {
     if (_pc == null) return;
     final senders = await _pc!.getSenders();
     for (final sender in senders) {
@@ -82,6 +82,14 @@ class ScreenShareService {
         if (params.encodings == null || params.encodings!.isEmpty) {
           params.encodings = [RTCRtpEncoding()];
         }
+
+        // Prevent WebRTC's adaptive quality scaler from overriding our
+        // resolution cap. "maintain-framerate" tells the encoder to drop
+        // resolution (not frames) under bandwidth pressure — and with a
+        // tight maxBitrate it can't ramp resolution back up either.
+        params.degradationPreference =
+            RTCDegradationPreference.MAINTAIN_FRAMERATE;
+
         for (final encoding in params.encodings!) {
           final settings = sender.track!.getSettings();
           final captureWidth = settings['width'] as int? ?? 1920;
@@ -97,9 +105,8 @@ class ScreenShareService {
                 '(${captureWidth}x$captureHeight -> ${maxWidth}x$maxHeight)');
           }
 
-          // Cap the bitrate to prevent BWE from ramping the quality back
-          // up when bandwidth is abundant. Without this, the adaptive
-          // quality scaler can override scaleResolutionDownBy.
+          encoding.maxFramerate = fps;
+
           // Bitrate tiers (screen share — higher than camera because
           // screen content has sharp edges/text that compress poorly):
           //   360p  →  800 kbps
@@ -125,7 +132,7 @@ class ScreenShareService {
           }
           encoding.maxBitrate = maxBitrateKbps * 1000; // bps
           _log('[HOLLOW-SCREEN] Set maxBitrate=${maxBitrateKbps}kbps '
-              'for ${maxWidth}x$maxHeight');
+              'maxFramerate=${fps}fps for ${maxWidth}x$maxHeight');
         }
         await sender.setParameters(params);
         break;
@@ -199,7 +206,11 @@ class ScreenShareService {
     _screenStream = await navigator.mediaDevices.getDisplayMedia({
       'video': {
         'deviceId': {'exact': sourceId},
-        'mandatory': {'frameRate': fps.toDouble()},
+        'mandatory': {
+          'frameRate': fps.toDouble(),
+          'width': width,
+          'height': height,
+        },
       },
       'audio': getDisplayAudio,
     });
@@ -263,7 +274,7 @@ class ScreenShareService {
     }
 
     // Apply resolution cap on the encoder (getDisplayMedia captures at native res).
-    await _applyResolutionCap(width, height);
+    await _applyResolutionCap(width, height, fps);
 
     final audioTracks = _screenStream!.getAudioTracks();
     _log('[HOLLOW-SCREEN] getDisplayMedia audio tracks: ${audioTracks.length}');
@@ -292,7 +303,7 @@ class ScreenShareService {
   /// Create an offer using a pre-captured screen stream (for voice channels
   /// where one capture is shared across multiple peer connections).
   /// The caller manages the track poller centrally.
-  Future<String> createOfferFromStream(MediaStream stream, {int maxWidth = 1920, int maxHeight = 1080}) async {
+  Future<String> createOfferFromStream(MediaStream stream, {int maxWidth = 1920, int maxHeight = 1080, int fps = 60}) async {
     _log('[HOLLOW-SCREEN] Creating offer from shared stream');
 
     _screenStream = stream;
@@ -314,7 +325,7 @@ class ScreenShareService {
     _log('[HOLLOW-SCREEN] Added screen video track to PC');
 
     // Apply resolution cap on the encoder.
-    await _applyResolutionCap(maxWidth, maxHeight);
+    await _applyResolutionCap(maxWidth, maxHeight, fps);
 
     // Add audio tracks if available (macOS Process Tap audio goes via tracks).
     final audioTracks = _screenStream!.getAudioTracks();

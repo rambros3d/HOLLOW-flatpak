@@ -15,6 +15,7 @@ class WasapiLoopbackCapturer;
 class ScreenAudioCapturer;
 class OpusDecoderWrapper;
 class WasapiAudioRenderer;
+class NativeScreenCapturer;
 }  // namespace flutter_webrtc_plugin
 #endif
 
@@ -28,6 +29,8 @@ class FlutterScreenCapture : public MediaListObserver,
 
   void GetDisplayMedia(const EncodableMap& constraints,
                        std::unique_ptr<MethodResultProxy> result);
+
+  void CleanupNativeCapturersForStream(const std::string& stream_id);
 
   void GetDesktopSources(const EncodableList& types,
                          std::unique_ptr<MethodResultProxy> result);
@@ -88,6 +91,9 @@ class FlutterScreenCapture : public MediaListObserver,
   };
   std::map<std::string, std::unique_ptr<AudioRenderSession>>
       audio_render_sessions_;
+
+  std::map<std::string, std::unique_ptr<NativeScreenCapturer>>
+      native_capturers_;
 #endif
 };
 

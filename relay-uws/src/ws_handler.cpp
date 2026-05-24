@@ -9,6 +9,12 @@ using json = nlohmann::json;
 static constexpr uint64_t TIMESTAMP_SKEW_SECS = 60;
 static constexpr size_t MAX_ROOMS_PER_PEER = 10000;
 
+static bool is_guest_peer(const RelayState& state, const std::string& peer_id) {
+    auto it = state.peer_sockets.find(peer_id);
+    if (it == state.peer_sockets.end()) return false;
+    return it->second->getUserData()->is_guest;
+}
+
 static bool is_valid_room_code(std::string_view room) {
     if (room.empty() || room.size() > 128) return false;
     for (char c : room) {
@@ -52,6 +58,13 @@ static void handle_auth(SSLWebSocket* ws, PerSocketData* data,
     std::string signature = j.value("signature", "");
     std::string license_key_val = j.value("license_key", "");
     const std::string* license_key_ptr = license_key_val.empty() ? nullptr : &license_key_val;
+    bool guest = j.value("guest", false);
+
+    if (guest && state.guest_count >= MAX_GUESTS) {
+        send_json(ws, {{"type", "auth_failed"}, {"error", "guest_cap"}});
+        ws->end(1008, "guest_cap");
+        return;
+    }
 
     if (peer_id.empty() || public_key.empty() || signature.empty()) {
         send_json(ws, {{"type", "auth_failed"}, {"error", "Authentication failed"}});
@@ -98,6 +111,15 @@ static void handle_auth(SSLWebSocket* ws, PerSocketData* data,
     data->authenticated = true;
     data->license_key = license_key_val;
 
+    if (guest) {
+        data->is_guest = true;
+        auto now = std::chrono::steady_clock::now();
+        data->last_binary_activity = now;
+        data->minute_window_start = now;
+        state.guest_count++;
+        state.guest_sockets.insert(ws);
+    }
+
     if (data->auth_timer) {
         us_timer_close(data->auth_timer);
         data->auth_timer = nullptr;
@@ -118,16 +140,19 @@ static void handle_join(SSLWebSocket* ws, PerSocketData* data,
     }
 
     auto pit = state.peer_rooms.find(data->peer_id);
-    if (pit != state.peer_rooms.end() && pit->second.size() >= MAX_ROOMS_PER_PEER) {
-        send_json(ws, {{"type", "error"}, {"error", "Too many rooms"}});
+    size_t max_rooms = data->is_guest ? MAX_GUEST_ROOMS : MAX_ROOMS_PER_PEER;
+    if (pit != state.peer_rooms.end() && pit->second.size() >= max_rooms) {
+        send_json(ws, {{"type", "error"}, {"error", data->is_guest ? "Guest room limit reached" : "Too many rooms"}});
         return;
     }
 
-    // Collect existing peer IDs before adding
+    // Collect existing non-guest peer IDs before adding
     std::vector<std::string> existing_peers;
     auto& ws_room = state.ws_rooms[room];
-    for (auto& [pid, _] : ws_room.peers) {
-        existing_peers.push_back(pid);
+    for (auto& [pid, peer_ws] : ws_room.peers) {
+        if (!peer_ws->getUserData()->is_guest) {
+            existing_peers.push_back(pid);
+        }
     }
 
     // Add peer to room
@@ -136,9 +161,11 @@ static void handle_join(SSLWebSocket* ws, PerSocketData* data,
     // Track room on peer
     state.peer_rooms[data->peer_id].insert(room);
 
-    // Send member list to joiner (including self)
+    // Send member list to joiner (excluding guests)
     std::vector<std::string> all_peers = existing_peers;
-    all_peers.push_back(data->peer_id);
+    if (!data->is_guest) {
+        all_peers.push_back(data->peer_id);
+    }
     json members_msg = {
         {"type", "members"},
         {"room", room},
@@ -146,16 +173,18 @@ static void handle_join(SSLWebSocket* ws, PerSocketData* data,
     };
     send_json(ws, members_msg);
 
-    // Notify existing peers
-    json join_msg = {
-        {"type", "peer_joined"},
-        {"room", room},
-        {"peer_id", data->peer_id}
-    };
-    std::string join_str = join_msg.dump();
-    for (auto& [pid, peer_ws] : ws_room.peers) {
-        if (pid != data->peer_id) {
-            send_to_peer(peer_ws, join_str, uWS::OpCode::TEXT);
+    // Notify existing non-guest peers (skip if joiner is a guest)
+    if (!data->is_guest) {
+        json join_msg = {
+            {"type", "peer_joined"},
+            {"room", room},
+            {"peer_id", data->peer_id}
+        };
+        std::string join_str = join_msg.dump();
+        for (auto& [pid, peer_ws] : ws_room.peers) {
+            if (pid != data->peer_id && !peer_ws->getUserData()->is_guest) {
+                send_to_peer(peer_ws, join_str, uWS::OpCode::TEXT);
+            }
         }
     }
 }
@@ -178,7 +207,8 @@ static void leave_room(RelayState& state, const std::string& peer_id,
         pit->second.erase(room);
     }
 
-    if (should_notify) {
+    bool leaving_peer_is_guest = is_guest_peer(state, peer_id);
+    if (should_notify && !leaving_peer_is_guest) {
         json leave_msg = {
             {"type", "peer_left"},
             {"room", room},
@@ -188,7 +218,9 @@ static void leave_room(RelayState& state, const std::string& peer_id,
         auto rit2 = state.ws_rooms.find(room);
         if (rit2 != state.ws_rooms.end()) {
             for (auto& [_, peer_ws] : rit2->second.peers) {
-                send_to_peer(peer_ws, leave_str, uWS::OpCode::TEXT);
+                if (!peer_ws->getUserData()->is_guest) {
+                    send_to_peer(peer_ws, leave_str, uWS::OpCode::TEXT);
+                }
             }
         }
     }
@@ -482,8 +514,8 @@ static void handle_text_message(SSLWebSocket* ws, PerSocketData* data,
     }
 }
 
-// Rate limiting removed — authenticated peers are trusted.
-// DoS protection via Ed25519 auth + license key revocation.
+// DoS protection: per-IP limits (34 conns, 10 new/min), guest rate limiting (10 binary/min),
+// Ed25519 auth + license key revocation. IPs tracked in-memory only, never logged.
 
 
 static void cleanup_peer(RelayState& state, const std::string& peer_id) {
@@ -511,6 +543,29 @@ void setup_ws_handler(uWS::SSLApp& app, RelayState& state) {
 
         .open = [&state](SSLWebSocket* ws) {
             auto* data = ws->getUserData();
+
+            // Per-IP connection limiting (in-memory only, never logged)
+            std::string ip(ws->getRemoteAddressAsText());
+            data->ip_key = ip;
+            auto& ip_state = state.ip_states[ip];
+
+            if (ip_state.active_count >= MAX_CONNS_PER_IP) {
+                ws->end(1008, "ip_limit");
+                return;
+            }
+
+            auto now = std::chrono::steady_clock::now();
+            while (!ip_state.recent_connects.empty() &&
+                   (now - ip_state.recent_connects.front()) > std::chrono::seconds(60)) {
+                ip_state.recent_connects.pop_front();
+            }
+            if (ip_state.recent_connects.size() >= MAX_NEW_CONNS_PER_MIN_PER_IP) {
+                ws->end(1008, "rate_limit");
+                return;
+            }
+
+            ip_state.active_count++;
+            ip_state.recent_connects.push_back(now);
 
             // 10-second auth timeout
             auto* loop = reinterpret_cast<struct us_loop_t*>(uWS::Loop::get());
@@ -544,8 +599,29 @@ void setup_ws_handler(uWS::SSLApp& app, RelayState& state) {
                 if (message.size() > 1024 * 1024) return;
                 handle_text_message(ws, data, message, state);
             } else if (opCode == uWS::OpCode::BINARY) {
+                // 1-byte 0x00 = guest keepalive, don't process or count
+                if (message.size() == 1 && static_cast<uint8_t>(message[0]) == 0x00) {
+                    return;
+                }
                 if (message.size() > 1) {
-                    switch (static_cast<uint8_t>(message[0])) {
+                    uint8_t opcode = static_cast<uint8_t>(message[0]);
+
+                    // Guest binary restrictions
+                    if (data->is_guest) {
+                        if (opcode == 0x04) return; // no SendDirect for guests
+                        if (opcode == 0x03) {
+                            auto now = std::chrono::steady_clock::now();
+                            if ((now - data->minute_window_start) > std::chrono::seconds(60)) {
+                                data->binary_frames_this_minute = 0;
+                                data->minute_window_start = now;
+                            }
+                            if (data->binary_frames_this_minute >= GUEST_BINARY_PER_MIN) return;
+                            data->binary_frames_this_minute++;
+                            data->last_binary_activity = now;
+                        }
+                    }
+
+                    switch (opcode) {
                         case 0x01:
                             handle_binary_broadcast(data, message, state);
                             break;
@@ -572,6 +648,23 @@ void setup_ws_handler(uWS::SSLApp& app, RelayState& state) {
 
         .close = [&state](SSLWebSocket* ws, int /*code*/, std::string_view /*reason*/) {
             auto* data = ws->getUserData();
+
+            // IP tracking cleanup (in-memory only)
+            if (!data->ip_key.empty()) {
+                auto it = state.ip_states.find(data->ip_key);
+                if (it != state.ip_states.end()) {
+                    if (it->second.active_count > 0) it->second.active_count--;
+                    if (it->second.active_count == 0) {
+                        state.ip_states.erase(it);
+                    }
+                }
+            }
+
+            if (data->is_guest) {
+                if (state.guest_count > 0) state.guest_count--;
+                state.guest_sockets.erase(ws);
+            }
+
             if (data->auth_timer) {
                 us_timer_close(data->auth_timer);
                 data->auth_timer = nullptr;

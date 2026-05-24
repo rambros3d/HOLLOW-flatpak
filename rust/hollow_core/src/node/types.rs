@@ -241,7 +241,8 @@ pub(crate) enum NetworkEvent {
     RoomCapHit { room: String },
     // -- Guest sync events (Public Channels Phase 3) --
     PublicChannelListReceived { server_id: String, server_name: String, channels: Vec<PublicChannelEntryFfi>, server_avatar: Option<Vec<u8>> },
-    PublicChannelSyncReceived { server_id: String, channel_id: String, messages: Vec<GuestSyncMessageFfi>, has_more: bool },
+    PublicChannelSyncReceived { server_id: String, channel_id: String, messages: Vec<GuestSyncMessageFfi>, has_more: bool, sender_profiles: Vec<SyncSenderProfileFfi> },
+    PublicChannelConfigChanged { server_id: String, channel_id: String, is_public: bool, channel_name: String, category: Option<String> },
 }
 
 /// Lightweight ShareEntry for streaming lists to Dart. The persisted row is wider
@@ -301,6 +302,14 @@ pub(crate) struct GuestReactionFfi {
     pub emoji: String,
     pub peer_id: String,
     pub added_at: i64,
+}
+
+/// FFI-visible sender profile for guest sync.
+#[derive(Clone)]
+pub(crate) struct SyncSenderProfileFfi {
+    pub peer_id: String,
+    pub name: Option<String>,
+    pub avatar: Option<Vec<u8>>,
 }
 
 pub(crate) struct SendFilePayload {
@@ -786,6 +795,19 @@ pub(crate) enum HavenMessage {
         messages: Vec<SyncMessageItem>,
         #[serde(default)]
         has_more: bool,
+        #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+        sender_profiles: std::collections::HashMap<String, SyncSenderProfile>,
+    },
+
+    #[serde(rename = "pub_ch_config")]
+    PublicChannelConfigChanged {
+        server_id: String,
+        channel_id: String,
+        is_public: bool,
+        #[serde(default)]
+        channel_name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        category: Option<String>,
     },
 
     // -- Typing indicators (Phase 3.5) --
@@ -1822,6 +1844,15 @@ pub(crate) struct PendingShardStream {
     pub m: u16,
     pub total_size: u64,
     pub tier: String,
+}
+
+/// Sender profile embedded in public channel sync responses (one per unique sender per batch).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct SyncSenderProfile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar_b64: Option<String>,
 }
 
 /// A single message in a sync batch.

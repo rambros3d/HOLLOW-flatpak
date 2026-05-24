@@ -37,14 +37,14 @@ modules:
       CXX: /usr/bin/g++
       CC: /usr/bin/gcc
   build-commands:
+  - mkdir -p packages/flutter_webrtc/third_party/downloads
+  - touch packages/flutter_webrtc/third_party/downloads/libwebrtc.zip
   - mkdir -p packages/flutter_webrtc/third_party/libwebrtc/include
   - for d in api audio call common_audio common_video logging media modules net p2p
     pc rtc_base rtc_tools sdk stats system_wrappers video; do cp -r "libwebrtc/$d"
     packages/flutter_webrtc/third_party/libwebrtc/include/; done
   - mkdir -p packages/flutter_webrtc/third_party/libwebrtc/lib/linux-x64
   - cp libwebrtc/libwebrtc.a packages/flutter_webrtc/third_party/libwebrtc/lib/linux-x64/libwebrtc.a
-  - mkdir -p packages/flutter_webrtc/third_party/svpng
-  - curl -sSL -o packages/flutter_webrtc/third_party/svpng/svpng.hpp https://raw.githubusercontent.com/miloyip/svpng/master/svpng.inc
   - |
     set -e
     mkdir -p /run/build/flutter-sdk/.cargo/bin

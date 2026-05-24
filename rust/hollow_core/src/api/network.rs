@@ -305,7 +305,8 @@ pub enum NetworkEvent {
     RoomCapHit { room: String },
     // -- Guest sync events (Public Channels Phase 3) --
     PublicChannelListReceived { server_id: String, server_name: String, channels: Vec<PublicChannelEntryFfi>, server_avatar: Option<Vec<u8>> },
-    PublicChannelSyncReceived { server_id: String, channel_id: String, messages: Vec<GuestSyncMessageFfi>, has_more: bool },
+    PublicChannelSyncReceived { server_id: String, channel_id: String, messages: Vec<GuestSyncMessageFfi>, has_more: bool, sender_profiles: Vec<SyncSenderProfileFfi> },
+    PublicChannelConfigChanged { server_id: String, channel_id: String, is_public: bool, channel_name: String, category: Option<String> },
 }
 
 /// Lightweight FFI mirror of node::types::ShareEntryRef.
@@ -351,6 +352,13 @@ pub struct GuestReactionFfi {
     pub emoji: String,
     pub peer_id: String,
     pub added_at: i64,
+}
+
+/// FFI-facing sender profile for guest sync.
+pub struct SyncSenderProfileFfi {
+    pub peer_id: String,
+    pub name: Option<String>,
+    pub avatar: Option<Vec<u8>>,
 }
 
 /// Holds all mutable state for the running node.
@@ -556,6 +564,9 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
         }
         node::NetworkEvent::PublicChannelSyncReceived { server_id, channel_id, messages, .. } => {
             hollow_log!("[HOLLOW] Public channel sync received: {} messages for {channel_id} in {server_id}", messages.len());
+        }
+        node::NetworkEvent::PublicChannelConfigChanged { server_id, channel_id, is_public, .. } => {
+            hollow_log!("[HOLLOW] Public channel config changed: {channel_id} in {server_id} is_public={is_public}");
         }
         _ => {}
     }
@@ -912,7 +923,7 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
                 server_avatar,
             }
         }
-        node::NetworkEvent::PublicChannelSyncReceived { server_id, channel_id, messages, has_more } => {
+        node::NetworkEvent::PublicChannelSyncReceived { server_id, channel_id, messages, has_more, sender_profiles } => {
             NetworkEvent::PublicChannelSyncReceived {
                 server_id, channel_id, has_more,
                 messages: messages.into_iter().map(|m| GuestSyncMessageFfi {
@@ -929,6 +940,14 @@ fn to_ffi_event(event: node::NetworkEvent) -> NetworkEvent {
                         emoji: r.emoji, peer_id: r.peer_id, added_at: r.added_at,
                     }).collect(),
                 }).collect(),
+                sender_profiles: sender_profiles.into_iter().map(|p| SyncSenderProfileFfi {
+                    peer_id: p.peer_id, name: p.name, avatar: p.avatar,
+                }).collect(),
+            }
+        }
+        node::NetworkEvent::PublicChannelConfigChanged { server_id, channel_id, is_public, channel_name, category } => {
+            NetworkEvent::PublicChannelConfigChanged {
+                server_id, channel_id, is_public, channel_name, category,
             }
         }
     }

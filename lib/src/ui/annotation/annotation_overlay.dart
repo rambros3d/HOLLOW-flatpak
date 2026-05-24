@@ -55,7 +55,7 @@ class AnnotationOverlay {
       } catch (e) {
         debugPrint('[annotation] enter mode failed: $e');
       }
-    } else if (Platform.isWindows) {
+    } else if (Platform.isWindows || Platform.isLinux) {
       await _enterWindowsAnnotation();
     }
 
@@ -74,7 +74,7 @@ class AnnotationOverlay {
       } catch (e) {
         debugPrint('[annotation] exit mode failed: $e');
       }
-    } else if (Platform.isWindows) {
+    } else if (Platform.isWindows || Platform.isLinux) {
       await _exitWindowsAnnotation();
     }
 
@@ -84,27 +84,31 @@ class AnnotationOverlay {
   static Future<void> _enterWindowsAnnotation() async {
     try {
       _wasMaximized = await windowManager.isMaximized();
-      await windowManager.setSkipTaskbar(true);
+      if (!Platform.isLinux) {
+        await windowManager.setSkipTaskbar(true);
+        await windowManager.setBackgroundColor(Colors.transparent);
+      }
       await windowManager.setAlwaysOnTop(true);
-      await windowManager.setBackgroundColor(Colors.transparent);
       if (!_wasMaximized) {
         await windowManager.maximize();
       }
     } catch (e) {
-      debugPrint('[annotation] Windows enter failed: $e');
+      debugPrint('[annotation] enter failed: $e');
     }
   }
 
   static Future<void> _exitWindowsAnnotation() async {
     try {
-      await windowManager.setBackgroundColor(const Color(0xFF0D0F14));
+      if (!Platform.isLinux) {
+        await windowManager.setBackgroundColor(const Color(0xFF0D0F14));
+        await windowManager.setSkipTaskbar(false);
+      }
       await windowManager.setAlwaysOnTop(false);
-      await windowManager.setSkipTaskbar(false);
       if (!_wasMaximized) {
         await windowManager.unmaximize();
       }
     } catch (e) {
-      debugPrint('[annotation] Windows exit failed: $e');
+      debugPrint('[annotation] exit failed: $e');
     }
   }
 

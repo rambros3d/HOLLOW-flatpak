@@ -487,26 +487,40 @@ Takes `localPeerId` and `iceServers`. State:
 - `onRemoteTrackReady`: remote screen renderer is ready
 - `onScreenShareEnded`: local screen track ended (user closed shared window)
 
+### Native Screen Capture (Resolution Enforcement)
+
+libwebrtc's desktop capturer ignores all resolution constraints (`scaleResolutionDownBy`, mandatory width/height). Native platform capture APIs replace it:
+
+**Windows:** `NativeScreenCapturer` (`packages/flutter_webrtc/windows/native_screen_capturer.{h,cc}`) uses Graphics Capture API + D3D11. Captures at native resolution, bilinear downscales to target via `ScaleBGRA()`, pushes frames via `RTCVideoFrame::CreateFromBGRA()` → `RTCVideoSource::OnCapturedFrame()`. `CreateCustomVideoSource()` replaces `CreateDesktopSource()` in `flutter_screen_capture.cc` when width/height are provided. Supports `StartMonitor(HMONITOR)` and `StartWindow(HWND)`.
+
+**macOS:** `FlutterScreenCaptureKitCapturer` accepts `width:height:` params — `SCStreamConfiguration.width/height` set to target dimensions (GPU-accelerated downscale). Window capture via `SCContentFilter initWithDesktopIndependentWindow:`. Both screen and window sources use ScreenCaptureKit path.
+
+**Linux:** Falls back to libwebrtc's desktop capturer.
+
+**Cleanup:** `CleanupNativeCapturersForStream(stream_id)` called from `streamDispose` in `flutter_webrtc.cc`. Stops `NativeScreenCapturer` (removes yellow capture border) and `WasapiLoopbackCapturer`.
+
 ### Resolution and Bitrate Capping
 
-`_applyResolutionCap(maxWidth, maxHeight)`: Applied to the video sender's encoding parameters after `addTrack`. `getDisplayMedia` captures at native resolution -- this constrains the encoder:
+`_applyResolutionCap(maxWidth, maxHeight, fps)`: Belt-and-suspenders on the video sender's encoding parameters after `addTrack`. Native capture handles the real resolution control; this constrains the encoder as a second layer:
 
-1. Gets sender track settings (captureWidth/captureHeight)
-2. Computes scale factor if capture exceeds target, sets `scaleResolutionDownBy`
-3. Caps bitrate by pixel count tier:
+1. Sets `degradationPreference = MAINTAIN_FRAMERATE` to prevent adaptive quality from overriding resolution
+2. Gets sender track settings (captureWidth/captureHeight)
+3. Computes scale factor if capture exceeds target, sets `scaleResolutionDownBy`
+4. Sets `maxFramerate` to user-selected fps
+5. Caps bitrate by pixel count tier:
    - 360p: 800 kbps
    - 480p: 1500 kbps
    - 720p: 3000 kbps
    - 1080p: 6000 kbps
    - 1440p: 9000 kbps
    - 4K: 15000 kbps
-4. Higher than camera bitrates because screen content has sharp edges/text that compress poorly
+6. Higher than camera bitrates because screen content has sharp edges/text that compress poorly
 
 ### Outgoing Screen Share
 
 `ScreenShareService.createOffer(sourceId, width, height, fps, {shareAudio})`:
 1. Calls `desktopCapturer.getSources()` to refresh source list
-2. Calls `navigator.mediaDevices.getDisplayMedia()` with source ID, frame rate, and audio flag
+2. Calls `navigator.mediaDevices.getDisplayMedia()` with source ID, frame rate, width, height, and audio flag — width/height in mandatory constraints trigger native capture on Windows/macOS
 3. Validates video tracks exist (security check)
 4. Creates local self-preview renderer
 5. Creates PC, wires callbacks via `_setupCallbacks()`
@@ -517,7 +531,7 @@ Takes `localPeerId` and `iceServers`. State:
 10. Starts track poller (2s interval checks if screen track is still enabled)
 11. Returns SDP offer string
 
-`createOfferFromStream(stream, {maxWidth, maxHeight})`: Alternative for voice channels where one capture is shared across multiple peer connections. Takes pre-captured `MediaStream` instead of capturing new one. Caller manages track poller centrally. Otherwise same flow.
+`createOfferFromStream(stream, {maxWidth, maxHeight, fps})`: Alternative for voice channels where one capture is shared across multiple peer connections. Takes pre-captured `MediaStream` instead of capturing new one. Caller manages track poller centrally. Otherwise same flow.
 
 `handleAnswer(sdp)`: Sets remote description, flushes pending ICE candidates.
 

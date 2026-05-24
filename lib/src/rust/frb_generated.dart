@@ -8003,6 +8003,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<SyncSenderProfileFfi> dco_decode_list_sync_sender_profile_ffi(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_sync_sender_profile_ffi)
+        .toList();
+  }
+
+  @protected
   List<UserProfile> dco_decode_list_user_profile(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_user_profile).toList();
@@ -8649,6 +8659,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           channelId: dco_decode_String(raw[2]),
           messages: dco_decode_list_guest_sync_message_ffi(raw[3]),
           hasMore: dco_decode_bool(raw[4]),
+          senderProfiles: dco_decode_list_sync_sender_profile_ffi(raw[5]),
+        );
+      case 104:
+        return NetworkEvent_PublicChannelConfigChanged(
+          serverId: dco_decode_String(raw[1]),
+          channelId: dco_decode_String(raw[2]),
+          isPublic: dco_decode_bool(raw[3]),
+          channelName: dco_decode_String(raw[4]),
+          category: dco_decode_opt_String(raw[5]),
         );
       default:
         throw Exception("unreachable");
@@ -8940,6 +8959,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       emoji: dco_decode_String(arr[1]),
       peerId: dco_decode_String(arr[2]),
       addedAt: dco_decode_i_64(arr[3]),
+    );
+  }
+
+  @protected
+  SyncSenderProfileFfi dco_decode_sync_sender_profile_ffi(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return SyncSenderProfileFfi(
+      peerId: dco_decode_String(arr[0]),
+      name: dco_decode_opt_String(arr[1]),
+      avatar: dco_decode_opt_list_prim_u_8_strict(arr[2]),
     );
   }
 
@@ -9924,6 +9956,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<SyncSenderProfileFfi> sse_decode_list_sync_sender_profile_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <SyncSenderProfileFfi>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_sync_sender_profile_ffi(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<UserProfile> sse_decode_list_user_profile(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -10896,11 +10942,28 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         var var_channelId = sse_decode_String(deserializer);
         var var_messages = sse_decode_list_guest_sync_message_ffi(deserializer);
         var var_hasMore = sse_decode_bool(deserializer);
+        var var_senderProfiles = sse_decode_list_sync_sender_profile_ffi(
+          deserializer,
+        );
         return NetworkEvent_PublicChannelSyncReceived(
           serverId: var_serverId,
           channelId: var_channelId,
           messages: var_messages,
           hasMore: var_hasMore,
+          senderProfiles: var_senderProfiles,
+        );
+      case 104:
+        var var_serverId = sse_decode_String(deserializer);
+        var var_channelId = sse_decode_String(deserializer);
+        var var_isPublic = sse_decode_bool(deserializer);
+        var var_channelName = sse_decode_String(deserializer);
+        var var_category = sse_decode_opt_String(deserializer);
+        return NetworkEvent_PublicChannelConfigChanged(
+          serverId: var_serverId,
+          channelId: var_channelId,
+          isPublic: var_isPublic,
+          channelName: var_channelName,
+          category: var_category,
         );
       default:
         throw UnimplementedError('');
@@ -11325,6 +11388,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       emoji: var_emoji,
       peerId: var_peerId,
       addedAt: var_addedAt,
+    );
+  }
+
+  @protected
+  SyncSenderProfileFfi sse_decode_sync_sender_profile_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_peerId = sse_decode_String(deserializer);
+    var var_name = sse_decode_opt_String(deserializer);
+    var var_avatar = sse_decode_opt_list_prim_u_8_strict(deserializer);
+    return SyncSenderProfileFfi(
+      peerId: var_peerId,
+      name: var_name,
+      avatar: var_avatar,
     );
   }
 
@@ -12200,6 +12278,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_stored_reaction(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_sync_sender_profile_ffi(
+    List<SyncSenderProfileFfi> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_sync_sender_profile_ffi(item, serializer);
     }
   }
 
@@ -13154,12 +13244,27 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         channelId: final channelId,
         messages: final messages,
         hasMore: final hasMore,
+        senderProfiles: final senderProfiles,
       ):
         sse_encode_i_32(103, serializer);
         sse_encode_String(serverId, serializer);
         sse_encode_String(channelId, serializer);
         sse_encode_list_guest_sync_message_ffi(messages, serializer);
         sse_encode_bool(hasMore, serializer);
+        sse_encode_list_sync_sender_profile_ffi(senderProfiles, serializer);
+      case NetworkEvent_PublicChannelConfigChanged(
+        serverId: final serverId,
+        channelId: final channelId,
+        isPublic: final isPublic,
+        channelName: final channelName,
+        category: final category,
+      ):
+        sse_encode_i_32(104, serializer);
+        sse_encode_String(serverId, serializer);
+        sse_encode_String(channelId, serializer);
+        sse_encode_bool(isPublic, serializer);
+        sse_encode_String(channelName, serializer);
+        sse_encode_opt_String(category, serializer);
     }
   }
 
@@ -13477,6 +13582,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.emoji, serializer);
     sse_encode_String(self.peerId, serializer);
     sse_encode_i_64(self.addedAt, serializer);
+  }
+
+  @protected
+  void sse_encode_sync_sender_profile_ffi(
+    SyncSenderProfileFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.peerId, serializer);
+    sse_encode_opt_String(self.name, serializer);
+    sse_encode_opt_list_prim_u_8_strict(self.avatar, serializer);
   }
 
   @protected

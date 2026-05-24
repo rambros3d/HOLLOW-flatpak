@@ -86,6 +86,11 @@ yt_videos/
 
 # Forked flutter_webrtc prebuilt binaries (downloaded by build system)
 packages/flutter_webrtc/third_party/
+# But keep the bootstrap files that CMake needs to auto-download libwebrtc
+!packages/flutter_webrtc/third_party/CMakeLists.txt
+!packages/flutter_webrtc/third_party/svpng/
+!packages/flutter_webrtc/third_party/svpng/svpng.hpp
+!packages/flutter_webrtc/third_party/svpng/LICENSE
 
 # Hollow Memory (semantic search tool)
 tools/hollow-memory/models/
@@ -110,3 +115,6 @@ generated/
 
 # Nested flutter_webrtc package artifacts (pub get resolution copies)
 packages/flutter_webrtc/packages/
+
+# Wiki
+tools/hollow-memory/wiki/web_public_viewer.md

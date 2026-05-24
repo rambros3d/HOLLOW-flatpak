@@ -1086,6 +1086,12 @@ Providers managing the Public Channel Browser panel — a first-class shell pane
 
 **`guestServerAvatarProvider`** -- `StateProvider<Map<String, List<int>>>`. Server avatar bytes received from `PublicChannelListResponse`.
 
+**`guestSenderProfilesProvider`** -- `StateProvider<Map<String, GuestSenderProfile>>`. Guest sender profiles keyed by peer ID. Populated from `sender_profiles` map in `PublicChannelSyncResponse`. Model: `GuestSenderProfile { name, avatar }`. On receipt, profiles are also injected into `profileProvider` (as synthetic `UserProfile` entries) and `avatarProvider` so `ChannelMessageBubble` and `HollowAvatar` work without guest-specific code.
+
+### GuestChannelMapNotifier methods
+
+`setChannels(serverId, channels)`, `addChannel(serverId, channel)`, `removeChannel(serverId, channelId)`, `removeServer(serverId)`, `clear()`.
+
 ### Persistence
 
 **`savedGuestServersProvider`** -- `AsyncNotifierProvider<SavedGuestServersNotifier, List<SavedGuestServer>>`. DB-backed via `app_settings` JSON key `guest_saved_servers`. Model: `SavedGuestServer { serverId, serverName, fetchMode, savedAt }`. Fetch modes: `GuestFetchMode.realtime` (max 7), `onLaunch`, `manual`, `periodic5m/15m/30m/1h`. Methods: `addServer`, `removeServer`, `updateFetchMode`, `updateServerName`.

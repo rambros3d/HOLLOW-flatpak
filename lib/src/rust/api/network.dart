@@ -1210,7 +1210,15 @@ sealed class NetworkEvent with _$NetworkEvent {
     required String channelId,
     required List<GuestSyncMessageFfi> messages,
     required bool hasMore,
+    required List<SyncSenderProfileFfi> senderProfiles,
   }) = NetworkEvent_PublicChannelSyncReceived;
+  const factory NetworkEvent.publicChannelConfigChanged({
+    required String serverId,
+    required String channelId,
+    required bool isPublic,
+    required String channelName,
+    String? category,
+  }) = NetworkEvent_PublicChannelConfigChanged;
 }
 
 /// FFI-facing public channel entry for guest viewer.
@@ -1304,6 +1312,27 @@ class ShareEntry {
           createdAt == other.createdAt &&
           serverId == other.serverId &&
           contextType == other.contextType;
+}
+
+/// FFI-facing sender profile for guest sync.
+class SyncSenderProfileFfi {
+  final String peerId;
+  final String? name;
+  final Uint8List? avatar;
+
+  const SyncSenderProfileFfi({required this.peerId, this.name, this.avatar});
+
+  @override
+  int get hashCode => peerId.hashCode ^ name.hashCode ^ avatar.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SyncSenderProfileFfi &&
+          runtimeType == other.runtimeType &&
+          peerId == other.peerId &&
+          name == other.name &&
+          avatar == other.avatar;
 }
 
 /// FFI-facing video thumbnail back-reference.

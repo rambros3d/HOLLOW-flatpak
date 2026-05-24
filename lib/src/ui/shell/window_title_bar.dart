@@ -44,7 +44,7 @@ class WindowTitleBar extends StatelessWidget {
     Widget buttons = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (Platform.isMacOS || Platform.isWindows) const AnnotationToggleButton(),
+        if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) const AnnotationToggleButton(),
         const SizedBox(width: 4),
         const _MinimizeButton(),
         _MaximizeButton(),

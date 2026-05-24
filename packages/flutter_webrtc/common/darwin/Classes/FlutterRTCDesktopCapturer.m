@@ -93,6 +93,8 @@ NSArray<RTCDesktopSource*>* _captureSources;
   NSString* sourceId = nil;
   BOOL useDefaultScreen = NO;
   NSInteger fps = 30;
+  NSInteger targetWidth = 0;
+  NSInteger targetHeight = 0;
   id videoConstraints = constraints[@"video"];
   if ([videoConstraints isKindOfClass:[NSNumber class]] && [videoConstraints boolValue] == YES) {
     useDefaultScreen = YES;
@@ -116,6 +118,14 @@ NSArray<RTCDesktopSource*>* _captureSources;
       if (frameRate != nil && [frameRate isKindOfClass:[NSNumber class]]) {
         fps = [frameRate integerValue];
       }
+      id widthVal = mandatory[@"width"];
+      if (widthVal != nil && [widthVal isKindOfClass:[NSNumber class]]) {
+        targetWidth = [widthVal integerValue];
+      }
+      id heightVal = mandatory[@"height"];
+      if (heightVal != nil && [heightVal isKindOfClass:[NSNumber class]]) {
+        targetHeight = [heightVal integerValue];
+      }
     }
   }
   RTCDesktopCapturer* desktopCapturer;
@@ -131,32 +141,59 @@ NSArray<RTCDesktopSource*>* _captureSources;
       result(@{@"error" : [NSString stringWithFormat:@"No source found for id: %@", sourceId]});
       return;
     }
-    if (source.sourceType == RTCDesktopSourceTypeScreen) {
-      useScreenCaptureKit = YES;
-    } else {
-      desktopCapturer = [[RTCDesktopCapturer alloc] initWithSource:source
-                                                          delegate:self
-                                                   captureDelegate:videoProcessingAdapter];
-    }
+    // Use ScreenCaptureKit for both screen and window sources (GPU-accelerated
+    // downscaling, respects target resolution).
+    useScreenCaptureKit = YES;
   }
   if (useScreenCaptureKit) {
     if (@available(macOS 12.3, *)) {
       screenCaptureKitCapturer =
           [[FlutterScreenCaptureKitCapturer alloc] initWithDelegate:videoProcessingAdapter];
-      [screenCaptureKitCapturer startCaptureWithFPS:fps
-                                           sourceId:sourceId
-                                          onStarted:^(NSError * _Nullable error) {
-                                            if (error != nil) {
-                                              NSLog(@"ScreenCaptureKit start failed: %@", error);
-                                            } else {
-                                              NSLog(@"start screencapturekit capture: for  sourceId: %@, fps: %lu",
-                                                    sourceId, fps);
-                                            }
-                                          }];
+
+      BOOL isWindow = (source != nil && source.sourceType == RTCDesktopSourceTypeWindow);
+      if (isWindow) {
+        // Window capture via ScreenCaptureKit.
+        CGWindowID windowID = 0;
+        if (sourceId != nil) {
+          windowID = (CGWindowID)[sourceId integerValue];
+        }
+        [screenCaptureKitCapturer startWindowCaptureWithFPS:fps
+                                                   windowID:windowID
+                                                      width:targetWidth
+                                                     height:targetHeight
+                                                  onStarted:^(NSError * _Nullable error) {
+          if (error != nil) {
+            NSLog(@"ScreenCaptureKit window capture failed: %@", error);
+          } else {
+            NSLog(@"start screencapturekit window capture: windowID: %u, %ldx%ld @%ldfps",
+                  windowID, (long)targetWidth, (long)targetHeight, (long)fps);
+          }
+        }];
+      } else {
+        // Screen capture via ScreenCaptureKit.
+        [screenCaptureKitCapturer startCaptureWithFPS:fps
+                                             sourceId:sourceId
+                                                width:targetWidth
+                                               height:targetHeight
+                                            onStarted:^(NSError * _Nullable error) {
+          if (error != nil) {
+            NSLog(@"ScreenCaptureKit start failed: %@", error);
+          } else {
+            NSLog(@"start screencapturekit capture: sourceId: %@, %ldx%ld @%ldfps",
+                  sourceId, (long)targetWidth, (long)targetHeight, (long)fps);
+          }
+        }];
+      }
     } else {
       NSLog(@"ScreenCaptureKit not available, falling back to RTCDesktopCapturer");
-      desktopCapturer = [[RTCDesktopCapturer alloc] initWithDefaultScreen:self
-                                                          captureDelegate:videoProcessingAdapter];
+      if (source != nil && source.sourceType == RTCDesktopSourceTypeWindow) {
+        desktopCapturer = [[RTCDesktopCapturer alloc] initWithSource:source
+                                                            delegate:self
+                                                     captureDelegate:videoProcessingAdapter];
+      } else {
+        desktopCapturer = [[RTCDesktopCapturer alloc] initWithDefaultScreen:self
+                                                            captureDelegate:videoProcessingAdapter];
+      }
     }
   }
 

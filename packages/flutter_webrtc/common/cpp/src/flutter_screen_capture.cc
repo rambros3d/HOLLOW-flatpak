@@ -5,6 +5,7 @@
 #include "../../../windows/screen_audio_capturer.h"
 #include "../../../windows/opus_decoder_wrapper.h"
 #include "../../../windows/wasapi_audio_renderer.h"
+#include "../../../windows/native_screen_capturer.h"
 #endif
 
 #include "rtc_audio_source.h"
@@ -205,6 +206,8 @@ void FlutterScreenCapture::GetDisplayMedia(
   std::string source_id = "0";
   // DesktopType source_type = kScreen;
   double fps = 30.0;
+  int target_width = 0;
+  int target_height = 0;
 
   const EncodableMap video = findMap(constraints, "video");
   if (video != EncodableMap()) {
@@ -225,6 +228,10 @@ void FlutterScreenCapture::GetDisplayMedia(
       if (frameRate != 0.0) {
         fps = frameRate;
       }
+      int w = findInt(mandatory, "width");
+      if (w > 0) target_width = w;
+      int h = findInt(mandatory, "height");
+      if (h > 0) target_height = h;
     }
   }
 
@@ -321,24 +328,104 @@ void FlutterScreenCapture::GetDisplayMedia(
     return;
   }
 
-  scoped_refptr<RTCDesktopCapturer> desktop_capturer =
-      base_->desktop_device_->CreateDesktopCapturer(source);
-
-  if (!desktop_capturer.get()) {
-    result->Error("Bad Arguments", "CreateDesktopCapturer failed!");
-    return;
-  }
-
-  desktop_capturer->RegisterDesktopCapturerObserver(this);
-
   const char* video_source_label = "screen_capture_input";
+  scoped_refptr<RTCVideoSource> video_source;
+  bool using_native_capturer = false;
 
-  scoped_refptr<RTCVideoSource> video_source =
-      base_->factory_->CreateDesktopSource(
-          desktop_capturer, video_source_label,
-          base_->ParseMediaConstraints(video_constraints));
+#if defined(_WIN32)
+  // Use native Graphics Capture when target resolution is specified.
+  // This bypasses libwebrtc's desktop capturer which ignores resolution
+  // constraints and always sends at native monitor resolution.
+  if (target_width > 0 && target_height > 0) {
+    video_source = base_->factory_->CreateCustomVideoSource(
+        video_source_label,
+        base_->ParseMediaConstraints(video_constraints));
 
-  // TODO: RTCVideoSource -> RTCVideoTrack
+    if (video_source.get()) {
+      auto capturer = std::make_unique<NativeScreenCapturer>();
+      bool started = false;
+
+      if (source->type() == kScreen) {
+        // Screen capture: find the matching HMONITOR.
+        // Source IDs for screens are display indices; use primary monitor
+        // for "0", otherwise enumerate to match.
+        HMONITOR monitor = nullptr;
+        if (source_id == "0") {
+          POINT pt = {0, 0};
+          monitor = MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY);
+        } else {
+          // Enumerate monitors to find the right one by index.
+          struct EnumData {
+            int target_index;
+            int current_index;
+            HMONITOR result;
+          };
+          int idx = 0;
+          try { idx = std::stoi(source_id); } catch (...) {}
+          EnumData data{idx, 0, nullptr};
+          EnumDisplayMonitors(nullptr, nullptr,
+              [](HMONITOR mon, HDC, LPRECT, LPARAM lp) -> BOOL {
+                auto* d = reinterpret_cast<EnumData*>(lp);
+                if (d->current_index == d->target_index) {
+                  d->result = mon;
+                  return FALSE;
+                }
+                d->current_index++;
+                return TRUE;
+              }, reinterpret_cast<LPARAM>(&data));
+          monitor = data.result;
+          if (!monitor) {
+            POINT pt = {0, 0};
+            monitor = MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY);
+          }
+        }
+        started = capturer->StartMonitor(
+            monitor, target_width, target_height,
+            static_cast<UINT32>(fps), video_source);
+      } else {
+        // Window capture: source ID is the HWND as a string.
+        HWND hwnd = nullptr;
+        try {
+          hwnd = reinterpret_cast<HWND>(
+              static_cast<uintptr_t>(std::stoull(source_id)));
+        } catch (...) {}
+        if (hwnd && IsWindow(hwnd)) {
+          started = capturer->StartWindow(
+              hwnd, target_width, target_height,
+              static_cast<UINT32>(fps), video_source);
+        }
+      }
+
+      if (started) {
+        native_capturers_[uuid] = std::move(capturer);
+        using_native_capturer = true;
+      } else {
+        std::cerr << "[FlutterScreenCap] Native capturer failed, "
+                     "falling back to libwebrtc\n";
+        video_source = nullptr;
+      }
+    }
+  }
+#endif
+
+  // Fallback: use libwebrtc's desktop capturer (Linux, or if native failed).
+  if (!using_native_capturer) {
+    scoped_refptr<RTCDesktopCapturer> desktop_capturer =
+        base_->desktop_device_->CreateDesktopCapturer(source);
+
+    if (!desktop_capturer.get()) {
+      result->Error("Bad Arguments", "CreateDesktopCapturer failed!");
+      return;
+    }
+
+    desktop_capturer->RegisterDesktopCapturerObserver(this);
+
+    video_source = base_->factory_->CreateDesktopSource(
+        desktop_capturer, video_source_label,
+        base_->ParseMediaConstraints(video_constraints));
+
+    desktop_capturer->Start(uint32_t(fps));
+  }
 
   scoped_refptr<RTCVideoTrack> track =
       base_->factory_->CreateVideoTrack(video_source, uuid.c_str());
@@ -358,9 +445,28 @@ void FlutterScreenCapture::GetDisplayMedia(
 
   base_->local_streams_[uuid] = stream;
 
-  desktop_capturer->Start(uint32_t(fps));
-
   result->Success(EncodableValue(params));
+}
+
+// ---------------------------------------------------------------------------
+// Native capturer cleanup
+// ---------------------------------------------------------------------------
+
+void FlutterScreenCapture::CleanupNativeCapturersForStream(
+    const std::string& stream_id) {
+#if defined(_WIN32)
+  auto it = native_capturers_.find(stream_id);
+  if (it != native_capturers_.end()) {
+    it->second->Stop();
+    native_capturers_.erase(it);
+  }
+
+  auto lit = loopback_capturers_.find(stream_id);
+  if (lit != loopback_capturers_.end()) {
+    lit->second->Stop();
+    loopback_capturers_.erase(lit);
+  }
+#endif
 }
 
 // ---------------------------------------------------------------------------

@@ -1418,6 +1418,31 @@ pub(crate) async fn handle_set_channel_public(
                 }
             }
         }
+
+        // Broadcast to room (including guests) so public channel browsers see the change
+        if let Some(ch) = state.channels.get(&channel_id) {
+            let notify = HavenMessage::PublicChannelConfigChanged {
+                server_id: server_id.clone(),
+                channel_id: channel_id.clone(),
+                is_public,
+                channel_name: ch.name.clone(),
+                category: ch.category.clone(),
+            };
+            if let Ok(data) = serde_json::to_vec(&notify) {
+                let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendToRoom {
+                    room_code: server_id.clone(),
+                    data,
+                });
+            }
+            // Also emit locally so in-app guest browser updates for own servers
+            let _ = event_tx.send(NetworkEvent::PublicChannelConfigChanged {
+                server_id: server_id.clone(),
+                channel_id: channel_id.clone(),
+                is_public,
+                channel_name: ch.name.clone(),
+                category: ch.category.clone(),
+            }).await;
+        }
     }
     false
 }
@@ -2054,6 +2079,7 @@ pub(crate) async fn handle_envelope_crdt_op(
     sid: String,
     op_json: String,
     crdt_store: &CrdtStore,
+    ws_cmd_tx: &mpsc::UnboundedSender<super::ws_client::WsCommand>,
 ) {
     if !server_states.contains_key(&sid) { return; }
     let op = match serde_json::from_str::<crate::crdt::operations::CrdtOp>(&op_json) {
@@ -2168,6 +2194,33 @@ pub(crate) async fn handle_envelope_crdt_op(
                     server_id: sid.clone(), peer_id: peer_id.clone(), new_role: role.as_str().to_string(),
                 }).await;
             }
+            CrdtPayload::ChannelPublicChanged { channel_id, is_public } => {
+                let _ = event_tx.send(NetworkEvent::ServerUpdated {
+                    server_id: sid.clone(),
+                }).await;
+                if let Some(ch) = state.channels.get(channel_id) {
+                    let notify = HavenMessage::PublicChannelConfigChanged {
+                        server_id: sid.clone(),
+                        channel_id: channel_id.clone(),
+                        is_public: *is_public,
+                        channel_name: ch.name.clone(),
+                        category: ch.category.clone(),
+                    };
+                    if let Ok(data) = serde_json::to_vec(&notify) {
+                        let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendToRoom {
+                            room_code: sid.clone(),
+                            data,
+                        });
+                    }
+                    let _ = event_tx.send(NetworkEvent::PublicChannelConfigChanged {
+                        server_id: sid.clone(),
+                        channel_id: channel_id.clone(),
+                        is_public: *is_public,
+                        channel_name: ch.name.clone(),
+                        category: ch.category.clone(),
+                    }).await;
+                }
+            }
             CrdtPayload::ServerSettingChanged { .. }
             | CrdtPayload::ServerRenamed { .. }
             | CrdtPayload::RolePermissionsChanged { .. }
@@ -2175,7 +2228,6 @@ pub(crate) async fn handle_envelope_crdt_op(
             | CrdtPayload::MemberUnbanned { .. }
             | CrdtPayload::ChannelVisibilityChanged { .. }
             | CrdtPayload::ChannelPostingChanged { .. }
-            | CrdtPayload::ChannelPublicChanged { .. }
             | CrdtPayload::LabelCreated { .. }
             | CrdtPayload::LabelDeleted { .. }
             | CrdtPayload::LabelUpdated { .. }

@@ -42,6 +42,7 @@ import 'package:hollow/src/core/providers/license_key_provider.dart';
 import 'package:hollow/src/core/providers/room_budget_provider.dart';
 import 'package:hollow/src/core/providers/guest_provider.dart';
 import 'package:hollow/src/core/models/channel_chat_message.dart';
+import 'package:hollow/src/rust/api/storage.dart' as storage_api;
 import 'package:hollow/src/ui/app.dart' show hollowNavigatorKey;
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
@@ -1142,7 +1143,7 @@ class EventStreamNotifier extends Notifier<bool> {
         ref.read(guestLoadingProvider.notifier).state = guestLoading;
 
       case NetworkEvent_PublicChannelSyncReceived(
-            :final serverId, :final channelId, :final messages, :final hasMore):
+            :final serverId, :final channelId, :final messages, :final hasMore, :final senderProfiles):
         debugPrint('[HOLLOW] Guest: received ${messages.length} messages for $channelId in $serverId');
         final guestHasMoreMap = Map<String, bool>.from(ref.read(guestHasMoreProvider));
         guestHasMoreMap['$serverId:$channelId'] = hasMore;
@@ -1172,6 +1173,63 @@ class EventStreamNotifier extends Notifier<bool> {
         }).toList();
         ref.read(channelChatProvider.notifier).setGuestMessages(
               serverId, channelId, chatMessages);
+
+        // Process sender profiles — inject into profileProvider so ChannelMessageBubble
+        // can display names/avatars for guest-synced peers.
+        if (senderProfiles.isNotEmpty) {
+          final currentGuest = Map<String, GuestSenderProfile>.from(
+              ref.read(guestSenderProfilesProvider));
+          final currentProfiles = Map<String, storage_api.UserProfile>.from(
+              ref.read(profileProvider));
+          for (final p in senderProfiles) {
+            final avatar = p.avatar != null && p.avatar!.isNotEmpty
+                ? Uint8List.fromList(p.avatar!)
+                : null;
+            currentGuest[p.peerId] = GuestSenderProfile(
+              name: p.name ?? '',
+              avatar: avatar,
+            );
+            if (avatar != null) {
+              ref.read(avatarProvider.notifier).setAvatar(p.peerId, avatar);
+            }
+            // Inject into profileProvider if not already present (or has no display name)
+            final existing = currentProfiles[p.peerId];
+            if (p.name != null && p.name!.isNotEmpty &&
+                (existing == null || existing.displayName.isEmpty)) {
+              currentProfiles[p.peerId] = storage_api.UserProfile(
+                peerId: p.peerId,
+                displayName: p.name!,
+                status: existing?.status ?? '',
+                aboutMe: existing?.aboutMe ?? '',
+                updatedAt: existing?.updatedAt ?? 0,
+                avatarBytes: null,
+                bannerBytes: null,
+                twitchUsername: existing?.twitchUsername ?? '',
+              );
+            }
+          }
+          ref.read(guestSenderProfilesProvider.notifier).state = currentGuest;
+          ref.read(profileProvider.notifier).state = currentProfiles;
+        }
+
+      case NetworkEvent_PublicChannelConfigChanged(
+            :final serverId, :final channelId, :final isPublic, :final channelName, :final category):
+        debugPrint('[HOLLOW] Guest: channel config changed: $channelId in $serverId is_public=$isPublic');
+        if (isPublic) {
+          ref.read(guestChannelMapProvider.notifier).addChannel(
+            serverId,
+            GuestChannelEntry(channelId: channelId, name: channelName, category: category),
+          );
+        } else {
+          ref.read(guestChannelMapProvider.notifier).removeChannel(serverId, channelId);
+          // Clear cached messages for the removed channel
+          ref.read(channelChatProvider.notifier).clearGuestChannel(serverId, channelId);
+          // Deselect if active
+          if (ref.read(guestSelectedChannelProvider) == channelId &&
+              ref.read(guestSelectedServerProvider) == serverId) {
+            ref.read(guestSelectedChannelProvider.notifier).state = null;
+          }
+        }
 
     }
     } catch (e, st) {

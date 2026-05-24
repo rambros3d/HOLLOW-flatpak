@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/providers/channel_chat_provider.dart';
 import 'package:hollow/src/core/providers/guest_provider.dart';
 import 'package:hollow/src/core/providers/server_avatar_provider.dart';
 import 'package:hollow/src/core/color_utils.dart';
@@ -205,6 +206,12 @@ class _GuestServerSidebarState extends ConsumerState<GuestServerSidebar> {
                         onToggleExpand: () => _toggleExpand(server.serverId),
                         onChannelTap: (channelId) =>
                             _selectChannel(server.serverId, channelId),
+                        onRefresh: () {
+                          final loading = Set<String>.from(ref.read(guestLoadingProvider));
+                          loading.add(server.serverId);
+                          ref.read(guestLoadingProvider.notifier).state = loading;
+                          crdt_api.requestPublicChannels(serverId: server.serverId);
+                        },
                         onRemove: () => ref
                             .read(savedGuestServersProvider.notifier)
                             .removeServer(server.serverId),
@@ -247,11 +254,15 @@ class _GuestServerSidebarState extends ConsumerState<GuestServerSidebar> {
   void _selectChannel(String serverId, String channelId) {
     ref.read(guestSelectedServerProvider.notifier).state = serverId;
     ref.read(guestSelectedChannelProvider.notifier).state = channelId;
-    // Request message sync for this channel.
-    crdt_api.requestPublicChannelSync(
-      serverId: serverId,
-      channelId: channelId,
-    );
+    // Only fetch if messages aren't already loaded for this channel.
+    final key = '$serverId:$channelId';
+    final existing = ref.read(channelChatProvider)[key];
+    if (existing == null || existing.isEmpty) {
+      crdt_api.requestPublicChannelSync(
+        serverId: serverId,
+        channelId: channelId,
+      );
+    }
   }
 
   void _changeFetchMode(String serverId, GuestFetchMode mode) {
@@ -279,6 +290,7 @@ class _GuestServerSection extends ConsumerWidget {
   final String? selectedChannel;
   final VoidCallback onToggleExpand;
   final ValueChanged<String> onChannelTap;
+  final VoidCallback onRefresh;
   final VoidCallback onRemove;
   final VoidCallback onCopyId;
   final ValueChanged<GuestFetchMode> onFetchModeChanged;
@@ -291,6 +303,7 @@ class _GuestServerSection extends ConsumerWidget {
     required this.selectedChannel,
     required this.onToggleExpand,
     required this.onChannelTap,
+    required this.onRefresh,
     required this.onRemove,
     required this.onCopyId,
     required this.onFetchModeChanged,
@@ -392,6 +405,19 @@ class _GuestServerSection extends ConsumerWidget {
                     size: 12,
                     color: hollow.textSecondary.withValues(alpha: 0.5),
                   ),
+                  if (isExpanded) ...[
+                    const SizedBox(width: 2),
+                    HollowPressable(
+                      onTap: onRefresh,
+                      borderRadius: BorderRadius.circular(hollow.radiusSm),
+                      padding: const EdgeInsets.all(2),
+                      child: Icon(
+                        LucideIcons.refreshCw,
+                        size: 12,
+                        color: hollow.textSecondary.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ],
                   const SizedBox(width: 4),
                   // Chevron
                   AnimatedRotation(
