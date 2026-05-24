@@ -117,7 +117,7 @@ Caches `/server-stats` JSON for 5 seconds to avoid re-reading `/proc` on every r
 | `license` | `LicenseState` | License key validation state |
 | `stats_cache` | `ServerStatsCache` | Cached stats response |
 
-`online_users()` returns `peer_sockets.size()`.
+`online_users()` returns `peer_sockets.size() - guest_count` (guests excluded from the count).
 
 ### Backpressure
 
@@ -751,7 +751,7 @@ Returns real-time server resource utilization. Cached for 5 seconds.
 }
 ```
 
-`bandwidth_cap_mbps` is hardcoded to 400 (the OVH VPS bandwidth allocation). `online_users` comes from `state.peer_sockets.size()`.
+`bandwidth_cap_mbps` is hardcoded to 400 (the OVH VPS bandwidth allocation). `online_users` comes from `state.peer_sockets.size() - guest_count` (excludes guest connections).
 
 ### GET /relay-status — Relay status for client bootstrap
 

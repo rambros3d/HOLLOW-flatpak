@@ -89,5 +89,5 @@ struct RelayState {
     LicenseState license;
     ServerStatsCache stats_cache;
 
-    size_t online_users() const { return peer_sockets.size(); }
+    size_t online_users() const { return peer_sockets.size() - guest_count; }
 };

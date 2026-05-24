@@ -1434,6 +1434,14 @@ pub(crate) async fn handle_set_channel_public(
                     data,
                 });
             }
+            // Also emit locally so in-app guest browser updates for own servers
+            let _ = event_tx.send(NetworkEvent::PublicChannelConfigChanged {
+                server_id: server_id.clone(),
+                channel_id: channel_id.clone(),
+                is_public,
+                channel_name: ch.name.clone(),
+                category: ch.category.clone(),
+            }).await;
         }
     }
     false
@@ -2204,6 +2212,13 @@ pub(crate) async fn handle_envelope_crdt_op(
                             data,
                         });
                     }
+                    let _ = event_tx.send(NetworkEvent::PublicChannelConfigChanged {
+                        server_id: sid.clone(),
+                        channel_id: channel_id.clone(),
+                        is_public: *is_public,
+                        channel_name: ch.name.clone(),
+                        category: ch.category.clone(),
+                    }).await;
                 }
             }
             CrdtPayload::ServerSettingChanged { .. }

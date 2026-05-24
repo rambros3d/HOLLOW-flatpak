@@ -5151,6 +5151,14 @@ async fn handle_incoming_request(
                                         data,
                                     });
                                 }
+                                // Also emit locally so in-app guest browser updates for own servers
+                                let _ = event_tx.send(NetworkEvent::PublicChannelConfigChanged {
+                                    server_id: server_id.clone(),
+                                    channel_id: channel_id.clone(),
+                                    is_public: *is_public,
+                                    channel_name: ch.name.clone(),
+                                    category: ch.category.clone(),
+                                }).await;
                             }
                         }
                         _ => {
@@ -6598,7 +6606,14 @@ async fn handle_incoming_request(
                         channels,
                         server_avatar_b64: avatar_b64,
                     };
-                    send_message_to_peer(ws_cmd_tx, ws_room_peers, peer_str, resp);
+                    // Send directly using server_id as room — guests may not be in ws_room_peers
+                    if let Ok(data) = serde_json::to_vec(&resp) {
+                        let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendDirect {
+                            room_code: server_id.clone(),
+                            target_peer: peer_str.to_string(),
+                            data,
+                        });
+                    }
                 }
             }
         }
@@ -6698,7 +6713,14 @@ async fn handle_incoming_request(
                             has_more,
                             sender_profiles,
                         };
-                        send_message_to_peer(ws_cmd_tx, ws_room_peers, peer_str, resp);
+                        // Send directly using server_id as room — guests may not be in ws_room_peers
+                        if let Ok(data) = serde_json::to_vec(&resp) {
+                            let _ = ws_cmd_tx.send(super::ws_client::WsCommand::SendDirect {
+                                room_code: server_id.clone(),
+                                target_peer: peer_str.to_string(),
+                                data,
+                            });
+                        }
                     }
                 }
             }
