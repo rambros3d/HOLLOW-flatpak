@@ -162,11 +162,11 @@ bool NativeScreenCapturer::StartInternal(
   target_h_ = target_h;
   fps_ = fps > 0 ? fps : 30;
   last_frame_qpc_ = 0;
-  needs_scale_ = (target_w < native_w || target_h < native_h);
-
-  if (needs_scale_) {
-    scale_buf_.resize(static_cast<size_t>(target_w) * target_h * 4);
-  }
+  // Always scale — even at 1:1. The GPU staging texture has row padding
+  // (RowPitch > width*4) that corrupts CreateFromBGRA. ScaleBGRA produces
+  // a tight contiguous buffer. At 1:1 ratio it's just a padded-row copy.
+  needs_scale_ = true;
+  scale_buf_.resize(static_cast<size_t>(target_w) * target_h * 4);
 
   if (!InitD3D11()) {
     Cleanup();
@@ -280,6 +280,14 @@ void NativeScreenCapturer::OnFrameArrived(
   }
   last_frame_qpc_ = qpc.QuadPart;
 
+  // Hold the lock for the entire frame processing to prevent Stop()
+  // from destroying D3D11 resources while we're using them.
+  std::lock_guard<std::mutex> lock(mtx_);
+  if (!running_.load() || !ctx_ || !staging_tex_) {
+    frame.Close();
+    return;
+  }
+
   auto* tex = GetDXGITexture(frame, device_.Get());
   if (!tex) {
     frame.Close();
@@ -298,7 +306,6 @@ void NativeScreenCapturer::OnFrameArrived(
   libwebrtc::scoped_refptr<libwebrtc::RTCVideoFrame> rtc_frame;
 
   if (needs_scale_) {
-    // Bilinear downscale from native to target resolution.
     ScaleBGRA(static_cast<const uint8_t*>(mapped.pData),
               native_w_, native_h_, static_cast<UINT32>(mapped.RowPitch),
               scale_buf_.data(), target_w_, target_h_);
@@ -309,7 +316,6 @@ void NativeScreenCapturer::OnFrameArrived(
         scale_buf_.data(),
         static_cast<int>(target_w_ * 4));
   } else {
-    // No scaling needed — target matches native.
     rtc_frame = libwebrtc::RTCVideoFrame::CreateFromBGRA(
         static_cast<int>(native_w_), static_cast<int>(native_h_),
         static_cast<const uint8_t*>(mapped.pData),
@@ -324,11 +330,19 @@ void NativeScreenCapturer::OnFrameArrived(
 
 void NativeScreenCapturer::Stop() {
   if (!running_.load()) return;
-  running_.store(false);
 
   std::cerr << "[NativeCap] stopping\n";
 
+  // Revoke the callback first so no new OnFrameArrived fires.
   revoker_.revoke();
+
+  // Now set running to false and grab the lock to wait for any
+  // in-flight OnFrameArrived to finish.
+  running_.store(false);
+  {
+    std::lock_guard<std::mutex> lock(mtx_);
+  }
+
   if (session_) {
     session_.Close();
     session_ = nullptr;
