@@ -18,7 +18,10 @@ env:
 jobs:
   coverage:
     name: Test & Coverage
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: rust/hollow_core
@@ -53,6 +56,6 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           files: rust/hollow_core/lcov.info
-          flags: rust
+          flags: ${{ matrix.os == 'windows-latest' && 'rust-windows' || 'rust-linux' }}
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
