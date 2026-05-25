@@ -234,23 +234,23 @@ pub(crate) async fn handle_voice_channel_join(
     event_tx: &mpsc::Sender<NetworkEvent>,
 ) {
     hollow_log!("[HOLLOW-VC] Join voice channel {channel_id} in server {server_id}");
-    // MLS broadcast primary, plaintext fallback for epoch resilience.
+    // MLS broadcast + always plaintext — voice joins must arrive even with stale MLS epochs.
     let envelope = MessageEnvelope::VoiceChannelJoin {
         sid: server_id.clone(),
         cid: channel_id.clone(),
     };
     let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
-    let mls_sent = mls_ok && send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store).is_ok();
-    if !mls_sent {
-        if let Some(state) = server_states.get(&server_id) {
-            let local_peer = local_peer_str.to_string();
-            for member in state.members.keys() {
-                if member == &local_peer { continue; }
-                if peer_is_reachable(ws_room_peers, member) {
-                    send_message_to_peer(ws_cmd_tx, ws_room_peers, member, HavenMessage::VoiceChannelJoin {
-                        server_id: server_id.clone(), channel_id: channel_id.clone(),
-                    });
-                }
+    if mls_ok {
+        let _ = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store);
+    }
+    if let Some(state) = server_states.get(&server_id) {
+        let local_peer = local_peer_str.to_string();
+        for member in state.members.keys() {
+            if member == &local_peer { continue; }
+            if peer_is_reachable(ws_room_peers, member) {
+                send_message_to_peer(ws_cmd_tx, ws_room_peers, member, HavenMessage::VoiceChannelJoin {
+                    server_id: server_id.clone(), channel_id: channel_id.clone(),
+                });
             }
         }
     }
@@ -310,23 +310,23 @@ pub(crate) async fn handle_voice_channel_leave(
     event_tx: &mpsc::Sender<NetworkEvent>,
 ) {
     hollow_log!("[HOLLOW-VC] Leave voice channel {channel_id} in server {server_id}");
-    // MLS broadcast primary, plaintext fallback for epoch resilience.
+    // MLS broadcast + always plaintext — voice leaves must arrive even with stale MLS epochs.
     let envelope = MessageEnvelope::VoiceChannelLeave {
         sid: server_id.clone(),
         cid: channel_id.clone(),
     };
     let mls_ok = mls.as_ref().is_some_and(|m| m.has_group(&server_id));
-    let mls_sent = mls_ok && send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store).is_ok();
-    if !mls_sent {
-        if let Some(state) = server_states.get(&server_id) {
-            let local_peer = local_peer_str.to_string();
-            for member in state.members.keys() {
-                if member == &local_peer { continue; }
-                if peer_is_reachable(ws_room_peers, member) {
-                    send_message_to_peer(ws_cmd_tx, ws_room_peers, member, HavenMessage::VoiceChannelLeave {
-                        server_id: server_id.clone(), channel_id: channel_id.clone(),
-                    });
-                }
+    if mls_ok {
+        let _ = send_mls_broadcast(mls.as_mut().unwrap(), ws_cmd_tx, &server_id, &envelope, crypto_store);
+    }
+    if let Some(state) = server_states.get(&server_id) {
+        let local_peer = local_peer_str.to_string();
+        for member in state.members.keys() {
+            if member == &local_peer { continue; }
+            if peer_is_reachable(ws_room_peers, member) {
+                send_message_to_peer(ws_cmd_tx, ws_room_peers, member, HavenMessage::VoiceChannelLeave {
+                    server_id: server_id.clone(), channel_id: channel_id.clone(),
+                });
             }
         }
     }

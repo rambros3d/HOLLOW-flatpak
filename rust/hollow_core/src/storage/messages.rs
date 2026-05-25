@@ -2059,6 +2059,14 @@ impl MessageStore {
             .ok()
     }
 
+    pub fn set_channel_message_edited_at(&self, message_id: &str, edited_at: i64) -> Result<(), String> {
+        self.conn.execute(
+            "UPDATE channel_messages SET edited_at = ?1 WHERE message_id = ?2 AND edited_at IS NULL",
+            params![edited_at, message_id],
+        ).map_err(|e| format!("set_channel_message_edited_at: {e}"))?;
+        Ok(())
+    }
+
     pub fn edit_channel_message(
         &self,
         message_id: &str,
@@ -2115,6 +2123,14 @@ impl MessageStore {
 
     /// Edit a DM message by message_id. Preserves old text in message_edits table.
     /// Returns true if the message was found and updated.
+    pub fn set_dm_message_edited_at(&self, message_id: &str, edited_at: i64) -> Result<(), String> {
+        self.conn.execute(
+            "UPDATE messages SET edited_at = ?1 WHERE message_id = ?2 AND edited_at IS NULL",
+            params![edited_at, message_id],
+        ).map_err(|e| format!("set_dm_message_edited_at: {e}"))?;
+        Ok(())
+    }
+
     pub fn edit_dm_message(
         &self,
         message_id: &str,

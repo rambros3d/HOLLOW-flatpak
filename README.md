@@ -113,15 +113,44 @@ In the Hollow app, enter your relay domain during setup or in Settings. See [rel
 ### Build
 
 ```bash
-# Generate FFI bindings
+# Generate FFI bindings (only needed after changing Rust API signatures)
 flutter_rust_bridge_codegen generate --rust-input "crate::api" --rust-root "rust/hollow_core" --dart-output "lib/src/rust"
 
 # Run on Windows (debug)
-flutter run -d windows
+flutter run windows
 
 # Build release
 flutter build windows
 ```
+
+<details>
+<summary><strong>Linux build instructions</strong></summary>
+
+Install Rust (if not already installed):
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source $HOME/.cargo/env
+```
+
+Install system dependencies (Ubuntu/Debian):
+
+```bash
+sudo apt install -y clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev libssl-dev libnotify-dev libayatana-appindicator3-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly lld curl build-essential
+```
+
+Then build:
+
+```bash
+flutter pub get
+flutter build linux
+```
+
+The output binary is at `build/linux/x64/release/bundle/hollow`.
+
+> **Note:** Linux desktop support is experimental. The app builds and core features (messaging, calls, file transfer) work, but window management and system tray integration have known issues due to Flutter's GTK embedder maturity. Tested on Ubuntu 24.04 LTS.
+
+</details>
 
 ## Contributing
 
