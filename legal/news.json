@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-05-25-v041",
+    "date": "May 25, 2026",
+    "title": "v0.4.1 — Public Channels, Identity Protection + MORE!",
+    "body": "Hi! Shout out to [rambros3d](https://github.com/VitalikPro13/HOLLOW/issues/9) for suggesting about implementing the Public Channels! It's fully working, automatic, and allows to easily read server channels simply from the server ID or join link. You don't need to even create an identity! Works inside the app and in [web version.](https://hollow.anonlisten.com/)\n\n The app has kind-of native screen capturing (finally), identity at-rest protection against someone stealing your files (you can even set a password to lock your identity!), and as some always say: 'Bug fixes and improvements' Well, it's true, so thanks for reading!"
+  },
+  {
     "id": "2026-05-20-v040",
     "date": "May 20, 2026",
     "title": "v0.4.0 — Native Capture, Mobile Port & Optimization",

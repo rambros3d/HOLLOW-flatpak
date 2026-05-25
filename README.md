@@ -46,7 +46,7 @@ Your identity is a cryptographic keypair. Zero registrations. One recovery phras
 - **End-to-end encrypted messaging** -- Olm (Double Ratchet) for DMs, OpenMLS for servers. Forward secrecy by default
 - **Encrypted voice and video calls** -- peer-to-peer WebRTC with SFrame (AES-128-GCM)
 - **Screen sharing** -- with system audio capture (Windows), encrypted with the same SFrame pipeline
-- **File sharing** -- encrypted peer-to-peer transfers with no size limits. Large files (>34 MB) use Hollow Share (hidden BitTorrent-like distribution)
+- **File sharing** -- encrypted peer-to-peer transfers. Files up to 34 MB transfer directly. Larger files automatically use Hollow Share (BitTorrent-like swarmed distribution)
 - **Distributed storage (Vault)** -- erasure-coded encrypted shards distributed across server members. Files survive even when individual peers go offline
 - **Servers and channels** -- create communities with text channels, voice channels, roles, and permissions. All state synchronized via CRDTs with no authoritative server. Optional: secure Twitch verification to limit members only to your followers/subs
 - **Custom relay support** -- self-host your own relay for a fully isolated network. One `docker compose up` and you're running
@@ -101,6 +101,8 @@ In the Hollow app, enter your relay domain during setup or in Settings. See [rel
 - [Terms of Use](legal/TERMS_OF_USE.md) -- plain-language terms
 - [Relay Documentation](relay-uws/README.md) -- relay architecture, benchmarks, deployment
 - [Mobile Port Plan](MobilePort_Plan.md) -- Android/iOS build setup, OpenSSL cross-compilation, contributor guide
+- [Legality Research](legal/legality.md) -- age verification laws, encryption regulations, legal precedents (US/UK/EU)
+- [Transparency Report](legal/transparency_report.md) -- legal requests received and data disclosure
 
 ## Building from Source
 
@@ -117,7 +119,7 @@ In the Hollow app, enter your relay domain during setup or in Settings. See [rel
 flutter_rust_bridge_codegen generate --rust-input "crate::api" --rust-root "rust/hollow_core" --dart-output "lib/src/rust"
 
 # Run on Windows (debug)
-flutter run windows
+flutter run -d windows
 
 # Build release
 flutter build windows
