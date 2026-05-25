@@ -60,12 +60,6 @@ static void handle_auth(SSLWebSocket* ws, PerSocketData* data,
     const std::string* license_key_ptr = license_key_val.empty() ? nullptr : &license_key_val;
     bool guest = j.value("guest", false);
 
-    if (guest && state.guest_count >= MAX_GUESTS) {
-        send_json(ws, {{"type", "auth_failed"}, {"error", "guest_cap"}});
-        ws->end(1008, "guest_cap");
-        return;
-    }
-
     if (peer_id.empty() || public_key.empty() || signature.empty()) {
         send_json(ws, {{"type", "auth_failed"}, {"error", "Authentication failed"}});
         ws->end(1008, "bad_auth");

@@ -253,9 +253,11 @@ Handles the case where two PreKey messages arrive from the same outbound session
 
 The race scenario: Alice sends multiple messages before Bob responds. All are PreKey (type 0) because vodozemac's outbound session always produces PreKey until the ratchet advances. Bob processes the first PreKey with `create_inbound_session`, then subsequent PreKeys from the same session use `try_decrypt_prekey_with_existing`.
 
-### Dual-PreKey Race
+### Dual-PreKey Race (Glare Prevention)
 
-When both peers simultaneously create outbound sessions to each other (e.g., both come online and exchange keys at the same time), they end up with incompatible sessions after processing each other's PreKeys. The test `test_dual_prekey_creates_incompatible_sessions` verifies this. The swarm code handles this via re-keying (`KeyRequest` flow).
+When both peers simultaneously send `KeyRequest` and respond with `KeyBundle`, both create outbound sessions → incompatible ratchets → MAC tag mismatch on first decrypt. The test `test_dual_prekey_creates_incompatible_sessions` verifies this.
+
+The swarm code prevents this via **glare detection** using `key_bundle_sent_to: HashSet<String>`. When receiving a `KeyBundle` from a peer we also sent a `KeyBundle` to (tracked when we respond to their `KeyRequest`), the **higher peer ID** skips creating the outbound session and waits for the lower peer's PreKey/SessionAck to create an inbound session instead. This ensures exactly one side creates the outbound session. The `key_bundle_sent_to` set is cleared on WS disconnect alongside `key_request_in_flight`.
 
 ### Session Management
 
