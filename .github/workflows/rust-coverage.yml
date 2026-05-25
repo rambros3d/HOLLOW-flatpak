@@ -2,7 +2,7 @@ name: Rust Coverage
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - "rust/hollow_core/**"
       - ".github/workflows/rust-coverage.yml"
@@ -11,6 +11,7 @@ on:
     paths:
       - "rust/hollow_core/**"
       - ".github/workflows/rust-coverage.yml"
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -44,14 +45,17 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('rust/hollow_core/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Install OpenSSL (Windows)
+      - name: Install OpenSSL dev headers (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install openssl -y --no-progress
-          echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >> $env:GITHUB_ENV
-          echo "OPENSSL_LIB_DIR=C:\Program Files\OpenSSL-Win64\lib\VC\x64\MD" >> $env:GITHUB_ENV
-          echo "OPENSSL_INCLUDE_DIR=C:\Program Files\OpenSSL-Win64\include" >> $env:GITHUB_ENV
+          vcpkg install openssl:x64-windows-static-md
+          $vcpkgRoot = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
+          echo "OPENSSL_DIR=$vcpkgRoot" >> $env:GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=$vcpkgRoot\lib" >> $env:GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=$vcpkgRoot\include" >> $env:GITHUB_ENV
+          echo "OPENSSL_STATIC=1" >> $env:GITHUB_ENV
+          echo "INCLUDE=$vcpkgRoot\include" >> $env:GITHUB_ENV
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
