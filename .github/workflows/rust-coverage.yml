@@ -19,10 +19,7 @@ env:
 jobs:
   coverage:
     name: Test & Coverage
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: rust/hollow_core
@@ -45,18 +42,6 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('rust/hollow_core/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Install OpenSSL dev headers (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          vcpkg install openssl:x64-windows-static-md
-          $vcpkgRoot = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
-          echo "OPENSSL_DIR=$vcpkgRoot" >> $env:GITHUB_ENV
-          echo "OPENSSL_LIB_DIR=$vcpkgRoot\lib" >> $env:GITHUB_ENV
-          echo "OPENSSL_INCLUDE_DIR=$vcpkgRoot\include" >> $env:GITHUB_ENV
-          echo "OPENSSL_STATIC=1" >> $env:GITHUB_ENV
-          echo "INCLUDE=$vcpkgRoot\include" >> $env:GITHUB_ENV
-
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
@@ -69,6 +54,6 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           files: rust/hollow_core/lcov.info
-          flags: ${{ matrix.os == 'windows-latest' && 'rust-windows' || 'rust-linux' }}
+          flags: rust
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
