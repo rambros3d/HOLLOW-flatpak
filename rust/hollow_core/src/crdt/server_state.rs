@@ -1103,4 +1103,646 @@ mod tests {
         assert_eq!(state.get_storage_pledge("anyone"), 0);
         assert_eq!(state.total_pledged_bytes(), 0);
     }
+
+    // --- Labels ---
+
+    #[test]
+    fn label_lifecycle_create_update_delete() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+
+        let op = state.create_op(CrdtPayload::LabelCreated {
+            label_id: "lbl-1".into(),
+            name: "VIP".into(),
+            color: "#ff0000".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.labels.len(), 1);
+        assert_eq!(state.labels["lbl-1"].name, "VIP");
+
+        let op = state.create_op(CrdtPayload::LabelUpdated {
+            label_id: "lbl-1".into(),
+            name: "MVP".into(),
+            color: "#00ff00".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.labels["lbl-1"].name, "MVP");
+        assert_eq!(state.labels["lbl-1"].color, "#00ff00");
+
+        let op = state.create_op(CrdtPayload::LabelDeleted {
+            label_id: "lbl-1".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert!(state.labels.is_empty());
+    }
+
+    #[test]
+    fn label_assignment_and_unassignment() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+
+        let op = state.create_op(CrdtPayload::LabelCreated {
+            label_id: "lbl-1".into(),
+            name: "VIP".into(),
+            color: "#ff0000".into(),
+        });
+        state.apply_op(&op).unwrap();
+
+        let op = state.create_op(CrdtPayload::LabelAssigned {
+            label_id: "lbl-1".into(),
+            peer_id: "owner".into(),
+        });
+        state.apply_op(&op).unwrap();
+        let labels = state.get_member_labels("owner");
+        assert_eq!(labels.len(), 1);
+        assert_eq!(labels[0].name, "VIP");
+
+        // Duplicate assignment is idempotent
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.get_member_labels("owner").len(), 1);
+
+        let op = state.create_op(CrdtPayload::LabelUnassigned {
+            label_id: "lbl-1".into(),
+            peer_id: "owner".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert!(state.get_member_labels("owner").is_empty());
+        // label_assignments entry cleaned up
+        assert!(!state.label_assignments.contains_key("owner"));
+    }
+
+    #[test]
+    fn label_delete_cleans_up_assignments() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+
+        let op = state.create_op(CrdtPayload::LabelCreated {
+            label_id: "lbl-1".into(),
+            name: "VIP".into(),
+            color: "#ff0000".into(),
+        });
+        state.apply_op(&op).unwrap();
+        let op = state.create_op(CrdtPayload::LabelAssigned {
+            label_id: "lbl-1".into(),
+            peer_id: "owner".into(),
+        });
+        state.apply_op(&op).unwrap();
+
+        // Delete the label — assignment should be pruned
+        let op = state.create_op(CrdtPayload::LabelDeleted {
+            label_id: "lbl-1".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert!(state.get_member_labels("owner").is_empty());
+    }
+
+    // --- Bans ---
+
+    #[test]
+    fn ban_removes_member_and_associated_data() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let op = state.create_op(CrdtPayload::MemberAdded {
+            peer_id: "bad_peer".into(),
+            display_name: "Bad".into(),
+        });
+        state.apply_op(&op).unwrap();
+
+        // Give them a nickname and storage pledge first
+        let op = state.create_op(CrdtPayload::NicknameChanged {
+            peer_id: "bad_peer".into(),
+            nickname: "Trouble".into(),
+        });
+        state.apply_op(&op).unwrap();
+        let op = state.create_op(CrdtPayload::StoragePledgeChanged {
+            peer_id: "bad_peer".into(),
+            pledge_bytes: 1024,
+        });
+        state.apply_op(&op).unwrap();
+
+        // Ban them
+        let op = state.create_op(CrdtPayload::MemberBanned {
+            peer_id: "bad_peer".into(),
+        });
+        state.apply_op(&op).unwrap();
+
+        assert!(state.is_banned("bad_peer"));
+        assert!(!state.members.contains_key("bad_peer"));
+        assert!(!state.roles.contains_key("bad_peer"));
+        assert!(!state.nicknames.contains_key("bad_peer"));
+        assert!(!state.storage_pledges.contains_key("bad_peer"));
+        assert!(state.banned_list().contains(&"bad_peer".to_string()));
+    }
+
+    #[test]
+    fn unban_allows_rejoin() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let op = state.create_op(CrdtPayload::MemberAdded {
+            peer_id: "peer_b".into(),
+            display_name: "B".into(),
+        });
+        state.apply_op(&op).unwrap();
+
+        let op = state.create_op(CrdtPayload::MemberBanned {
+            peer_id: "peer_b".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert!(state.is_banned("peer_b"));
+
+        let op = state.create_op(CrdtPayload::MemberUnbanned {
+            peer_id: "peer_b".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert!(!state.is_banned("peer_b"));
+        // Unbanned members are pruned from banned_members map
+        assert!(state.banned_list().is_empty());
+    }
+
+    #[test]
+    fn is_banned_defaults_false() {
+        let state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        assert!(!state.is_banned("nonexistent"));
+    }
+
+    // --- Channel visibility / posting ---
+
+    #[test]
+    fn channel_visibility_restricts_access() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let op = state.create_op(CrdtPayload::ChannelAdded {
+            channel_id: "ch-secret".into(),
+            name: "secret".into(),
+            category: None,
+            channel_type: "text".into(),
+        });
+        state.apply_op(&op).unwrap();
+
+        // Add a regular member and a moderator
+        let op = state.create_op(CrdtPayload::MemberAdded {
+            peer_id: "member".into(),
+            display_name: "M".into(),
+        });
+        state.apply_op(&op).unwrap();
+        let op = state.create_op(CrdtPayload::MemberAdded {
+            peer_id: "mod".into(),
+            display_name: "Mod".into(),
+        });
+        state.apply_op(&op).unwrap();
+        let op = state.create_op(CrdtPayload::RoleChanged {
+            peer_id: "mod".into(),
+            role: MemberRole::Moderator,
+            priority: MemberRole::Owner.priority(),
+        });
+        state.apply_op(&op).unwrap();
+
+        // Everyone can see it by default
+        assert!(state.can_see_channel("member", "ch-secret"));
+
+        // Restrict to moderator+
+        let op = state.create_op(CrdtPayload::ChannelVisibilityChanged {
+            channel_id: "ch-secret".into(),
+            visibility: "moderator".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert!(!state.can_see_channel("member", "ch-secret"));
+        assert!(state.can_see_channel("mod", "ch-secret"));
+        assert!(state.can_see_channel("owner", "ch-secret"));
+
+        // Restrict to admin+
+        let op = state.create_op(CrdtPayload::ChannelVisibilityChanged {
+            channel_id: "ch-secret".into(),
+            visibility: "admin".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert!(!state.can_see_channel("member", "ch-secret"));
+        assert!(!state.can_see_channel("mod", "ch-secret"));
+        assert!(state.can_see_channel("owner", "ch-secret")); // owner always sees
+    }
+
+    #[test]
+    fn channel_posting_restricts_sending() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let op = state.create_op(CrdtPayload::ChannelAdded {
+            channel_id: "ch-announce".into(),
+            name: "announcements".into(),
+            category: None,
+            channel_type: "text".into(),
+        });
+        state.apply_op(&op).unwrap();
+        let op = state.create_op(CrdtPayload::MemberAdded {
+            peer_id: "member".into(),
+            display_name: "M".into(),
+        });
+        state.apply_op(&op).unwrap();
+
+        // Everyone can post by default
+        assert!(state.can_post_in_channel("member", "ch-announce"));
+
+        // Restrict to admin+
+        let op = state.create_op(CrdtPayload::ChannelPostingChanged {
+            channel_id: "ch-announce".into(),
+            posting: "admin".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert!(!state.can_post_in_channel("member", "ch-announce"));
+        assert!(state.can_post_in_channel("owner", "ch-announce"));
+    }
+
+    #[test]
+    fn channel_public_flag() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let general_id = state.channels.keys().next().unwrap().clone();
+
+        assert!(!state.is_channel_public(&general_id));
+
+        let op = state.create_op(CrdtPayload::ChannelPublicChanged {
+            channel_id: general_id.clone(),
+            is_public: true,
+        });
+        state.apply_op(&op).unwrap();
+        assert!(state.is_channel_public(&general_id));
+
+        let op = state.create_op(CrdtPayload::ChannelPublicChanged {
+            channel_id: general_id.clone(),
+            is_public: false,
+        });
+        state.apply_op(&op).unwrap();
+        assert!(!state.is_channel_public(&general_id));
+    }
+
+    #[test]
+    fn can_see_nonexistent_channel_returns_false() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let op = state.create_op(CrdtPayload::MemberAdded {
+            peer_id: "member".into(),
+            display_name: "M".into(),
+        });
+        state.apply_op(&op).unwrap();
+        // Non-owner gets false for a channel that doesn't exist
+        assert!(!state.can_see_channel("member", "does-not-exist"));
+    }
+
+    // --- Nicknames ---
+
+    #[test]
+    fn nickname_set_and_read() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        assert_eq!(state.get_nickname("owner"), "");
+
+        let op = state.create_op(CrdtPayload::NicknameChanged {
+            peer_id: "owner".into(),
+            nickname: "Boss".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.get_nickname("owner"), "Boss");
+    }
+
+    // --- Twitch usernames ---
+
+    #[test]
+    fn twitch_username_set_and_read() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        assert_eq!(state.get_twitch_username("owner"), "");
+
+        let op = state.create_op(CrdtPayload::TwitchUsernameChanged {
+            peer_id: "owner".into(),
+            twitch_username: "cool_streamer".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.get_twitch_username("owner"), "cool_streamer");
+    }
+
+    // --- Pins ---
+
+    #[test]
+    fn pin_and_unpin_messages() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let ch_id = state.channels.keys().next().unwrap().clone();
+
+        assert!(state.get_pinned_messages(&ch_id).is_empty());
+
+        let op = state.create_op(CrdtPayload::MessagePinned {
+            channel_id: ch_id.clone(),
+            message_id: "msg-1".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.get_pinned_messages(&ch_id), vec!["msg-1"]);
+
+        // Duplicate pin is idempotent
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.get_pinned_messages(&ch_id).len(), 1);
+
+        let op = state.create_op(CrdtPayload::MessagePinned {
+            channel_id: ch_id.clone(),
+            message_id: "msg-2".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.get_pinned_messages(&ch_id).len(), 2);
+
+        let op = state.create_op(CrdtPayload::MessageUnpinned {
+            channel_id: ch_id.clone(),
+            message_id: "msg-1".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.get_pinned_messages(&ch_id), vec!["msg-2"]);
+
+        // Unpin last message cleans up the map entry
+        let op = state.create_op(CrdtPayload::MessageUnpinned {
+            channel_id: ch_id.clone(),
+            message_id: "msg-2".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert!(!state.pinned_messages.contains_key(&ch_id));
+    }
+
+    // --- Channel layout ---
+
+    #[test]
+    fn channel_layout_update() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        assert!(state.channel_layout.is_empty());
+
+        let layout = vec![
+            ChannelLayoutItem::Category { name: "General".into() },
+            ChannelLayoutItem::Channel { channel_id: "ch-1".into() },
+            ChannelLayoutItem::Separator,
+            ChannelLayoutItem::Channel { channel_id: "ch-2".into() },
+        ];
+        let layout_json = serde_json::to_string(&layout).unwrap();
+
+        let op = state.create_op(CrdtPayload::ChannelLayoutUpdated { layout_json });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.channel_layout.len(), 4);
+        assert_eq!(
+            state.channel_layout[0],
+            ChannelLayoutItem::Category { name: "General".into() }
+        );
+        assert_eq!(state.channel_layout[2], ChannelLayoutItem::Separator);
+    }
+
+    #[test]
+    fn channel_layout_invalid_json_ignored() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let op = state.create_op(CrdtPayload::ChannelLayoutUpdated {
+            layout_json: "not valid json".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert!(state.channel_layout.is_empty());
+    }
+
+    // --- Custom role permissions ---
+
+    #[test]
+    fn custom_role_permissions_override_defaults() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let op = state.create_op(CrdtPayload::MemberAdded {
+            peer_id: "member".into(),
+            display_name: "M".into(),
+        });
+        state.apply_op(&op).unwrap();
+
+        // Default: member can't manage channels
+        assert!(!state.has_permission("member", Permission::MANAGE_CHANNELS));
+
+        // Grant MANAGE_CHANNELS to the Member role
+        let custom = Permission::SEND_MESSAGES | Permission::READ_MESSAGES | Permission::MANAGE_CHANNELS;
+        let op = state.create_op(CrdtPayload::RolePermissionsChanged {
+            role: "member".into(),
+            permissions: custom,
+        });
+        state.apply_op(&op).unwrap();
+
+        assert!(state.has_permission("member", Permission::MANAGE_CHANNELS));
+        assert_eq!(state.get_role_permissions("member"), custom);
+        // Owner role still returns ALL regardless of customization
+        assert_eq!(state.get_role_permissions("owner"), Permission::ALL);
+    }
+
+    // --- Server settings ---
+
+    #[test]
+    fn server_setting_and_min_pledge() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+
+        // Default min_pledge_mb is 512
+        assert_eq!(state.min_pledge_mb(), 512);
+
+        let op = state.create_op(CrdtPayload::ServerSettingChanged {
+            key: "min_pledge_mb".into(),
+            value: "1024".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.min_pledge_mb(), 1024);
+    }
+
+    // --- Server rename ---
+
+    #[test]
+    fn server_rename() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        assert_eq!(state.name(), "Test");
+
+        let op = state.create_op(CrdtPayload::ServerRenamed {
+            new_name: "Renamed Server".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.name(), "Renamed Server");
+    }
+
+    // --- Channel rename and remove ---
+
+    #[test]
+    fn channel_rename_and_remove() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let op = state.create_op(CrdtPayload::ChannelAdded {
+            channel_id: "ch-dev".into(),
+            name: "dev".into(),
+            category: None,
+            channel_type: "text".into(),
+        });
+        state.apply_op(&op).unwrap();
+
+        let op = state.create_op(CrdtPayload::ChannelRenamed {
+            channel_id: "ch-dev".into(),
+            new_name: "development".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.channels["ch-dev"].name, "development");
+
+        let op = state.create_op(CrdtPayload::ChannelRemoved {
+            channel_id: "ch-dev".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert!(!state.channels.contains_key("ch-dev"));
+    }
+
+    // --- Voice channel type ---
+
+    #[test]
+    fn voice_channel_type() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let op = state.create_op(CrdtPayload::ChannelAdded {
+            channel_id: "ch-vc".into(),
+            name: "Voice".into(),
+            category: None,
+            channel_type: "voice".into(),
+        });
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.channels["ch-vc"].channel_type, ChannelType::Voice);
+    }
+
+    // --- Member removal cleans up associated data ---
+
+    #[test]
+    fn member_removal_cleans_up_all_state() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let op = state.create_op(CrdtPayload::MemberAdded {
+            peer_id: "peer_b".into(),
+            display_name: "B".into(),
+        });
+        state.apply_op(&op).unwrap();
+        let op = state.create_op(CrdtPayload::NicknameChanged {
+            peer_id: "peer_b".into(),
+            nickname: "Bee".into(),
+        });
+        state.apply_op(&op).unwrap();
+        let op = state.create_op(CrdtPayload::TwitchUsernameChanged {
+            peer_id: "peer_b".into(),
+            twitch_username: "bee_tv".into(),
+        });
+        state.apply_op(&op).unwrap();
+        let op = state.create_op(CrdtPayload::StoragePledgeChanged {
+            peer_id: "peer_b".into(),
+            pledge_bytes: 1024,
+        });
+        state.apply_op(&op).unwrap();
+
+        let op = state.create_op(CrdtPayload::MemberRemoved {
+            peer_id: "peer_b".into(),
+        });
+        state.apply_op(&op).unwrap();
+
+        assert!(!state.members.contains_key("peer_b"));
+        assert!(!state.roles.contains_key("peer_b"));
+        assert!(!state.nicknames.contains_key("peer_b"));
+        assert!(!state.twitch_usernames.contains_key("peer_b"));
+        assert!(!state.storage_pledges.contains_key("peer_b"));
+    }
+
+    // --- Op log compaction ---
+
+    #[test]
+    fn op_log_compacts_at_limit() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+
+        // Apply 1010 ops (well past the 1000-op limit)
+        for i in 0..1010 {
+            let op = state.create_op(CrdtPayload::ServerSettingChanged {
+                key: format!("key_{i}"),
+                value: format!("val_{i}"),
+            });
+            state.apply_op(&op).unwrap();
+        }
+
+        // Op log should be capped at 1000
+        assert!(state.op_log.len() <= 1000);
+
+        // State should still be correct — settings from early ops are still applied
+        assert_eq!(*state.settings["key_0"].read(), "val_0");
+        assert_eq!(*state.settings["key_1009"].read(), "val_1009");
+    }
+
+    #[test]
+    fn op_log_dedup_survives_compaction() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+
+        // Fill past compaction threshold
+        for i in 0..1005 {
+            let op = state.create_op(CrdtPayload::ServerSettingChanged {
+                key: format!("k{i}"),
+                value: format!("v{i}"),
+            });
+            state.apply_op(&op).unwrap();
+        }
+
+        // Create a fresh op and replay it — should be accepted then deduped
+        let op = state.create_op(CrdtPayload::ServerRenamed {
+            new_name: "Compacted".into(),
+        });
+        state.apply_op(&op).unwrap();
+        let before = state.op_log.len();
+        state.apply_op(&op).unwrap(); // duplicate
+        assert_eq!(state.op_log.len(), before);
+    }
+
+    // --- Serde backward compat ---
+
+    #[test]
+    fn serde_missing_fields_use_defaults() {
+        // Simulates loading state JSON from an older version that doesn't have
+        // newer fields (labels, banned_members, etc.)
+        let json = r#"{
+            "server_id": "s1",
+            "name": {"value": "Old Server", "priority": 3, "hlc": {"physical_ms": 1000, "counter": 0, "actor": "owner"}},
+            "channels": {},
+            "members": {},
+            "roles": {},
+            "settings": {},
+            "op_log": []
+        }"#;
+        let state: ServerState = serde_json::from_str(json).unwrap();
+        assert!(state.labels.is_empty());
+        assert!(state.label_assignments.is_empty());
+        assert!(state.banned_members.is_empty());
+        assert!(state.role_permissions.is_empty());
+        assert!(state.nicknames.is_empty());
+        assert!(state.twitch_usernames.is_empty());
+        assert!(state.pinned_messages.is_empty());
+        assert!(state.channel_layout.is_empty());
+    }
+
+    // --- Wrong server_id rejected ---
+
+    #[test]
+    fn op_for_wrong_server_rejected() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        let mut other = ServerState::new("s2".into(), "Other".into(), "owner".into());
+        let op = other.create_op(CrdtPayload::ServerRenamed {
+            new_name: "Hacked".into(),
+        });
+        assert!(state.apply_op(&op).is_err());
+    }
+
+    // --- labels_list sort ---
+
+    #[test]
+    fn labels_list_sorted_by_name() {
+        let mut state = ServerState::new("s1".into(), "Test".into(), "owner".into());
+        for (id, name) in [("lbl-z", "Zebra"), ("lbl-a", "Alpha"), ("lbl-m", "Middle")] {
+            let op = state.create_op(CrdtPayload::LabelCreated {
+                label_id: id.into(),
+                name: name.into(),
+                color: "#000".into(),
+            });
+            state.apply_op(&op).unwrap();
+        }
+        let names: Vec<_> = state.labels_list().iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, vec!["Alpha", "Middle", "Zebra"]);
+    }
+
+    // --- ServerCreated op ---
+
+    #[test]
+    fn server_created_op_sets_owner() {
+        let mut state = ServerState::new("s1".into(), "Placeholder".into(), "temp".into());
+        let op = CrdtOp {
+            server_id: "s1".into(),
+            hlc: HlcTimestamp { physical_ms: 1, counter: 0, actor: "new_owner".into() },
+            author: "new_owner".into(),
+            payload: CrdtPayload::ServerCreated {
+                name: "Real Name".into(),
+                owner_peer_id: "new_owner".into(),
+            },
+        };
+        state.apply_op(&op).unwrap();
+        assert_eq!(state.name(), "Real Name");
+        assert_eq!(state.get_role("new_owner"), MemberRole::Owner);
+        assert!(state.members.contains_key("new_owner"));
+    }
 }

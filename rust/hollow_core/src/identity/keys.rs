@@ -147,3 +147,65 @@ fn save_keypair(keypair: &NativeKeypair) -> Result<(), String> {
     fs::write(&path, bytes_to_write).map_err(|e| format!("Failed to write identity file: {e}"))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn data_dir_respects_env_override() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("hollow_test");
+        // SAFETY: test runs single-threaded (cargo test default); no other
+        // thread reads HOLLOW_DATA_DIR concurrently.
+        unsafe { std::env::set_var("HOLLOW_DATA_DIR", path.to_str().unwrap()) };
+
+        let result = data_dir();
+        assert!(result.is_ok());
+        let dir = result.unwrap();
+        assert!(dir.exists());
+
+        unsafe { std::env::remove_var("HOLLOW_DATA_DIR") };
+    }
+
+    #[test]
+    fn mnemonic_round_trip_produces_same_identity() {
+        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+        let id1 = {
+            let mnemonic: Mnemonic = phrase.parse().unwrap();
+            let keypair = NativeKeypair::from_mnemonic(&mnemonic).unwrap();
+            (keypair.peer_id(), keypair.secret_key_bytes(), keypair.public_key_bytes())
+        };
+
+        let id2 = {
+            let mnemonic: Mnemonic = phrase.parse().unwrap();
+            let keypair = NativeKeypair::from_mnemonic(&mnemonic).unwrap();
+            (keypair.peer_id(), keypair.secret_key_bytes(), keypair.public_key_bytes())
+        };
+
+        assert_eq!(id1.0, id2.0);
+        assert_eq!(id1.1, id2.1);
+        assert_eq!(id1.2, id2.2);
+    }
+
+    #[test]
+    fn different_mnemonics_produce_different_identities() {
+        let phrase1 = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let phrase2 = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong";
+
+        let m1: Mnemonic = phrase1.parse().unwrap();
+        let m2: Mnemonic = phrase2.parse().unwrap();
+        let kp1 = NativeKeypair::from_mnemonic(&m1).unwrap();
+        let kp2 = NativeKeypair::from_mnemonic(&m2).unwrap();
+
+        assert_ne!(kp1.peer_id(), kp2.peer_id());
+        assert_ne!(kp1.secret_key_bytes(), kp2.secret_key_bytes());
+    }
+
+    #[test]
+    fn invalid_mnemonic_rejected() {
+        assert!("not a valid mnemonic phrase".parse::<Mnemonic>().is_err());
+        assert!("".parse::<Mnemonic>().is_err());
+    }
+}

@@ -211,6 +211,138 @@ impl MemberRole {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn role_priority_order() {
+        assert_eq!(MemberRole::Owner.priority(), 3);
+        assert_eq!(MemberRole::Admin.priority(), 2);
+        assert_eq!(MemberRole::Moderator.priority(), 1);
+        assert_eq!(MemberRole::Member.priority(), 0);
+    }
+
+    #[test]
+    fn role_as_str_round_trip() {
+        for role in [MemberRole::Owner, MemberRole::Admin, MemberRole::Moderator, MemberRole::Member] {
+            let s = role.as_str();
+            let parsed = MemberRole::from_str(s);
+            assert_eq!(parsed, role);
+        }
+    }
+
+    #[test]
+    fn from_str_unknown_defaults_to_member() {
+        assert_eq!(MemberRole::from_str("superadmin"), MemberRole::Member);
+        assert_eq!(MemberRole::from_str(""), MemberRole::Member);
+        assert_eq!(MemberRole::from_str("Owner"), MemberRole::Member); // case-sensitive
+    }
+
+    #[test]
+    fn outranks_full_hierarchy() {
+        assert!(MemberRole::Owner.outranks(&MemberRole::Admin));
+        assert!(MemberRole::Owner.outranks(&MemberRole::Moderator));
+        assert!(MemberRole::Owner.outranks(&MemberRole::Member));
+        assert!(MemberRole::Admin.outranks(&MemberRole::Moderator));
+        assert!(MemberRole::Admin.outranks(&MemberRole::Member));
+        assert!(MemberRole::Moderator.outranks(&MemberRole::Member));
+
+        // No role outranks itself
+        assert!(!MemberRole::Owner.outranks(&MemberRole::Owner));
+        assert!(!MemberRole::Member.outranks(&MemberRole::Member));
+
+        // Lower can't outrank higher
+        assert!(!MemberRole::Member.outranks(&MemberRole::Moderator));
+        assert!(!MemberRole::Moderator.outranks(&MemberRole::Admin));
+        assert!(!MemberRole::Admin.outranks(&MemberRole::Owner));
+    }
+
+    #[test]
+    fn default_permissions_owner_has_all() {
+        assert_eq!(MemberRole::Owner.default_permissions(), Permission::ALL);
+    }
+
+    #[test]
+    fn default_permissions_member_read_send_only() {
+        let perms = MemberRole::Member.default_permissions();
+        assert_ne!(perms & Permission::SEND_MESSAGES, 0);
+        assert_ne!(perms & Permission::READ_MESSAGES, 0);
+        assert_eq!(perms & Permission::MANAGE_SERVER, 0);
+        assert_eq!(perms & Permission::MANAGE_CHANNELS, 0);
+        assert_eq!(perms & Permission::MANAGE_ROLES, 0);
+        assert_eq!(perms & Permission::KICK_MEMBERS, 0);
+    }
+
+    #[test]
+    fn default_permissions_escalation_by_rank() {
+        let member = MemberRole::Member.default_permissions();
+        let moderator = MemberRole::Moderator.default_permissions();
+        let admin = MemberRole::Admin.default_permissions();
+        let owner = MemberRole::Owner.default_permissions();
+
+        // Each higher rank has at least the permissions of lower ranks
+        assert_eq!(member & moderator, member);
+        assert_eq!(moderator & admin, moderator);
+        assert_eq!(admin & owner, admin);
+    }
+
+    #[test]
+    fn permission_bits_are_distinct() {
+        let bits = [
+            Permission::MANAGE_SERVER,
+            Permission::MANAGE_CHANNELS,
+            Permission::MANAGE_ROLES,
+            Permission::KICK_MEMBERS,
+            Permission::SEND_MESSAGES,
+            Permission::READ_MESSAGES,
+        ];
+        for (i, a) in bits.iter().enumerate() {
+            for (j, b) in bits.iter().enumerate() {
+                if i != j {
+                    assert_eq!(a & b, 0, "bits {i} and {j} overlap");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn permission_all_includes_every_bit() {
+        assert_ne!(Permission::ALL & Permission::MANAGE_SERVER, 0);
+        assert_ne!(Permission::ALL & Permission::MANAGE_CHANNELS, 0);
+        assert_ne!(Permission::ALL & Permission::MANAGE_ROLES, 0);
+        assert_ne!(Permission::ALL & Permission::KICK_MEMBERS, 0);
+        assert_ne!(Permission::ALL & Permission::SEND_MESSAGES, 0);
+        assert_ne!(Permission::ALL & Permission::READ_MESSAGES, 0);
+    }
+
+    #[test]
+    fn crdt_op_serde_round_trip() {
+        let op = CrdtOp {
+            server_id: "srv-1".into(),
+            hlc: super::super::hlc::HlcTimestamp { physical_ms: 1000, counter: 0, actor: "peer_a".into() },
+            author: "peer_a".into(),
+            payload: CrdtPayload::LabelCreated {
+                label_id: "lbl-1".into(),
+                name: "VIP".into(),
+                color: "#ff0000".into(),
+            },
+        };
+        let json = serde_json::to_string(&op).unwrap();
+        let deserialized: CrdtOp = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.server_id, "srv-1");
+        assert_eq!(deserialized.author, "peer_a");
+        match &deserialized.payload {
+            CrdtPayload::LabelCreated { label_id, name, color } => {
+                assert_eq!(label_id, "lbl-1");
+                assert_eq!(name, "VIP");
+                assert_eq!(color, "#ff0000");
+            }
+            _ => panic!("Wrong payload variant after deserialization"),
+        }
+    }
+}
+
 /// Permission bitmask constants.
 pub struct Permission;
 
