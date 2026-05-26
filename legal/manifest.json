@@ -1,11 +1,11 @@
 {
-  "latest": "0.4.1",
+  "latest": "0.4.2",
   "versions": [
     {
-      "version": "0.4.1",
-      "date": "May 25, 2026",
-      "url": "https://anonlisten.com/hollow/releases/hollow-0.4.1-win64.zip",
-      "notes": "Public Channels, Identity Protection, Native Screen Sharing & Bug Fixes"
+      "version": "0.4.2",
+      "date": "May 26, 2026",
+      "url": "https://anonlisten.com/hollow/releases/hollow-0.4.2-win64.zip",
+      "notes": "Identity Protection Patch"
     },
     {
       "version": "0.4.0",

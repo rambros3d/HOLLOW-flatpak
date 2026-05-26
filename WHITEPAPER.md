@@ -1,6 +1,6 @@
 # Hollow Protocol Whitepaper
 
-**Version 0.4.0**\
+**Version 0.4.2**\
 **Author: AnonListen**\
 *This document was generated with the assistance of Claude (AI). All technical content reflects the author's architecture and design decisions.*
 
@@ -131,13 +131,17 @@ The identity keypair is stored in a file (`identity.key`) encrypted with the **H
 
 Total: 119 bytes. The ciphertext contains the AES-256-GCM encrypted keypair (68-byte protobuf) plus a 16-byte authentication tag.
 
-**Two mutually exclusive encryption modes:**
+**Three encryption modes (all opt-in from Settings > Security):**
 
-- **Password mode** (flags = `0x01`): The user's password is processed through **Argon2id** (65536 iterations, 3 parallelism, 32-byte output) with a random 16-byte salt to derive the AES-256-GCM key. Password is required on every application launch. A full-screen blur lock dialog blocks all interaction until unlocked.
+- **Password with launch lock** (flags = `0x01`): The user's password is processed through **Argon2id** (65536 iterations, 3 parallelism, 32-byte output) with a random 16-byte salt to derive the AES-256-GCM key. Password is required on every application launch. A full-screen blur lock dialog blocks all interaction until unlocked.
 
-- **OS keychain mode** (flags = `0x02`): A random 32-byte wrapping key is encrypted by the operating system's credential store — **DPAPI** (`CryptProtectData`/`CryptUnprotectData`) on Windows, **Keychain** (`SecItemAdd`/`SecItemCopyMatching`, service `com.hollow.identity`) on macOS. Silent unlock on the same machine. The identity file is useless if copied to another machine.
+- **Password with silent unlock** (flags = `0x03`): Same password-derived encryption as above, but the wrapping key is also cached in the OS credential store for silent unlock. The identity file is encrypted (protecting against file copying), but the app opens normally on the same device. A toggle in Settings ("Ask for password on launch") controls this behavior. If the OS credential store becomes unavailable, the app falls back to requesting the password.
 
-**Backward compatibility:** Plaintext identity files (68 bytes, protobuf header `0x08 0x01`) are auto-detected. On first unlock, plaintext identities are automatically protected via OS keychain if available.
+- **Device protection only** (flags = `0x02`): A random 32-byte wrapping key is stored in the OS credential store — **Windows Credential Manager** (`CredWriteW`/`CredReadW`) as primary with a **DPAPI blob** (`identity.dpapi`) as fallback on Windows, **Keychain** (`security-framework` crate, service `com.hollow.identity`) on macOS. Silent unlock on the same machine. The identity file is useless if copied to another machine.
+
+**Windows dual storage:** On Windows, `store_key()` writes to both Windows Credential Manager and a DPAPI-encrypted blob on disk. `retrieve_key()` tries Credential Manager first; if unavailable, falls back to the DPAPI blob and auto-migrates the key to Credential Manager on success. This provides resilience against either storage mechanism failing independently.
+
+**Backward compatibility:** Plaintext identity files (68 bytes, protobuf header `0x08 0x01`) are auto-detected. Plaintext identities remain plaintext until the user explicitly enables protection — no silent auto-encryption.
 
 **Session wrapping key:** After `unlock_identity()`, the 32-byte wrapping key is held in a Rust `OnceLock<Mutex<Option<[u8; 32]>>>` for the session lifetime. All identity operations use this in-memory key. Calling `lock_identity()` zeroes and clears the key, re-requiring authentication.
 
@@ -690,6 +694,21 @@ Each channel has two independent access control settings, stored as CRDT values:
 
 **Limitation:** True cryptographic enforcement of channel visibility requires per-channel MLS subgroups, where each channel has its own MLS group and only authorized members hold the decryption keys. This is planned but not yet implemented. Currently, all server members can technically decrypt all channel messages.
 
+### 10.6 Public Channels
+
+Individual channels can be marked as **public** via a per-channel `is_public` boolean flag in the ChannelInfo CRDT (toggled by members with `MANAGE_CHANNELS` permission).
+
+**Encryption model:** Public channels bypass MLS entirely. Messages are sent as plaintext `HavenMessage::PublicChannelMessage` variants (including Edit, Delete, AddReaction, RemoveReaction) broadcast via `SendToRoom`. All public channel messages are still **Ed25519-signed** by the sender — authenticity is verifiable, but content is readable by anyone in the WebSocket room.
+
+**Guest access protocol:** Non-members can browse public channels read-only via the **Public Channel Browser**:
+- Guests connect to the server's WebSocket room with `"guest": true` authentication (invisible to members, rate-limited).
+- `PublicChannelListRequest`/`PublicChannelListResponse` HavenMessage variants serve channel metadata, including the server avatar as base64.
+- `PublicChannelSyncRequest`/`PublicChannelSyncResponse` serve paginated message history (50 messages per batch, latest first).
+- `PublicChannelSyncResponse` includes `sender_profiles: HashMap<String, SyncSenderProfile>` — display name + 64×64 WebP avatar thumbnail per unique sender, resolved from the responding peer's local profile database.
+- Real-time updates: `PublicChannelConfigChanged` HavenMessage broadcast via `SendToRoom` when a channel's public flag changes. Guests receive new messages in real time because `SendToRoom` delivers to all peers in the room, including guests.
+
+**Broadcast channels:** A public channel with posting set to `AdminPlus` functions as a broadcast/announcement channel — publicly readable, admin-only posting.
+
 ---
 
 ## 11. Relay Architecture
@@ -1097,6 +1116,7 @@ The relay operator is **not trusted** with: message contents, encryption keys, f
 - **No social recovery.** Shamir's Secret Sharing for key recovery via trusted contacts is designed but not implemented.
 - **Channel visibility is UI-enforced only.** All server members receive all channel messages via the server-wide MLS group. A modified client could read restricted channels. Per-channel MLS subgroups are planned for cryptographic enforcement.
 - **Platform-specific media limitations.** Screen share audio uses different transport paths per platform (data channel on Windows, WebRTC audio track on macOS). Mobile platforms (Android/iOS) do not support screen sharing or system audio capture due to OS restrictions.
+- **Files are not encrypted at rest.** SQLCipher encrypts messages and metadata, but downloaded file attachments (`~/.hollow/files/`), vault shards, and vault cache are stored as plaintext on disk. AES-256-GCM at-rest file encryption keyed from the identity is planned.
 
 ---
 

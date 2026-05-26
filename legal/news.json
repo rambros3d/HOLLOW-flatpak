@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-05-26-v042",
+    "date": "May 26, 2026",
+    "title": "v0.4.2 — Identity Protection Patch",
+    "body": "Probably one of the funniest thing that happened to me. I got locked out of my own identity :D Yup, I'm definitely one of the greatest engineers of all time. Apparently the Windows DPAPI protection is vulnerable when you write it raw instead of the proper Credential Manager. Now it's fixed, but it teaches a good lesson once again - ALWAYS backup your passwords/phrases/data.\n\n I also redesigned the password protection too. You can protect the identity with a password instead of that OS one (+ optionally the client itself). Everything is in the Security tab in Settings. Have fun!\n\n P.S. This is unacceptable for production, but since we're in alpha - I can do it, but I definitely should be more careful next time with something like this. Will learn and do better!"
+  },
+  {
     "id": "2026-05-25-v041",
     "date": "May 25, 2026",
     "title": "v0.4.1 — Public Channels, Identity Protection + MORE!",
