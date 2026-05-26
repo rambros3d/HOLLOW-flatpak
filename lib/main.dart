@@ -259,9 +259,16 @@ Future<String?> _ensureTrayIcon() async {
 }
 
 Future<void> _showTrayIcon() async {
-  final iconPath = await _ensureTrayIcon();
-  if (iconPath == null) return;
-  await trayManager.setIcon(iconPath);
+  // In Flatpak, use themed icon name (accessible from host) instead of
+  // a sandbox-internal file path that the host tray panel can't read.
+  final isFlatpak = Platform.environment.containsKey('FLATPAK_ID');
+  if (isFlatpak) {
+    await trayManager.setIcon(Platform.environment['FLATPAK_ID']!);
+  } else {
+    final iconPath = await _ensureTrayIcon();
+    if (iconPath == null) return;
+    await trayManager.setIcon(iconPath);
+  }
   if (!Platform.isLinux) {
     await trayManager.setToolTip('Hollow — Running in background');
   }
