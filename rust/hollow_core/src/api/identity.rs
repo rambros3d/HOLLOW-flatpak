@@ -81,31 +81,42 @@ pub fn unlock_identity(password: Option<String>) -> Result<IdentityInfo, String>
 
     match format {
         encryption::IdentityFormat::Plaintext => {
-            // No encryption — load directly. Try auto-protecting with OS keychain.
-            let did_protect = platform_keystore::auto_protect(&path, &bytes).unwrap_or(false);
-            if did_protect {
-                // Re-read: file is now encrypted, retrieve key from keychain.
-                if let Ok(Some(key_vec)) = platform_keystore::retrieve_key() {
-                    if key_vec.len() == 32 {
-                        let mut key = [0u8; 32];
-                        key.copy_from_slice(&key_vec);
-                        encryption::set_session_key(key);
-                    }
-                }
-            }
+            // No encryption — load directly. OS keychain is opt-in from Settings.
         }
         encryption::IdentityFormat::Encrypted { flags, salt, .. } => {
-            let wrapping_key = if encryption::flags_has_password(flags) {
-                // Password is required — always prompt, even if keychain exists.
-                // The keychain is only a fallback for machine-migration scenarios
-                // (flags=0x03 means: try password first, keychain if on original machine
-                // and user forgot password — but that path goes through mnemonic recovery,
-                // not silent keychain bypass).
+            let wrapping_key = if encryption::flags_has_password(flags)
+                && encryption::flags_has_os_keychain(flags)
+            {
+                // Password + keychain (flags=0x03): try silent keychain first,
+                // fall back to password prompt if keychain unavailable.
+                match platform_keystore::retrieve_key() {
+                    Ok(Some(key_vec)) if key_vec.len() == 32 => {
+                        let mut key = [0u8; 32];
+                        key.copy_from_slice(&key_vec);
+                        // Verify it actually decrypts before trusting.
+                        if encryption::decrypt_identity(&bytes, &key).is_ok() {
+                            key
+                        } else {
+                            // Keychain key is stale — fall back to password.
+                            let pw = password.as_deref().ok_or(
+                                "Identity is password-protected. Provide a password.",
+                            )?;
+                            encryption::derive_wrapping_key_from_password(pw, &salt)?
+                        }
+                    }
+                    _ => {
+                        let pw = password.as_deref()
+                            .ok_or("Identity is password-protected. Provide a password.")?;
+                        encryption::derive_wrapping_key_from_password(pw, &salt)?
+                    }
+                }
+            } else if encryption::flags_has_password(flags) {
+                // Password-only (flags=0x01): always prompt.
                 let pw = password.as_deref()
                     .ok_or("Identity is password-protected. Provide a password.")?;
                 encryption::derive_wrapping_key_from_password(pw, &salt)?
             } else if encryption::flags_has_os_keychain(flags) {
-                // Keychain-only (no password) — silent unlock on same machine.
+                // Keychain-only (flags=0x02): silent unlock on same machine.
                 match platform_keystore::retrieve_key() {
                     Ok(Some(key_vec)) if key_vec.len() == 32 => {
                         let mut key = [0u8; 32];
@@ -146,15 +157,21 @@ pub fn lock_identity() -> Result<(), String> {
 }
 
 /// Enable password protection on the current identity.
-/// Password-only encryption (flags=0x01). The password is required on every launch.
-/// Any previous OS keychain key is removed since the password replaces it.
+/// If `require_on_launch` is true (flags=0x01), the password is required every launch.
+/// If false (flags=0x03), the password-derived key is also stored in OS keychain
+/// for silent unlock — identity is encrypted but app opens normally on this device.
 #[frb]
-pub fn enable_password_protection(password: String) -> Result<(), String> {
+pub fn enable_password_protection(
+    password: String,
+    require_on_launch: bool,
+) -> Result<(), String> {
     use crate::identity::encryption;
     use crate::identity::platform_keystore;
 
     let data = identity::load_or_create_identity()?;
-    let plaintext = data.keypair.to_protobuf_encoding()
+    let plaintext = data
+        .keypair
+        .to_protobuf_encoding()
         .map_err(|e| format!("Failed to encode keypair: {e}"))?;
 
     let mut salt = [0u8; 16];
@@ -162,16 +179,20 @@ pub fn enable_password_protection(password: String) -> Result<(), String> {
 
     let wrapping_key = encryption::derive_wrapping_key_from_password(&password, &salt)?;
 
+    let use_keychain = !require_on_launch && platform_keystore::is_available();
     let encrypted = encryption::encrypt_identity(
         &plaintext,
         &wrapping_key,
         &salt,
-        true,  // password
-        false, // no os keychain — password must be entered every launch
+        true,
+        use_keychain,
     )?;
 
-    // Remove any existing DPAPI/Keychain key since password replaces it.
-    let _ = platform_keystore::delete_key();
+    if use_keychain {
+        platform_keystore::store_key(&wrapping_key)?;
+    } else {
+        let _ = platform_keystore::delete_key();
+    }
 
     let dir = crate::identity::data_dir()?;
     let path = dir.join("identity.key");
@@ -183,9 +204,11 @@ pub fn enable_password_protection(password: String) -> Result<(), String> {
 }
 
 /// Change the app password. Requires the current password for verification.
+/// Preserves the current require_on_launch setting (keychain flag).
 #[frb]
 pub fn change_password(old_password: String, new_password: String) -> Result<(), String> {
     use crate::identity::encryption;
+    use crate::identity::platform_keystore;
 
     let dir = crate::identity::data_dir()?;
     let path = dir.join("identity.key");
@@ -193,8 +216,12 @@ pub fn change_password(old_password: String, new_password: String) -> Result<(),
         .map_err(|e| format!("Failed to read identity file: {e}"))?;
 
     let format = encryption::detect_format(&bytes)?;
-    let old_salt = match format {
-        encryption::IdentityFormat::Encrypted { salt, flags, .. } if encryption::flags_has_password(flags) => salt,
+    let (old_salt, had_keychain) = match format {
+        encryption::IdentityFormat::Encrypted { salt, flags, .. }
+            if encryption::flags_has_password(flags) =>
+        {
+            (salt, encryption::flags_has_os_keychain(flags))
+        }
         _ => return Err("Identity is not password-protected".into()),
     };
 
@@ -202,12 +229,17 @@ pub fn change_password(old_password: String, new_password: String) -> Result<(),
     let old_key = encryption::derive_wrapping_key_from_password(&old_password, &old_salt)?;
     let plaintext = encryption::decrypt_identity(&bytes, &old_key)?;
 
-    // Re-encrypt with new password.
+    // Re-encrypt with new password, preserving keychain flag.
     let mut new_salt = [0u8; 16];
     getrandom::fill(&mut new_salt).map_err(|e| format!("RNG error: {e}"))?;
     let new_key = encryption::derive_wrapping_key_from_password(&new_password, &new_salt)?;
 
-    let encrypted = encryption::encrypt_identity(&plaintext, &new_key, &new_salt, true, false)?;
+    let encrypted =
+        encryption::encrypt_identity(&plaintext, &new_key, &new_salt, true, had_keychain)?;
+
+    if had_keychain {
+        let _ = platform_keystore::store_key(&new_key);
+    }
 
     std::fs::write(&path, &encrypted)
         .map_err(|e| format!("Failed to write encrypted identity: {e}"))?;
@@ -243,24 +275,141 @@ pub fn remove_password_protection(password: String) -> Result<(), String> {
     let key = encryption::derive_wrapping_key_from_password(&password, &salt)?;
     let plaintext = encryption::decrypt_identity(&bytes, &key)?;
 
-    if platform_keystore::is_available() {
-        // Transition to keychain-only: new random wrapping key.
-        let mut new_key = [0u8; 32];
-        getrandom::fill(&mut new_key).map_err(|e| format!("RNG error: {e}"))?;
-        let empty_salt = [0u8; 16];
-        let encrypted = encryption::encrypt_identity(&plaintext, &new_key, &empty_salt, false, true)?;
-        platform_keystore::store_key(&new_key)?;
-        std::fs::write(&path, &encrypted)
-            .map_err(|e| format!("Failed to write identity: {e}"))?;
-        encryption::set_session_key(new_key);
-        new_key.fill(0);
-    } else {
-        // No keychain — write plaintext.
-        std::fs::write(&path, &plaintext)
-            .map_err(|e| format!("Failed to write identity: {e}"))?;
-        encryption::clear_session_key();
+    // Write plaintext. OS keychain is a separate opt-in from Settings.
+    std::fs::write(&path, &plaintext)
+        .map_err(|e| format!("Failed to write identity: {e}"))?;
+    let _ = platform_keystore::delete_key();
+    encryption::clear_session_key();
+
+    Ok(())
+}
+
+/// Toggle whether the password is required on each app launch.
+/// When true (flags=0x01): password prompt on every launch.
+/// When false (flags=0x03): password-derived key cached in OS keychain, silent unlock.
+/// Requires the identity to already be password-protected and unlocked.
+#[frb]
+pub fn set_require_password_on_launch(require: bool) -> Result<(), String> {
+    use crate::identity::encryption;
+    use crate::identity::platform_keystore;
+
+    let dir = crate::identity::data_dir()?;
+    let path = dir.join("identity.key");
+    let bytes =
+        std::fs::read(&path).map_err(|e| format!("Failed to read identity file: {e}"))?;
+
+    let format = encryption::detect_format(&bytes)?;
+    let (salt, had_keychain) = match format {
+        encryption::IdentityFormat::Encrypted { salt, flags, .. }
+            if encryption::flags_has_password(flags) =>
+        {
+            (salt, encryption::flags_has_os_keychain(flags))
+        }
+        _ => return Err("Identity is not password-protected".into()),
+    };
+
+    let want_keychain = !require && platform_keystore::is_available();
+    if want_keychain == had_keychain {
+        return Ok(());
     }
 
+    let session_key = encryption::get_session_key()
+        .ok_or("Identity is not unlocked. Cannot change launch setting.")?;
+
+    let plaintext = encryption::decrypt_identity(&bytes, &session_key)?;
+
+    let encrypted =
+        encryption::encrypt_identity(&plaintext, &session_key, &salt, true, want_keychain)?;
+
+    if want_keychain {
+        platform_keystore::store_key(&session_key)?;
+    } else {
+        let _ = platform_keystore::delete_key();
+    }
+
+    std::fs::write(&path, &encrypted)
+        .map_err(|e| format!("Failed to write identity: {e}"))?;
+
+    Ok(())
+}
+
+/// Enable OS keychain (DPAPI/Keychain) protection on the current identity.
+/// This is opt-in — the user must explicitly choose this from Settings.
+/// Requires the identity to be currently unlocked and unencrypted (or keychain-already).
+#[frb]
+pub fn enable_os_keychain_protection() -> Result<(), String> {
+    use crate::identity::encryption;
+    use crate::identity::platform_keystore;
+
+    if !platform_keystore::is_available() {
+        return Err("OS keychain is not available on this platform".into());
+    }
+
+    let data = identity::load_or_create_identity()?;
+    let plaintext = data
+        .keypair
+        .to_protobuf_encoding()
+        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
+
+    let dir = crate::identity::data_dir()?;
+    let path = dir.join("identity.key");
+
+    let bytes = std::fs::read(&path).map_err(|e| format!("Failed to read identity file: {e}"))?;
+    let format = encryption::detect_format(&bytes)?;
+
+    match format {
+        encryption::IdentityFormat::Plaintext => {}
+        encryption::IdentityFormat::Encrypted { flags, .. } => {
+            if encryption::flags_has_password(flags) {
+                return Err(
+                    "Cannot enable OS keychain while password protection is active. Remove password first."
+                        .into(),
+                );
+            }
+            if encryption::flags_has_os_keychain(flags) {
+                return Ok(());
+            }
+        }
+    }
+
+    let mut wrapping_key = [0u8; 32];
+    getrandom::fill(&mut wrapping_key).map_err(|e| format!("RNG error: {e}"))?;
+    let salt = [0u8; 16];
+
+    let encrypted =
+        encryption::encrypt_identity(&plaintext, &wrapping_key, &salt, false, true)?;
+
+    platform_keystore::store_key(&wrapping_key)?;
+
+    std::fs::write(&path, &encrypted)
+        .map_err(|e| format!("Failed to write encrypted identity: {e}"))?;
+
+    encryption::set_session_key(wrapping_key);
+    wrapping_key.fill(0);
+    Ok(())
+}
+
+/// Disable OS keychain protection — writes identity back as plaintext.
+/// Requires the identity to be currently unlocked.
+#[frb]
+pub fn disable_os_keychain_protection() -> Result<(), String> {
+    use crate::identity::encryption;
+    use crate::identity::platform_keystore;
+
+    let data = identity::load_or_create_identity()?;
+    let plaintext = data
+        .keypair
+        .to_protobuf_encoding()
+        .map_err(|e| format!("Failed to encode keypair: {e}"))?;
+
+    let dir = crate::identity::data_dir()?;
+    let path = dir.join("identity.key");
+
+    std::fs::write(&path, &plaintext)
+        .map_err(|e| format!("Failed to write identity: {e}"))?;
+
+    let _ = platform_keystore::delete_key();
+    encryption::clear_session_key();
     Ok(())
 }
 

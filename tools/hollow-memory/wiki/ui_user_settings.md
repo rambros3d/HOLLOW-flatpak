@@ -336,6 +336,31 @@ Reads saved `ringtoneStartProvider` and `ringtoneEndProvider` values. Uses cache
 - `_mnemonic` (String?) — the 24-word recovery phrase
 - `_error` (String?) — load error
 
+### APP LOCK Section
+
+**Protection status state**: `_hasPassword`, `_hasOsKeychain`, `_osKeychainAvailable`, `_protectionLoading` — loaded via `identity_api.getIdentityProtectionStatus()` in `initState`.
+
+**No password set**: Description text about setting password to encrypt identity. "Set Password" filled button calls `_enablePassword()` which opens `_askPassphrase()` dialog then calls `identity_api.enablePasswordProtection(password, requireOnLaunch: true)`.
+
+**Password active** (flags=0x01 or 0x03):
+- Green shieldCheck icon + "Password protection active" status text.
+- **"Ask for password on launch" toggle** (only shown when `_osKeychainAvailable`): `HollowToggle` with value `!_hasOsKeychain`. When ON (default, flags=0x01) — password prompt on every launch. When OFF (flags=0x03) — password-derived key cached in OS keychain via `identity_api.setRequirePasswordOnLaunch()`, app opens silently but identity file is still encrypted.
+- Change Password / Remove Password ghost buttons.
+
+**Methods**: `_enablePassword()`, `_changePassword()`, `_removePassword()`, `_toggleRequireOnLaunch(bool)`.
+
+### DEVICE PROTECTION Section
+
+Only shown when `!_hasPassword && _osKeychainAvailable`. Standalone device-level encryption (flags=0x02) using Windows Credential Manager + DPAPI fallback (or macOS Keychain).
+
+- **Active state**: Green monitor icon + "Device protection active" + "Remove Device Protection" ghost button.
+- **Inactive state**: Description text + "Enable Device Protection" outline button.
+- **Warning**: Orange alertTriangle icon — "Windows may lose device credentials after OS reinstalls or admin password resets. Always keep your 24-word recovery phrase backed up."
+
+**Methods**: `_enableOsKeychain()`, `_disableOsKeychain()`.
+
+**Recovery tip**: Info icon + "Forgot your password? You can recover with your 24-word recovery phrase."
+
 ### RECOVERY PHRASE Section
 
 **Loading state**: 20x20 accent-colored `CircularProgressIndicator`.

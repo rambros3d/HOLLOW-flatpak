@@ -1537,10 +1537,21 @@ class _SecurityTabState extends State<_SecurityTab> {
     if (passphrase == null || !mounted) return;
 
     try {
-      await identity_api.enablePasswordProtection(password: passphrase);
+      await identity_api.enablePasswordProtection(password: passphrase, requireOnLaunch: true);
       if (!mounted) return;
       await _loadProtectionStatus();
-      HollowToast.show(context, 'App password enabled', type: HollowToastType.success);
+      HollowToast.show(context, 'Password protection enabled', type: HollowToastType.success);
+    } catch (e) {
+      if (!mounted) return;
+      HollowToast.show(context, 'Failed: $e', type: HollowToastType.error);
+    }
+  }
+
+  Future<void> _toggleRequireOnLaunch(bool require) async {
+    try {
+      await identity_api.setRequirePasswordOnLaunch(require: require);
+      if (!mounted) return;
+      await _loadProtectionStatus();
     } catch (e) {
       if (!mounted) return;
       HollowToast.show(context, 'Failed: $e', type: HollowToastType.error);
@@ -1576,6 +1587,30 @@ class _SecurityTabState extends State<_SecurityTab> {
     } catch (e) {
       if (!mounted) return;
       HollowToast.show(context, 'Wrong password', type: HollowToastType.error);
+    }
+  }
+
+  Future<void> _enableOsKeychain() async {
+    try {
+      await identity_api.enableOsKeychainProtection();
+      if (!mounted) return;
+      await _loadProtectionStatus();
+      HollowToast.show(context, 'Device protection enabled', type: HollowToastType.success);
+    } catch (e) {
+      if (!mounted) return;
+      HollowToast.show(context, 'Failed: $e', type: HollowToastType.error);
+    }
+  }
+
+  Future<void> _disableOsKeychain() async {
+    try {
+      await identity_api.disableOsKeychainProtection();
+      if (!mounted) return;
+      await _loadProtectionStatus();
+      HollowToast.show(context, 'Device protection removed', type: HollowToastType.success);
+    } catch (e) {
+      if (!mounted) return;
+      HollowToast.show(context, 'Failed: $e', type: HollowToastType.error);
     }
   }
 
@@ -1725,8 +1760,8 @@ class _SecurityTabState extends State<_SecurityTab> {
           else ...[
             Text(
               _hasPassword
-                  ? 'Your identity is protected with a password. The app will ask for it on launch.'
-                  : 'Set a password to protect your identity on this device. Without it, anyone with access to your computer can open Hollow as you.',
+                  ? 'Your identity is encrypted with a password.'
+                  : 'Set a password to encrypt your identity file. Without it, anyone with access to your computer can copy your identity.',
               style: HollowTypography.body.copyWith(
                 color: hollow.textSecondary, fontSize: 12,
               ),
@@ -1747,6 +1782,40 @@ class _SecurityTabState extends State<_SecurityTab> {
                 ],
               ),
               const SizedBox(height: HollowSpacing.md),
+              if (_osKeychainAvailable) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Ask for password on launch',
+                            style: HollowTypography.body.copyWith(
+                              color: hollow.textPrimary, fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _hasOsKeychain
+                                ? 'Off — the app opens silently on this device, but your identity file is still encrypted.'
+                                : 'On — password is required every time you open Hollow.',
+                            style: HollowTypography.caption.copyWith(
+                              color: hollow.textSecondary, fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: HollowSpacing.md),
+                    HollowToggle(
+                      value: !_hasOsKeychain,
+                      onChanged: (val) => _toggleRequireOnLaunch(val),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: HollowSpacing.md),
+              ],
               Row(
                 children: [
                   HollowButton.ghost(
@@ -1763,29 +1832,70 @@ class _SecurityTabState extends State<_SecurityTab> {
                 ],
               ),
             ] else ...[
+              HollowButton.filled(
+                onPressed: _enablePassword,
+                icon: Icon(LucideIcons.lock, size: 16),
+                child: const Text('Set Password'),
+              ),
+            ],
+
+            if (!_hasPassword && _osKeychainAvailable) ...[
+              const SizedBox(height: HollowSpacing.xl),
+              _SectionLabel(label: 'DEVICE PROTECTION'),
+              const SizedBox(height: HollowSpacing.sm),
+              Text(
+                _hasOsKeychain
+                    ? 'Your identity is encrypted with this device\'s credentials. If Windows loses these credentials (OS reinstall, password reset), you\'ll need your 24-word recovery phrase.'
+                    : 'Encrypt your identity with this device\'s credentials. The app unlocks silently on this device, but the identity cannot be moved to another computer without the recovery phrase.',
+                style: HollowTypography.body.copyWith(
+                  color: hollow.textSecondary, fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: HollowSpacing.md),
               if (_hasOsKeychain) ...[
                 Row(
                   children: [
                     Icon(LucideIcons.monitor, size: 16, color: hollow.success),
                     const SizedBox(width: HollowSpacing.xs),
-                    Expanded(
-                      child: Text(
-                        'Device-bound — your identity is tied to this device via OS credentials and cannot be copied to another computer.',
-                        style: HollowTypography.body.copyWith(
-                          color: hollow.success, fontSize: 12,
-                        ),
+                    Text(
+                      'Device protection active',
+                      style: HollowTypography.body.copyWith(
+                        color: hollow.success, fontSize: 13,
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: HollowSpacing.md),
-              ] else if (_osKeychainAvailable) ...[
-                const SizedBox(height: HollowSpacing.md),
+                HollowButton.ghost(
+                  onPressed: _disableOsKeychain,
+                  icon: Icon(LucideIcons.shieldOff, size: 16),
+                  child: const Text('Remove Device Protection'),
+                ),
+              ] else ...[
+                HollowButton.outline(
+                  onPressed: _enableOsKeychain,
+                  icon: Icon(LucideIcons.monitor, size: 16),
+                  child: const Text('Enable Device Protection'),
+                ),
               ],
-              HollowButton.filled(
-                onPressed: _enablePassword,
-                icon: Icon(LucideIcons.lock, size: 16),
-                child: const Text('Set App Password'),
+              const SizedBox(height: HollowSpacing.sm),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Icon(LucideIcons.alertTriangle, size: 14, color: hollow.warning),
+                  ),
+                  const SizedBox(width: HollowSpacing.xs),
+                  Expanded(
+                    child: Text(
+                      'Windows may lose device credentials after OS reinstalls or admin password resets. Always keep your 24-word recovery phrase backed up.',
+                      style: HollowTypography.caption.copyWith(
+                        color: hollow.warning, fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
 

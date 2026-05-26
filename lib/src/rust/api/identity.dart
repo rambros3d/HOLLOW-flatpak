@@ -42,14 +42,19 @@ Future<void> lockIdentity() =>
     RustLib.instance.api.crateApiIdentityLockIdentity();
 
 /// Enable password protection on the current identity.
-/// Password-only encryption (flags=0x01). The password is required on every launch.
-/// Any previous OS keychain key is removed since the password replaces it.
-Future<void> enablePasswordProtection({required String password}) => RustLib
-    .instance
-    .api
-    .crateApiIdentityEnablePasswordProtection(password: password);
+/// If `require_on_launch` is true (flags=0x01), the password is required every launch.
+/// If false (flags=0x03), the password-derived key is also stored in OS keychain
+/// for silent unlock — identity is encrypted but app opens normally on this device.
+Future<void> enablePasswordProtection({
+  required String password,
+  required bool requireOnLaunch,
+}) => RustLib.instance.api.crateApiIdentityEnablePasswordProtection(
+  password: password,
+  requireOnLaunch: requireOnLaunch,
+);
 
 /// Change the app password. Requires the current password for verification.
+/// Preserves the current require_on_launch setting (keychain flag).
 Future<void> changePassword({
   required String oldPassword,
   required String newPassword,
@@ -64,6 +69,26 @@ Future<void> removePasswordProtection({required String password}) => RustLib
     .instance
     .api
     .crateApiIdentityRemovePasswordProtection(password: password);
+
+/// Toggle whether the password is required on each app launch.
+/// When true (flags=0x01): password prompt on every launch.
+/// When false (flags=0x03): password-derived key cached in OS keychain, silent unlock.
+/// Requires the identity to already be password-protected and unlocked.
+Future<void> setRequirePasswordOnLaunch({required bool require}) => RustLib
+    .instance
+    .api
+    .crateApiIdentitySetRequirePasswordOnLaunch(require: require);
+
+/// Enable OS keychain (DPAPI/Keychain) protection on the current identity.
+/// This is opt-in — the user must explicitly choose this from Settings.
+/// Requires the identity to be currently unlocked and unencrypted (or keychain-already).
+Future<void> enableOsKeychainProtection() =>
+    RustLib.instance.api.crateApiIdentityEnableOsKeychainProtection();
+
+/// Disable OS keychain protection — writes identity back as plaintext.
+/// Requires the identity to be currently unlocked.
+Future<void> disableOsKeychainProtection() =>
+    RustLib.instance.api.crateApiIdentityDisableOsKeychainProtection();
 
 /// Get the current protection status of the identity file.
 Future<ProtectionStatus> getIdentityProtectionStatus() =>

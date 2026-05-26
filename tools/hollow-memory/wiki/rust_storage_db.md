@@ -636,19 +636,23 @@ Struct returned by all identity functions: `{ keypair: NativeKeypair, peer_id: S
 ### Storage Format
 
 Two formats detected by `encryption::detect_format()`:
-1. **Plaintext (legacy):** 68-byte protobuf (`[0x08, 0x01, 0x12, 0x40, secret(32), public(32)]`). Loaded directly, auto-wrapped with DPAPI/Keychain on first `unlock_identity()`.
-2. **Encrypted (HKEYV1):** 119-byte envelope: `[magic:6 "HKEYV1"][flags:1][salt:16][nonce:12][ciphertext:84]`. Flags: `0x01`=password (Argon2id), `0x02`=OS keychain (DPAPI/macOS Keychain). Mutually exclusive.
+1. **Plaintext (legacy):** 68-byte protobuf (`[0x08, 0x01, 0x12, 0x40, secret(32), public(32)]`). Loaded directly. Plaintext identities are never silently auto-encrypted.
+2. **Encrypted (HKEYV1):** 119-byte envelope: `[magic:6 "HKEYV1"][flags:1][salt:16][nonce:12][ciphertext:84]`. Flags: `0x01`=password only (ask on launch), `0x02`=OS keychain only, `0x03`=password + keychain (password encrypts, keychain caches key for silent unlock).
 
 ### At-Rest Protection (encryption.rs + platform_keystore.rs)
 
 **Session wrapping key:** Held in `OnceLock<Mutex<Option<[u8; 32]>>>` static. Set by `unlock_identity()` FFI, cleared by `lock_identity()`. All `load_or_create_identity()` calls use it transparently.
 
-**Layer 1 — Password:** Argon2id (memory=64MB, iterations=3, parallelism=1) derives 32-byte wrapping key from password + random 16-byte salt. AES-256-GCM encrypts the 68-byte protobuf. `flags=0x01`. No DPAPI involvement.
+**Password protection (flags=0x01 or 0x03):** Argon2id (memory=64MB, iterations=3, parallelism=1) derives 32-byte wrapping key from password + random 16-byte salt. AES-256-GCM encrypts the 68-byte protobuf. When `require_on_launch=false` (flags=0x03), the derived key is also stored in OS keychain for silent unlock — identity file is encrypted but app opens normally on the same device.
 
-**Layer 2 — OS Keychain:** Random 32-byte wrapping key stored in platform credential store. Windows: DPAPI via `windows-sys` (`CryptProtectData`/`CryptUnprotectData`), blob at `{data_dir}/identity.dpapi`. macOS: `security-framework` crate, Keychain Services. Linux: not available. `flags=0x02`.
+**OS Keychain / Device Protection (flags=0x02):** Random 32-byte wrapping key stored in platform credential store. Standalone option when no password is set. `flags=0x02`.
 
-**FFI functions (api/identity.rs):** `unlock_identity(password?)`, `lock_identity()`, `enable_password_protection(password)`, `change_password(old, new)`, `remove_password_protection(password)`, `get_identity_protection_status()`, `is_identity_unlocked()`.
+**Windows dual storage:** `platform_keystore.rs` uses Windows Credential Manager (`CredWriteW`/`CredReadW` via `windows-sys`) as primary, DPAPI blob (`identity.dpapi`) as fallback. `store_key()` writes to both. `retrieve_key()` tries Credential Manager first, falls back to DPAPI, auto-migrates on success. macOS uses `security-framework` Keychain. Linux: not available.
 
-**Dart bootstrap flow:** `_bootstrap()` in `hollow_shell.dart` calls `_unlockIdentity()` before `identityProvider.load()`. Silent unlock for plaintext/DPAPI. Full-screen password dialog for password-protected. Full-screen recovery dialog for DPAPI failure (different machine).
+**Unlock logic (flags=0x03):** `unlock_identity()` tries OS keychain first for silent unlock. If keychain key is missing or stale, falls back to password prompt. This ensures the toggle works: password always works as recovery even if device credentials are lost.
 
-**Settings UI:** Security tab in `user_settings_dialog.dart` has "APP LOCK" section with enable/change/remove password + status indicators.
+**FFI functions (api/identity.rs):** `unlock_identity(password?)`, `lock_identity()`, `enable_password_protection(password, require_on_launch)`, `change_password(old, new)`, `remove_password_protection(password)`, `set_require_password_on_launch(require)`, `enable_os_keychain_protection()`, `disable_os_keychain_protection()`, `get_identity_protection_status()`, `is_identity_unlocked()`.
+
+**Dart bootstrap flow:** `_bootstrap()` in `hollow_shell.dart` calls `_unlockIdentity()` before `identityProvider.load()`. Silent unlock for plaintext/keychain/flags=0x03. Full-screen password dialog for flags=0x01. Full-screen recovery dialog for keychain failure (flags=0x02 on different machine).
+
+**Settings UI:** Security tab in `user_settings_dialog.dart` has "APP LOCK" section (password + "Ask for password on launch" toggle) and "DEVICE PROTECTION" section (standalone keychain, hidden when password is active).

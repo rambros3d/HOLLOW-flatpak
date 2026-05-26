@@ -1042,11 +1042,6 @@ pub fn import_backup(backup_path: String, passphrase: String) -> Result<(), Stri
             let mut data = Vec::new();
             entry.read_to_end(&mut data).map_err(|e| format!("Failed to read zip entry: {e}"))?;
             std::fs::write(&out_path, &data).map_err(|e| format!("Failed to write {name}: {e}"))?;
-
-            // Auto-protect identity with OS keychain after import.
-            if name == "identity.key" {
-                let _ = crate::identity::platform_keystore::auto_protect(&out_path, &data);
-            }
         }
     }
 

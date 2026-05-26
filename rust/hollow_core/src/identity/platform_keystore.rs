@@ -13,11 +13,88 @@ mod win {
     use std::ptr;
 
     use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Credentials::{
+        CredDeleteW, CredFree, CredReadW, CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE,
+        CRED_TYPE_GENERIC,
+    };
     use windows_sys::Win32::Security::Cryptography::{
         CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB,
     };
 
-    pub(crate) fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
+    const CRED_TARGET: &str = "com.hollow.identity.wrapping_key";
+
+    fn to_wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    // ── Primary: Windows Credential Manager ──
+
+    pub(crate) fn cred_store(key: &[u8]) -> Result<(), String> {
+        let target = to_wide(CRED_TARGET);
+        let user = to_wide("hollow");
+
+        let cred = CREDENTIALW {
+            Flags: 0,
+            Type: CRED_TYPE_GENERIC,
+            TargetName: target.as_ptr() as *mut _,
+            Comment: ptr::null_mut(),
+            LastWritten: windows_sys::Win32::Foundation::FILETIME {
+                dwLowDateTime: 0,
+                dwHighDateTime: 0,
+            },
+            CredentialBlobSize: key.len() as u32,
+            CredentialBlob: key.as_ptr() as *mut _,
+            Persist: CRED_PERSIST_LOCAL_MACHINE,
+            AttributeCount: 0,
+            Attributes: ptr::null_mut(),
+            TargetAlias: ptr::null_mut(),
+            UserName: user.as_ptr() as *mut _,
+        };
+
+        let ok = unsafe { CredWriteW(&cred, 0) };
+        if ok == 0 {
+            return Err("CredWriteW failed — could not store key in Credential Manager".into());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn cred_retrieve() -> Result<Option<Vec<u8>>, String> {
+        let target = to_wide(CRED_TARGET);
+        let mut pcred: *mut CREDENTIALW = ptr::null_mut();
+
+        let ok = unsafe { CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut pcred) };
+        if ok == 0 {
+            return Ok(None);
+        }
+
+        let result = unsafe {
+            let cred = &*pcred;
+            if cred.CredentialBlobSize == 0 || cred.CredentialBlob.is_null() {
+                CredFree(pcred as *mut _);
+                return Ok(None);
+            }
+            let blob =
+                std::slice::from_raw_parts(cred.CredentialBlob, cred.CredentialBlobSize as usize)
+                    .to_vec();
+            CredFree(pcred as *mut _);
+            blob
+        };
+
+        Ok(Some(result))
+    }
+
+    pub(crate) fn cred_delete() -> Result<(), String> {
+        let target = to_wide(CRED_TARGET);
+        let ok = unsafe { CredDeleteW(target.as_ptr(), CRED_TYPE_GENERIC, 0) };
+        if ok == 0 {
+            // Not found is fine
+        }
+        Ok(())
+    }
+
+    // ── Fallback: DPAPI blob on disk ──
+
+    pub(crate) fn dpapi_protect(data: &[u8]) -> Result<Vec<u8>, String> {
         let input = CRYPT_INTEGER_BLOB {
             cbData: data.len() as u32,
             pbData: data.as_ptr() as *mut u8,
@@ -30,11 +107,11 @@ mod win {
         let ok = unsafe {
             CryptProtectData(
                 &input,
-                ptr::null(),     // description
-                ptr::null_mut(), // optional entropy
-                ptr::null_mut(), // reserved
-                ptr::null_mut(), // prompt struct
-                0,               // flags
+                ptr::null(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                0,
                 &mut output,
             )
         };
@@ -51,7 +128,7 @@ mod win {
         Ok(result)
     }
 
-    pub(crate) fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
+    pub(crate) fn dpapi_unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
         let input = CRYPT_INTEGER_BLOB {
             cbData: data.len() as u32,
             pbData: data.as_ptr() as *mut u8,
@@ -64,20 +141,17 @@ mod win {
         let ok = unsafe {
             CryptUnprotectData(
                 &input,
-                ptr::null_mut(), // description out
-                ptr::null_mut(), // optional entropy
-                ptr::null_mut(), // reserved
-                ptr::null_mut(), // prompt struct
-                0,               // flags
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                0,
                 &mut output,
             )
         };
 
         if ok == 0 {
-            return Err(
-                "DPAPI CryptUnprotectData failed (identity was protected on a different account)"
-                    .into(),
-            );
+            return Err("DPAPI blob decryption failed".into());
         }
 
         let result =
@@ -141,9 +215,13 @@ mod mac {
 pub(crate) fn store_key(key: &[u8]) -> Result<(), String> {
     #[cfg(windows)]
     {
-        let blob = win::protect(key)?;
-        let path = dpapi_blob_path()?;
-        std::fs::write(&path, &blob).map_err(|e| format!("Failed to write DPAPI blob: {e}"))?;
+        // Primary: Credential Manager
+        win::cred_store(key)?;
+        // Fallback: DPAPI blob on disk
+        if let Ok(blob) = win::dpapi_protect(key) {
+            let path = dpapi_blob_path()?;
+            let _ = std::fs::write(&path, &blob);
+        }
         Ok(())
     }
     #[cfg(target_os = "macos")]
@@ -160,14 +238,22 @@ pub(crate) fn store_key(key: &[u8]) -> Result<(), String> {
 pub(crate) fn retrieve_key() -> Result<Option<Vec<u8>>, String> {
     #[cfg(windows)]
     {
-        let path = dpapi_blob_path()?;
-        if !path.exists() {
-            return Ok(None);
+        // Primary: Credential Manager
+        if let Ok(Some(key)) = win::cred_retrieve() {
+            return Ok(Some(key));
         }
-        let blob =
-            std::fs::read(&path).map_err(|e| format!("Failed to read DPAPI blob: {e}"))?;
-        let plaintext = win::unprotect(&blob)?;
-        Ok(Some(plaintext))
+        // Fallback: DPAPI blob on disk
+        let path = dpapi_blob_path()?;
+        if path.exists() {
+            if let Ok(blob) = std::fs::read(&path) {
+                if let Ok(plaintext) = win::dpapi_unprotect(&blob) {
+                    // Migrate: re-store in Credential Manager for next time
+                    let _ = win::cred_store(&plaintext);
+                    return Ok(Some(plaintext));
+                }
+            }
+        }
+        Ok(None)
     }
     #[cfg(target_os = "macos")]
     {
@@ -183,10 +269,10 @@ pub(crate) fn retrieve_key() -> Result<Option<Vec<u8>>, String> {
 pub(crate) fn delete_key() -> Result<(), String> {
     #[cfg(windows)]
     {
+        let _ = win::cred_delete();
         let path = dpapi_blob_path()?;
         if path.exists() {
-            std::fs::remove_file(&path)
-                .map_err(|e| format!("Failed to delete DPAPI blob: {e}"))?;
+            let _ = std::fs::remove_file(&path);
         }
         Ok(())
     }
@@ -218,9 +304,9 @@ mod tests {
     #[test]
     fn dpapi_round_trip() {
         let secret = b"hollow-test-wrapping-key-32bytes!";
-        let protected = win::protect(secret).unwrap();
+        let protected = win::dpapi_protect(secret).unwrap();
         assert_ne!(protected, secret.to_vec());
-        let recovered = win::unprotect(&protected).unwrap();
+        let recovered = win::dpapi_unprotect(&protected).unwrap();
         assert_eq!(recovered, secret.to_vec());
     }
 
@@ -228,18 +314,17 @@ mod tests {
     #[test]
     fn dpapi_protect_produces_different_bytes() {
         let secret = b"hollow-test-wrapping-key-32bytes!";
-        let protected = win::protect(secret).unwrap();
-        // Encrypted blob should differ from plaintext
+        let protected = win::dpapi_protect(secret).unwrap();
         assert_ne!(protected, secret.to_vec());
-        assert!(protected.len() > secret.len()); // DPAPI adds overhead
+        assert!(protected.len() > secret.len());
     }
 
     #[cfg(windows)]
     #[test]
     fn dpapi_empty_input_round_trips() {
         let secret = b"";
-        let protected = win::protect(secret).unwrap();
-        let recovered = win::unprotect(&protected).unwrap();
+        let protected = win::dpapi_protect(secret).unwrap();
+        let recovered = win::dpapi_unprotect(&protected).unwrap();
         assert_eq!(recovered, secret.to_vec());
     }
 
@@ -247,40 +332,32 @@ mod tests {
     #[test]
     fn dpapi_large_input_round_trips() {
         let secret = vec![0xAB; 4096];
-        let protected = win::protect(&secret).unwrap();
-        let recovered = win::unprotect(&protected).unwrap();
+        let protected = win::dpapi_protect(&secret).unwrap();
+        let recovered = win::dpapi_unprotect(&protected).unwrap();
         assert_eq!(recovered, secret);
     }
-}
 
-/// Automatically protect a plaintext identity with the OS keychain if available.
-/// Generates a random wrapping key, encrypts identity, stores key in OS credential store.
-/// Returns Ok(true) if protection was applied, Ok(false) if not available.
-pub(crate) fn auto_protect(
-    identity_path: &std::path::Path,
-    plaintext_bytes: &[u8],
-) -> Result<bool, String> {
-    if !is_available() {
-        return Ok(false);
+    #[cfg(windows)]
+    #[test]
+    fn credential_manager_round_trip() {
+        let secret = b"hollow-test-cred-mgr-32bytes!!!!";
+        win::cred_store(secret).unwrap();
+        let retrieved = win::cred_retrieve().unwrap();
+        assert_eq!(retrieved, Some(secret.to_vec()));
+        win::cred_delete().unwrap();
+        let after_delete = win::cred_retrieve().unwrap();
+        assert_eq!(after_delete, None);
     }
 
-    let mut wrapping_key = [0u8; 32];
-    getrandom::fill(&mut wrapping_key).map_err(|e| format!("RNG error: {e}"))?;
-
-    let salt = [0u8; 16]; // No password — salt is unused but kept for format consistency
-    let encrypted = super::encryption::encrypt_identity(
-        plaintext_bytes,
-        &wrapping_key,
-        &salt,
-        false, // no password
-        true,  // os keychain
-    )?;
-
-    store_key(&wrapping_key)?;
-    wrapping_key.fill(0);
-
-    std::fs::write(identity_path, &encrypted)
-        .map_err(|e| format!("Failed to write encrypted identity: {e}"))?;
-
-    Ok(true)
+    #[cfg(windows)]
+    #[test]
+    fn dual_store_retrieve() {
+        let secret = vec![0x42u8; 32];
+        store_key(&secret).unwrap();
+        let retrieved = retrieve_key().unwrap();
+        assert_eq!(retrieved, Some(secret));
+        delete_key().unwrap();
+        let after_delete = retrieve_key().unwrap();
+        assert_eq!(after_delete, None);
+    }
 }
