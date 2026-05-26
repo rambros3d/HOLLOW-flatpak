@@ -22,13 +22,14 @@ finish-args:
 # Needed to save received files (peer-to-peer file sharing platform)
 - --filesystem=xdg-download
 - --talk-name=org.freedesktop.Notifications
+- --talk-name=org.kde.StatusNotifierWatcher
 - --own-name=com.anonlisten.hollow
 modules:
 - shared-modules/libappindicator/libappindicator-gtk3-12.10.json
 - name: hollow
   buildsystem: simple
   build-options:
-    append-path: /run/build/hollow/.cargo/bin:/usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm20/bin
+    append-path: /run/build/hollow/.cargo/bin:/usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm20/bin:/run/build/hollow/flutter/bin
     prepend-ld-library-path: /usr/lib/sdk/llvm20/lib
     env:
       LD_LIBRARY_PATH: /app/bin/lib
@@ -74,6 +75,7 @@ modules:
   - type: git
     url: https://github.com/rambros3d/HOLLOW-flatpak.git
     tag: main
+    disable-submodules: true
   - type: git
     url: https://github.com/flutter/flutter.git
     tag: 3.38.5

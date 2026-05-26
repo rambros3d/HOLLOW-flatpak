@@ -28,18 +28,7 @@ jobs:
           pip install packaging pyyaml tomlkit
 
       - name: Generate offline manifest
-        run: python /opt/flatpak-flutter/flatpak-flutter.py flatpak/flatpak-flutter.yml
-
-      - name: Debug generated manifest
-        run: |
-          echo "=== append-path ==="
-          grep -A1 'append-path' com.anonlisten.hollow.yml
-          echo "=== child modules ==="
-          grep -B1 -A5 'generated/modules' com.anonlisten.hollow.yml
-          echo "=== setup-flutter.sh ==="
-          grep -n 'setup-flutter' com.anonlisten.hollow.yml
-          echo "=== flatpak/scripts/ ==="
-          ls -la flatpak/scripts/
+        run: python3 /opt/flatpak-flutter/flatpak-flutter.py flatpak/flatpak-flutter.yml
 
       - name: Build
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
