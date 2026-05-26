@@ -262,7 +262,9 @@ Future<void> _showTrayIcon() async {
   final iconPath = await _ensureTrayIcon();
   if (iconPath == null) return;
   await trayManager.setIcon(iconPath);
-  await trayManager.setToolTip('Hollow — Running in background');
+  if (!Platform.isLinux) {
+    await trayManager.setToolTip('Hollow — Running in background');
+  }
   final menu = Menu(
     items: [
       MenuItem(key: 'show', label: 'Show Hollow'),
