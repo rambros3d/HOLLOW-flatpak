@@ -18,6 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Checkout shared-modules
+        run: git clone --depth 1 https://github.com/flathub/shared-modules.git
+
       - name: Install flatpak-flutter
         run: |
           git clone --depth 1 --branch 0.14.1 https://github.com/TheAppgineer/flatpak-flutter.git /opt/flatpak-flutter

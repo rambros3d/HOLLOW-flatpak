@@ -8,8 +8,9 @@ sdk-extensions:
 command: hollow
 # Flutter bundles i18n in flutter_assets; locale splitting saves no space
 separate-locales: false
-env:
-  LD_LIBRARY_PATH: /app/bin/lib
+build-options:
+  env:
+    LD_LIBRARY_PATH: /app/bin/lib
 finish-args:
 - --share=ipc
 - --socket=x11
