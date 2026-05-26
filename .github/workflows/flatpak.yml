@@ -69,3 +69,4 @@ jobs:
           body: |
             Flatpak build for ${{ github.ref_name }}
           make_latest: false
+
