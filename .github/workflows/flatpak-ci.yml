@@ -1,19 +1,17 @@
-name: Flatpak Build
+name: Build Hollow Flatpak
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
-    tags:
-      - '*-flatpak'
 
 permissions:
   contents: write
 
 jobs:
   flatpak:
-    name: Flathub-Style Build
+    name: Flatpak Build
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-48
@@ -60,4 +58,3 @@ jobs:
           body: |
             Flatpak build for ${{ github.ref_name }}
           make_latest: false
-
