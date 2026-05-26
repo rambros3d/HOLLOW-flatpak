@@ -91,7 +91,7 @@ Incoming path: All incoming Call* HavenMessages are processed directly in `swarm
 Called when the local user joins a server voice channel (`NodeCommand::VoiceChannelJoin`).
 
 Steps:
-1. **Dual-path broadcast (MLS primary, plaintext fallback):** Constructs `MessageEnvelope::VoiceChannelJoin { sid, cid }` and attempts MLS broadcast to the server group. If MLS is unavailable or fails, falls back to plaintext `HavenMessage::VoiceChannelJoin` sent individually to each reachable server member. This dual-path approach is CRITICAL for MLS epoch resilience after reconnection — voice channel state changes must work immediately, not wait for MLS epoch sync.
+1. **Always-plaintext broadcast (MLS + plaintext simultaneously):** Constructs `MessageEnvelope::VoiceChannelJoin { sid, cid }` and sends MLS broadcast if available, PLUS always sends plaintext `HavenMessage::VoiceChannelJoin` to each reachable server member regardless of MLS success. Both paths fire unconditionally — MLS provides forward secrecy, plaintext ensures delivery survives stale MLS epochs. Receivers deduplicate via `HashSet::insert` (idempotent) and `_peerConnections.containsKey` guard.
 2. **Track participant locally:** Adds own peer ID to `voice_channel_participants["{server_id}:{channel_id}"]` (HashMap<String, HashSet<String>>).
 3. **Emit local event:** Sends `NetworkEvent::VoiceChannelJoined { server_id, channel_id, peer_id }` so the local UI updates immediately (own join is not received back from the network).
 4. **Check mode transition:** Calls `check_voice_mode_transition()` to evaluate mesh/gossip threshold.
@@ -107,7 +107,7 @@ The `vc_key` format throughout the module is `"{server_id}:{channel_id}"`.
 Called when the local user leaves a server voice channel (`NodeCommand::VoiceChannelLeave`).
 
 Steps:
-1. **Dual-path broadcast:** Same MLS-primary, plaintext-fallback pattern as join, using `MessageEnvelope::VoiceChannelLeave { sid, cid }`.
+1. **Always-plaintext broadcast:** Same MLS + plaintext simultaneous pattern as join, using `MessageEnvelope::VoiceChannelLeave { sid, cid }`. Both paths fire unconditionally.
 2. **Untrack participant:** Removes own peer ID from the `voice_channel_participants` set for this vc_key. If the set becomes empty, removes the entire entry and also removes the vc_key from `voice_channel_gossip_mode`.
 3. **Emit local event:** `NetworkEvent::VoiceChannelLeft { server_id, channel_id, peer_id }`.
 4. **Check mode transition:** Calls `check_voice_mode_transition()`.

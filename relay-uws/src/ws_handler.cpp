@@ -60,12 +60,6 @@ static void handle_auth(SSLWebSocket* ws, PerSocketData* data,
     const std::string* license_key_ptr = license_key_val.empty() ? nullptr : &license_key_val;
     bool guest = j.value("guest", false);
 
-    if (guest && state.guest_count >= MAX_GUESTS) {
-        send_json(ws, {{"type", "auth_failed"}, {"error", "guest_cap"}});
-        ws->end(1008, "guest_cap");
-        return;
-    }
-
     if (peer_id.empty() || public_key.empty() || signature.empty()) {
         send_json(ws, {{"type", "auth_failed"}, {"error", "Authentication failed"}});
         ws->end(1008, "bad_auth");
@@ -508,6 +502,33 @@ static void handle_text_message(SSLWebSocket* ws, PerSocketData* data,
     } else if (type == "direct") {
         handle_direct(data, j.value("room", ""), j.value("target", ""),
                       j.value("data", ""), state);
+    } else if (type == "check_peers") {
+        // Lightweight liveness check: client sends peer IDs + room IDs,
+        // relay returns which peers are connected and which rooms are populated.
+        json online_peers = json::array();
+        json active_rooms = json::array();
+        if (j.contains("peers") && j["peers"].is_array()) {
+            for (auto& pid : j["peers"]) {
+                if (pid.is_string()) {
+                    const std::string& peer_id = pid.get_ref<const std::string&>();
+                    if (state.peer_sockets.count(peer_id)) {
+                        online_peers.push_back(peer_id);
+                    }
+                }
+            }
+        }
+        if (j.contains("rooms") && j["rooms"].is_array()) {
+            for (auto& rid : j["rooms"]) {
+                if (rid.is_string()) {
+                    const std::string& room_id = rid.get_ref<const std::string&>();
+                    auto rit = state.ws_rooms.find(room_id);
+                    if (rit != state.ws_rooms.end() && !rit->second.peers.empty()) {
+                        active_rooms.push_back(room_id);
+                    }
+                }
+            }
+        }
+        send_json(ws, {{"type", "peer_status"}, {"online", online_peers}, {"active_rooms", active_rooms}});
     } else if (type == "subscribe") {
         handle_subscribe(data, j.value("room", ""),
                          j.contains("topics") ? j["topics"] : json::array());

@@ -151,13 +151,14 @@ Called from: `swarm.rs` on `NodeCommand::EditDmMessage`.
 1. **Generate edit timestamp**.
 2. **Sign the edit** — `message_signing_payload("dm", &peer_id_str, &local_peer, edit_timestamp, &new_text)`. Uses new text + new timestamp.
 3. **Update local DB** — `store.edit_dm_message(&message_id, &new_text, edit_timestamp, sig, pk)`.
-4. **Build envelope** — `MessageEnvelope::EditMessage { mid, text, ts, sig, pk, sid: None, cid: None }`. `sid=None` marks this as a DM edit.
-5. **Send via Olm** — only sends if Olm session exists (no queuing for edits).
-6. **Emit event** — `NetworkEvent::DmMessageEdited { peer_id, message_id, new_text, edited_at, signature, public_key }`.
+4. **Update pending_messages queue** — Scans `pending_messages` for the peer, finds any queued `DirectMessage` envelope with matching `message_id`, replaces the envelope in-place with edited text + edit signature + edit timestamp. Without this, `PeerJoined` drain would send the stale pre-edit text.
+5. **Build envelope** — `MessageEnvelope::EditMessage { mid, text, ts, sig, pk, sid: None, cid: None }`. `sid=None` marks this as a DM edit.
+6. **Send via Olm** — only sends if Olm session exists (no queuing for edits).
+7. **Emit event** — `NetworkEvent::DmMessageEdited { peer_id, message_id, new_text, edited_at, signature, public_key }`.
 
 ### Key difference from channel edit
 
-No server lookup or permission check needed. No MLS path. No pending queue — if peer offline, edit silently does not reach them (local DB is updated regardless).
+No server lookup or permission check needed. No MLS path. Takes `&mut pending_messages` to update queued messages for offline peers — DM sync will deliver the current edited version from the DB when the peer reconnects.
 
 ---
 
@@ -286,11 +287,11 @@ Flow:
 Called when: `MessageEnvelope::EditMessage` is decrypted from MLS.
 
 Flow:
-1. **Ownership check** — `store.get_channel_message_sender(&mid)` must equal `peer_str`. Rejects with log if mismatch (prevents editing others' messages).
+1. **Ownership check** — `store.get_channel_message_sender(&mid)` must equal `peer_str`. Rejects with log only if sender exists but doesn't match (prevents editing others' messages). If sender is `None` (message not yet synced — timing race where edit arrives before sync batch), silently skips — the sync batch will deliver the already-edited version.
 2. **Persist** — `store.edit_channel_message()`.
 3. **Emit event** (only if edit applied AND sid/cid present) — `NetworkEvent::ChannelMessageEdited`.
 
-Note: No signature verification on the MLS path here (MLS group membership already authenticates the sender). Ownership is verified via DB lookup.
+Note: No signature verification on the MLS path here (MLS group membership already authenticates the sender). Ownership is verified via DB lookup. The same "sender is None → skip" logic applies to the plaintext edit handler in swarm.rs.
 
 ### handle_envelope_delete_message()
 

@@ -438,6 +438,7 @@ pub(crate) async fn handle_edit_dm_message(
     event_tx: &mpsc::Sender<NetworkEvent>,
     ws_cmd_tx: &tokio::sync::mpsc::UnboundedSender<super::ws_client::WsCommand>,
     ws_room_peers: &HashMap<String, HashSet<String>>,
+    pending_messages: &mut HashMap<String, Vec<String>>,
     bundle_keypair: &crate::identity::native_identity::NativeKeypair,
     pub_key_b64: &str,
     local_peer_str: &str,
@@ -474,6 +475,35 @@ pub(crate) async fn handle_edit_dm_message(
                 &message_id, &new_text, edit_timestamp,
                 sig.as_deref(), pk.as_deref(),
             );
+        }
+    }
+
+    // Update any queued pending message for this peer (pre-edit text → edited text).
+    // Without this, PeerJoined drain sends the stale original text.
+    if let Some(queued) = pending_messages.get_mut(&peer_id_str) {
+        for entry in queued.iter_mut() {
+            if let Ok(env) = serde_json::from_str::<MessageEnvelope>(entry) {
+                if let MessageEnvelope::DirectMessage { ref inner } = env {
+                    if inner.mid.as_deref() == Some(&message_id) {
+                        let updated = MessageEnvelope::DirectMessage {
+                            inner: Box::new(DirectMessagePayload {
+                                text: new_text.clone(),
+                                ts: edit_timestamp,
+                                sig: sig.clone(),
+                                pk: pk.clone(),
+                                mid: inner.mid.clone(),
+                                reply_to: inner.reply_to.clone(),
+                                file_id: inner.file_id.clone(),
+                                link_preview: inner.link_preview.clone(),
+                            }),
+                        };
+                        if let Ok(json) = serde_json::to_string(&updated) {
+                            *entry = json;
+                            hollow_log!("[HOLLOW-SWARM] Updated pending message {message_id} with edited text");
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1185,9 +1215,10 @@ pub(crate) async fn handle_envelope_edit_message(
                 sig.as_deref(), pk.as_deref(),
             );
             edit_applied = true;
-        } else {
+        } else if sender.is_some() {
             hollow_log!("[HOLLOW-EDIT] MLS rejected: {peer_str} tried to edit message {mid} owned by {sender:?}");
         }
+        // sender == None → message not synced yet; sync batch will bring the edited version.
     }
     if edit_applied {
         if let (Some(s_id), Some(c_id)) = (sid, cid) {

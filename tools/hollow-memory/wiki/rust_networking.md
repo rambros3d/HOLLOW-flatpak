@@ -30,6 +30,7 @@ Persistent WSS connection to the relay (configurable domain, default `relay.anon
 - `SendToRoom { room_code, data }` — binary frame: `[0x03][room_bytes][0x00][data]`. Relay broadcasts to all room members.
 - `SendDirect { room_code, target_peer, data }` — binary frame: `[0x04][room_bytes][0x00][target_bytes][0x00][data]`. Relay routes to one peer. Used for shard transfers.
 - `SendBinaryDirect { room_code, target_peer, data }` — binary frame: `[0x02][room_bytes][0x00][target_bytes][0x00][data]`. Used for file/shard streaming chunks.
+- `CheckPeers { peers, rooms }` — sends JSON `{"type":"check_peers","peers":[...],"rooms":[...]}` to relay. Relay does O(1) hashmap lookups, returns which peers are connected and which rooms are populated. Used by the 60s peer liveness timer (friends only, not servers).
 
 ### WsEvent Enum (WS client -> swarm)
 
@@ -44,6 +45,7 @@ Persistent WSS connection to the relay (configurable domain, default `relay.anon
 - `LicenseError { reason }` — auth failed due to invalid license key; client stops reconnecting
 - `RoomBudgetUpdate { joined, limit }` — tracks how many rooms are joined vs the 2000 cap (`ROOM_BUDGET_LIMIT`)
 - `RoomCapHit { room }` — server rejected a room join because cap was hit
+- `PeerStatus { online, active_rooms }` — response to `CheckPeers`. Lists which queried peers are actually connected and which rooms are populated. Swarm re-joins DM/inbox rooms for online friends to trigger RoomMembers → full state healing.
 
 ### Wire Protocol (JSON for control, binary for data)
 

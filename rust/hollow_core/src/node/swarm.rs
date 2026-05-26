@@ -108,6 +108,8 @@ async fn run_event_loop(
 
     // Track which peers have an active key request in flight (avoid duplicate requests).
     let mut key_request_in_flight: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Track peers we've sent a KeyBundle to (for glare detection at KeyBundle reception).
+    let mut key_bundle_sent_to: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     // Track the active room code so we can re-bootstrap after getting a relay circuit address.
     let mut active_room: Option<String> = None;
@@ -412,6 +414,9 @@ async fn run_event_loop(
     let mut mls_persist_timer = tokio::time::interval(Duration::from_secs(2));
     mls_persist_timer.tick().await; // consume immediate first tick
     let mut mls_dirty = false;
+
+    let mut peer_liveness_timer = tokio::time::interval(Duration::from_secs(60));
+    peer_liveness_timer.tick().await; // consume immediate first tick
 
     loop {
         tokio::select! {
@@ -829,6 +834,7 @@ async fn run_event_loop(
                     NodeCommand::EditDmMessage { peer_id: peer_id_str, message_id, new_text } => {
                         message_ops::handle_edit_dm_message(
                             &mut olm, &crypto_store, &event_tx, &ws_cmd_tx, &ws_room_peers,
+                            &mut pending_messages,
                             &bundle_keypair, &pub_key_b64, &local_peer_str,
                             peer_id_str, message_id, new_text,
                             &db_path, &db_passphrase,
@@ -1382,10 +1388,10 @@ async fn run_event_loop(
                         ws_room_peers.clear();
                         synced_peers.clear();
                         key_request_in_flight.clear();
+                        key_bundle_sent_to.clear();
                         mls_bootstrap_requested.clear();
                         if !pending_messages.is_empty() {
-                            hollow_log!("[HOLLOW-WS] Draining {} pending message queues on disconnect", pending_messages.len());
-                            pending_messages.clear();
+                            hollow_log!("[HOLLOW-WS] Keeping {} pending message queues for delivery after reconnect", pending_messages.len());
                         }
                         // Clean up in-progress WS stream transfers.
                         // Resumption infrastructure exists (offset field in FileRequest,
@@ -2019,6 +2025,21 @@ async fn run_event_loop(
                         hollow_log!("[HOLLOW] Room cap hit for room: {room}");
                         let _ = event_tx.send(NetworkEvent::RoomCapHit { room }).await;
                     }
+                    WsEvent::PeerStatus { online, active_rooms: _ } => {
+                        // Relay confirmed these friends are alive — re-join their
+                        // DM + inbox rooms so we get RoomMembers → full state healing.
+                        let local_peer = local_peer_str.to_string();
+                        for peer_id in &online {
+                            let dm_room = dm_room_code(&local_peer, peer_id);
+                            hollow_log!("[HOLLOW-WS] Liveness heal: {peer_id} is online, re-joining DM + inbox rooms");
+                            let _ = ws_cmd_tx.send(super::ws_client::WsCommand::JoinRoom {
+                                room_code: dm_room,
+                            });
+                            let _ = ws_cmd_tx.send(super::ws_client::WsCommand::JoinRoom {
+                                room_code: format!("inbox:{}", local_peer),
+                            });
+                        }
+                    }
                     WsEvent::Message { room, from, data } | WsEvent::DirectMessage { room, from, data } => {
                         // Route incoming WS messages through the same handler as libp2p.
                         if let Ok(text) = String::from_utf8(data) {
@@ -2344,7 +2365,7 @@ async fn run_event_loop(
 
                                     handle_incoming_request(
                                         &mut olm, &crypto_store, &crdt_store, &event_tx,
-                                        &mut pending_messages, &mut key_request_in_flight,
+                                        &mut pending_messages, &mut key_request_in_flight, &mut key_bundle_sent_to,
                                         &mut server_states, &bundle_keypair,
                                         &mut pending_server_joins,
                                         &mut pending_sync_requests, &mut mls,
@@ -2980,6 +3001,33 @@ async fn run_event_loop(
                     mls_dirty = false;
                 }
             }
+
+            // Peer liveness check — ask the relay if "offline" friends are actually alive.
+            // Only checks friends (DM/inbox), NOT servers (MLS re-join disrupts group state).
+            _ = peer_liveness_timer.tick() => {
+                let mut check_peers: Vec<String> = Vec::new();
+
+                if let Ok(store) = crate::storage::MessageStore::open(&db_path, &db_passphrase) {
+                    if let Ok(friends) = store.load_friends(None) {
+                        let local_peer = local_peer_str.to_string();
+                        for (friend_pid, _, _, _, _) in &friends {
+                            if friend_pid == &local_peer { continue; }
+                            let is_reachable = ws_room_peers.values().any(|ps| ps.contains(friend_pid));
+                            if !is_reachable {
+                                check_peers.push(friend_pid.clone());
+                            }
+                        }
+                    }
+                }
+
+                if !check_peers.is_empty() {
+                    hollow_log!("[HOLLOW-WS] Liveness check: {} offline friends", check_peers.len());
+                    let _ = ws_cmd_tx.send(super::ws_client::WsCommand::CheckPeers {
+                        peers: check_peers,
+                        rooms: Vec::new(),
+                    });
+                }
+            }
         }
     }
 
@@ -2999,6 +3047,7 @@ async fn handle_incoming_request(
     event_tx: &mpsc::Sender<NetworkEvent>,
     pending_messages: &mut HashMap<String, Vec<String>>,
     key_request_in_flight: &mut std::collections::HashSet<String>,
+    key_bundle_sent_to: &mut std::collections::HashSet<String>,
     server_states: &mut HashMap<String, ServerState>,
     bundle_keypair: &crate::identity::native_identity::NativeKeypair,
     pending_server_joins: &mut HashMap<String, Option<String>>,
@@ -3035,31 +3084,36 @@ async fn handle_incoming_request(
 
     match request {
         HavenMessage::KeyRequest => {
-            // Peer wants our key bundle — generate a one-time key and respond.
-            let otk = olm.generate_one_time_key();
-            let identity_key = olm.identity_key_base64();
-
-            // Persist account (one-time key was consumed).
-            if let Ok(pickle) = olm.account_pickle_json() {
-                crypto_store.save_account(pickle);
+            if olm.has_session(peer_str) {
+                hollow_log!("[HOLLOW-CRYPTO] Already have session with {peer_str}, ignoring KeyRequest");
+            } else {
+                let otk = olm.generate_one_time_key();
+                let identity_key = olm.identity_key_base64();
+                if let Ok(pickle) = olm.account_pickle_json() {
+                    crypto_store.save_account(pickle);
+                }
+                key_bundle_sent_to.insert(peer_str.to_string());
+                send_message_to_peer(ws_cmd_tx, ws_room_peers, peer_str, HavenMessage::KeyBundle {
+                    identity_key, one_time_key: otk,
+                });
             }
-
-            let key_bundle = HavenMessage::KeyBundle {
-                identity_key,
-                one_time_key: otk,
-            };
-            // Send key bundle back via WS.
-            send_message_to_peer(
-                ws_cmd_tx, ws_room_peers,
-                peer_str, key_bundle,
-            );
         }
 
         HavenMessage::KeyBundle { identity_key, one_time_key } => {
             // Peer responded with their key bundle — create outbound Olm session.
             if olm.has_session(peer_str) {
                 hollow_log!("[HOLLOW-CRYPTO] Already have session with {peer_str}, ignoring KeyBundle");
+                key_bundle_sent_to.remove(peer_str);
+            } else if key_bundle_sent_to.remove(peer_str) && local_peer_str > peer_str {
+                // Glare: we sent THEM a KeyBundle (responding to their KeyRequest) AND
+                // they sent US a KeyBundle (responding to our KeyRequest). Both sides
+                // would create outbound sessions → MAC mismatch. The lower peer ID
+                // creates the outbound session; we're higher, so we wait for their
+                // PreKey/SessionAck to create an inbound session instead.
+                hollow_log!("[HOLLOW-CRYPTO] KeyBundle glare with {peer_str} — we're higher, skipping outbound (will use their PreKey)");
+                key_request_in_flight.remove(peer_str);
             } else {
+                key_bundle_sent_to.remove(peer_str);
                 match olm.create_outbound_session(peer_str, &identity_key, &one_time_key) {
                     Ok(()) => {
                         hollow_log!("[HOLLOW-CRYPTO] Created outbound session with {peer_str} via KeyBundle");
@@ -3417,13 +3471,29 @@ async fn handle_incoming_request(
                             }
 
                             let is_mine = msg.s == local_peer;
-                            match store.insert_channel_message(
-                                &sid, &cid, &msg.s, &msg.t, is_mine, msg.ts,
-                                msg.sig.as_deref(), msg.pk.as_deref(), msg.mid.as_deref(),
-                                msg.reply_to.as_deref(), msg.file_id.as_deref(),
-                            ) {
-                                Ok(1) => { new_count += 1; }
-                                _ => {} // Duplicate or error — skip.
+                            let already_exists = msg.mid.as_ref()
+                                .map(|mid| store.channel_message_exists(mid))
+                                .unwrap_or(false);
+
+                            if !already_exists {
+                                match store.insert_channel_message(
+                                    &sid, &cid, &msg.s, &msg.t, is_mine, msg.ts,
+                                    msg.sig.as_deref(), msg.pk.as_deref(), msg.mid.as_deref(),
+                                    msg.reply_to.as_deref(), msg.file_id.as_deref(),
+                                ) {
+                                    Ok(1) => {
+                                        new_count += 1;
+                                        if let (Some(edit_ts), Some(mid)) = (msg.edited_at, &msg.mid) {
+                                            let _ = store.set_channel_message_edited_at(mid, edit_ts);
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            } else if let (Some(edit_ts), Some(mid)) = (msg.edited_at, &msg.mid) {
+                                let _ = store.edit_channel_message(
+                                    mid, &msg.t, edit_ts,
+                                    msg.sig.as_deref(), msg.pk.as_deref(),
+                                );
                             }
 
                             // Apply deletion if the message was hidden on the syncing peer.
@@ -3605,13 +3675,18 @@ async fn handle_incoming_request(
                                     msg.sig.as_deref(), msg.pk.as_deref(), msg.mid.as_deref(),
                                     msg.reply_to.as_deref(), msg.file_id.as_deref(),
                                 ) {
-                                    Ok(id) if id > 0 => { new_count += 1; }
+                                    Ok(id) if id > 0 => {
+                                        new_count += 1;
+                                        // Stamp edited_at directly for freshly inserted edited messages.
+                                        // edit_dm_message would skip (old_text == new_text).
+                                        if let (Some(edit_ts), Some(mid)) = (msg.edited_at, &msg.mid) {
+                                            let _ = store.set_dm_message_edited_at(mid, edit_ts);
+                                        }
+                                    }
                                     _ => {}
                                 }
-                            }
-
-                            // Apply edit if the message was edited on the syncing peer.
-                            if let (Some(edit_ts), Some(mid)) = (msg.edited_at, &msg.mid) {
+                            } else if let (Some(edit_ts), Some(mid)) = (msg.edited_at, &msg.mid) {
+                                // Message already exists — apply edit if text differs.
                                 let edit_result = store.edit_dm_message(
                                     mid, &msg.t, edit_ts,
                                     msg.sig.as_deref(),
@@ -3626,6 +3701,10 @@ async fn handle_incoming_request(
                                         signature: msg.sig.clone(),
                                         public_key: msg.pk.clone(),
                                     }).await;
+                                } else {
+                                    // Text already matches (pending drain delivered edited text)
+                                    // but edited_at may be missing — stamp it.
+                                    let _ = store.set_dm_message_edited_at(mid, edit_ts);
                                 }
                             }
 
@@ -3720,9 +3799,10 @@ async fn handle_incoming_request(
                                     sig.as_deref(), pk.as_deref(),
                                 );
                                 edit_applied = true;
-                            } else {
+                            } else if sender.is_some() {
                                 hollow_log!("[HOLLOW-EDIT] Rejected: {peer_str} tried to edit message {mid} owned by {sender:?}");
                             }
+                            // sender == None → message not synced yet; sync batch will bring the edited version.
                         } else {
                             // DM edit — verify the message is NOT mine (i.e. it's from this peer).
                             let is_mine = store.get_dm_message_is_mine(&mid);

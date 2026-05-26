@@ -200,6 +200,59 @@ pub(crate) fn delete_key() -> Result<(), String> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_available_matches_platform() {
+        let available = is_available();
+        if cfg!(any(windows, target_os = "macos")) {
+            assert!(available);
+        } else {
+            assert!(!available);
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn dpapi_round_trip() {
+        let secret = b"hollow-test-wrapping-key-32bytes!";
+        let protected = win::protect(secret).unwrap();
+        assert_ne!(protected, secret.to_vec());
+        let recovered = win::unprotect(&protected).unwrap();
+        assert_eq!(recovered, secret.to_vec());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn dpapi_protect_produces_different_bytes() {
+        let secret = b"hollow-test-wrapping-key-32bytes!";
+        let protected = win::protect(secret).unwrap();
+        // Encrypted blob should differ from plaintext
+        assert_ne!(protected, secret.to_vec());
+        assert!(protected.len() > secret.len()); // DPAPI adds overhead
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn dpapi_empty_input_round_trips() {
+        let secret = b"";
+        let protected = win::protect(secret).unwrap();
+        let recovered = win::unprotect(&protected).unwrap();
+        assert_eq!(recovered, secret.to_vec());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn dpapi_large_input_round_trips() {
+        let secret = vec![0xAB; 4096];
+        let protected = win::protect(&secret).unwrap();
+        let recovered = win::unprotect(&protected).unwrap();
+        assert_eq!(recovered, secret);
+    }
+}
+
 /// Automatically protect a plaintext identity with the OS keychain if available.
 /// Generates a random wrapping key, encrypts identity, stores key in OS credential store.
 /// Returns Ok(true) if protection was applied, Ok(false) if not available.

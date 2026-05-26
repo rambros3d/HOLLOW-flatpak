@@ -2563,9 +2563,13 @@ pub(crate) async fn handle_envelope_channel_sync_batch(
                     msg.reply_to.as_deref(), msg.file_id.as_deref(),
                 ) {
                     new_count += 1;
+                    // If the synced message was already edited, stamp edited_at directly.
+                    // edit_channel_message would skip it (old_text == new_text).
+                    if let (Some(edit_ts), Some(mid)) = (msg.edited_at, &msg.mid) {
+                        let _ = store.set_channel_message_edited_at(mid, edit_ts);
+                    }
                 }
-            }
-            if let (Some(edit_ts), Some(mid)) = (msg.edited_at, &msg.mid) {
+            } else if let (Some(edit_ts), Some(mid)) = (msg.edited_at, &msg.mid) {
                 if store.edit_channel_message(
                     mid, &msg.t, edit_ts,
                     msg.sig.as_deref(),

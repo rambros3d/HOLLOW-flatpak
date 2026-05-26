@@ -16,7 +16,6 @@
 static constexpr size_t MAX_CONNS_PER_IP = 34;
 static constexpr size_t MAX_NEW_CONNS_PER_MIN_PER_IP = 10;
 static constexpr size_t MAX_GUEST_ROOMS = 3;
-static constexpr size_t MAX_GUESTS = 50000;
 static constexpr int GUEST_IDLE_SECS = 1800;
 static constexpr uint32_t GUEST_BINARY_PER_MIN = 10;
 

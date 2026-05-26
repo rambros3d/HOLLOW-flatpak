@@ -62,6 +62,7 @@ class NativeScreenCapturer {
                         UINT32 dst_h);
 
   std::atomic<bool> running_{false};
+  std::mutex mtx_;
   UINT32 native_w_ = 0;
   UINT32 native_h_ = 0;
   UINT32 target_w_ = 0;

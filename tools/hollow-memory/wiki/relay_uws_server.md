@@ -39,7 +39,6 @@ Reads CLI flags sequentially. `TURN_SECRET` is loaded from the environment varia
 | `MAX_CONNS_PER_IP` | 34 | Max simultaneous WS connections per IP |
 | `MAX_NEW_CONNS_PER_MIN_PER_IP` | 10 | Max new connections per minute per IP (sliding window) |
 | `MAX_GUEST_ROOMS` | 3 | Max rooms a guest can join |
-| `MAX_GUESTS` | 50,000 | Global guest connection cap |
 | `GUEST_IDLE_SECS` | 1800 | Guest idle timeout (30 min no binary activity) |
 | `GUEST_BINARY_PER_MIN` | 10 | Max 0x03 binary frames per minute for guests |
 
@@ -497,6 +496,8 @@ Parses JSON and dispatches on `type` field:
 - `"leave"` -> `leave_room()`
 - `"msg"` -> `handle_msg()`
 - `"direct"` -> `handle_direct()`
+- `"check_peers"` -> inline handler: accepts `peers` (array of peer IDs) and `rooms` (array of room IDs), does O(1) hashmap lookups against `peer_sockets` and `ws_rooms`, returns `{"type":"peer_status","online":[...],"active_rooms":[...]}`. Used by the 60s client-side peer liveness timer for offline friend self-healing. No privacy leak — relay already knows all peer connections and room memberships.
+- `"subscribe"` -> `handle_subscribe()`
 
 Unknown types are silently ignored. Invalid JSON is silently ignored.
 
@@ -878,7 +879,6 @@ The relay binary is SSL-only (`uWS::SSLApp`) — cannot run without TLS certs. N
 | License key in use by another peer | `license_key_in_use`, connection closed 1008 |
 | IP has ≥34 active connections | `ip_limit`, connection closed 1008 (pre-auth) |
 | IP opened ≥10 connections in last 60s | `rate_limit`, connection closed 1008 (pre-auth) |
-| Guest cap reached (50k) | `guest_cap`, connection closed 1008 |
 | Guest joins > 3 rooms | `{"type":"error","error":"Guest room limit reached"}` |
 | Guest sends 0x04 (SendDirect) | Silently dropped |
 | Guest sends >10 binary 0x03 frames/min | Silently dropped |

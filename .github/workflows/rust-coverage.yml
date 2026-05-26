@@ -2,7 +2,7 @@ name: Rust Coverage
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - "rust/hollow_core/**"
       - ".github/workflows/rust-coverage.yml"
@@ -11,6 +11,7 @@ on:
     paths:
       - "rust/hollow_core/**"
       - ".github/workflows/rust-coverage.yml"
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always

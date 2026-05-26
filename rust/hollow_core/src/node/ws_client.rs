@@ -34,6 +34,8 @@ pub enum WsCommand {
     Subscribe { room_code: String, topics: Vec<String> },
     /// Broadcast to peers subscribed to a specific topic in a room.
     SendToRoomTopic { room_code: String, topic: String, data: Vec<u8> },
+    /// Ask the relay which peers/rooms are actually alive.
+    CheckPeers { peers: Vec<String>, rooms: Vec<String> },
 }
 
 /// Events received from the WebSocket relay, forwarded to the swarm.
@@ -56,6 +58,8 @@ pub enum WsEvent {
     RoomBudgetUpdate { joined: u32, limit: u32 },
     /// Server rejected a room join (cap hit).
     RoomCapHit { room: String },
+    /// Response to CheckPeers — which peers/rooms are actually alive.
+    PeerStatus { online: Vec<String>, active_rooms: Vec<String> },
 }
 
 // -- Wire protocol (matches relay/src/ws_router.rs) --
@@ -85,6 +89,7 @@ enum ServerMsg {
     PeerJoined { room: String, peer_id: String },
     PeerLeft { room: String, peer_id: String },
     Members { room: String, peers: Vec<String> },
+    PeerStatus { online: Vec<String>, active_rooms: Vec<String> },
     Error { error: String },
 }
 
@@ -378,6 +383,19 @@ async fn send_command(write: &mut WsSink, cmd: &WsCommand) -> bool {
             }
             return true;
         }
+        WsCommand::CheckPeers { peers, rooms } => {
+            let msg = serde_json::json!({
+                "type": "check_peers",
+                "peers": peers,
+                "rooms": rooms,
+            });
+            let text = msg.to_string();
+            if let Err(e) = write.send(Message::Text(text.into())).await {
+                hollow_log!("[HOLLOW-WS] CheckPeers send failed: {e}");
+                return false;
+            }
+            return true;
+        }
         WsCommand::Subscribe { room_code, topics } => {
             let msg = serde_json::json!({
                 "type": "subscribe",
@@ -502,6 +520,10 @@ async fn handle_server_message(event_tx: &mpsc::UnboundedSender<WsEvent>, msg: S
         ServerMsg::Members { room, peers } => {
             hollow_log!("[HOLLOW-WS] Room {room} members: {} peers", peers.len());
             WsEvent::RoomMembers { room, peers }
+        }
+        ServerMsg::PeerStatus { online, active_rooms } => {
+            hollow_log!("[HOLLOW-WS] PeerStatus: {} online, {} active rooms", online.len(), active_rooms.len());
+            WsEvent::PeerStatus { online, active_rooms }
         }
         ServerMsg::Error { error } => {
             hollow_log!("[HOLLOW-WS] Server error: {error}");
