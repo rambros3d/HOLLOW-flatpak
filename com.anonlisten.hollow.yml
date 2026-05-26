@@ -43,9 +43,7 @@ modules:
       - mkdir -p packages/flutter_webrtc/third_party/downloads
       - touch packages/flutter_webrtc/third_party/downloads/libwebrtc.zip
       - mkdir -p packages/flutter_webrtc/third_party/libwebrtc/include
-      - for d in api audio call common_audio common_video logging media modules net
-        p2p pc rtc_base rtc_tools sdk stats system_wrappers video; do cp -r "libwebrtc/$d"
-        packages/flutter_webrtc/third_party/libwebrtc/include/; done
+      - cp -r libwebrtc/. packages/flutter_webrtc/third_party/libwebrtc/include/
       - setup-flutter.sh
       - "set -eu\nFLATPAK_ARCH=\"${FLATPAK_ARCH:-x86_64}\"\ncase \"$FLATPAK_ARCH\"\
         \ in\n  x86_64)\n    FLUTTER_ARCH=\"x64\"\n    LIBWEBRTC_ARCH_DIR=\"linux-x64\"\
