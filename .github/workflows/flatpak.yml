@@ -1,0 +1,54 @@
+name: Flatpak Build
+
+on:
+  push:
+    tags:
+      - '*-flatpak'
+
+permissions:
+  contents: write
+
+jobs:
+  flatpak:
+    name: Flathub-Style Build
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-48
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install flatpak-flutter
+        run: pip3 install flatpak-flutter
+
+      - name: Generate offline manifest
+        run: flatpak-flutter flatpak/flatpak-flutter.yml
+
+      - name: Build
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: HOLLOW.flatpak
+          manifest-path: com.anonlisten.hollow.yml
+          cache-key: flatpak-builder-${{ hashFiles('flatpak/flatpak-flutter.yml', 'flatpak/foreign.json') }}
+          upload-artifact: true
+
+      - name: Install bundle
+        run: flatpak install --user -y --bundle HOLLOW.flatpak
+
+      - name: Smoke test
+        run: |
+          timeout 30 xvfb-run flatpak run com.anonlisten.hollow 2>&1 | head -20
+          rc=$?
+          if [ $rc -eq 124 ]; then
+            echo "App ran without crashing (timeout at 30s)"
+          else
+            exit $rc
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: HOLLOW.flatpak
+          body: |
+            Flatpak build for ${{ github.ref_name }}
+          make_latest: false

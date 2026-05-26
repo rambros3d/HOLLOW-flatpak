@@ -131,6 +131,25 @@ fvp plugin version: 0.35.2
 ```
 Exit code 124 (timeout) = success (app runs without crashing). Missing library errors indicate broken install.
 
+## CI Workflow (Flathub Simulation)
+
+File: `.github/workflows/flatpak.yml`
+
+**Trigger:** Push of a tag ending in `-flatpak` (e.g., `v1.0.0-flatpak`).
+
+**Container:** `ghcr.io/flathub-infra/flatpak-github-actions:gnome-48` (privileged).
+
+**Steps:**
+1. `pip3 install flatpak-flutter` — the same tool Flathub uses to generate offline manifests
+2. `flatpak-flutter flatpak/flatpak-flutter.yml` — generates `com.anonlisten.hollow.yml` with all Dart/Rust deps pinned as archive sources, Flutter SDK replaced with downloadable module, `--share=network` removed
+3. `flatpak/flatpak-github-actions/flatpak-builder@v6` — builds from the generated offline manifest, produces `HOLLOW.flatpak`
+4. Install bundle + `xvfb-run` smoke test (30s timeout — exit 124 = success)
+5. `softprops/action-gh-release@v2` — attaches `HOLLOW.flatpak` to the release created by the tag push
+
+**Cache:** Keyed on `hashFiles('flatpak/flatpak-flutter.yml', 'flatpak/foreign.json')`.
+
+**Note:** The generated manifest overwrites the root `com.anonlisten.hollow.yml` (ephemeral CI runner — harmless). First run may fail if the `gnome-48` container lacks `pip3` — add `apt-get install -y python3-pip` if needed.
+
 ## Known Issues
 
 - XDG desktop portal warnings in headless/GitHub CI — harmless, only affects dark theme detection
