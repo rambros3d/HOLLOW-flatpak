@@ -1,6 +1,7 @@
 name: Flatpak Build
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - '*-flatpak'
@@ -31,12 +32,12 @@ jobs:
 
       - name: Debug generated manifest
         run: |
-          echo "=== full manifest ==="
-          cat com.anonlisten.hollow.yml
-          echo "=== generated/ ==="
-          find generated/ -type f 2>/dev/null | head -20
-          echo "=== flutter-sdk JSON ==="
-          cat generated/modules/flutter-sdk-3.38.5.json 2>/dev/null | head -40
+          echo "=== append-path ==="
+          grep -A1 'append-path' com.anonlisten.hollow.yml
+          echo "=== child modules ==="
+          grep -B1 -A5 'generated/modules' com.anonlisten.hollow.yml
+          echo "=== setup-flutter.sh ==="
+          grep -n 'setup-flutter' com.anonlisten.hollow.yml
           echo "=== flatpak/scripts/ ==="
           ls -la flatpak/scripts/
 
