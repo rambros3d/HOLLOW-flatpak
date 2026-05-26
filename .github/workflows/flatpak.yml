@@ -29,6 +29,23 @@ jobs:
       - name: Generate offline manifest
         run: python /opt/flatpak-flutter/flatpak-flutter.py flatpak/flatpak-flutter.yml
 
+      - name: Debug generated manifest
+        run: |
+          echo "=== Sources ==="
+          python3 -c "
+import yaml
+with open('com.anonlisten.hollow.yml') as f:
+    m = yaml.safe_load(f)
+for mod in m.get('modules', []):
+    print(f'Module: {mod.get(\"name\", \"(no name)\")}')
+    for src in mod.get('sources', []):
+        print(f'  {src.get(\"type\")}: {src.get(\"path\") or src.get(\"url\") or \"(no path/url)\"}  dest={src.get(\"dest\", \"(none)\")}')
+"
+          echo "=== flatpak/scripts/ contents ==="
+          ls -la flatpak/scripts/
+          echo "=== Build dir check ==="
+          ls -la /__w/HOLLOW-flatpak/HOLLOW-flatpak/flatpak/scripts/ 2>/dev/null || echo "GITHUB_WORKSPACE not accessible yet"
+
       - name: Build
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
