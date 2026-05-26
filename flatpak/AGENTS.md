@@ -1,30 +1,40 @@
 # HOLLOW Flatpak Build Guide
 
-## Build & Bundle
+## Local Dev Build
 
 ```bash
-# Full build (clean)
-flatpak-builder --disable-rofiles-fuse --force-clean flatpak-build flatpak/com.anonlisten.hollow.yml
+flatpak-builder --disable-rofiles-fuse --force-clean flatpak-build com.anonlisten.hollow.yml
 
-# Export and bundle
 flatpak build-export repo flatpak-build/
 flatpak build-bundle repo HOLLOW.flatpak com.anonlisten.hollow
-
-# Install and test locally
 flatpak install --user -y --bundle HOLLOW.flatpak
 xvfb-run flatpak run com.anonlisten.hollow
 ```
 
 Output: `HOLLOW.flatpak` (~33 MB).
 
-## Manifest Structure
+## Two-Manifest Workflow
 
-`flatpak/com.anonlisten.hollow.yml` — single `flutter-sdk` module + shared-modules libappindicator:
+| Manifest | Location | Purpose |
+|----------|----------|---------|
+| `com.anonlisten.hollow.yml` | repo root | Local dev build. Uses `type: dir` source, network access (`--share=network`), prebuilt `flutter_tools.snapshot`. All fixes applied. |
+| `flatpak/flatpak-flutter.yml` | `flatpak/` | Flathub submission template for [flatpak-flutter](https://github.com/TheAppgineer/flatpak-flutter). Uses `type: git` sources, no `--share=network`, no prebuilt artifacts. All fixes applied. |
 
-| # | Module | System | Purpose |
-|---|--------|--------|---------|
-| 1 | `shared-modules/libappindicator/...` | autotools | GTK tray icon via `libappindicator3` |
-| 2 | `flutter-sdk` | simple | Flutter SDK + project source → `flutter build linux --release` |
+### Local Dev (`com.anonlisten.hollow.yml`)
+
+- Single `flutter-sdk` module + shared-modules libappindicator
+- Network enabled for `dart pub get` / `cargo` dependency resolution
+- Uses prebuilt `flutter_tools.snapshot` from `flatpak/scripts/`
+- Rust/cargokit via rust-stable SDK extension + rustup shim
+
+### Flathub Template (`flatpak/flatpak-flutter.yml`)
+
+Process with flatpak-flutter to generate an offline manifest:
+```bash
+flatpak-flutter flatpak/flatpak-flutter.yml
+```
+
+This pins all Dart and Rust dependencies as manifest sources, replaces the Flutter SDK with a downloadable module, and generates `com.anonlisten.hollow.yml` suitable for Flathub's sandboxed (no-network) build.
 
 ## Critical Details
 
@@ -37,21 +47,34 @@ Output: `HOLLOW.flatpak` (~33 MB).
 
 ### rustup Shim (`flatpak/scripts/rustup-wrapper.sh`)
 
-Installed at `/run/build/flutter-sdk/.cargo/bin/rustup` during build. Handles the commands cargokit calls:
+Arch-aware via `uname -m`. Installed at `/run/build/flutter-sdk/.cargo/bin/rustup` (local dev) or `/run/build/hollow/.cargo/bin/rustup` (Flathub). Handles the commands cargokit calls:
 
 | Command | Shim behavior |
 |---------|---------------|
-| `rustup toolchain list` | Returns `stable-x86_64-unknown-linux-gnu` |
-| `rustup target list --installed` | Returns `x86_64-unknown-linux-gnu` |
+| `rustup toolchain list` | Returns `stable-{arch}-unknown-linux-gnu` (x86_64 or aarch64) |
+| `rustup target list --installed` | Returns `{arch}-unknown-linux-gnu` |
 | `rustup toolchain install` / `target add` / `component add` | No-op (exit 0) |
 | `rustup run <tc> <cmd> ...` | `exec <cmd> ...` (delegates to PATH) |
 
 ### Cargokit Patches
 
 - **`run_build_tool.sh`** (line 87): `export PATH="/run/build/flutter-sdk/.cargo/bin:$PATH"` — ensures rustup shim is found by the Dart build_tool
-- **`--offline` removed** from both `dart pub get` calls (lines 75, 93) — network needed for dependency resolution
+- **Flathub:** patch referenced in `flatpak/foreign.json` — flatpak-flutter applies it during offline manifest generation. Adds `--offline` to cargokit's `dart pub get` calls for network-less builds.
+- **Local dev:** patch NOT applied — local builds have `--share=network` and the `--offline` flag prevents cargokit from resolving its own Dart dependencies (`yaml` package).
 
-### Flutter SDK Setup
+### Arch Awareness (`$FLATPAK_ARCH`)
+
+Both manifests use `$FLATPAK_ARCH` (Flathub standard env var) to resolve arch-specific paths:
+
+| Component | x86_64 | aarch64 |
+|-----------|--------|---------|
+| `$FLUTTER_ARCH` | `x64` | `arm64` |
+| `$LIBWEBRTC_ARCH_DIR` | `linux-x64` | `linux-arm64` |
+| Build output | `build/linux/x64/release/bundle/` | `build/linux/arm64/release/bundle/` |
+
+Detection block is at the top of arch-dependent build-commands (single `|` block since env vars don't persist between separate `sh -c` invocations).
+
+### Flutter SDK Setup (Local Dev)
 
 The manifest provisions a patched Flutter SDK (3.38.5) with:
 1. Prebuilt engine stamp (`engine.stamp`)
@@ -61,27 +84,23 @@ The manifest provisions a patched Flutter SDK (3.38.5) with:
 
 ### Library Install
 
-All bundle `.so` files are installed to `/app/bin/lib/` (RPATH-relative, binary has `$ORIGIN/lib`):
+All bundle `.so` files are installed to `/app/bin/lib/` (RPATH-relative, binary has `$ORIGIN/lib`) via `flatpak/scripts/copy-flutter-libs.sh`.
 
-```bash
-for f in build/linux/x64/release/bundle/lib/lib*.so*; do
-  install -Dm755 "$f" /app/bin/lib/
-done
-```
+`copy-flutter-libs.sh` accepts `$1` as the Flutter arch (`x64` or `arm64`), defaulting to `x64` for backward compatibility.
 
 All libs are installed — NO exclusions. `libapp.so`, `libflutter_linux_gtk.so`, and `libsuper_native_extensions.so` are all needed.
 
 ### Data Directory
 
 ```bash
-cp -r build/linux/x64/release/bundle/data /app/bin/data
+cp -r build/linux/$FLUTTER_ARCH/release/bundle/data /app/bin/data
 ```
 
 Includes `flutter_assets/` and `icudtl.dat`.
 
 ### Runtime Library Path
 
-`LD_LIBRARY_PATH: /app/lib/lib:/app/bin/lib` in both top-level and module `env:` — covers both the main libs and the bundled plugin libs.
+`LD_LIBRARY_PATH: /app/bin/lib` in both top-level and module `env:` in both manifests — covers the bundled plugin libs (includes libapp.so, libflutter_linux_gtk.so, libsuper_native_extensions.so, and libhollow_core.so).
 
 ### WebRTC
 
@@ -90,6 +109,13 @@ Includes `flutter_assets/` and `icudtl.dat`.
 - `svpng.hpp` downloaded from `miloyip/svpng` GitHub
 - `packages/flutter_webrtc/linux/CMakeLists.txt` patched for static libwebrtc
 - `libwebrtc_missing_symbols.cc` provides stubs for missing `libwebrtc.a` symbols and non-null device/capability factories
+- Both x86_64 and aarch64 binary sources declared with `only-arches` and SHA-256 checksums
+
+### Flathub Review Comments
+
+Inline comments in both manifests justify:
+- `separate-locales: false` — Flutter bundles i18n in `flutter_assets`; locale splitting saves no space
+- `--filesystem=xdg-download` — needed to save received files (peer-to-peer file sharing platform)
 
 ## Smoke Test
 

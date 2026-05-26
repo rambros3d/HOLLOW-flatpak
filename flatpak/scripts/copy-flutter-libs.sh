@@ -1,10 +1,8 @@
 #!/bin/sh
-# copy-flutter-libs.sh — install app libs into /app/bin/lib/ matching RPATH=$ORIGIN/lib
+set -eu
+ARCH="${1:-x64}"
 mkdir -p /app/bin/lib
-for f in build/linux/x64/release/bundle/lib/lib*.so*; do
+for f in "build/linux/$ARCH/release/bundle/lib/lib"*.so*; do
   [ -f "$f" ] || continue
-  case "$(basename "$f")" in
-    libapp.so) continue ;;
-  esac
-  install -Dm644 "$f" /app/bin/lib/
+  install -Dm755 "$f" /app/bin/lib/
 done

@@ -1,0 +1,91 @@
+id: com.anonlisten.hollow
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+- org.freedesktop.Sdk.Extension.rust-stable
+- org.freedesktop.Sdk.Extension.llvm20
+command: hollow
+# Flutter bundles i18n in flutter_assets; locale splitting saves no space
+separate-locales: false
+env:
+  LD_LIBRARY_PATH: /app/bin/lib
+finish-args:
+- --share=ipc
+- --socket=fallback-x11
+- --socket=wayland
+- --device=dri
+- --share=network
+- --socket=pulseaudio
+- --socket=camera
+# Needed to save received files (peer-to-peer file sharing platform)
+- --filesystem=xdg-download
+- --talk-name=org.freedesktop.Notifications
+- --own-name=com.anonlisten.hollow
+modules:
+- shared-modules/libappindicator/libappindicator-gtk3-12.10.json
+- name: hollow
+  buildsystem: simple
+  build-options:
+    append-path: /run/build/hollow/.cargo/bin:/usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm20/bin
+    prepend-ld-library-path: /usr/lib/sdk/llvm20/lib
+    env:
+      LD_LIBRARY_PATH: /app/bin/lib
+  build-commands:
+  - mkdir -p /run/build/hollow/.cargo/bin
+  - cp flatpak/scripts/rustup-wrapper.sh /run/build/hollow/.cargo/bin/rustup
+  - chmod +x /run/build/hollow/.cargo/bin/rustup
+  - mkdir -p packages/flutter_webrtc/third_party/downloads
+  - touch packages/flutter_webrtc/third_party/downloads/libwebrtc.zip
+  - mkdir -p packages/flutter_webrtc/third_party/libwebrtc/include
+  - for d in api audio call common_audio common_video logging media modules net p2p
+    pc rtc_base rtc_tools sdk stats system_wrappers video; do cp -r "libwebrtc/$d"
+    packages/flutter_webrtc/third_party/libwebrtc/include/; done
+  - |
+    set -eu
+    FLATPAK_ARCH="${FLATPAK_ARCH:-x86_64}"
+    case "$FLATPAK_ARCH" in
+      x86_64)
+        FLUTTER_ARCH="x64"
+        LIBWEBRTC_ARCH_DIR="linux-x64"
+        ;;
+      aarch64)
+        FLUTTER_ARCH="arm64"
+        LIBWEBRTC_ARCH_DIR="linux-arm64"
+        ;;
+    esac
+    mkdir -p "packages/flutter_webrtc/third_party/libwebrtc/lib/$LIBWEBRTC_ARCH_DIR"
+    cp "libwebrtc/libwebrtc.a" "packages/flutter_webrtc/third_party/libwebrtc/lib/$LIBWEBRTC_ARCH_DIR/libwebrtc.a"
+    flutter build linux --release --no-pub
+    install -Dm755 "build/linux/$FLUTTER_ARCH/release/bundle/hollow" /app/bin/hollow
+    cp -r "build/linux/$FLUTTER_ARCH/release/bundle/data" /app/bin/data
+    mkdir -p /app/bin/lib
+    for f in "build/linux/$FLUTTER_ARCH/release/bundle/lib/lib"*.so*; do
+      [ -f "$f" ] || continue
+      install -Dm755 "$f" /app/bin/lib/
+    done
+  - install -Dm644 linux/com.anonlisten.hollow.desktop /app/share/applications/com.anonlisten.hollow.desktop
+  - install -Dm644 linux/com.anonlisten.hollow.metainfo.xml /app/share/metainfo/com.anonlisten.hollow.metainfo.xml
+  - install -Dm644 linux/icons/256x256/com.anonlisten.hollow.png /app/share/icons/hicolor/256x256/apps/com.anonlisten.hollow.png
+  - install -Dm644 linux/icons/128x128/com.anonlisten.hollow.png /app/share/icons/hicolor/128x128/apps/com.anonlisten.hollow.png
+  - install -Dm644 linux/icons/64x64/com.anonlisten.hollow.png /app/share/icons/hicolor/64x64/apps/com.anonlisten.hollow.png
+  sources:
+  - type: git
+    url: https://github.com/rambros3d/HOLLOW-flatpak.git
+    tag: master
+  - type: git
+    url: https://github.com/flutter/flutter.git
+    tag: 3.38.5
+    dest: flutter
+  - type: archive
+    url: https://github.com/crow-misia/libwebrtc-bin/releases/download/144.7559.3.0/libwebrtc-linux-x64.tar.xz
+    sha256: c06610523e8ab6401f14be1dd1d6e6ebd0bc7c2022f089fbc56e587faa0a686d
+    dest: libwebrtc
+    only-arches:
+    - x86_64
+  - type: archive
+    url: https://github.com/crow-misia/libwebrtc-bin/releases/download/144.7559.3.0/libwebrtc-linux-arm64.tar.xz
+    sha256: 918ea7e4619193ae571010ce9ecde9ec51db893aaaddec9b92e399bd9ad7e4dd
+    dest: libwebrtc
+    only-arches:
+    - aarch64

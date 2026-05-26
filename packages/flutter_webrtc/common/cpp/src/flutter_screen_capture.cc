@@ -206,8 +206,10 @@ void FlutterScreenCapture::GetDisplayMedia(
   std::string source_id = "0";
   // DesktopType source_type = kScreen;
   double fps = 30.0;
+#if defined(_WIN32)
   int target_width = 0;
   int target_height = 0;
+#endif
 
   const EncodableMap video = findMap(constraints, "video");
   if (video != EncodableMap()) {
@@ -228,10 +230,12 @@ void FlutterScreenCapture::GetDisplayMedia(
       if (frameRate != 0.0) {
         fps = frameRate;
       }
+#if defined(_WIN32)
       int w = findInt(mandatory, "width");
       if (w > 0) target_width = w;
       int h = findInt(mandatory, "height");
       if (h > 0) target_height = h;
+#endif
     }
   }
 

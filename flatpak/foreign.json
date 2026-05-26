@@ -2,11 +2,18 @@
     "hollow_core": {
         "cargo_locks": [
             "rust/hollow_core"
-        ]
-    },
-    "cargokit": {
+        ],
         "extra_pubspecs": [
             "rust_builder/cargokit/build_tool"
-        ]
+        ],
+        "manifest": {
+            "sources": [
+                {
+                    "type": "patch",
+                    "path": "flatpak/patches/cargokit/run_build_tool.sh.patch",
+                    "dest": "rust_builder/cargokit"
+                }
+            ]
+        }
     }
 }
