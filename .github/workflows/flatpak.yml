@@ -31,10 +31,14 @@ jobs:
 
       - name: Debug generated manifest
         run: |
+          echo "=== full manifest ==="
+          cat com.anonlisten.hollow.yml
+          echo "=== generated/ ==="
+          find generated/ -type f 2>/dev/null | head -20
+          echo "=== flutter-sdk JSON ==="
+          cat generated/modules/flutter-sdk-3.38.5.json 2>/dev/null | head -40
           echo "=== flatpak/scripts/ ==="
           ls -la flatpak/scripts/
-          echo "=== Generated manifest sources ==="
-          grep -A3 'type:' com.anonlisten.hollow.yml
 
       - name: Build
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
