@@ -3,6 +3,7 @@
 
 #include "base/refcount.h"
 #include "base/scoped_ref_ptr.h"
+#include "rtc_dtls_transport.h"
 #include "rtc_rtp_parameters.h"
 #include "rtc_types.h"
 
@@ -13,7 +14,6 @@ namespace libwebrtc {
 
 class RTCMediaTrack;
 class RTCMediaStream;
-class RTCDtlsTransport;
 
 class RTCRtpReceiverObserver {
  public:

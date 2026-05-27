@@ -1588,7 +1588,7 @@ class LinuxPeerConnectionFactory
 
 scoped_refptr<RTCPeerConnectionFactory>
 LibWebRTC::CreateRTCPeerConnectionFactory() {
-  auto env = webrtc::EnvironmentFactory::CreateWithDefaults();
+  auto env = webrtc::CreateEnvironment();
 
   auto adm = webrtc::CreateAudioDeviceModule(
       env, webrtc::AudioDeviceModule::kPlatformDefaultAudio);
