@@ -59,14 +59,6 @@ namespace libwebrtc {
 
 using namespace webrtc;
 
-// Helper: convert SDP type string to webrtc::SdpType
-static webrtc::SdpType ToSdpType(const std::string& type) {
-  if (type == "offer") return webrtc::SdpType::kOffer;
-  if (type == "pranswer") return webrtc::SdpType::kPrAnswer;
-  if (type == "rollback") return webrtc::SdpType::kRollback;
-  return webrtc::SdpType::kAnswer;
-}
-
 // ============================================================================
 // LinuxRTCVideoFrame — wraps webrtc::VideoFrame
 // ============================================================================
