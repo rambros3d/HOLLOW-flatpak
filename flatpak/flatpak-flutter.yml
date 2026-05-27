@@ -18,7 +18,7 @@ finish-args:
 - --device=dri
 - --share=network
 - --socket=pulseaudio
-- --socket=camera
+# --socket=camera  # unsupported by gnome-48 runtime; add when upgrading
 # Needed to save received files (peer-to-peer file sharing platform)
 - --filesystem=xdg-download
 - --talk-name=org.freedesktop.Notifications

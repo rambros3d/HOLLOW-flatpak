@@ -19,7 +19,7 @@ finish-args:
   - --device=dri
   - --share=network
   - --socket=pulseaudio
-  - --socket=camera
+  # - --socket=camera  # unsupported by gnome-48 runtime
   - --filesystem=xdg-download
   - --talk-name=org.freedesktop.Notifications
   - --talk-name=org.kde.StatusNotifierWatcher
