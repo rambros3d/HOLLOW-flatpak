@@ -65,7 +65,7 @@ modules:
         url: https://github.com/rambros3d/HOLLOW-flatpak.git
         tag: main
         disable-submodules: true
-        commit: 34685851d8b7dff2a35eae1f4dd86aec8358c0b6
+        commit: 843c9719ff30109f5e2a4b21126d2f5c608d5e40
       - type: archive
         url: https://github.com/crow-misia/libwebrtc-bin/releases/download/144.7559.3.0/libwebrtc-linux-x64.tar.xz
         sha256: c06610523e8ab6401f14be1dd1d6e6ebd0bc7c2022f089fbc56e587faa0a686d
