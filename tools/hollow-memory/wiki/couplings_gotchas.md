@@ -565,3 +565,31 @@ let _ = state.apply_op(&op);
 - `lib/src/core/services/webrtc_service.dart:connectToPeer()` -- `iceConfigOverride` parameter for STUN-only
 - `_stunOnlyPeers` set tracks which peers are STUN-only
 - `onShareConnectionFailed` callback fires when STUN-only fails
+
+---
+
+## Linux Desktop Integration
+
+### Window close on Linux must minimize to taskbar, not tray
+
+**Rule:** On Linux, `onWindowClose()` calls `windowManager.minimize()` instead of the tray icon flow. If the window is already minimized when a close event arrives (taskbar right-click → Quit), treat it as a real quit via `_linuxQuit()`.
+
+**Why:** Two things are broken: (1) `tray_manager` uses AppIndicator/DBus which requires a GNOME extension not installed by default on Fedora/Arch/vanilla GNOME — the tray icon appears but is non-interactive. (2) `windowManager.hide()` doesn't reliably hide frameless GTK windows on some Linux WMs. The Linux taskbar already provides click-to-restore and right-click → Quit, making the tray redundant.
+
+**Where:** `lib/main.dart:_HollowWindowListener.onWindowClose()` (Linux branch), `_linuxQuit()` helper.
+
+### record package Linux backend requires parecord
+
+**Rule:** The `record` Dart package (`record_linux` v1.3.0) shells out to `parecord` from `pulseaudio-utils`. This is not installed on PipeWire-only systems (modern Ubuntu 24.04+, Fedora).
+
+**Why:** Mic test in Settings crashes with `ProcessException: No such file or directory`. Voice calls are unaffected — libwebrtc talks to PipeWire directly through its own audio device module.
+
+**Where:** `lib/src/ui/dialogs/user_settings_dialog.dart:_startMicTest()`. Needs a Linux-specific path using WebRTC `getUserMedia` instead of the `record` package.
+
+### Flatpak must use --socket=x11, not fallback-x11
+
+**Rule:** The Flatpak manifest must specify `--socket=x11` to always expose the XWayland socket.
+
+**Why:** `linux/runner/main.cc` forces `GDK_BACKEND=x11` via `setenv()`. With `--socket=fallback-x11`, the X11 socket is only exposed when Wayland is unavailable. On a Wayland session, the Flatpak sandbox has Wayland but no X11 → `cannot open display:` crash.
+
+**Where:** `flatpak/com.anonlisten.Hollow.yml` finish-args, `linux/runner/main.cc` line 6.

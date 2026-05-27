@@ -198,6 +198,9 @@ Future<void> main() async {
 
     // Set up tray listener (icon is only created when minimizing).
     trayManager.addListener(_HollowTrayListener());
+
+    // Install .desktop + icon to XDG paths on first launch.
+    await _installLinuxDesktopIntegration();
   }
 
   // Set up crash dump logging to hollow_crash.log.
@@ -276,6 +279,61 @@ Future<void> _showTrayIcon() async {
 /// Remove the system tray icon.
 Future<void> _hideTrayIcon() async {
   await trayManager.destroy();
+}
+
+/// Clean shutdown on Linux (no tray to clean up).
+Future<void> _linuxQuit() async {
+  try {
+    await _container.read(webRtcProvider.notifier).disposeAll();
+  } catch (_) {}
+  try {
+    await network_api.notifyShutdown();
+    await Future.delayed(const Duration(milliseconds: 200));
+  } catch (_) {}
+  _releaseLock();
+  await windowManager.destroy();
+}
+
+/// Install .desktop file and icon to XDG paths so the DE shows
+/// the correct name and icon in the taskbar. Only runs once.
+Future<void> _installLinuxDesktopIntegration() async {
+  if (!Platform.isLinux) return;
+  final homeDir = Platform.environment['HOME'];
+  if (homeDir == null) return;
+
+  final appsDir = Directory('$homeDir/.local/share/applications');
+  final iconsDir = Directory('$homeDir/.local/share/icons');
+  final desktopFile = File('${appsDir.path}/com.anonlisten.hollow.desktop');
+
+  // Skip if already installed.
+  if (desktopFile.existsSync()) return;
+
+  final exeDir = File(Platform.resolvedExecutable).parent.path;
+  final bundledDesktop = File('$exeDir/com.anonlisten.hollow.desktop');
+  final bundledIcon = File('$exeDir/com.anonlisten.hollow.png');
+
+  if (!bundledDesktop.existsSync() || !bundledIcon.existsSync()) return;
+
+  try {
+    if (!appsDir.existsSync()) appsDir.createSync(recursive: true);
+    if (!iconsDir.existsSync()) iconsDir.createSync(recursive: true);
+
+    // Write .desktop with absolute Exec and Icon paths.
+    final iconDest = '${iconsDir.path}/com.anonlisten.hollow.png';
+    bundledIcon.copySync(iconDest);
+    final content = '[Desktop Entry]\n'
+        'Type=Application\n'
+        'Name=Hollow\n'
+        'Comment=Encrypted distributed messaging\n'
+        'Exec=${Platform.resolvedExecutable}\n'
+        'Icon=$iconDest\n'
+        'Terminal=false\n'
+        'Categories=Network;InstantMessaging;\n'
+        'StartupWMClass=com.anonlisten.hollow\n';
+    desktopFile.writeAsStringSync(content);
+  } catch (e) {
+    debugPrint('[HOLLOW] Linux desktop integration failed: $e');
+  }
 }
 
 /// Handles tray icon interactions.
@@ -358,21 +416,35 @@ class _HollowWindowListener extends WindowListener {
     } catch (_) {}
 
     if (minimizeToTray) {
-      // Minimize to system tray — app keeps running in background.
-      await _showTrayIcon();
-      _container.read(windowVisibleProvider.notifier).state = false;
-      SharedTickers.instance.pause();
-      await windowManager.hide();
+      if (Platform.isLinux) {
+        // Linux taskbar provides restore (click) + Quit (right-click).
+        // If already minimized, the close event is from taskbar "Quit".
+        if (await windowManager.isMinimized()) {
+          await _linuxQuit();
+        } else {
+          await windowManager.minimize();
+        }
+      } else {
+        // Minimize to system tray — app keeps running in background.
+        await _showTrayIcon();
+        _container.read(windowVisibleProvider.notifier).state = false;
+        SharedTickers.instance.pause();
+        await windowManager.hide();
+      }
     } else {
       // Quit the app.
-      await windowManager.hide();
-      try {
-        await network_api.notifyShutdown();
-        await Future.delayed(const Duration(milliseconds: 200));
-      } catch (_) {}
-      await _hideTrayIcon();
-      _releaseLock();
-      await windowManager.destroy();
+      if (Platform.isLinux) {
+        await _linuxQuit();
+      } else {
+        await windowManager.hide();
+        try {
+          await network_api.notifyShutdown();
+          await Future.delayed(const Duration(milliseconds: 200));
+        } catch (_) {}
+        await _hideTrayIcon();
+        _releaseLock();
+        await windowManager.destroy();
+      }
     }
   }
 }

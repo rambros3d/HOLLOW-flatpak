@@ -234,6 +234,8 @@ void FlutterScreenCapture::GetDisplayMedia(
       if (h > 0) target_height = h;
     }
   }
+  (void)target_width;
+  (void)target_height;
 
   std::string uuid = base_->GenerateUUID();
 

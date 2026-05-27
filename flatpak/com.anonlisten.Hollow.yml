@@ -1,0 +1,52 @@
+app-id: com.anonlisten.Hollow
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: hollow-wrapper
+finish-args:
+  # Display (x11 required — Flutter frameless windows need X11 backend)
+  - --share=ipc
+  - --socket=x11
+  - --socket=wayland
+  # Network (relay, WebRTC, STUN/TURN)
+  - --share=network
+  # Audio (PulseAudio/PipeWire for voice calls)
+  - --socket=pulseaudio
+  # Camera (video calls)
+  - --device=all
+  # File access (downloads, file transfers)
+  - --filesystem=xdg-download
+  # Home directory for ~/.hollow data
+  - --filesystem=home
+  # Desktop notifications
+  - --talk-name=org.freedesktop.Notifications
+  # Tray icon (AppIndicator)
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=org.freedesktop.portal.Desktop
+  # GPU acceleration
+  - --device=dri
+
+modules:
+  # Hollow application (pre-built bundle with all dependencies)
+  - name: hollow
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 hollow /app/bin/hollow
+      - cp -r lib /app/bin/lib
+      - cp -r data /app/bin/data
+      # Bundle system libraries not in the Freedesktop runtime
+      - cp -r syslibs/* /app/bin/lib/
+      # Wrapper script that sets LD_LIBRARY_PATH so the binary finds all .so files
+      - |
+        cat > /app/bin/hollow-wrapper <<'WRAPPER'
+        #!/bin/bash
+        export LD_LIBRARY_PATH=/app/bin/lib:$LD_LIBRARY_PATH
+        exec /app/bin/hollow "$@"
+        WRAPPER
+      - chmod +x /app/bin/hollow-wrapper
+      - install -Dm644 com.anonlisten.hollow.png /app/share/icons/hicolor/256x256/apps/com.anonlisten.Hollow.png
+      - install -Dm644 com.anonlisten.Hollow.desktop /app/share/applications/com.anonlisten.Hollow.desktop
+      - install -Dm644 com.anonlisten.Hollow.metainfo.xml /app/share/metainfo/com.anonlisten.Hollow.metainfo.xml
+    sources:
+      - type: dir
+        path: bundle

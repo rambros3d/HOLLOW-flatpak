@@ -61,12 +61,12 @@ Your identity is a cryptographic keypair. Zero registrations. One recovery phras
 |----------|------|
 | Windows | [Download latest release](https://hollow.anonlisten.com) |
 | macOS | Testing |
-| Linux | Coming soon |
+| Linux | [Experimental Flatpak](https://github.com/VitalikPro13/HOLLOW/releases) |
 | Android | In development |
 | iOS | In development |
 | Web | Not planned |
 
-Current Progress: MacOS/Linux is almost up-and-running but with certain limitations (no auto-updater/native audio capturer; UPD: Linux has a problem with a window and a tray manager, might be worse). Android/iOS still has lots of work to do. You can track the mobile port progress in the report [here.](reports/FEATURE_MATRIX.md)
+Current Progress: I really need to get the mac mini, to be honest... but we got Linux running! Most features should work as expected, but it needs extensive testing (voice calls might be broken etc.) Android/iOS still has lots of work to do. You can track the mobile port progress in the report [here.](reports/FEATURE_MATRIX.md)
 ## Tech Stack
 
 | Layer | Technology |

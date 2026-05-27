@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Hollow
+Comment=Encrypted distributed messaging
+Exec=hollow-wrapper
+Icon=com.anonlisten.Hollow
+Terminal=false
+Categories=Network;InstantMessaging;
+StartupWMClass=com.anonlisten.hollow

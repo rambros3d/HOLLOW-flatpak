@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.anonlisten.Hollow</id>
+  <name>Hollow</name>
+  <summary>Encrypted distributed messaging</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-or-later</project_license>
+  <description>
+    <p>
+      Hollow is a fully distributed, end-to-end encrypted messaging platform.
+      No central servers — members collectively host the network.
+      Features text, voice, video, file sharing, and screen share.
+    </p>
+  </description>
+  <url type="homepage">https://hollow.anonlisten.com</url>
+  <url type="bugtracker">https://github.com/VitalikPro13/Hollow/issues</url>
+  <developer id="com.anonlisten">
+    <name>AnonListen</name>
+  </developer>
+  <launchable type="desktop-id">com.anonlisten.Hollow.desktop</launchable>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.4.2" date="2026-05-27">
+      <description>
+        <p>Alpha release — identity protection redesign, Linux support (experimental).</p>
+      </description>
+    </release>
+  </releases>
+</component>
