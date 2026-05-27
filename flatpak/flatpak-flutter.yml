@@ -40,7 +40,7 @@ modules:
   - mkdir -p packages/flutter_webrtc/third_party/downloads
   - touch packages/flutter_webrtc/third_party/downloads/libwebrtc.zip
   - mkdir -p packages/flutter_webrtc/third_party/libwebrtc/include
-  - cp -r libwebrtc/include/. packages/flutter_webrtc/third_party/libwebrtc/include/
+  - if [ -d libwebrtc/include ]; then cp -r libwebrtc/include/. packages/flutter_webrtc/third_party/libwebrtc/include/; else cp -r libwebrtc/. packages/flutter_webrtc/third_party/libwebrtc/include/; fi
   - |
     set -eu
     FLATPAK_ARCH="${FLATPAK_ARCH:-x86_64}"
@@ -55,7 +55,7 @@ modules:
         ;;
     esac
     mkdir -p "packages/flutter_webrtc/third_party/libwebrtc/lib/$LIBWEBRTC_ARCH_DIR"
-    cp "libwebrtc/lib/libwebrtc.a" "packages/flutter_webrtc/third_party/libwebrtc/lib/$LIBWEBRTC_ARCH_DIR/libwebrtc.a"
+    if [ -f libwebrtc/lib/libwebrtc.a ]; then cp "libwebrtc/lib/libwebrtc.a" "packages/flutter_webrtc/third_party/libwebrtc/lib/$LIBWEBRTC_ARCH_DIR/libwebrtc.a"; else cp "libwebrtc/libwebrtc.a" "packages/flutter_webrtc/third_party/libwebrtc/lib/$LIBWEBRTC_ARCH_DIR/libwebrtc.a"; fi
     flutter build linux --release --no-pub
     install -Dm755 "build/linux/$FLUTTER_ARCH/release/bundle/hollow" /app/bin/hollow
     cp -r "build/linux/$FLUTTER_ARCH/release/bundle/data" /app/bin/data

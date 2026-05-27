@@ -43,13 +43,13 @@ modules:
       - mkdir -p packages/flutter_webrtc/third_party/downloads
       - touch packages/flutter_webrtc/third_party/downloads/libwebrtc.zip
       - mkdir -p packages/flutter_webrtc/third_party/libwebrtc/include
-      - cp -r libwebrtc/include/. packages/flutter_webrtc/third_party/libwebrtc/include/
+      - if [ -d libwebrtc/include ]; then cp -r libwebrtc/include/. packages/flutter_webrtc/third_party/libwebrtc/include/; else cp -r libwebrtc/. packages/flutter_webrtc/third_party/libwebrtc/include/; fi
       - setup-flutter.sh
       - "set -eu\nFLATPAK_ARCH=\"${FLATPAK_ARCH:-x86_64}\"\ncase \"$FLATPAK_ARCH\"\
         \ in\n  x86_64)\n    FLUTTER_ARCH=\"x64\"\n    LIBWEBRTC_ARCH_DIR=\"linux-x64\"\
         \n    ;;\n  aarch64)\n    FLUTTER_ARCH=\"arm64\"\n    LIBWEBRTC_ARCH_DIR=\"\
         linux-arm64\"\n    ;;\nesac\nmkdir -p \"packages/flutter_webrtc/third_party/libwebrtc/lib/$LIBWEBRTC_ARCH_DIR\"\
-        \ncp \"libwebrtc/lib/libwebrtc.a\" \"packages/flutter_webrtc/third_party/libwebrtc/lib/$LIBWEBRTC_ARCH_DIR/libwebrtc.a\"\
+        \nif [ -f libwebrtc/lib/libwebrtc.a ]; then cp \"libwebrtc/lib/libwebrtc.a\" \"packages/flutter_webrtc/third_party/libwebrtc/lib/$LIBWEBRTC_ARCH_DIR/libwebrtc.a\"; else cp \"libwebrtc/libwebrtc.a\" \"packages/flutter_webrtc/third_party/libwebrtc/lib/$LIBWEBRTC_ARCH_DIR/libwebrtc.a\"; fi\
         \nflutter build linux --release --no-pub\ninstall -Dm755 \"build/linux/$FLUTTER_ARCH/release/bundle/hollow\"\
         \ /app/bin/hollow\ncp -r \"build/linux/$FLUTTER_ARCH/release/bundle/data\"\
         \ /app/bin/data\nmkdir -p /app/bin/lib\nfor f in \"build/linux/$FLUTTER_ARCH/release/bundle/lib/lib\"\
@@ -65,7 +65,7 @@ modules:
         url: https://github.com/rambros3d/HOLLOW-flatpak.git
         tag: main
         disable-submodules: true
-        commit: 352a88da168f19018a6374334109f54d75864c32
+        commit: 34685851d8b7dff2a35eae1f4dd86aec8358c0b6
       - type: archive
         url: https://github.com/crow-misia/libwebrtc-bin/releases/download/144.7559.3.0/libwebrtc-linux-x64.tar.xz
         sha256: c06610523e8ab6401f14be1dd1d6e6ebd0bc7c2022f089fbc56e587faa0a686d

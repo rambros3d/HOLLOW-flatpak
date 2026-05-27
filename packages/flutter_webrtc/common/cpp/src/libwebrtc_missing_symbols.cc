@@ -365,14 +365,12 @@ class RTCRtpCapabilitiesStub : public RefCountedObject<RTCRtpCapabilities> {
 
 bool LibWebRTC::Initialize() { return true; }
 
+#ifndef __linux__
 scoped_refptr<RTCPeerConnectionFactory>
 LibWebRTC::CreateRTCPeerConnectionFactory() {
-  // Minimal stub — returns a factory whose Initialize() returns true
-  // and all device/media creation methods return non-null safe stubs.
-  // Without the full crow-misia wrapper layer, WebRTC PeerConnection,
-  // voice/video/desktop capture and SFrame encryption are unavailable.
-  // Stubs prevent null-dereference crashes from calling code that
-  // doesn't null-check device/capability pointers.
+  // Minimal stub for non-Linux platforms. On Linux the real factory in
+  // linux_factory.cc provides a working LibWebRTC::CreateRTCPeerConnectionFactory
+  // that uses raw webrtc:: APIs from libwebrtc.a.
   class StubFactory : public RefCountedObject<RTCPeerConnectionFactory> {
    public:
     bool Initialize() override { return true; }
@@ -420,6 +418,7 @@ LibWebRTC::CreateRTCPeerConnectionFactory() {
   };
   return new StubFactory();
 }
+#endif
 
 void LibWebRTC::Terminate() {}
 

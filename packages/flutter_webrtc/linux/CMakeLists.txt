@@ -29,6 +29,7 @@ add_library(${PLUGIN_NAME} SHARED
   "${REAL_PACKAGE_DIR}/common/cpp/src/flutter_webrtc.cc"
   "${REAL_PACKAGE_DIR}/common/cpp/src/flutter_webrtc_base.cc"
   "${REAL_PACKAGE_DIR}/common/cpp/src/libwebrtc_missing_symbols.cc"
+  "${REAL_PACKAGE_DIR}/common/cpp/src/linux_factory.cc"
   "${REAL_PACKAGE_DIR}/common/cpp/src/flutter_common.cc"
   "flutter_webrtc_plugin.cc"
   "flutter/core_implementations.cc"
