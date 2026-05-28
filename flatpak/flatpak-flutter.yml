@@ -18,7 +18,7 @@ finish-args:
 - --device=dri
 - --share=network
 - --socket=pulseaudio
-# --socket=camera  # unsupported by gnome-48 runtime; add when upgrading
+- --socket=camera
 # Needed to save received files (peer-to-peer file sharing platform)
 - --filesystem=xdg-download
 - --talk-name=org.freedesktop.Notifications
@@ -38,24 +38,18 @@ modules:
   - cp flatpak/scripts/rustup-wrapper.sh /run/build/hollow/.cargo/bin/rustup
   - chmod +x /run/build/hollow/.cargo/bin/rustup
   - mkdir -p packages/flutter_webrtc/third_party/downloads
-  - touch packages/flutter_webrtc/third_party/downloads/libwebrtc.zip
-  - mkdir -p packages/flutter_webrtc/third_party/libwebrtc/include
-  - if [ -d libwebrtc/include ]; then cp -r libwebrtc/include/. packages/flutter_webrtc/third_party/libwebrtc/include/; else cp -r libwebrtc/. packages/flutter_webrtc/third_party/libwebrtc/include/; fi
+  - unzip -qo packages/flutter_webrtc/third_party/downloads/libwebrtc.zip -d packages/flutter_webrtc/third_party/
   - |
     set -eu
     FLATPAK_ARCH="${FLATPAK_ARCH:-x86_64}"
     case "$FLATPAK_ARCH" in
       x86_64)
         FLUTTER_ARCH="x64"
-        LIBWEBRTC_ARCH_DIR="linux-x64"
         ;;
       aarch64)
         FLUTTER_ARCH="arm64"
-        LIBWEBRTC_ARCH_DIR="linux-arm64"
         ;;
     esac
-    mkdir -p "packages/flutter_webrtc/third_party/libwebrtc/lib/$LIBWEBRTC_ARCH_DIR"
-    if [ -f libwebrtc/lib/libwebrtc.a ]; then cp "libwebrtc/lib/libwebrtc.a" "packages/flutter_webrtc/third_party/libwebrtc/lib/$LIBWEBRTC_ARCH_DIR/libwebrtc.a"; else cp "libwebrtc/libwebrtc.a" "packages/flutter_webrtc/third_party/libwebrtc/lib/$LIBWEBRTC_ARCH_DIR/libwebrtc.a"; fi
     flutter build linux --release --no-pub
     install -Dm755 "build/linux/$FLUTTER_ARCH/release/bundle/hollow" /app/bin/hollow
     cp -r "build/linux/$FLUTTER_ARCH/release/bundle/data" /app/bin/data
@@ -78,15 +72,8 @@ modules:
     url: https://github.com/flutter/flutter.git
     tag: 3.38.5
     dest: flutter
-  - type: archive
-    url: https://github.com/crow-misia/libwebrtc-bin/releases/download/144.7559.3.0/libwebrtc-linux-x64.tar.xz
-    sha256: c06610523e8ab6401f14be1dd1d6e6ebd0bc7c2022f089fbc56e587faa0a686d
-    dest: libwebrtc
-    only-arches:
-    - x86_64
-  - type: archive
-    url: https://github.com/crow-misia/libwebrtc-bin/releases/download/144.7559.3.0/libwebrtc-linux-arm64.tar.xz
-    sha256: 918ea7e4619193ae571010ce9ecde9ec51db893aaaddec9b92e399bd9ad7e4dd
-    dest: libwebrtc
-    only-arches:
-    - aarch64
+  - type: file
+    url: https://github.com/flutter-webrtc/flutter-webrtc/releases/download/v1.4.0/libwebrtc.zip
+    sha256: 2bcac470ac3505a86b176d33f87090062655c1e2c78ea58694c43ae06d31533c
+    dest: packages/flutter_webrtc/third_party/downloads/
+    dest-filename: libwebrtc.zip

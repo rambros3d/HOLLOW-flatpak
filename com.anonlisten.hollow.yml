@@ -19,7 +19,7 @@ finish-args:
   - --device=dri
   - --share=network
   - --socket=pulseaudio
-  # - --socket=camera  # unsupported by gnome-48 runtime
+  - --socket=camera
   - --filesystem=xdg-download
   - --talk-name=org.freedesktop.Notifications
   - --talk-name=org.kde.StatusNotifierWatcher
@@ -41,20 +41,15 @@ modules:
       - cp flatpak/scripts/rustup-wrapper.sh /run/build/hollow/.cargo/bin/rustup
       - chmod +x /run/build/hollow/.cargo/bin/rustup
       - mkdir -p packages/flutter_webrtc/third_party/downloads
-      - touch packages/flutter_webrtc/third_party/downloads/libwebrtc.zip
-      - mkdir -p packages/flutter_webrtc/third_party/libwebrtc/include
-      - if [ -d libwebrtc/include ]; then cp -r libwebrtc/include/. packages/flutter_webrtc/third_party/libwebrtc/include/; else cp -r libwebrtc/. packages/flutter_webrtc/third_party/libwebrtc/include/; fi
+      - unzip -qo packages/flutter_webrtc/third_party/downloads/libwebrtc.zip -d packages/flutter_webrtc/third_party/
       - setup-flutter.sh
       - "set -eu\nFLATPAK_ARCH=\"${FLATPAK_ARCH:-x86_64}\"\ncase \"$FLATPAK_ARCH\"\
-        \ in\n  x86_64)\n    FLUTTER_ARCH=\"x64\"\n    LIBWEBRTC_ARCH_DIR=\"linux-x64\"\
-        \n    ;;\n  aarch64)\n    FLUTTER_ARCH=\"arm64\"\n    LIBWEBRTC_ARCH_DIR=\"\
-        linux-arm64\"\n    ;;\nesac\nmkdir -p \"packages/flutter_webrtc/third_party/libwebrtc/lib/$LIBWEBRTC_ARCH_DIR\"\
-        \nif [ -f libwebrtc/lib/libwebrtc.a ]; then cp \"libwebrtc/lib/libwebrtc.a\" \"packages/flutter_webrtc/third_party/libwebrtc/lib/$LIBWEBRTC_ARCH_DIR/libwebrtc.a\"; else cp \"libwebrtc/libwebrtc.a\" \"packages/flutter_webrtc/third_party/libwebrtc/lib/$LIBWEBRTC_ARCH_DIR/libwebrtc.a\"; fi\
-        \nflutter build linux --release --no-pub\ninstall -Dm755 \"build/linux/$FLUTTER_ARCH/release/bundle/hollow\"\
-        \ /app/bin/hollow\ncp -r \"build/linux/$FLUTTER_ARCH/release/bundle/data\"\
-        \ /app/bin/data\nmkdir -p /app/bin/lib\nfor f in \"build/linux/$FLUTTER_ARCH/release/bundle/lib/lib\"\
-        *.so*; do\n  [ -f \"$f\" ] || continue\n  install -Dm755 \"$f\" /app/bin/lib/\n\
-        done\n"
+        \ in\n  x86_64)\n    FLUTTER_ARCH=\"x64\"\n    ;;\n  aarch64)\n    FLUTTER_ARCH=\"arm64\"\
+        \n    ;;\nesac\nflutter build linux --release --no-pub\ninstall -Dm755 \"\
+        build/linux/$FLUTTER_ARCH/release/bundle/hollow\" /app/bin/hollow\ncp -r \"\
+        build/linux/$FLUTTER_ARCH/release/bundle/data\" /app/bin/data\nmkdir -p /app/bin/lib\n\
+        for f in \"build/linux/$FLUTTER_ARCH/release/bundle/lib/lib\"*.so*; do\n \
+        \ [ -f \"$f\" ] || continue\n  install -Dm755 \"$f\" /app/bin/lib/\ndone\n"
       - install -Dm644 linux/com.anonlisten.hollow.desktop /app/share/applications/com.anonlisten.hollow.desktop
       - install -Dm644 linux/com.anonlisten.hollow.metainfo.xml /app/share/metainfo/com.anonlisten.hollow.metainfo.xml
       - install -Dm644 linux/icons/256x256/com.anonlisten.hollow.png /app/share/icons/hicolor/256x256/apps/com.anonlisten.hollow.png
@@ -66,18 +61,11 @@ modules:
         tag: main
         disable-submodules: true
         commit: 843c9719ff30109f5e2a4b21126d2f5c608d5e40
-      - type: archive
-        url: https://github.com/crow-misia/libwebrtc-bin/releases/download/144.7559.3.0/libwebrtc-linux-x64.tar.xz
-        sha256: c06610523e8ab6401f14be1dd1d6e6ebd0bc7c2022f089fbc56e587faa0a686d
-        dest: libwebrtc
-        only-arches:
-          - x86_64
-      - type: archive
-        url: https://github.com/crow-misia/libwebrtc-bin/releases/download/144.7559.3.0/libwebrtc-linux-arm64.tar.xz
-        sha256: 918ea7e4619193ae571010ce9ecde9ec51db893aaaddec9b92e399bd9ad7e4dd
-        dest: libwebrtc
-        only-arches:
-          - aarch64
+      - type: file
+        url: https://github.com/flutter-webrtc/flutter-webrtc/releases/download/v1.4.0/libwebrtc.zip
+        sha256: 2bcac470ac3505a86b176d33f87090062655c1e2c78ea58694c43ae06d31533c
+        dest: packages/flutter_webrtc/third_party/downloads/
+        dest-filename: libwebrtc.zip
       - generated/sources/cargo.json
       - generated/sources/pubspec.json
     modules:

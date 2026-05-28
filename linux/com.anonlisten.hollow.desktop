@@ -6,4 +6,4 @@ Exec=hollow
 Icon=com.anonlisten.hollow
 Terminal=false
 Categories=Network;Chat;InstantMessaging;
-StartupWMClass=com.anonlisten.hollow
+StartupWMClass=hollow

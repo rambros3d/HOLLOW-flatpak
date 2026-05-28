@@ -1,5 +1,11 @@
 # HOLLOW Flatpak Build Guide
 
+## Prerequisites
+
+```bash
+git submodule update --init --recursive
+```
+
 ## Local Dev Build
 
 ```bash
@@ -69,7 +75,6 @@ Both manifests use `$FLATPAK_ARCH` (Flathub standard env var) to resolve arch-sp
 | Component | x86_64 | aarch64 |
 |-----------|--------|---------|
 | `$FLUTTER_ARCH` | `x64` | `arm64` |
-| `$LIBWEBRTC_ARCH_DIR` | `linux-x64` | `linux-arm64` |
 | Build output | `build/linux/x64/release/bundle/` | `build/linux/arm64/release/bundle/` |
 
 Detection block is at the top of arch-dependent build-commands (single `|` block since env vars don't persist between separate `sh -c` invocations).
@@ -104,12 +109,10 @@ Includes `flutter_assets/` and `icudtl.dat`.
 
 ### WebRTC
 
-- `crow-misia/libwebrtc-bin` 144.7559.3.0, static `.a` build
-- 17 header dirs copied: `api audio call common_audio common_video logging media modules net p2p pc rtc_base rtc_tools sdk stats system_wrappers video`
-- `svpng.hpp` downloaded from `miloyip/svpng` GitHub
-- `packages/flutter_webrtc/linux/CMakeLists.txt` patched for static libwebrtc
-- `libwebrtc_missing_symbols.cc` provides stubs for missing `libwebrtc.a` symbols and non-null device/capability factories
-- Both x86_64 and aarch64 binary sources declared with `only-arches` and SHA-256 checksums
+- `flutter-webrtc/flutter-webrtc` v1.4.0 `libwebrtc.zip`, shared `.so` build
+- Downloaded as `type: file` source by Flatpak, extracted by `unzip` before build
+- CMake links against `libwebrtc.so` and bundles it via `flutter_webrtc_bundled_libraries`
+- Single zip covers both x86_64 and aarch64 architectures
 
 ### Flathub Review Comments
 
@@ -137,7 +140,7 @@ File: `.github/workflows/flatpak.yml`
 
 **Trigger:** Push of a tag ending in `-flatpak` (e.g., `v1.0.0-flatpak`).
 
-**Container:** `ghcr.io/flathub-infra/flatpak-github-actions:gnome-48` (privileged).
+**Container:** `ghcr.io/flathub-infra/flatpak-github-actions:gnome-50` (privileged).
 
 **Steps:**
 1. `pip3 install flatpak-flutter` — the same tool Flathub uses to generate offline manifests
@@ -148,7 +151,7 @@ File: `.github/workflows/flatpak.yml`
 
 **Cache:** Keyed on `hashFiles('flatpak/flatpak-flutter.yml', 'flatpak/foreign.json')`.
 
-**Note:** The generated manifest overwrites the root `com.anonlisten.hollow.yml` (ephemeral CI runner — harmless). First run may fail if the `gnome-48` container lacks `pip3` — add `apt-get install -y python3-pip` if needed.
+**Note:** The generated manifest overwrites the root `com.anonlisten.hollow.yml` (ephemeral CI runner — harmless). First run may fail if the `gnome-50` container lacks `pip3` — add `apt-get install -y python3-pip` if needed.
 
 ## Known Issues
 
