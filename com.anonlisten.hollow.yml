@@ -60,7 +60,7 @@ modules:
         url: https://github.com/rambros3d/HOLLOW-flatpak.git
         tag: main
         disable-submodules: true
-        commit: 843c9719ff30109f5e2a4b21126d2f5c608d5e40
+        commit: 64babfeb5d384836e55009814b5e4e4237b66dda
       - type: file
         url: https://github.com/flutter-webrtc/flutter-webrtc/releases/download/v1.4.0/libwebrtc.zip
         sha256: 2bcac470ac3505a86b176d33f87090062655c1e2c78ea58694c43ae06d31533c
