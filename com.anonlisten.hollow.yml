@@ -19,7 +19,7 @@ finish-args:
   - --device=dri
   - --share=network
   - --socket=pulseaudio
-  - --socket=camera
+  # Camera: no special permission needed — PipeWire camera portal grants access at runtime
   - --filesystem=xdg-download
   - --talk-name=org.freedesktop.Notifications
   - --talk-name=org.kde.StatusNotifierWatcher
