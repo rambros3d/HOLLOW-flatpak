@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/models/chat_message.dart';
 import 'package:hollow/src/core/models/channel_info.dart';
@@ -32,7 +32,7 @@ import 'package:hollow/src/ui/mobile/mobile_channel_actions.dart';
 import 'package:hollow/src/ui/mobile/mobile_chat_route.dart';
 import 'package:hollow/src/ui/mobile/mobile_server_settings_route.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter/services.dart';
 
 class MobileChatsTab extends ConsumerStatefulWidget {

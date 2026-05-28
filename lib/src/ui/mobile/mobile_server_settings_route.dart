@@ -1,4 +1,4 @@
-import 'package:file_picker/file_picker.dart';
+﻿import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,7 +19,7 @@ import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/dialogs/create_channel_dialog.dart';
 import 'package:hollow/src/ui/dialogs/image_crop_dialog.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 class MobileServerSettingsRoute extends ConsumerStatefulWidget {
   final String serverId;
@@ -1102,9 +1102,8 @@ class _ChannelLayoutEditorState extends ConsumerState<_ChannelLayoutEditor> {
               child: child,
             );
           },
-          onReorder: (oldIndex, newIndex) {
+          onReorderItem: (oldIndex, newIndex) {
             setState(() {
-              if (newIndex > oldIndex) newIndex--;
               final item = _layout.removeAt(oldIndex);
               _layout.insert(newIndex, item);
             });

@@ -45,6 +45,7 @@ The loop owns ~40 mutable state variables. They are NOT consolidated into a stru
 - `pending_mls_key_packages: HashMap<String, Vec<(String, Vec<u8>)>>` — KeyPackages queued for batch MLS addition.
 - `mls_bootstrap_requested: HashSet<String>` — server_ids for which we already sent a KeyPackage to the owner.
 - `mls_decrypt_failures: HashMap<String, u32>` — consecutive MLS decrypt failure counter per server. Triggers recovery after 3.
+- `subscribed_channels: HashMap<String, Vec<String>>` — channels the Dart UI is subscribed to per server. Updated from `SubscribeChannels` command. Used to scope sync-on-decrypt-failure to only active channels.
 
 ### CRDT / Server State
 - `server_states: HashMap<String, ServerState>` — all server CRDT states, keyed by server_id. Loaded from SQLCipher on init, each auto-joins its WS relay room.
@@ -420,9 +421,13 @@ The event loop coordinates all three transport layers:
 5. Within cooldown window: silently drop the stale message.
 
 ### MLS decrypt failure
-1. Increment per-server failure counter.
-2. After 3 consecutive failures: drop the broken MLS group, send recovery KeyPackage to the coordinator (lowest online peer).
-3. Reset counter on any successful decrypt.
+1. **Immediate sync from sender** — request `ChannelSyncRequest` for all subscribed channels from the peer who sent the undecryptable message (5s dedup). Recovers the dropped message before the sender's next successful message advances per-sender timestamps past the gap.
+2. Increment per-server failure counter.
+3. After 3 consecutive failures: drop the broken MLS group, send recovery KeyPackage to the coordinator (lowest online peer).
+4. Reset counter on any successful decrypt.
+
+### MLS recovery after Welcome
+After joining from Welcome, sync ALL channels from the coordinator (not just empty ones). Messages dropped during the stale epoch left gaps even in channels with existing history. The coordinator also requests sync FROM each recovered peer after batch-add, so both sides recover.
 
 ### MLS group loss (auto-recovery)
 Three paths detect and recover from a missing MLS group:

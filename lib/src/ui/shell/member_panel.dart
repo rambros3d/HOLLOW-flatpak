@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/providers/local_nickname_provider.dart';
@@ -20,8 +20,8 @@ import 'package:hollow/src/ui/components/hollow_avatar.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/ui/components/profile_card_popup.dart';
 import 'package:hollow/src/ui/components/status_dot.dart';
-import 'package:lucide_icons/lucide_icons.dart';
-import 'package:simple_icons/simple_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:hollow/src/core/brand_icons.dart';
 
 /// Right-side member panel (240px) showing online peers or server members.
 class MemberPanel extends ConsumerWidget {
@@ -671,7 +671,7 @@ class _ServerMemberTile extends ConsumerWidget {
                   if (effectiveTwitch.isNotEmpty)
                     Row(
                       children: [
-                        Icon(SimpleIcons.twitch,
+                        Icon(BrandIcons.twitch,
                             size: 10, color: const Color(0xFF9146FF)),
                         const SizedBox(width: 3),
                         Text(

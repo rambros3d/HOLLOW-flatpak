@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,7 +12,7 @@ import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:hollow/src/ui/chat/audio_message_bubble.dart';
 import 'package:hollow/src/ui/chat/video_message_bubble.dart';
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// File extensions that trigger the video bubble (Phase 6.75 video preview).
 const _videoExtensions = {'mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v'};

@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -19,8 +19,8 @@ import 'package:hollow/src/rust/api/twitch.dart' as twitch_api;
 import 'package:hollow/src/ui/dialogs/image_crop_dialog.dart';
 import 'package:hollow/src/ui/settings/server_template.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
-import 'package:lucide_icons/lucide_icons.dart';
-import 'package:simple_icons/simple_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:hollow/src/core/brand_icons.dart';
 
 /// Overview tab — server settings (admin+) and server identity (all members).
 class OverviewTab extends ConsumerStatefulWidget {
@@ -539,7 +539,7 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
           // Enable toggle
           Row(
             children: [
-              Icon(SimpleIcons.twitch, size: 16, color: const Color(0xFF9146FF)),
+              Icon(BrandIcons.twitch, size: 16, color: const Color(0xFF9146FF)),
               const SizedBox(width: HollowSpacing.sm),
               Expanded(
                 child: Text(

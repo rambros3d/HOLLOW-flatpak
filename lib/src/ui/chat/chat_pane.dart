@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -56,9 +56,9 @@ import 'package:hollow/src/ui/dialogs/message_proof_dialog.dart';
 import 'package:hollow/src/ui/dialogs/screen_share_dialog.dart';
 import 'package:hollow/src/core/providers/settings_provider.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
-import 'package:simple_icons/simple_icons.dart';
+import 'package:hollow/src/core/brand_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Whether the DM profile panel is visible.
@@ -3800,7 +3800,7 @@ class _DmProfilePanel extends ConsumerWidget {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(SimpleIcons.twitch,
+                            const Icon(BrandIcons.twitch,
                                 size: 11, color: Color(0xFF9146FF)),
                             const SizedBox(width: 4),
                             Text(

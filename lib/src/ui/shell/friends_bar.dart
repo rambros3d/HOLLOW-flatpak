@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/archive_provider.dart';
 import 'package:hollow/src/core/providers/guest_provider.dart';
@@ -25,7 +25,7 @@ import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/components/hollow_tooltip.dart';
 import 'package:hollow/src/ui/components/status_dot.dart';
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// Horizontal friends bar for the Dock layout.
 /// Shows accepted friends as avatars with online dots, plus "Add Friend" button.
@@ -696,7 +696,7 @@ class _FavouritesReorderTab extends ConsumerWidget {
           child: child,
         );
       },
-      onReorder: (oldIndex, newIndex) {
+      onReorderItem: (oldIndex, newIndex) {
         ref.read(favouriteFriendsProvider.notifier).reorder(oldIndex, newIndex);
       },
       itemBuilder: (context, index) {

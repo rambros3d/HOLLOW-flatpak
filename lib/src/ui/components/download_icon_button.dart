@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/download_manager_provider.dart';
 import 'package:hollow/src/theme/hollow_spacing.dart';
@@ -6,7 +6,7 @@ import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/ui/components/download_manager_popup.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/ui/components/hollow_tooltip.dart';
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// Download manager icon button with activity badge.
 /// Shared between [UserBar] (classic layout, iconSize 16) and

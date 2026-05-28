@@ -392,9 +392,9 @@ pub(crate) async fn handle_send_file(
         }
 
         // Send the TEXT MESSAGE via MLS (for proper sync/queue to offline peers).
-        // Only one MLS encrypt call — no SecretReuseError risk.
         if let Some(mls_mgr) = mls {
             if let Ok(ct) = mls_mgr.encrypt(&sid, envelope_json.as_bytes()) {
+                crate::node::crypto_handler::persist_mls_state(mls_mgr, crypto_store);
                 let mls_msg = HavenMessage::MlsChannelMessage {
                     server_id: sid.clone(),
                     body: base64::engine::general_purpose::STANDARD.encode(&ct),

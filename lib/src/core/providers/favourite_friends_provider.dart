@@ -63,7 +63,6 @@ class FavouriteFriendsNotifier extends Notifier<List<String>> {
   /// Reorder: move item from oldIndex to newIndex.
   Future<void> reorder(int oldIndex, int newIndex) async {
     final list = [...state];
-    if (newIndex > oldIndex) newIndex--;
     final item = list.removeAt(oldIndex);
     list.insert(newIndex, item);
     state = list;

@@ -31,8 +31,7 @@ dependencies:
   flutter:
     sdk: flutter
 
-  lucide_icons: ^0.257.0
-  simple_icons: ^14.6.1
+  lucide_icons_flutter: ^3.1.14
   flutter_svg: ^2.0.17
   hollow_core:
     path: rust_builder
@@ -116,5 +115,7 @@ flutter:
   #       - asset: fonts/TrajanPro_Bold.ttf
   #         weight: 700
   #
-  # For details regarding fonts from package dependencies,
-  # see https://flutter.dev/to/font-from-package
+  fonts:
+    - family: SimpleIcons
+      fonts:
+        - asset: assets/fonts/SimpleIcons.ttf

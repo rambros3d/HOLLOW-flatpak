@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/banner_provider.dart';
@@ -18,8 +18,8 @@ import 'package:hollow/src/ui/components/hollow_dialog.dart';
 import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/dialogs/user_settings_dialog.dart';
-import 'package:lucide_icons/lucide_icons.dart';
-import 'package:simple_icons/simple_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:hollow/src/core/brand_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:hollow/src/rust/api/twitch.dart';
 
@@ -422,7 +422,7 @@ class _ProfileCardOverlayState extends ConsumerState<_ProfileCardOverlay>
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Icon(SimpleIcons.twitch,
+                                        Icon(BrandIcons.twitch,
                                             size: 11,
                                             color: const Color(0xFF9146FF)),
                                         const SizedBox(width: 4),

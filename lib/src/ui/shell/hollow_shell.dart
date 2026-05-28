@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -82,7 +82,7 @@ import 'package:hollow/src/ui/mobile/mobile_shell.dart';
 import 'package:hollow/src/ui/shell/server_strip.dart';
 import 'package:hollow/src/core/providers/guest_provider.dart';
 import 'package:hollow/src/ui/guest/public_channel_browser.dart';
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:window_manager/window_manager.dart';
 
 /// Breakpoints for adaptive layout.

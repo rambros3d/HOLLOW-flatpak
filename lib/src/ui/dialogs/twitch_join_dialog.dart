@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:hollow/src/rust/api/twitch.dart' as twitch_api;
@@ -8,8 +8,8 @@ import 'package:hollow/src/theme/hollow_typography.dart';
 import 'package:hollow/src/ui/components/hollow_button.dart';
 import 'package:hollow/src/ui/components/hollow_dialog.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
-import 'package:lucide_icons/lucide_icons.dart';
-import 'package:simple_icons/simple_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:hollow/src/core/brand_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Active dialog callback — event_provider routes results here instead of opening a new dialog.
@@ -507,7 +507,7 @@ class _TwitchJoinDialogState extends State<_TwitchJoinDialog> {
           ),
           HollowButton.filled(
             onPressed: _startConnect,
-            icon: Icon(SimpleIcons.twitch, size: 14, color: hollow.textPrimary),
+            icon: Icon(BrandIcons.twitch, size: 14, color: hollow.textPrimary),
             child: const Text('Connect Twitch'),
           ),
         ];
@@ -523,7 +523,7 @@ class _TwitchJoinDialogState extends State<_TwitchJoinDialog> {
                 final uri = Uri.tryParse(_verificationUri!);
                 if (uri != null) launchUrl(uri);
               },
-              icon: Icon(SimpleIcons.twitch, size: 14,
+              icon: Icon(BrandIcons.twitch, size: 14,
                   color: hollow.textPrimary),
               child: const Text('Open Twitch'),
             ),

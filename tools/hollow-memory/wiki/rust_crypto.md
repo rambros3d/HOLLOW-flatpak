@@ -83,17 +83,17 @@ Called after every encrypt/decrypt operation to ensure the ratchet state survive
 
 ### MLS State Persistence
 
-`crypto_handler:persist_mls_state(mls, keypair)`
+`crypto_handler:persist_mls_state(mls, crypto_store)`
 
-Serializes three blobs (signer, credential, MemoryStorage) and writes them to SQLCipher via `MessageStore::save_mls_identity()`. The DB path is `~/.hollow/messages.db`, passphrase derived from the first 32 bytes of the keypair's protobuf encoding (hex-encoded).
+Serializes three blobs (signer, credential, MemoryStorage) and sends them to the `CryptoStore` fire-and-forget actor for writing to SQLCipher. Previously used direct `MessageStore` calls; now uses the CryptoStore mpsc actor for consistency.
 
-Called after every MLS encrypt/decrypt operation.
+**CRITICAL:** Must be called after every MLS encrypt AND decrypt. The MLS secret tree advances on encrypt — if not persisted, app restart reuses the old generation, causing `SecretReuseError` on the receiving peer. Both `send_mls_broadcast` and `send_mls_broadcast_topic` call this immediately after `mls.encrypt()`.
 
 ### MLS Broadcast Encryption
 
-`crypto_handler:send_mls_broadcast(mls, ws_cmd_tx, server_id, envelope, keypair) -> Result<(), String>`
+`crypto_handler:send_mls_broadcast(mls, ws_cmd_tx, server_id, envelope, crypto_store) -> Result<(), String>`
 
-Encrypts a `MessageEnvelope` for all server members and broadcasts it. Flow:
+Encrypts a `MessageEnvelope` for all server members and broadcasts it. Calls `persist_mls_state()` after encrypt. Flow:
 1. Serialize the `MessageEnvelope` to JSON.
 2. `mls.encrypt(server_id, json_bytes)` — returns MLS ciphertext.
 3. Base64-encode the ciphertext.
@@ -561,7 +561,7 @@ Both are called from `crypto_handler:persist_crypto_state()` after every Olm enc
 
 ## MLS Persistence (via MessageStore)
 
-MLS state is persisted differently from Olm. Instead of the CryptoStore actor, MLS uses direct calls to `MessageStore::save_mls_identity()` from `crypto_handler:persist_mls_state()`. This writes three blobs to SQLCipher:
+MLS state is persisted via the CryptoStore fire-and-forget actor from `crypto_handler:persist_mls_state()`. This writes three blobs to SQLCipher:
 - **signer_bytes** — serde JSON of the `SignatureKeyPair`
 - **credential_bytes** — serde JSON of the `CredentialWithKey`
 - **storage_blob** — binary serialization of the OpenMLS MemoryStorage HashMap

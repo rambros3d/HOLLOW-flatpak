@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -34,7 +34,7 @@ import 'package:hollow/src/ui/dialogs/invite_dialog.dart';
 import 'package:hollow/src/ui/shell/user_bar.dart';
 import 'package:hollow/src/ui/shell/voice_channel_panel.dart';
 import 'package:hollow/src/ui/sidebar/peer_card.dart';
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// Channel / DM sidebar (240px). Supports two modes:
 ///

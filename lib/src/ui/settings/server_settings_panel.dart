@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/models/server_info.dart';
 import 'package:hollow/src/core/providers/server_provider.dart';
@@ -14,7 +14,7 @@ import 'package:hollow/src/ui/settings/notifications_tab.dart';
 import 'package:hollow/src/ui/settings/labels_tab.dart';
 import 'package:hollow/src/ui/settings/overview_tab.dart';
 import 'package:hollow/src/ui/settings/roles_tab.dart';
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// Full server settings panel — replaces the chat pane.
 /// Tabs are gated by the local user's permissions.

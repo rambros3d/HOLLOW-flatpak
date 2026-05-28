@@ -334,6 +334,9 @@ async fn run_event_loop(
     // Value = when the request was sent; entries expire after MLS_BOOTSTRAP_TIMEOUT to allow retry.
     let mut mls_bootstrap_requested: HashMap<String, std::time::Instant> = HashMap::new();
 
+    // Track which channels the Dart UI is subscribed to per server (for scoped sync on decrypt failure).
+    let mut subscribed_channels: HashMap<String, Vec<String>> = HashMap::new();
+
     // MLS batch addition queue: collect KeyPackages and process them in a single commit.
     let mut pending_mls_key_packages: HashMap<String, Vec<(String, Vec<u8>)>> = HashMap::new();
     // MLS batch removal queue: collect peers needing removal before re-add (recovery).
@@ -950,6 +953,7 @@ async fn run_event_loop(
                     }
 
                     NodeCommand::SubscribeChannels { server_id, channel_ids } => {
+                        subscribed_channels.insert(server_id.clone(), channel_ids.clone());
                         let _ = ws_cmd_tx.send(super::ws_client::WsCommand::Subscribe {
                             room_code: server_id,
                             topics: channel_ids,
@@ -2385,6 +2389,7 @@ async fn run_event_loop(
                                         &mut vc_signal_rate_tokens,
                                         &mut mls_dirty,
                                         &guest_rooms,
+                                        &subscribed_channels,
                                         &db_path, &db_passphrase,
                                         &local_peer_str, &from, is_invisible, msg,
                                     ).await;
@@ -2503,6 +2508,34 @@ async fn run_event_loop(
                                     }
 
                                     hollow_log!("[HOLLOW-MLS] Batch-added {} members to server {server_id}: {:?}", added_peers.len(), added_peers);
+
+                                    // Coordinator side: request channel sync FROM each
+                                    // recovered peer.  During the stale epoch the
+                                    // coordinator may have dropped messages that the
+                                    // recovered peer sent (decrypt failed).  Syncing
+                                    // from them fills the gap on this side.
+                                    if let Some(state) = server_states.get(&server_id) {
+                                        if let Ok(store) = crate::storage::MessageStore::open(&db_path, &db_passphrase) {
+                                            for peer_id_str in &added_peers {
+                                                if !peer_is_reachable(&ws_room_peers, peer_id_str) { continue; }
+                                                for cid in state.channels.keys() {
+                                                    let sender_ts = store.get_per_sender_timestamps(&server_id, cid)
+                                                        .unwrap_or_default();
+                                                    let our_latest = store.get_latest_channel_timestamp(&server_id, cid)
+                                                        .unwrap_or(None).unwrap_or(0);
+                                                    send_message_to_peer(
+                                                        &ws_cmd_tx, &ws_room_peers,
+                                                        peer_id_str, HavenMessage::ChannelSyncRequest {
+                                                            server_id: server_id.clone(),
+                                                            channel_id: cid.clone(),
+                                                            since_timestamp: our_latest,
+                                                            sender_timestamps: sender_ts,
+                                                        },
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                                 Err(e) => hollow_log!("[HOLLOW-MLS] Batch add failed for {server_id}: {e}"),
                             }
@@ -3074,6 +3107,7 @@ async fn handle_incoming_request(
     vc_signal_rate_tokens: &mut HashMap<String, (u32, std::time::Instant)>,
     mls_dirty: &mut bool,
     guest_rooms: &std::collections::HashSet<String>,
+    subscribed_channels: &HashMap<String, Vec<String>>,
     db_path: &str,
     db_passphrase: &str,
     local_peer_str: &str,
@@ -6240,6 +6274,41 @@ async fn handle_incoming_request(
                     Err(e) => {
                         hollow_log!("[HOLLOW-MLS] Decrypt failed for {server_id}: {e}");
 
+                        // Immediately request sync from the sender for
+                        // subscribed channels only.  The dropped message
+                        // came via topic routing so it belongs to one of our
+                        // subscribed channels.  Syncing just those (instead
+                        // of all channels) avoids pulling history the user
+                        // hasn't opened.  5s dedup prevents flood.
+                        {
+                            let dedup_key = format!("mls_fail_sync:{server_id}:{peer_str}");
+                            if !channel_sync_sent.get(&dedup_key).is_some_and(|t| t.elapsed() < Duration::from_secs(5)) {
+                                channel_sync_sent.insert(dedup_key, std::time::Instant::now());
+                                if let Ok(store) = crate::storage::MessageStore::open(db_path, db_passphrase) {
+                                    let subscribed: Vec<String> = subscribed_channels
+                                        .get(&server_id)
+                                        .cloned()
+                                        .unwrap_or_default();
+                                    for cid in &subscribed {
+                                        let sender_ts = store.get_per_sender_timestamps(&server_id, cid)
+                                            .unwrap_or_default();
+                                        let our_latest = store.get_latest_channel_timestamp(&server_id, cid)
+                                            .unwrap_or(None).unwrap_or(0);
+                                        send_message_to_peer(
+                                            ws_cmd_tx, ws_room_peers,
+                                            peer_str, HavenMessage::ChannelSyncRequest {
+                                                server_id: server_id.clone(),
+                                                channel_id: cid.clone(),
+                                                since_timestamp: our_latest,
+                                                sender_timestamps: sender_ts,
+                                            },
+                                        );
+                                    }
+                                    hollow_log!("[HOLLOW-MLS] Requested immediate sync from {peer_str} for {} subscribed channels in {server_id}", subscribed.len());
+                                }
+                            }
+                        }
+
                         // Track consecutive failures — trigger recovery after 3.
                         let count = mls_decrypt_failures.entry(server_id.clone()).or_insert(0);
                         *count += 1;
@@ -6394,32 +6463,30 @@ async fn handle_incoming_request(
                     Ok(()) => {
                         persist_mls_state(mls_mgr, crypto_store);
                         mls_bootstrap_requested.remove(&server_id);
+                        mls_decrypt_failures.remove(&server_id);
                         hollow_log!("[HOLLOW-MLS] Joined MLS group for server {server_id}");
 
-                        // Now that MLS is established, send direct sync requests for channels
-                        // we missed (the initial sync attempt may have failed without Olm/MLS).
+                        // After MLS recovery, sync ALL channels — not just empty ones.
+                        // Messages that arrived during the stale epoch were silently
+                        // dropped (decrypt failed), so the DB has gaps even when
+                        // our_latest != 0.  Use per-sender timestamps so the
+                        // responder only sends what we're actually missing.
                         if let Some(state) = server_states.get(&server_id) {
                             if let Ok(store) = crate::storage::MessageStore::open(db_path, db_passphrase) {
                                 for cid in state.channels.keys() {
+                                    let sender_ts = store.get_per_sender_timestamps(&server_id, cid)
+                                        .unwrap_or_default();
                                     let our_latest = store.get_latest_channel_timestamp(&server_id, cid)
                                         .unwrap_or(None).unwrap_or(0);
-                                    // Only request if we have no messages for this channel.
-                                    if our_latest == 0 {
-                                        let sender_ts = store.get_per_sender_timestamps(&server_id, cid)
-                                            .unwrap_or_default();
-                                        // Use plaintext ChannelSyncRequest — MLS epoch may be
-                                        // stale on the responder (they haven't processed our
-                                        // Welcome yet), so MLS ChannelSyncReq would silently fail.
-                                        send_message_to_peer(
-                                            ws_cmd_tx, ws_room_peers,
-                                            &peer_str, HavenMessage::ChannelSyncRequest {
-                                                server_id: server_id.clone(),
-                                                channel_id: cid.clone(),
-                                                since_timestamp: 0,
-                                                sender_timestamps: sender_ts,
-                                            },
-                                        );
-                                    }
+                                    send_message_to_peer(
+                                        ws_cmd_tx, ws_room_peers,
+                                        &peer_str, HavenMessage::ChannelSyncRequest {
+                                            server_id: server_id.clone(),
+                                            channel_id: cid.clone(),
+                                            since_timestamp: our_latest,
+                                            sender_timestamps: sender_ts,
+                                        },
+                                    );
                                 }
                             }
                         }

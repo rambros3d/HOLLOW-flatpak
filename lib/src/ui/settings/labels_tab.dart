@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/providers/identity_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
@@ -12,7 +12,7 @@ import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 const _presetColors = <Color>[
   Color(0xFFEF4444), Color(0xFFF97316), Color(0xFFEAB308),
@@ -153,7 +153,7 @@ class _LabelsTabState extends ConsumerState<LabelsTab> {
   Future<void> _createLabel(String name, Color color) async {
     if (name.isEmpty) return;
     try {
-      final hex = '#${color.value.toRadixString(16).padLeft(8, '0').substring(2)}';
+      final hex = '#${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}';
       await crdt_api.createLabel(serverId: widget.serverId, name: name, color: hex);
       await Future.delayed(const Duration(milliseconds: 100));
       _loadLabels();

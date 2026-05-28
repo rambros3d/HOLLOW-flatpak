@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -43,9 +43,9 @@ import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/components/hollow_toggle.dart';
 import 'package:hollow/src/ui/components/hollow_tooltip.dart';
 import 'package:hollow/src/ui/dialogs/image_crop_dialog.dart';
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:simple_icons/simple_icons.dart';
+import 'package:hollow/src/core/brand_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:hollow/src/rust/api/twitch.dart' as twitch_api;
 
@@ -4988,14 +4988,14 @@ class _AboutTab extends StatelessWidget {
           Row(
             children: [
               _BrandIcon(
-                icon: SimpleIcons.youtube,
-                color: SimpleIconColors.youtube,
+                icon: BrandIcons.youtube,
+                color: BrandIconColors.youtube,
                 tooltip: 'YouTube',
                 url: 'https://youtube.com/@Anon_Listen',
               ),
               const SizedBox(width: HollowSpacing.sm),
               _BrandIcon(
-                icon: SimpleIcons.x,
+                icon: BrandIcons.x,
                 color: hollow.textPrimary,
                 tooltip: 'X',
                 url: 'https://x.com/Anon_Listen',
@@ -5008,15 +5008,15 @@ class _AboutTab extends StatelessWidget {
               ),
               const SizedBox(width: HollowSpacing.sm),
               _BrandIcon(
-                icon: SimpleIcons.twitch,
-                color: SimpleIconColors.twitch,
+                icon: BrandIcons.twitch,
+                color: BrandIconColors.twitch,
                 tooltip: 'Twitch',
                 url: 'https://twitch.tv/AnonListen',
               ),
               const SizedBox(width: HollowSpacing.sm),
               _BrandIcon(
-                icon: SimpleIcons.kick,
-                color: SimpleIconColors.kick,
+                icon: BrandIcons.kick,
+                color: BrandIconColors.kick,
                 tooltip: 'Kick',
                 url: 'https://kick.com/AnonListen',
               ),
@@ -5026,15 +5026,15 @@ class _AboutTab extends StatelessWidget {
               const SizedBox(width: HollowSpacing.sm),
 
               _BrandIcon(
-                icon: SimpleIcons.patreon,
+                icon: BrandIcons.patreon,
                 color: hollow.textPrimary,
                 tooltip: 'Patreon',
                 url: 'https://patreon.com/AnonListen',
               ),
               const SizedBox(width: HollowSpacing.sm),
               _BrandIcon(
-                icon: SimpleIcons.kofi,
-                color: SimpleIconColors.kofi,
+                icon: BrandIcons.kofi,
+                color: BrandIconColors.kofi,
                 tooltip: 'Ko-Fi',
                 url: 'https://ko-fi.com/AnonListen',
               ),
@@ -5513,7 +5513,7 @@ class _TwitchConnectionRowState extends ConsumerState<_TwitchConnectionRow> {
 
     return Row(
       children: [
-        Icon(SimpleIcons.twitch, size: 18, color: const Color(0xFF9146FF)),
+        Icon(BrandIcons.twitch, size: 18, color: const Color(0xFF9146FF)),
         const SizedBox(width: HollowSpacing.sm),
         Expanded(
           child: Column(
@@ -5762,7 +5762,7 @@ class _TwitchDeviceCodeDialogState extends State<_TwitchDeviceCodeDialog> {
                 final uri = Uri.tryParse(_verificationUri!);
                 if (uri != null) launchUrl(uri);
               },
-              icon: Icon(SimpleIcons.twitch, size: 14,
+              icon: Icon(BrandIcons.twitch, size: 14,
                   color: hollow.textPrimary),
               child: const Text('Open Twitch'),
             ),
