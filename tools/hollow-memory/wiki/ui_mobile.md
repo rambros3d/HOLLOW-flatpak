@@ -121,7 +121,7 @@ Unread clearing: `_markSeen()` called after history loads in `initState` `.then(
 Scaffold
 ├── SafeArea
 │   └── Column
-│       ├── _MobileChatHeader (back, name, status, search icon, mute bell)
+│       ├── _MobileChatHeader (back, name, status, users icon, search icon, mute bell)
 │       ├── _buildSearchBar (channel only, when _searchOpen)
 │       ├── Expanded → Stack
 │       │   ├── ScrollablePositionedList.builder (initialScrollIndex: messages.length, initialAlignment: 1.0)
@@ -192,6 +192,190 @@ Smiley icon (`LucideIcons.smile`) between mic and send buttons. Opens `showModal
 
 ### ASOT-Style Section Dividers
 `_SectionDivider` widget: `Row` with two `Divider`s flanking centered label text. Optional `danger: true` for red color.
+
+### Management Drill-Down Rows
+Below the Channels section, a "Management" section with `_NavRow` widgets (icon + label + chevron right):
+- **Members** → pushes `MobileMembersRoute`
+- **Roles** → pushes `MobileRolesRoute` (gated by `Permission.manageRoles`)
+- **Labels** → pushes `MobileLabelsRoute`
+- **Twitch Verification** → pushes `MobileTwitchSettingsRoute` (gated by `Permission.manageServer`)
+- **Invite** → opens `showInviteDialog` with `hollow://join?server=` link
+
+---
+
+## MobileProfileSheet
+
+**File:** `lib/src/ui/mobile/mobile_profile_sheet.dart`
+**Function:** `showMobileProfileSheet(context, {peerId, role?, twitchUsername?, labels?})`
+**Purpose:** Shared profile bottom sheet used from member panel, DM header tap, and friend long-press.
+
+### Layout
+- `SafeArea` → `Column(mainAxisSize: min)`
+- Drag handle (32×4px)
+- Banner (180px) — `AnimatedGifImage` or gradient fallback via `bannerColorFromId()`
+- Avatar (72px) overlapping banner by 36px (`Transform.translate`), bordered
+- Name: local nickname (bold) + profile name (secondary) if nickname set, else just profile name
+- Online status: `StatusDot` + "Online"/"Offline"
+- Role badge: colored pill (if not 'member')
+- Labels: `Wrap` of colored chips
+- Twitch badge: tappable, opens `https://twitch.tv/$username` via `url_launcher`. Falls back to `profile?.twitchUsername` when param is null
+- Status text: italic accent
+- About me: centered, max 4 lines
+- Action buttons (non-self): Message (if friend), Set/Edit Nickname, Friend action (Add/Accept/Pending/Friends indicator)
+- Peer ID footer: short ID + copy icon
+
+### Twitch Fallback
+`effectiveTwitch = twitchUsername ?? profile?.twitchUsername ?? ''` — ensures badge shows in DM context where no `MemberFfi` is available.
+
+---
+
+## MobileMemberPanel
+
+**File:** `lib/src/ui/mobile/mobile_member_panel.dart`
+**Function:** `showMobileMemberPanel(context, serverId)`
+**Purpose:** Member list bottom sheet triggered from users icon in channel chat header.
+
+### Layout
+`DraggableScrollableSheet` (initial: 0.5, min: 0.3, max: 0.9) with:
+- Drag handle + "Members" header with users icon
+- `ListView.builder` with `_MemberEntry` sealed class (divider or member)
+
+### Role Grouping
+- Online members grouped by role (Owner → Admin → Moderator → Members) if mixed roles, single "Online" divider if all 'member'
+- Offline members in separate section
+- Role divider labels: "Owner"/"Admin"/"Moderator"/"Members" with glow colors (gold/purple/orange/teal)
+
+### Member Tile
+- Avatar (36px) + status dot (syncing=yellow, online=green, offline=gray)
+- Name (local nick → server nick → profile name) + full role word badge ("Owner"/"Admin"/"Moderator")
+- Twitch username row (icon + text, tappable to open Twitch page), with `effectiveTwitch` fallback to profile
+- Tap → `showMobileProfileSheet` with role, labels, twitchUsername
+- Offline members dimmed (50% opacity via `AnimatedOpacity`)
+
+---
+
+## MobileMembersRoute
+
+**File:** `lib/src/ui/mobile/mobile_members_route.dart`
+**Purpose:** Full member management (role change, kick, ban). Pushed from server settings.
+
+### Features
+- Full member list with avatar, status, role, Twitch badge (tappable)
+- Tap member → profile sheet. Long-press OR tap three-dots → action bottom sheet
+- Action sheet: role change (assignable roles only), kick (with confirmation), ban (with confirmation)
+- Collapsible banned members section with unban buttons
+- Permission-gated: `_canManageRole()` checks actor vs target role priority
+
+### FFI Functions
+`changeMemberRole`, `kickMember`, `banMember`, `unbanMember`, `getBannedMembers`
+
+---
+
+## MobileRolesRoute
+
+**File:** `lib/src/ui/mobile/mobile_roles_route.dart`
+**Purpose:** Role permission editor. Pushed from server settings.
+
+### Layout
+3 role cards (Admin/Moderator/Member), each with:
+- Colored header (purple/orange/gray) with role icon + Reset button
+- 6 permission toggle rows: Manage Server, Manage Channels, Manage Roles, Kick/Ban, Send Messages, Read Messages
+- `Switch` widgets with `activeTrackColor: hollow.accent`, `activeThumbColor: Colors.white`
+- Changes save immediately via `crdt_api.changeRolePermissions()`
+
+---
+
+## MobileLabelsRoute
+
+**File:** `lib/src/ui/mobile/mobile_labels_route.dart`
+**Purpose:** Cosmetic label management. Pushed from server settings.
+
+### Sections
+1. **Self-assign** — `Wrap` of label chips. Tap to toggle assignment on yourself. Check/circle icon state.
+2. **Manage** (gated by `Permission.manageRoles`) — label list with color dot, name, assign-members button, delete button. Create button in header (+).
+
+### Create Dialog
+Name field (max 24) + 9 preset color circles. `crdt_api.createLabel()`.
+
+### Assign Dialog
+`HollowDialog` with member checklist. `crdt_api.assignLabel()` / `unassignLabel()`.
+
+---
+
+## MobileTwitchSettingsRoute
+
+**File:** `lib/src/ui/mobile/mobile_twitch_settings_route.dart`
+**Purpose:** Twitch verification configuration for servers. Pushed from server settings.
+
+### Fields
+- Enable toggle, Channel Display Name (64 chars), Channel ID (32 chars), Min Follow Days (4 chars)
+- Require Subscription toggle, Owner-Online Verification toggle
+- "Fill from account" button (`twitchGetUserId` + `twitchGetUsername`)
+- Save button: writes all 6 `crdt_api.updateServerSetting()` keys
+
+---
+
+## MobileSettingsTab (Restructured)
+
+**File:** `lib/src/ui/mobile/tabs/mobile_settings_tab.dart`
+**Purpose:** Full settings with pill tab bar. Replaces old single-section layout.
+
+### Tab Bar
+Horizontal scrollable `_PillTab` widgets: Profile, System, Security, About. Selected = accent fill + white text, unselected = surface bg + secondary text.
+
+### Profile Tab
+- **Live preview card** — bordered container (`surface` bg, `border` outline, `radiusMd`) with:
+  - Banner (100px, tappable to change, long-press to clear)
+  - Avatar (64px, overlapping banner, tappable/long-press)
+  - Display name (bold, live-updates on keystroke)
+  - Status (italic, live-updates)
+  - Divider + "ABOUT ME" label + about text (live-updates)
+  - Peer ID footer (faded short ID)
+- Text fields below: Display Name (32), Status (48), About Me (128, 3 lines)
+- Save Profile button
+- Twitch connection row (disconnect works, connect deferred to desktop)
+- `_populated` flag ensures fields fill from `profileProvider` on first available build (not stale `initState`)
+
+### System Tab
+- Peer ID (copyable, mono font, accent color)
+- Network status (Connected/Connecting via `nodeProvider`)
+
+### Security Tab
+- Password Protection: enable (with confirm dialog) / remove
+- Device Protection: enable/disable OS keychain (Windows/macOS only)
+- Recovery Phrase button (loads from identity or storage API)
+
+### About Tab
+- Hollow branding + version (v0.4.2) + platform + license (AGPL-3.0) + links
+
+---
+
+## MobileFriendsTab (Enhanced)
+
+**File:** `lib/src/ui/mobile/tabs/mobile_friends_tab.dart`
+**Purpose:** Friend list with search, favourites, and long-press actions.
+
+### Search
+`HollowTextField` with search icon at top. Filters accepted friends by name (case-insensitive substring via `_resolvedName`).
+
+### Sections (in order)
+1. **Requests** (if any pending) — incoming + outgoing with accept/reject/cancel buttons
+2. **Favourites** — starred friends pinned above online, ordered by `favouriteFriendsProvider` list order. Star icon on row.
+3. **Online** — sorted alphabetically by resolved name
+4. **Offline** — sorted alphabetically
+
+### Long-Press Actions (bottom sheet with `SafeArea`)
+- Message → navigate to DM
+- View Profile → `showMobileProfileSheet`
+- Favourite / Unfavourite → `favouriteFriendsProvider.toggle()`
+- Set Nickname → dialog (32 chars, "only visible to you")
+- Remove Friend → confirmation dialog → `friendsProvider.removeFriend()`
+
+---
+
+## Bottom Sheet SafeArea Pattern
+
+**CRITICAL:** All `showModalBottomSheet` builders must wrap content in `SafeArea(child: ...)` for Android 3-button navigation bar compatibility. The canonical pattern is `mobile_chats_tab.dart:_showServerSheet`. For `DraggableScrollableSheet`, use `viewPadding.bottom + HollowSpacing.xl` in ListView padding instead.
 
 ---
 

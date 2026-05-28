@@ -16,8 +16,14 @@ import 'package:hollow/src/ui/components/hollow_dialog.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
+import 'package:hollow/src/core/brand_icons.dart';
 import 'package:hollow/src/ui/dialogs/create_channel_dialog.dart';
 import 'package:hollow/src/ui/dialogs/image_crop_dialog.dart';
+import 'package:hollow/src/ui/dialogs/invite_dialog.dart';
+import 'package:hollow/src/ui/mobile/mobile_members_route.dart';
+import 'package:hollow/src/ui/mobile/mobile_roles_route.dart';
+import 'package:hollow/src/ui/mobile/mobile_labels_route.dart';
+import 'package:hollow/src/ui/mobile/mobile_twitch_settings_route.dart';
 import 'package:hollow/src/rust/api/crdt.dart' as crdt_api;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -527,6 +533,61 @@ class _MobileServerSettingsRouteState
                     const SizedBox(height: HollowSpacing.xl),
                   ],
 
+                  // Management rows
+                  _SectionDivider(label: 'Management'),
+                  const SizedBox(height: HollowSpacing.sm),
+                  _NavRow(
+                    icon: LucideIcons.users,
+                    label: 'Members',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MobileMembersRoute(serverId: widget.serverId),
+                      ),
+                    ),
+                  ),
+                  if ((perms & Permission.manageRoles) != 0)
+                    _NavRow(
+                      icon: LucideIcons.shieldCheck,
+                      label: 'Roles',
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => MobileRolesRoute(serverId: widget.serverId),
+                        ),
+                      ),
+                    ),
+                  _NavRow(
+                    icon: LucideIcons.tag,
+                    label: 'Labels',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MobileLabelsRoute(serverId: widget.serverId),
+                      ),
+                    ),
+                  ),
+                  if (canManage)
+                    _NavRow(
+                      icon: BrandIcons.twitch,
+                      label: 'Twitch Verification',
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => MobileTwitchSettingsRoute(serverId: widget.serverId),
+                        ),
+                      ),
+                    ),
+                  _NavRow(
+                    icon: LucideIcons.link,
+                    label: 'Invite',
+                    onTap: () {
+                      final link = 'hollow://join?server=${widget.serverId}';
+                      showInviteDialog(context, link, widget.serverId);
+                    },
+                  ),
+                  const SizedBox(height: HollowSpacing.xl),
+
                   // Server ID
                   _SectionDivider(label: 'Server ID'),
                   const SizedBox(height: HollowSpacing.sm),
@@ -610,6 +671,38 @@ class _MobileServerSettingsRouteState
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _NavRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _NavRow({required this.icon, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+    return HollowPressable(
+      onTap: onTap,
+      subtle: true,
+      padding: const EdgeInsets.symmetric(
+        horizontal: HollowSpacing.md, vertical: HollowSpacing.md,
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: hollow.textSecondary),
+          const SizedBox(width: HollowSpacing.md),
+          Expanded(
+            child: Text(label, style: HollowTypography.body.copyWith(
+              color: hollow.textPrimary,
+            )),
+          ),
+          Icon(LucideIcons.chevronRight, size: 16, color: hollow.textSecondary),
+        ],
       ),
     );
   }

@@ -69,35 +69,37 @@ class _ChannelActionsSheetState extends State<_ChannelActionsSheet> {
   @override
   Widget build(BuildContext context) {
     final hollow = HollowTheme.of(context);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: HollowSpacing.sm),
-          child: Container(
-            width: 32,
-            height: 4,
-            decoration: BoxDecoration(
-              color: hollow.border,
-              borderRadius: BorderRadius.circular(2),
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: HollowSpacing.sm),
+            child: Container(
+              width: 32,
+              height: 4,
+              decoration: BoxDecoration(
+                color: hollow.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: HollowSpacing.sm),
-        AnimatedSize(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-          child: switch (_view) {
-            _SheetView.actions => _buildActionsView(hollow),
-            _SheetView.deleteConfirm => _buildDeleteConfirmView(hollow),
-            _SheetView.visibility => _buildAccessView(
-                hollow, 'Visibility', _visibility, _setVisibility),
-            _SheetView.posting => _buildAccessView(
-                hollow, 'Who Can Post', _posting, _setPosting),
-          },
-        ),
-        SizedBox(height: MediaQuery.of(context).padding.bottom + HollowSpacing.sm),
-      ],
+          const SizedBox(height: HollowSpacing.sm),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            child: switch (_view) {
+              _SheetView.actions => _buildActionsView(hollow),
+              _SheetView.deleteConfirm => _buildDeleteConfirmView(hollow),
+              _SheetView.visibility => _buildAccessView(
+                  hollow, 'Visibility', _visibility, _setVisibility),
+              _SheetView.posting => _buildAccessView(
+                  hollow, 'Who Can Post', _posting, _setPosting),
+            },
+          ),
+          const SizedBox(height: HollowSpacing.sm),
+        ],
+      ),
     );
   }
 

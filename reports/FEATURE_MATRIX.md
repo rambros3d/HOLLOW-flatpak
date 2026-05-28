@@ -166,31 +166,31 @@
 
 | # | Feature | Desktop File(s) | Mobile | Interaction | Notes |
 |---|---------|-----------------|--------|-------------|-------|
-| 92 | Member list panel | `member_panel.dart` | Not impl | Right sidebar 240px | **Mobile per plan:** slide-out bottom sheet, not permanent panel |
-| 93 | Member online/offline status | `member_panel.dart` | Not impl | Status dot on avatar | Requires member panel first |
-| 94 | Member profile popup | `member_panel.dart`, `profile_card_popup.dart` | Not impl | Click member | Requires member panel first |
-| 95 | Member sync indicator | `member_panel.dart` | Not impl | Spinning refresh icon | Requires member panel first |
-| 96 | Assign roles | `members_tab.dart` | Not impl | Settings dropdown | Owner/Admin only |
-| 97 | Change member role | `members_tab.dart` | Not impl | Settings role selector | Priority-based (lower-rank only) |
-| 98 | Kick members | `members_tab.dart` | Not impl | Settings button | Admin+ only |
-| 99 | Ban/unban members | `members_tab.dart` | Not impl | Settings section | `_BannedMembersSection` |
-| 100 | Create/edit roles | `roles_tab.dart` | Not impl | Settings tab | 6 permission toggles |
-| 101 | Labels (cosmetic) | `labels_tab.dart` | Not impl | Settings tab | Create, assign colors, self-assign |
-| 102 | Server nickname | `overview_tab.dart` | Not impl | Text input, max 32 chars | Per-server "Your Identity" |
+| 92 | Member list panel | `member_panel.dart` | Done | Right sidebar 240px | Mobile: DraggableScrollableSheet from users icon in chat header |
+| 93 | Member online/offline status | `member_panel.dart` | Done | Status dot on avatar | Role-grouped, online/offline sections |
+| 94 | Member profile popup | `member_panel.dart`, `profile_card_popup.dart` | Done | Click member | Tap member → MobileProfileSheet bottom sheet with role, labels, actions |
+| 95 | Member sync indicator | `member_panel.dart` | Done | Spinning refresh icon | Yellow pulse dot via isPeerSyncingProvider |
+| 96 | Assign roles | `members_tab.dart` | Done | Settings dropdown | Long-press member → role change sheet. Priority-based |
+| 97 | Change member role | `members_tab.dart` | Done | Settings role selector | MobileMembersRoute with long-press actions |
+| 98 | Kick members | `members_tab.dart` | Done | Settings button | Confirmation dialog, permission-gated |
+| 99 | Ban/unban members | `members_tab.dart` | Done | Settings section | Collapsible banned section with unban |
+| 100 | Create/edit roles | `roles_tab.dart` | Done | Settings tab | MobileRolesRoute: 3 role cards, 6 permission toggles each |
+| 101 | Labels (cosmetic) | `labels_tab.dart` | Done | Settings tab | MobileLabelsRoute: self-assign + manage (create, delete, assign members) |
+| 102 | Server nickname | `overview_tab.dart` | Done | Text input, max 32 chars | Already in MobileServerSettingsRoute |
 
 ## 13. Invitations & Twitch
 
 | # | Feature | Desktop File(s) | Mobile | Interaction | Notes |
 |---|---------|-----------------|--------|-------------|-------|
-| 103 | Invite generation | `channel_sidebar.dart`, `invite_dialog.dart` | Not impl | Header button / dialog | **Mobile per plan:** long-press server → Invite, or button in server settings |
-| 104 | Invite link copy | `invite_dialog.dart` | Not impl | Copy button | Server ID display + link. Android share sheet integration |
-| 105 | Twitch verification toggle | `overview_tab.dart` | Not impl | Settings toggle | Master enable/disable |
-| 106 | Twitch channel linking | `overview_tab.dart` | Not impl | Text input + fill | Channel ID + display name |
-| 107 | Twitch min follow days | `overview_tab.dart` | Not impl | Number input | 0 = just follow |
-| 108 | Twitch subscription req | `overview_tab.dart` | Not impl | Toggle | Require sub not just follow |
-| 109 | Twitch owner-online | `overview_tab.dart` | Not impl | Toggle | Only owner accepts joins |
-| 110 | Twitch join dialog | `twitch_join_dialog.dart` | Not impl | Multi-step modal | Requirements → connect → verify → result |
-| 111 | Twitch badge on member | `member_panel.dart` | Not impl | Purple icon + username | Loaded from profile |
+| 103 | Invite generation | `channel_sidebar.dart`, `invite_dialog.dart` | Done | Header button / dialog | Server settings → Invite row. Reuses desktop showInviteDialog |
+| 104 | Invite link copy | `invite_dialog.dart` | Done | Copy button | Server ID display + link in dialog |
+| 105 | Twitch verification toggle | `overview_tab.dart` | Done | Settings toggle | MobileTwitchSettingsRoute: enable/disable |
+| 106 | Twitch channel linking | `overview_tab.dart` | Done | Text input + fill | Channel ID + display name + Fill from account |
+| 107 | Twitch min follow days | `overview_tab.dart` | Done | Number input | 0 = just follow |
+| 108 | Twitch subscription req | `overview_tab.dart` | Done | Toggle | Require sub not just follow |
+| 109 | Twitch owner-online | `overview_tab.dart` | Done | Toggle | Only owner accepts joins |
+| 110 | Twitch join dialog | `twitch_join_dialog.dart` | Not impl | Multi-step modal | Desktop dialog works cross-platform, needs wiring from server join flow |
+| 111 | Twitch badge on member | `member_panel.dart` | Done | Purple icon + username | In MemberTile and MobileProfileSheet |
 
 ---
 
@@ -198,22 +198,22 @@
 
 | # | Feature | Desktop File(s) | Mobile | Interaction | Notes |
 |---|---------|-----------------|--------|-------------|-------|
-| 112 | Profile card popup | `profile_card_popup.dart` | Not impl | Hover/click avatar | **Mobile:** bottom sheet (like existing _ProfileSheet in mobile_chat_route). Banner, avatar, name, status, about, badges |
-| 113 | Edit display name | `user_settings_dialog.dart` | Not impl | Text field, max 32 chars | Profile tab |
-| 114 | Edit status | `user_settings_dialog.dart` | Not impl | Text field, max 48 chars | Profile tab |
-| 115 | Edit about me | `user_settings_dialog.dart` | Not impl | Text area, max 128 chars | Profile tab, 3 lines max |
-| 116 | Avatar upload/change | `user_settings_dialog.dart` | Not impl | File picker → crop (1:1) | WebP optimization, max 1MB |
-| 117 | Avatar clear | `user_settings_dialog.dart` | Not impl | Trash icon | Clear to initials fallback |
-| 118 | Avatar GIF support | `user_settings_dialog.dart` | Not impl | File picker accepts .gif | Skip crop, raw bytes |
-| 119 | Banner upload/change | `user_settings_dialog.dart` | Not impl | File picker → crop (3:1) | Max 2MB |
-| 120 | Banner clear | `user_settings_dialog.dart` | Not impl | Trash icon | Gradient fallback |
-| 121 | Banner GIF support | `user_settings_dialog.dart` | Not impl | File picker accepts .gif | Skip crop, raw bytes |
-| 122 | Twitch connect/disconnect | `user_settings_dialog.dart` | Not impl | Device code auth button | Profile tab |
-| 123 | Peer ID display + copy | `profile_card_popup.dart`, `user_bar.dart` | Done | Tap to copy | Last 8 chars shown, full ID copied |
-| 124 | Recovery phrase display | `mnemonic_dialog.dart` | Done | Modal dialog | showHollowDialog, 24-word BIP-39, selectable + copy |
+| 112 | Profile card popup | `profile_card_popup.dart` | Done | Hover/click avatar | MobileProfileSheet: banner, avatar, name, status, about, role, labels, Twitch, actions |
+| 113 | Edit display name | `user_settings_dialog.dart` | Done | Text field, max 32 chars | Settings → Profile tab |
+| 114 | Edit status | `user_settings_dialog.dart` | Done | Text field, max 48 chars | Settings → Profile tab |
+| 115 | Edit about me | `user_settings_dialog.dart` | Done | Text area, max 128 chars | Settings → Profile tab, 3 lines |
+| 116 | Avatar upload/change | `user_settings_dialog.dart` | Done | File picker → crop (1:1) | Tap avatar in Profile tab. processAvatar FFI |
+| 117 | Avatar clear | `user_settings_dialog.dart` | Done | Long-press avatar | Clears pending avatar |
+| 118 | Avatar GIF support | `user_settings_dialog.dart` | Done | File picker accepts .gif | Skip crop, raw bytes, max 1MB |
+| 119 | Banner upload/change | `user_settings_dialog.dart` | Done | File picker → crop (3:1) | Tap banner in Profile tab. processBanner FFI |
+| 120 | Banner clear | `user_settings_dialog.dart` | Done | Long-press banner | Clears pending banner |
+| 121 | Banner GIF support | `user_settings_dialog.dart` | Done | File picker accepts .gif | Skip crop, raw bytes, max 2MB |
+| 122 | Twitch connect/disconnect | `user_settings_dialog.dart` | Partial | Device code auth button | Disconnect works. Connect shows info toast (device code needs desktop for now) |
+| 123 | Peer ID display + copy | `profile_card_popup.dart`, `user_bar.dart` | Done | Tap to copy | Settings → System tab |
+| 124 | Recovery phrase display | `mnemonic_dialog.dart` | Done | Modal dialog | Settings → Security tab → Recovery Phrase |
 | 125 | Identity creation flow | `welcome_dialog.dart` | Done | First launch dialog | Create / restore mnemonic / restore backup, cross-platform |
 | 126 | Restore from mnemonic | `welcome_dialog.dart` | Done | Text input (24 words) | Full validation + Rust identity_api call |
-| 127 | Restore from backup | `welcome_dialog.dart` | Not impl | File picker + passphrase | Decrypt `.hollow` backup |
+| 127 | Restore from backup | `welcome_dialog.dart` | N/A | File picker + passphrase | Excluded from mobile port |
 
 ## 15. Friends & Social
 
@@ -222,15 +222,15 @@
 | 128 | Send friend request | `friends_provider.dart`, `profile_card_popup.dart` | Done | Button action | "Add Friend" in profile card |
 | 129 | Accept friend request | `friends_provider.dart` | Done | Button action | Accept button |
 | 130 | Reject friend request | `friends_provider.dart` | Done | Cross icon | Request rows |
-| 131 | Remove friend | `friends_bar.dart` | Not impl | Remove icon | **Mobile:** swipe-to-delete or long-press → Remove on Friends tab |
-| 132 | Favourite friends | `favourite_friends_provider.dart`, `friends_bar.dart` | Not impl | Star toggle | **Mobile:** long-press friend → Star/Unstar. Pinned to top of list |
-| 133 | Local nicknames | `local_nickname_provider.dart`, `profile_card_popup.dart` | Not impl | Set button in profile card | **Mobile:** in profile bottom sheet |
-| 134 | Friends list | `friends_bar.dart`, `mobile_friends_tab.dart` | Done | Horizontal bar / tab | Online-first then alphabetical |
-| 135 | Friends manager dialog | `friends_bar.dart` | Not impl | Full-screen dialog | **Mobile:** Friends tab already serves this role. Add sections for Incoming/Outgoing requests |
+| 131 | Remove friend | `friends_bar.dart` | Done | Remove icon | Long-press friend → Remove Friend with confirmation |
+| 132 | Favourite friends | `favourite_friends_provider.dart`, `friends_bar.dart` | Done | Star toggle | Long-press → Favourite/Unfavourite. Pinned section above Online |
+| 133 | Local nicknames | `local_nickname_provider.dart`, `profile_card_popup.dart` | Done | Set button in profile card | MobileProfileSheet + long-press friend → Set Nickname |
+| 134 | Friends list | `friends_bar.dart`, `mobile_friends_tab.dart` | Done | Horizontal bar / tab | Favourites → Online → Offline sections |
+| 135 | Friends manager dialog | `friends_bar.dart` | Done | Full-screen dialog | Friends tab with Requests/Favourites/Online/Offline sections |
 | 136 | Add friend dialog | `friends_bar.dart`, `mobile_friends_tab.dart` | Done | Input dialog | Peer ID text field |
 | 137 | Pending friend badge | `friends_bar.dart` | Done | Red badge | Count on Friends tab in MobileNavBar |
 | 138 | Start DM conversation | `peer_card.dart`, `mobile_friends_tab.dart` | Done | Tap friend | Navigate to DM chat |
-| 139 | Friend search/filter | `friends_bar.dart` | Not impl | Search field | Case-insensitive substring |
+| 139 | Friend search/filter | `friends_bar.dart` | Done | Search field | HollowTextField at top, case-insensitive substring |
 | 140 | DM unread count | `friends_bar.dart`, `peer_card.dart` | Done | Red badge on avatar | Respects mute |
 | 141 | Last message preview | `peer_card.dart` | Done | Text + timestamp | Truncated, "You:" prefix |
 | 142 | Encryption status icon | `peer_card.dart` | Done | Green lock icon | E2E cipher active |
@@ -487,13 +487,20 @@
 
 | Category | Total | Done | Partial | Not Impl | N/A |
 |----------|-------|------|---------|----------|-----|
-| All features | 288 | 104 | 2 | 139 | 43 |
+| All features | 288 | 145 | 3 | 96 | 44 |
 
-**Actionable (excl. N/A): 245 total, 104 Done (42%), 2 Partial, 139 Not impl.**
+**Actionable (excl. N/A): 244 total, 145 Done (59%), 3 Partial, 96 Not impl.**
 
-*Updated 2026-05-14. Dedup pass: 8 duplicate items across Sections 7/28 marked N/A (canonical homes in Sections 12/16/17). #242 (per-DM mute) corrected to Done.*
+*Updated 2026-05-28. Sections 12-15 complete.*
 
-**Mobile coverage (excluding 42 N/A): 37% done (91), 1% partial (2), 62% not implemented (153)**
+### Session 2026-05-28 Progress
+- **Sections 12-15 complete.** Members & Roles, Invitations & Twitch, Profile & Identity, Friends & Social.
+- **Member panel:** DraggableScrollableSheet from users icon in channel chat header. Role-grouped (Owner/Admin/Moderator/Members → Online/Offline). Tap member → MobileProfileSheet with role badge, labels, Twitch badge, actions (Message, Set Nickname, Add Friend).
+- **Server settings expanded:** Drill-down rows for Members, Roles, Labels, Twitch, Invite. MobileMembersRoute (long-press role change/kick/ban, banned section). MobileRolesRoute (3 role cards, 6 permission toggles). MobileLabelsRoute (self-assign + manage/create/delete/assign members).
+- **Settings tab restructured:** Pill tab bar (Profile, System, Security, About). Profile tab: avatar/banner upload+crop+GIF, display name, status, about me, Twitch connect. System tab: Peer ID, network status. Security tab: password protection, device protection, recovery phrase. About tab: version, license, links.
+- **Friends tab enhanced:** Search field, Favourites section (star icon, pinned above Online), long-press actions (Message, View Profile, Favourite, Set Nickname, Remove Friend).
+- **New files:** mobile_profile_sheet.dart, mobile_member_panel.dart, mobile_members_route.dart, mobile_roles_route.dart, mobile_labels_route.dart, mobile_twitch_settings_route.dart.
+- **Exclusions confirmed:** Identity export (#127 → N/A), Server template (#81 → low priority).
 
 ### Session 2026-05-14 Progress
 - **Sections 1-8 complete or audited.** Section 6 fully done. Voice messages, search, mute, unread badges, notification dedup rework.

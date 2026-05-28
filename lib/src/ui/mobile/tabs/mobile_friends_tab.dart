@@ -1,6 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hollow/src/core/providers/favourite_friends_provider.dart';
 import 'package:hollow/src/core/providers/friends_provider.dart';
+import 'package:hollow/src/core/providers/local_nickname_provider.dart';
 import 'package:hollow/src/core/providers/peers_provider.dart';
 import 'package:hollow/src/core/providers/profile_provider.dart';
 import 'package:hollow/src/core/providers/selected_peer_provider.dart';
@@ -11,20 +13,46 @@ import 'package:hollow/src/ui/components/hollow_avatar.dart';
 import 'package:hollow/src/ui/components/hollow_button.dart';
 import 'package:hollow/src/ui/components/hollow_dialog.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
+import 'package:hollow/src/ui/components/hollow_text_field.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/components/status_dot.dart';
 import 'package:hollow/src/ui/mobile/mobile_chat_route.dart';
+import 'package:hollow/src/ui/mobile/mobile_profile_sheet.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-class MobileFriendsTab extends ConsumerWidget {
+class MobileFriendsTab extends ConsumerStatefulWidget {
   const MobileFriendsTab({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MobileFriendsTab> createState() => _MobileFriendsTabState();
+}
+
+class _MobileFriendsTabState extends ConsumerState<MobileFriendsTab> {
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(() {
+      setState(() => _searchQuery = _searchController.text.toLowerCase());
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final hollow = HollowTheme.of(context);
     final friends = ref.watch(friendsProvider);
     final peers = ref.watch(peersProvider);
-    final profiles = ref.watch(profileProvider);
+    ref.watch(profileProvider);
+    final favourites = ref.watch(favouriteFriendsProvider);
+    ref.watch(localNicknameProvider);
 
     final accepted = <FriendInfo>[];
     final incoming = <FriendInfo>[];
@@ -40,36 +68,66 @@ class MobileFriendsTab extends ConsumerWidget {
       }
     }
 
-    accepted.sort((a, b) {
-      final aOnline = peers.containsKey(a.peerId) ? 0 : 1;
-      final bOnline = peers.containsKey(b.peerId) ? 0 : 1;
-      if (aOnline != bOnline) return aOnline.compareTo(bOnline);
-      return displayNameFor(profiles, a.peerId)
-          .compareTo(displayNameFor(profiles, b.peerId));
-    });
+    // Separate favourites from non-favourites
+    final favFriends = <FriendInfo>[];
+    final onlineFriends = <FriendInfo>[];
+    final offlineFriends = <FriendInfo>[];
+
+    for (final f in accepted) {
+      final name = _resolvedName(f.peerId);
+      if (_searchQuery.isNotEmpty && !name.toLowerCase().contains(_searchQuery)) continue;
+
+      if (favourites.contains(f.peerId)) {
+        favFriends.add(f);
+      } else if (peers.containsKey(f.peerId)) {
+        onlineFriends.add(f);
+      } else {
+        offlineFriends.add(f);
+      }
+    }
+
+    // Sort favourites by fav order, others alphabetically
+    favFriends.sort((a, b) =>
+        favourites.indexOf(a.peerId).compareTo(favourites.indexOf(b.peerId)));
+
+    int sortByName(FriendInfo a, FriendInfo b) =>
+        _resolvedName(a.peerId)
+            .compareTo(_resolvedName(b.peerId));
+    onlineFriends.sort(sortByName);
+    offlineFriends.sort(sortByName);
 
     final hasPending = incoming.isNotEmpty || outgoing.isNotEmpty;
 
     return CustomScrollView(
       slivers: [
-        // Add Friend button
+        // Search + Add Friend
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
-              HollowSpacing.lg, HollowSpacing.lg,
-              HollowSpacing.lg, HollowSpacing.sm,
+              HollowSpacing.lg, HollowSpacing.lg, HollowSpacing.lg, HollowSpacing.sm,
             ),
-            child: HollowButton.outline(
-              onPressed: () => _showAddFriendDialog(context, ref),
-              icon: const Icon(LucideIcons.userPlus, size: 16),
-              expand: true,
-              child: const Text('Add Friend'),
+            child: Column(
+              children: [
+                HollowTextField(
+                  controller: _searchController,
+                  hintText: 'Search friends...',
+                  prefixIcon: const Icon(LucideIcons.search, size: 16),
+                  isDense: true,
+                ),
+                const SizedBox(height: HollowSpacing.sm),
+                HollowButton.outline(
+                  onPressed: () => _showAddFriendDialog(context, ref),
+                  icon: const Icon(LucideIcons.userPlus, size: 16),
+                  expand: true,
+                  child: const Text('Add Friend'),
+                ),
+              ],
             ),
           ),
         ),
 
         // Pending requests
-        if (hasPending) ...[
+        if (hasPending && _searchQuery.isEmpty) ...[
           _SectionHeader(label: 'REQUESTS', count: incoming.length + outgoing.length),
           SliverList(
             delegate: SliverChildBuilderDelegate(
@@ -84,10 +142,44 @@ class MobileFriendsTab extends ConsumerWidget {
           ),
         ],
 
-        // Friends
-        _SectionHeader(label: 'FRIENDS', count: accepted.length),
+        // Favourites
+        if (favFriends.isNotEmpty) ...[
+          _SectionHeader(label: 'FAVOURITES', count: favFriends.length),
+          SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => _FriendRow(
+                peerId: favFriends[index].peerId,
+                isFavourite: true,
+              ),
+              childCount: favFriends.length,
+            ),
+          ),
+        ],
 
-        if (accepted.isEmpty)
+        // Online
+        if (onlineFriends.isNotEmpty) ...[
+          _SectionHeader(label: 'ONLINE', count: onlineFriends.length),
+          SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => _FriendRow(peerId: onlineFriends[index].peerId),
+              childCount: onlineFriends.length,
+            ),
+          ),
+        ],
+
+        // Offline
+        if (offlineFriends.isNotEmpty) ...[
+          _SectionHeader(label: 'OFFLINE', count: offlineFriends.length),
+          SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => _FriendRow(peerId: offlineFriends[index].peerId),
+              childCount: offlineFriends.length,
+            ),
+          ),
+        ],
+
+        // Empty state
+        if (accepted.isEmpty && !hasPending)
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.symmetric(
@@ -102,40 +194,23 @@ class MobileFriendsTab extends ConsumerWidget {
                     Text('No friends yet',
                         style: HollowTypography.body.copyWith(color: hollow.textSecondary)),
                     const SizedBox(height: HollowSpacing.xs),
-                    Text('Add a friend by their peer ID', style: HollowTypography.bodySmall),
+                    Text('Add a friend by their peer ID',
+                        style: HollowTypography.bodySmall),
                   ],
                 ),
               ),
-            ),
-          )
-        else
-          SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                final friend = accepted[index];
-                final isOnline = peers.containsKey(friend.peerId);
-                final name = displayNameFor(profiles, friend.peerId);
-                return _FriendRow(
-                  peerId: friend.peerId,
-                  name: name,
-                  isOnline: isOnline,
-                  onTap: () {
-                    ref.read(selectedPeerProvider.notifier).state = friend.peerId;
-                    Navigator.of(context, rootNavigator: true).push(
-                      MaterialPageRoute(
-                        builder: (_) => MobileChatRoute(peerId: friend.peerId),
-                      ),
-                    );
-                  },
-                );
-              },
-              childCount: accepted.length,
             ),
           ),
 
         const SliverPadding(padding: EdgeInsets.only(bottom: HollowSpacing.xl)),
       ],
     );
+  }
+
+  String _resolvedName(String peerId) {
+    final nicknames = ref.read(localNicknameProvider);
+    final profiles = ref.read(profileProvider);
+    return nicknames[peerId] ?? displayNameFor(profiles, peerId);
   }
 
   void _showAddFriendDialog(BuildContext context, WidgetRef ref) {
@@ -188,27 +263,36 @@ class _SectionHeader extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────
-// Friend row
+// Friend row with long-press actions
 // ─────────────────────────────────────────────────
 
-class _FriendRow extends StatelessWidget {
+class _FriendRow extends ConsumerWidget {
   final String peerId;
-  final String name;
-  final bool isOnline;
-  final VoidCallback onTap;
+  final bool isFavourite;
 
-  const _FriendRow({
-    required this.peerId,
-    required this.name,
-    required this.isOnline,
-    required this.onTap,
-  });
+  const _FriendRow({required this.peerId, this.isFavourite = false});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final hollow = HollowTheme.of(context);
+    final profiles = ref.watch(profileProvider);
+    final localNicknames = ref.watch(localNicknameProvider);
+    final isOnline = ref.watch(peersProvider.select((p) => p.containsKey(peerId)));
+    final localNick = localNicknames[peerId];
+    final name = localNick ?? displayNameFor(profiles, peerId);
+
     return HollowPressable(
-      onTap: onTap,
+      onTap: () {
+        ref.read(selectedPeerProvider.notifier).state = peerId;
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute(
+            builder: (_) => MobileChatRoute(peerId: peerId),
+          ),
+        ).then((_) {
+          ref.read(selectedPeerProvider.notifier).state = null;
+        });
+      },
+      onLongPress: () => _showActions(context, ref),
       subtle: true,
       padding: const EdgeInsets.symmetric(
         horizontal: HollowSpacing.lg, vertical: HollowSpacing.md,
@@ -241,11 +325,22 @@ class _FriendRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name,
-                    style: HollowTypography.body.copyWith(
-                      color: hollow.textPrimary, fontWeight: FontWeight.w500,
+                Row(
+                  children: [
+                    if (isFavourite)
+                      Padding(
+                        padding: const EdgeInsets.only(right: HollowSpacing.xs),
+                        child: Icon(LucideIcons.star, size: 14, color: hollow.warning),
+                      ),
+                    Flexible(
+                      child: Text(name,
+                          style: HollowTypography.body.copyWith(
+                            color: hollow.textPrimary, fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
                     ),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ],
+                ),
                 Text(isOnline ? 'Online' : 'Offline',
                     style: HollowTypography.bodySmall.copyWith(
                       color: isOnline ? hollow.success : hollow.textSecondary,
@@ -254,6 +349,200 @@ class _FriendRow extends StatelessWidget {
             ),
           ),
           Icon(LucideIcons.messageCircle, size: 18, color: hollow.textSecondary),
+        ],
+      ),
+    );
+  }
+
+  void _showActions(BuildContext context, WidgetRef ref) {
+    final hollow = HollowTheme.of(context);
+    final profiles = ref.read(profileProvider);
+    final localNicknames = ref.read(localNicknameProvider);
+    final favs = ref.read(favouriteFriendsProvider);
+    final isFav = favs.contains(peerId);
+    final name = localNicknames[peerId] ?? displayNameFor(profiles, peerId);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: hollow.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(hollow.radiusXl)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: HollowSpacing.sm),
+              child: Container(width: 32, height: 4,
+                decoration: BoxDecoration(color: hollow.border, borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: HollowSpacing.md),
+            Text(name, style: HollowTypography.body.copyWith(
+              color: hollow.textPrimary, fontWeight: FontWeight.w600,
+            )),
+            const SizedBox(height: HollowSpacing.md),
+            Divider(height: 1, color: hollow.border),
+
+            _ActionRow(
+              icon: LucideIcons.messageCircle,
+              label: 'Message',
+              onTap: () {
+                Navigator.pop(context);
+                ref.read(selectedPeerProvider.notifier).state = peerId;
+                Navigator.of(context, rootNavigator: true).push(
+                  MaterialPageRoute(builder: (_) => MobileChatRoute(peerId: peerId)),
+                ).then((_) {
+                  ref.read(selectedPeerProvider.notifier).state = null;
+                });
+              },
+            ),
+
+            _ActionRow(
+              icon: LucideIcons.user,
+              label: 'View Profile',
+              onTap: () {
+                Navigator.pop(context);
+                showMobileProfileSheet(context, peerId: peerId);
+              },
+            ),
+
+            _ActionRow(
+              icon: isFav ? LucideIcons.starOff : LucideIcons.star,
+              label: isFav ? 'Unfavourite' : 'Favourite',
+              onTap: () {
+                Navigator.pop(context);
+                ref.read(favouriteFriendsProvider.notifier).toggle(peerId);
+              },
+            ),
+
+            _ActionRow(
+              icon: LucideIcons.tag,
+              label: localNicknames[peerId] != null ? 'Edit Nickname' : 'Set Nickname',
+              onTap: () {
+                Navigator.pop(context);
+                _showNicknameDialog(context, ref);
+              },
+            ),
+
+            Divider(height: 1, color: hollow.border),
+
+            _ActionRow(
+              icon: LucideIcons.userMinus,
+              label: 'Remove Friend',
+              color: hollow.error,
+              onTap: () {
+                Navigator.pop(context);
+                _confirmRemove(context, ref, name);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showNicknameDialog(BuildContext context, WidgetRef ref) {
+    final current = ref.read(localNicknameProvider)[peerId] ?? '';
+    final controller = TextEditingController(text: current);
+    showHollowDialog(
+      context: context,
+      builder: (_) => HollowDialog(
+        title: 'Set Nickname',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Only visible to you.', style: HollowTypography.bodySmall),
+            const SizedBox(height: HollowSpacing.lg),
+            HollowTextField(
+              controller: controller,
+              hintText: 'Nickname',
+              maxLength: 32,
+              showCounter: true,
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          HollowButton.ghost(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          HollowButton.filled(
+            onPressed: () {
+              final nickname = controller.text.trim();
+              ref.read(localNicknameProvider.notifier).setNickname(peerId, nickname);
+              Navigator.pop(context);
+              HollowToast.show(context,
+                  nickname.isEmpty ? 'Nickname cleared' : 'Nickname set',
+                  type: HollowToastType.success);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmRemove(BuildContext context, WidgetRef ref, String name) {
+    showHollowDialog(
+      context: context,
+      builder: (_) => HollowDialog(
+        title: 'Remove Friend',
+        content: Text('Remove $name from your friends?', style: HollowTypography.body),
+        actions: [
+          HollowButton.ghost(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          HollowButton.danger(
+            onPressed: () {
+              Navigator.pop(context);
+              ref.read(friendsProvider.notifier).removeFriend(peerId);
+              HollowToast.show(context, 'Friend removed', type: HollowToastType.success);
+            },
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────
+// Action row for bottom sheet
+// ─────────────────────────────────────────────────
+
+class _ActionRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final Color? color;
+
+  const _ActionRow({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hollow = HollowTheme.of(context);
+    final c = color ?? hollow.textPrimary;
+    return HollowPressable(
+      onTap: onTap,
+      subtle: true,
+      padding: const EdgeInsets.symmetric(
+        horizontal: HollowSpacing.lg, vertical: HollowSpacing.md,
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: c),
+          const SizedBox(width: HollowSpacing.md),
+          Text(label, style: HollowTypography.body.copyWith(color: c)),
         ],
       ),
     );
@@ -319,7 +608,6 @@ class _PendingRow extends ConsumerWidget {
               child: Icon(LucideIcons.x, size: 20, color: hollow.error),
             ),
           ] else
-            // Cancel outgoing request
             HollowPressable(
               onTap: () => ref.read(friendsProvider.notifier).rejectRequest(peerId),
               borderRadius: BorderRadius.circular(hollow.radiusSm),
@@ -333,7 +621,7 @@ class _PendingRow extends ConsumerWidget {
 }
 
 // ─────────────────────────────────────────────────
-// Add Friend dialog (uses showHollowDialog for blur + animation)
+// Add Friend dialog
 // ─────────────────────────────────────────────────
 
 class _AddFriendDialog extends ConsumerStatefulWidget {

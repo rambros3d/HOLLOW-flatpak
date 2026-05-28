@@ -86,35 +86,36 @@ class _MessageActionsSheetState extends State<_MessageActionsSheet> {
   Widget build(BuildContext context) {
     final hollow = HollowTheme.of(context);
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Drag handle
-        Padding(
-          padding: const EdgeInsets.only(top: HollowSpacing.sm),
-          child: Container(
-            width: 32,
-            height: 4,
-            decoration: BoxDecoration(
-              color: hollow.border,
-              borderRadius: BorderRadius.circular(2),
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: HollowSpacing.sm),
+            child: Container(
+              width: 32,
+              height: 4,
+              decoration: BoxDecoration(
+                color: hollow.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: HollowSpacing.sm),
+          const SizedBox(height: HollowSpacing.sm),
 
-        AnimatedSize(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-          child: switch (_view) {
-            _SheetView.actions => _buildActionsView(hollow),
-            _SheetView.allEmojis => _buildAllEmojisView(hollow),
-            _SheetView.deleteConfirm => _buildDeleteConfirmView(hollow),
-          },
-        ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            child: switch (_view) {
+              _SheetView.actions => _buildActionsView(hollow),
+              _SheetView.allEmojis => _buildAllEmojisView(hollow),
+              _SheetView.deleteConfirm => _buildDeleteConfirmView(hollow),
+            },
+          ),
 
-        SizedBox(height: MediaQuery.of(context).padding.bottom + HollowSpacing.sm),
-      ],
+          const SizedBox(height: HollowSpacing.sm),
+        ],
+      ),
     );
   }
 

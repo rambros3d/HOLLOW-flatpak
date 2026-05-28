@@ -8,7 +8,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/core/models/channel_chat_message.dart';
 import 'package:hollow/src/core/models/chat_message.dart';
 import 'package:hollow/src/core/models/file_attachment.dart';
-import 'package:hollow/src/core/providers/banner_provider.dart';
 import 'package:hollow/src/core/providers/chat_provider.dart';
 import 'package:hollow/src/core/providers/channel_chat_provider.dart';
 import 'package:hollow/src/core/providers/channel_provider.dart';
@@ -28,14 +27,15 @@ import 'package:hollow/src/ui/chat/channel_message_bubble.dart';
 import 'package:hollow/src/ui/chat/staged_link_preview_card.dart';
 import 'package:hollow/src/ui/chat/staged_hollow_link_card.dart';
 import 'package:hollow/src/ui/chat/emoji_picker.dart';
-import 'package:hollow/src/ui/components/animated_gif_image.dart';
 import 'package:hollow/src/ui/components/hollow_avatar.dart';
 import 'package:hollow/src/ui/components/hollow_pressable.dart';
 import 'package:hollow/src/ui/chat/voice_recorder_bar.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/components/status_dot.dart';
 import 'package:hollow/src/ui/dialogs/message_proof_dialog.dart';
+import 'package:hollow/src/ui/mobile/mobile_member_panel.dart';
 import 'package:hollow/src/ui/mobile/mobile_message_actions.dart';
+import 'package:hollow/src/ui/mobile/mobile_profile_sheet.dart';
 import 'package:hollow/src/core/providers/notification_provider.dart';
 import 'package:hollow/src/core/services/voice_message_recorder.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
@@ -542,6 +542,7 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
           children: [
             _MobileChatHeader(
               peerId: widget.peerId,
+              serverId: widget.serverId,
               channelName: widget.channelName,
               searchOpen: _searchOpen,
               onSearchToggle: widget.isDm ? null : () {
@@ -1458,12 +1459,14 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
 
 class _MobileChatHeader extends ConsumerWidget {
   final String? peerId;
+  final String? serverId;
   final String? channelName;
   final VoidCallback? onSearchToggle;
   final bool searchOpen;
 
   const _MobileChatHeader({
     this.peerId,
+    this.serverId,
     this.channelName,
     this.onSearchToggle,
     this.searchOpen = false,
@@ -1555,6 +1558,13 @@ class _MobileChatHeader extends ConsumerWidget {
           ),
           if (isDm)
             _DmMuteButton(peerId: peerId!),
+          if (!isDm && serverId != null)
+            HollowPressable(
+              onTap: () => showMobileMemberPanel(context, serverId!),
+              borderRadius: BorderRadius.circular(hollow.radiusSm),
+              padding: const EdgeInsets.all(HollowSpacing.sm),
+              child: Icon(LucideIcons.users, size: 20, color: hollow.textSecondary),
+            ),
           if (!isDm && onSearchToggle != null)
             HollowPressable(
               onTap: onSearchToggle,
@@ -1572,15 +1582,7 @@ class _MobileChatHeader extends ConsumerWidget {
   }
 
   void _showProfileSheet(BuildContext context, WidgetRef ref, String peerId) {
-    final hollow = HollowTheme.of(context);
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: hollow.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(hollow.radiusXl)),
-      ),
-      builder: (_) => _ProfileSheet(peerId: peerId),
-    );
+    showMobileProfileSheet(context, peerId: peerId);
   }
 }
 
@@ -2003,143 +2005,3 @@ class _TypingBar extends ConsumerWidget {
   }
 }
 
-// ─────────────────────────────────────────────────
-// Profile bottom sheet with banner
-// ─────────────────────────────────────────────────
-
-Color _bannerColorFromId(String id) {
-  final hash = id.hashCode;
-  final hue = ((hash % 360).abs() + 40) % 360;
-  return HSLColor.fromAHSL(1.0, hue.toDouble(), 0.45, 0.35).toColor();
-}
-
-class _ProfileSheet extends ConsumerWidget {
-  final String peerId;
-
-  const _ProfileSheet({required this.peerId});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final hollow = HollowTheme.of(context);
-    final profiles = ref.watch(profileProvider);
-    final profile = profiles[peerId];
-    final name = displayNameFor(profiles, peerId);
-    final isOnline = ref.watch(peersProvider.select((p) => p.containsKey(peerId)));
-    final bannerBytes = ref.watch(bannerProvider(peerId)).valueOrNull;
-    final bannerColor = _bannerColorFromId(peerId);
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Drag handle
-        Padding(
-          padding: const EdgeInsets.only(top: HollowSpacing.sm),
-          child: Container(
-            width: 32, height: 4,
-            decoration: BoxDecoration(
-              color: hollow.border,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-        ),
-
-        // Banner
-        const SizedBox(height: HollowSpacing.sm),
-        SizedBox(
-          height: 180,
-          width: double.infinity,
-          child: bannerBytes != null && bannerBytes.isNotEmpty
-              ? AnimatedGifImage(
-                  bytes: bannerBytes,
-                  height: 180,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorWidget: Container(
-                    height: 180,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [bannerColor, bannerColor.withValues(alpha: 0.7)],
-                      ),
-                    ),
-                  ),
-                )
-              : Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [bannerColor, bannerColor.withValues(alpha: 0.7)],
-                    ),
-                  ),
-                ),
-        ),
-
-        // Avatar overlapping banner
-        Transform.translate(
-          offset: const Offset(0, -36),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.rectangle,
-                  borderRadius: BorderRadius.circular(hollow.radiusMd),
-                  border: Border.all(color: hollow.surface, width: 3),
-                ),
-                child: HollowAvatar(peerId: peerId, size: 72),
-              ),
-              const SizedBox(height: HollowSpacing.sm),
-              Text(name, style: HollowTypography.heading.copyWith(
-                color: hollow.textPrimary,
-              )),
-              const SizedBox(height: HollowSpacing.xs),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  StatusDot(
-                    color: isOnline ? hollow.success : hollow.textSecondary,
-                    size: 8, pulse: isOnline,
-                  ),
-                  const SizedBox(width: HollowSpacing.xs),
-                  Text(
-                    isOnline ? 'Online' : 'Offline',
-                    style: HollowTypography.body.copyWith(
-                      color: isOnline ? hollow.success : hollow.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-              if (profile?.status != null && profile!.status.isNotEmpty) ...[
-                const SizedBox(height: HollowSpacing.sm),
-                Text(
-                  profile.status,
-                  style: HollowTypography.bodySmall.copyWith(
-                    color: hollow.accent,
-                    fontStyle: FontStyle.italic,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-              if (profile?.aboutMe != null && profile!.aboutMe.isNotEmpty) ...[
-                const SizedBox(height: HollowSpacing.lg),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: HollowSpacing.xl),
-                  child: Text(
-                    profile.aboutMe,
-                    style: HollowTypography.body.copyWith(
-                      color: hollow.textSecondary,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ],
-              const SizedBox(height: HollowSpacing.md),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
