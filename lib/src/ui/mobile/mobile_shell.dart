@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/ui/animations/hollow_curves.dart';
+import 'package:hollow/src/ui/mobile/mobile_active_call_pill.dart';
 import 'package:hollow/src/ui/mobile/mobile_nav_bar.dart';
 import 'package:hollow/src/ui/mobile/tabs/mobile_archive_tab.dart';
 import 'package:hollow/src/ui/mobile/tabs/mobile_chats_tab.dart'
@@ -25,28 +26,33 @@ class MobileShell extends ConsumerWidget {
     final hollow = HollowTheme.of(context);
     final currentTab = ref.watch(mobileTabProvider);
 
-    return Scaffold(
-      backgroundColor: hollow.background,
-      body: SafeArea(
-        bottom: false,
-        child: Stack(
-          children: [
-            for (int i = 0; i < _tabs.length; i++)
-              AnimatedOpacity(
-                opacity: i == currentTab ? 1.0 : 0.0,
-                duration: HollowDurations.fast,
-                curve: HollowCurves.subtle,
-                child: IgnorePointer(
-                  ignoring: i != currentTab,
-                  child: _tabs[i],
-                ),
-              ),
-          ],
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: hollow.background,
+          body: SafeArea(
+            bottom: false,
+            child: Stack(
+              children: [
+                for (int i = 0; i < _tabs.length; i++)
+                  AnimatedOpacity(
+                    opacity: i == currentTab ? 1.0 : 0.0,
+                    duration: HollowDurations.fast,
+                    curve: HollowCurves.subtle,
+                    child: IgnorePointer(
+                      ignoring: i != currentTab,
+                      child: _tabs[i],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          bottomNavigationBar: MobileNavBar(
+            onAdd: () => showNewConversationDialog(context),
+          ),
         ),
-      ),
-      bottomNavigationBar: MobileNavBar(
-        onAdd: () => showNewConversationDialog(context),
-      ),
+        const MobileActiveCallPill(),
+      ],
     );
   }
 }

@@ -154,8 +154,9 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
 
     final hollow = HollowTheme.of(context);
 
+    final safePadding = MediaQuery.of(context).padding.top;
     return Positioned(
-      top: HollowSpacing.xl + 32, // below title bar
+      top: safePadding + HollowSpacing.xl,
       left: 0,
       right: 0,
       child: SlideTransition(
@@ -163,7 +164,9 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
         child: FadeTransition(
           opacity: _fadeAnim,
           child: Center(
-            child: Container(
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
               width: 320,
               padding: const EdgeInsets.all(HollowSpacing.lg),
               decoration: BoxDecoration(
@@ -269,6 +272,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
                   ),
                 ],
               ),
+            ),
             ),
           ),
         ),

@@ -45,6 +45,8 @@ class CallState {
   final bool isScreenSharing;
   final bool remoteScreenSharing;
   final String sframeKey; // hex-encoded 32-byte SFrame key for E2EE
+  final bool isLocalSpeaking;
+  final bool isRemoteSpeaking;
 
   /// Quality label for the local screen share (e.g. "1080p60"). Null when not sharing.
   final String? screenShareLabel;
@@ -65,6 +67,8 @@ class CallState {
     this.isScreenSharing = false,
     this.remoteScreenSharing = false,
     this.sframeKey = '',
+    this.isLocalSpeaking = false,
+    this.isRemoteSpeaking = false,
     this.screenShareLabel,
     this.remoteScreenShareLabel,
   });
@@ -82,6 +86,8 @@ class CallState {
     bool? isScreenSharing,
     bool? remoteScreenSharing,
     String? sframeKey,
+    bool? isLocalSpeaking,
+    bool? isRemoteSpeaking,
     String? screenShareLabel,
     bool clearScreenShareLabel = false,
     String? remoteScreenShareLabel,
@@ -100,6 +106,8 @@ class CallState {
         isScreenSharing: isScreenSharing ?? this.isScreenSharing,
         remoteScreenSharing: remoteScreenSharing ?? this.remoteScreenSharing,
         sframeKey: sframeKey ?? this.sframeKey,
+        isLocalSpeaking: isLocalSpeaking ?? this.isLocalSpeaking,
+        isRemoteSpeaking: isRemoteSpeaking ?? this.isRemoteSpeaking,
         screenShareLabel: clearScreenShareLabel
             ? null
             : (screenShareLabel ?? this.screenShareLabel),
@@ -173,6 +181,17 @@ class CallNotifier extends Notifier<CallState> {
         );
         _scheduleStatsDump(peerId);
 
+        // Start VAD for speaking indicators.
+        _voiceService!.onSpeakingChanged = (localSpeaking, remoteSpeaking) {
+          if (state.status == CallStatus.active) {
+            state = state.copyWith(
+              isLocalSpeaking: localSpeaking,
+              isRemoteSpeaking: remoteSpeaking,
+            );
+          }
+        };
+        _voiceService!.startVad();
+
         // Wire screen audio receiver (Windows) for DM calls.
         // Wire screen audio receiver (Windows sender → data channel → us).
         {
@@ -227,12 +246,13 @@ class CallNotifier extends Notifier<CallState> {
 
     _voiceService!.onRemoteVideoTrack = (peerId) {
       debugPrint('[HOLLOW-CALL] Remote video track/renderer ready for $peerId');
-      // With the H4 addTrack pattern, a fresh remote video track means the
-      // remote peer just enabled their camera — flip remoteVideoEnabled
-      // immediately so the UI rebuilds with the new renderer. The
-      // video_state signal that arrives on a separate channel will
-      // confirm this redundantly.
-      state = state.copyWith(remoteVideoEnabled: true);
+      // Renderer is now available for when the remote peer explicitly
+      // enables their camera via the video_state signal. Don't set
+      // remoteVideoEnabled here — on mobile, SDP negotiation can create
+      // video transceivers that trigger onTrack/onRemoteVideoTrack even
+      // for audio-only calls (stale transceiver from safety net). The
+      // explicit video_state signal in _handleVideoState is the only
+      // source of truth for remote camera state.
     };
   }
 

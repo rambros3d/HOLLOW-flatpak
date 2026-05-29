@@ -33,9 +33,11 @@ import 'package:hollow/src/ui/chat/voice_recorder_bar.dart';
 import 'package:hollow/src/ui/components/hollow_toast.dart';
 import 'package:hollow/src/ui/components/status_dot.dart';
 import 'package:hollow/src/ui/dialogs/message_proof_dialog.dart';
+import 'package:hollow/src/ui/mobile/mobile_call_video_view.dart';
 import 'package:hollow/src/ui/mobile/mobile_member_panel.dart';
 import 'package:hollow/src/ui/mobile/mobile_message_actions.dart';
 import 'package:hollow/src/ui/mobile/mobile_profile_sheet.dart';
+import 'package:hollow/src/core/providers/call_provider.dart';
 import 'package:hollow/src/core/providers/notification_provider.dart';
 import 'package:hollow/src/core/services/voice_message_recorder.dart';
 import 'package:hollow/src/rust/api/network.dart' as network_api;
@@ -560,6 +562,8 @@ class _MobileChatRouteState extends ConsumerState<MobileChatRoute> {
                 }
               },
             ),
+            if (widget.isDm)
+              MobileCallStatusStrip(peerId: widget.peerId!),
             if (_searchOpen)
               _buildSearchBar(hollow),
             if (!widget.isDm) _buildSyncIndicator(hollow),
@@ -1556,8 +1560,10 @@ class _MobileChatHeader extends ConsumerWidget {
               ),
             ),
           ),
-          if (isDm)
+          if (isDm) ...[
+            _DmCallButtons(peerId: peerId!),
             _DmMuteButton(peerId: peerId!),
+          ],
           if (!isDm && serverId != null)
             HollowPressable(
               onTap: () => showMobileMemberPanel(context, serverId!),
@@ -1791,6 +1797,101 @@ class _DmMuteButton extends ConsumerWidget {
             ? hollow.textSecondary
             : hollow.textSecondary.withValues(alpha: 0.4),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────
+// DM call buttons (voice + video) in header
+// ─────────────────────────────────────────────────
+
+class _DmCallButtons extends ConsumerWidget {
+  final String peerId;
+  const _DmCallButtons({required this.peerId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hollow = HollowTheme.of(context);
+    final isOnline = ref.watch(peersProvider.select((p) => p.containsKey(peerId)));
+    final call = ref.watch(callProvider);
+    final isInCall = call.status != CallStatus.idle;
+    final isCallWithThisPeer = isInCall && call.peerId == peerId;
+    final canCall = isOnline && !isInCall;
+
+    void startAndOpen({bool withVideo = false}) {
+      ref.read(callProvider.notifier).startCall(peerId, withVideo: withVideo);
+      Navigator.of(context).push(
+        PageRouteBuilder(
+          pageBuilder: (_, __, ___) => MobileCallScreen(peerId: peerId),
+          transitionsBuilder: (_, anim, __, child) {
+            return SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 1),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(
+                parent: anim,
+                curve: Curves.easeOut,
+              )),
+              child: child,
+            );
+          },
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        HollowPressable(
+          onTap: canCall
+              ? () => startAndOpen()
+              : isCallWithThisPeer
+                  ? () => Navigator.of(context).push(
+                        PageRouteBuilder(
+                          pageBuilder: (_, __, ___) =>
+                              MobileCallScreen(peerId: peerId),
+                          transitionsBuilder: (_, anim, __, child) {
+                            return SlideTransition(
+                              position: Tween<Offset>(
+                                begin: const Offset(0, 1),
+                                end: Offset.zero,
+                              ).animate(CurvedAnimation(
+                                parent: anim,
+                                curve: Curves.easeOut,
+                              )),
+                              child: child,
+                            );
+                          },
+                        ),
+                      )
+                  : null,
+          borderRadius: BorderRadius.circular(hollow.radiusSm),
+          padding: const EdgeInsets.all(HollowSpacing.sm),
+          child: Icon(
+            isCallWithThisPeer ? LucideIcons.phoneCall : LucideIcons.phone,
+            size: 20,
+            color: isCallWithThisPeer
+                ? hollow.success
+                : canCall
+                    ? hollow.textSecondary
+                    : hollow.textSecondary.withValues(alpha: 0.3),
+          ),
+        ),
+        HollowPressable(
+          onTap: canCall
+              ? () => startAndOpen(withVideo: true)
+              : null,
+          borderRadius: BorderRadius.circular(hollow.radiusSm),
+          padding: const EdgeInsets.all(HollowSpacing.sm),
+          child: Icon(
+            LucideIcons.video,
+            size: 20,
+            color: canCall
+                ? hollow.textSecondary
+                : hollow.textSecondary.withValues(alpha: 0.3),
+          ),
+        ),
+      ],
     );
   }
 }

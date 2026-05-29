@@ -9,6 +9,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   fvp
   irondash_engine_context
   local_notifier
+  permission_handler_windows
   record_windows
   screen_retriever_windows
   super_native_extensions

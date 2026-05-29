@@ -243,21 +243,21 @@
 
 | # | Feature | Desktop File(s) | Mobile | Interaction | Notes |
 |---|---------|-----------------|--------|-------------|-------|
-| 145 | Initiate voice call | `call_provider.dart`, `chat_pane.dart` | Not impl | Phone icon in DM header | **Mobile:** phone icon in mobile chat header bar |
-| 146 | Accept call | `call_provider.dart`, `incoming_call_dialog.dart` | Not impl | Dialog accept button | **Mobile:** full-screen incoming call UI (avatar, name, accept/decline). 30s timeout |
-| 147 | Reject/decline call | `call_provider.dart`, `incoming_call_dialog.dart` | Not impl | Dialog decline button | |
-| 148 | Hang up / end call | `call_provider.dart`, `active_call_bar.dart` | Not impl | phoneOff icon | Either party |
-| 149 | Video call | `call_provider.dart` | Not impl | Camera icon in DM | Auto-enables after audio stabilizes |
-| 150 | Camera toggle mid-call | `call_provider.dart`, `active_call_bar.dart` | Not impl | Video icon | SDP renegotiation |
-| 151 | Microphone mute | `call_provider.dart`, `active_call_bar.dart` | Not impl | Mic icon | Toggles track.enabled |
-| 152 | Screen share (DM) | `call_provider.dart`, `active_call_bar.dart` | N/A | Monitor icon + dialog | **Mobile per plan:** sending excluded. Receiving remote shares OK (landscape + pinch-to-zoom) |
-| 153 | Incoming call dialog | `incoming_call_dialog.dart` | Not impl | Top-center overlay | Avatar, name, type, 30s countdown |
-| 154 | Incoming call ringtone | `incoming_call_dialog.dart` | Not impl | Audio playback | Custom file, trimmed, looped |
-| 155 | Call duration display | `active_call_bar.dart` | Not impl | MM:SS in call bar | Updates every 1s |
-| 156 | Active call bar (floating) | `active_call_bar.dart` | Not impl | Draggable pill | **Mobile per plan:** floating control pill (mute, camera, hangup + timer). Auto-hide in landscape |
-| 157 | PiP video view | `call_video_view.dart` | Not impl | Floating draggable panel | **Mobile:** portrait default, landscape unlock for video. Local preview corner overlay |
-| 158 | Remote volume control | `call_provider.dart` | Not impl | Slider 0-200% | Per-peer |
-| 159 | Call stats logging | `call_provider.dart` | Not impl | Diagnostic | 5s after connect: bitrates, codecs, packets |
+| 145 | Initiate voice call | `call_provider.dart`, `chat_pane.dart` | Done | Phone icon in DM header | Phone icon in mobile_chat_route header, gated on online + not in call |
+| 146 | Accept call | `call_provider.dart`, `incoming_call_dialog.dart` | Done | Dialog accept button | MobileIncomingCallOverlay: full-screen, avatar, name, accept/decline, 30s countdown |
+| 147 | Reject/decline call | `call_provider.dart`, `incoming_call_dialog.dart` | Done | Dialog decline button | MobileIncomingCallOverlay decline button |
+| 148 | Hang up / end call | `call_provider.dart`, `active_call_bar.dart` | Done | phoneOff icon | MobileActiveCallPill hangup button |
+| 149 | Video call | `call_provider.dart` | Done | Camera icon in DM | Video icon in mobile_chat_route header |
+| 150 | Camera toggle mid-call | `call_provider.dart`, `active_call_bar.dart` | Done | Video icon | Camera button in MobileActiveCallPill |
+| 151 | Microphone mute | `call_provider.dart`, `active_call_bar.dart` | Done | Mic icon | Mute button in MobileActiveCallPill |
+| 152 | Screen share (DM) | `call_provider.dart`, `active_call_bar.dart` | N/A | Monitor icon + dialog | Sending excluded on mobile per plan |
+| 153 | Incoming call dialog | `incoming_call_dialog.dart` | Done | Top-center overlay | MobileIncomingCallOverlay full-screen with avatar, countdown |
+| 154 | Incoming call ringtone | `incoming_call_dialog.dart` | Done | Audio playback | Ringtone in MobileIncomingCallOverlay (custom file, trim, loop) |
+| 155 | Call duration display | `active_call_bar.dart` | Done | MM:SS in call bar | Duration timer in MobileActiveCallPill |
+| 156 | Active call bar (floating) | `active_call_bar.dart` | Done | Draggable pill | MobileActiveCallPill: mute, camera, hangup, timer. Draggable |
+| 157 | PiP video view | `call_video_view.dart` | Done | Floating draggable panel | MobileCallVideoView: remote large, local PiP corner, portrait-first |
+| 158 | Remote volume control | `call_provider.dart` | Not impl | Slider 0-200% | Low priority — mobile uses system volume |
+| 159 | Call stats logging | `call_provider.dart` | Done | Diagnostic | Already fires from callProvider (5s after connect) — no mobile-specific code needed |
 
 ## 17. Voice — Server Voice Channels
 
@@ -487,11 +487,17 @@
 
 | Category | Total | Done | Partial | Not Impl | N/A |
 |----------|-------|------|---------|----------|-----|
-| All features | 288 | 145 | 3 | 96 | 44 |
+| All features | 288 | 157 | 3 | 84 | 44 |
 
-**Actionable (excl. N/A): 244 total, 145 Done (59%), 3 Partial, 96 Not impl.**
+**Actionable (excl. N/A): 244 total, 157 Done (64%), 3 Partial, 84 Not impl.**
 
-*Updated 2026-05-28. Sections 12-15 complete.*
+*Updated 2026-05-28. Sections 12-16 complete.*
+
+### Session 2026-05-28 Progress (continued)
+- **Section 16 complete.** 1:1 DM calls: phone/video icons in header, full-screen incoming call overlay, floating active call pill, PiP video view.
+- **New files:** mobile_incoming_call.dart, mobile_active_call_pill.dart, mobile_call_video_view.dart.
+- **Modified:** mobile_chat_route.dart (call buttons in DM header), mobile_shell.dart (call overlays in Stack).
+- **Exclusions:** Screen share sending (#152 → N/A), Remote volume (#158 → low priority).
 
 ### Session 2026-05-28 Progress
 - **Sections 12-15 complete.** Members & Roles, Invitations & Twitch, Profile & Identity, Friends & Social.

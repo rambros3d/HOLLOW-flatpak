@@ -62,6 +62,15 @@ class VoiceService {
   FrameCryptorService? _frameCryptor;
   FrameCryptorService? get frameCryptor => _frameCryptor;
 
+  // -- VAD (voice activity detection) for DM calls --
+  Timer? _vadTimer;
+  final Map<String, double> _prevEnergy = {};
+  bool _localSpeaking = false;
+  bool _remoteSpeaking = false;
+  bool get isLocalSpeaking => _localSpeaking;
+  bool get isRemoteSpeaking => _remoteSpeaking;
+  void Function(bool localSpeaking, bool remoteSpeaking)? onSpeakingChanged;
+
   VoiceService({required this.localPeerId, Map<String, dynamic>? iceServers, String relayDomain = 'relay.anonlisten.com'})
       : iceServers = iceServers ?? _defaultIceServers(domain: relayDomain);
 
@@ -517,8 +526,75 @@ class VoiceService {
   // ---------------------------------------------------------------------------
 
   /// End the current call — close PC, stop streams, dispose renderers.
+  void startVad() {
+    _vadTimer?.cancel();
+    _vadTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      _pollVad();
+    });
+  }
+
+  void stopVad() {
+    _vadTimer?.cancel();
+    _vadTimer = null;
+    _prevEnergy.clear();
+    if (_localSpeaking || _remoteSpeaking) {
+      _localSpeaking = false;
+      _remoteSpeaking = false;
+      onSpeakingChanged?.call(false, false);
+    }
+  }
+
+  Future<void> _pollVad() async {
+    if (_pc == null) return;
+    bool newLocal = false;
+    bool newRemote = false;
+
+    try {
+      final stats = await _pc!.getStats();
+      for (final report in stats) {
+        // Local: try media-source first (has audioLevel on Android),
+        // fall back to outbound-rtp (has it on desktop).
+        if (!newLocal &&
+            report.type == 'media-source' &&
+            report.values['kind'] == 'audio') {
+          newLocal = _detectSpeech(report.values, 'out-local');
+        }
+        if (!newLocal &&
+            report.type == 'outbound-rtp' &&
+            report.values['kind'] == 'audio') {
+          newLocal = _detectSpeech(report.values, 'out-local');
+        }
+        if (report.type == 'inbound-rtp' &&
+            report.values['kind'] == 'audio') {
+          newRemote = _detectSpeech(report.values, 'in-remote');
+        }
+      }
+    } catch (_) {}
+
+    if (_isMuted) newLocal = false;
+
+    if (newLocal != _localSpeaking || newRemote != _remoteSpeaking) {
+      _localSpeaking = newLocal;
+      _remoteSpeaking = newRemote;
+      onSpeakingChanged?.call(_localSpeaking, _remoteSpeaking);
+    }
+  }
+
+  bool _detectSpeech(Map<dynamic, dynamic> values, String key) {
+    final level = (values['audioLevel'] as num?)?.toDouble();
+    if (level != null) return level > 0.01;
+
+    final energy =
+        (values['totalAudioEnergy'] as num?)?.toDouble() ?? 0.0;
+    final prev = _prevEnergy[key] ?? 0.0;
+    _prevEnergy[key] = energy;
+    final delta = energy - prev;
+    return delta > 0.0001;
+  }
+
   Future<void> endCall() async {
     _log('[HOLLOW-VOICE] Ending call with $_activePeerId');
+    stopVad();
 
     // Stop local audio.
     if (_localStream != null) {

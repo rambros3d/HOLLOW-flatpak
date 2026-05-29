@@ -501,3 +501,37 @@ When a DM call involves screen sharing (`isScreenShareActive`), the entire messa
 4. **Controls pill**: Bottom-center `_ScreenShareControlsOverlay` with all call controls
 
 All overlays fade out after 1 second of inactivity via `_overlayHideTimer`. Mouse movement or hover over overlay elements pins them visible. The chat panel can be permanently pinned open via `_chatOverlayPinned`.
+
+## Mobile Call UI
+
+**Files:** `lib/src/ui/mobile/mobile_call_video_view.dart`, `lib/src/ui/mobile/mobile_active_call_pill.dart`, `lib/src/ui/mobile/mobile_incoming_call.dart`
+
+### MobileCallScreen
+
+Full-screen call overlay pushed as a route with slide-up transition from `MobileChatRoute`. Handles all call states (ringing → connecting → active → idle). Auto-pops via `ref.listen` when call ends.
+
+- **Audio mode:** Clustered avatar layout (`_ClusteredAvatars`) — 2: side-by-side, 3: triangle, 4: 2x2, 5: 2-1-2. Each avatar has animated teal rounded-square glow (`_SpeakingAvatar`) driven by `CallState.isLocalSpeaking`/`isRemoteSpeaking` (300ms ease-out animation). Mute badge overlay on muted avatars.
+- **Video mode:** Remote camera full-screen, local PiP corner (90x120 portrait, draggable). If remote camera off, shows local camera full-screen. Uses `_hasRealVideo()` which checks `renderer.srcObject != null` in addition to `remoteVideoEnabled` to prevent black rectangles from stale transceivers.
+- **Top bar:** Chevron-down to dismiss, peer name + status text ("Calling...", "Connecting...", "MM:SS", "Ended").
+- **Controls bar:** Three circular buttons — mute (red highlight), camera (accent highlight), hangup (red circle). Disabled gracefully during ringing via `AnimatedOpacity`.
+- **Status text:** Uses accent color for non-active states, secondary for duration.
+
+### MobileCallStatusStrip
+
+Thin green bar in `MobileChatRoute` (below header): "In call with X — Tap to return". Tapping pushes `MobileCallScreen` with slide-up. Hidden for incoming ringing calls (incoming overlay handles those). Shows for outgoing ringing, connecting, and active.
+
+### MobileActiveCallPill
+
+Floating draggable pill in `MobileShell` Stack. Shows during active/connecting calls. Positioned at `bottom: 80` (above nav bar). Mute, camera, hangup buttons + duration timer. Wrapped in `Material(color: transparent)` to prevent yellow underlines.
+
+### IncomingCallOverlay (desktop widget reused)
+
+The desktop `IncomingCallOverlay` (`lib/src/ui/dialogs/incoming_call_dialog.dart`) is reused on mobile. Placed in `MaterialApp.builder` in `app.dart` (above Navigator, so it renders over all pushed routes). Uses `MediaQuery.padding.top` for safe area positioning. Wrapped in `Material(color: transparent)` for yellow underline fix.
+
+### DM Header Call Buttons
+
+`_DmCallButtons` in `mobile_chat_route.dart` — phone + video icons next to the mute button. Gated on `isOnline && !isInCall`. Tapping starts call AND pushes `MobileCallScreen`. If call is already active with this peer, tapping the green phone icon opens the call screen.
+
+### VAD (Voice Activity Detection)
+
+`VoiceService` polls WebRTC stats every 200ms via `_vadTimer`. Local audio: checks `media-source` stats first (Android exposes `audioLevel` here), falls back to `outbound-rtp` (desktop). Remote audio: `inbound-rtp`. Speech threshold: `audioLevel > 0.01` or `totalAudioEnergy` delta > 0.0001. `CallNotifier` wires `onSpeakingChanged` callback on connect, updates `isLocalSpeaking`/`isRemoteSpeaking` in state.

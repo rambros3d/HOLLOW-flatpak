@@ -9,6 +9,7 @@ import 'package:hollow/src/core/providers/theme_provider.dart';
 import 'package:hollow/src/theme/hollow_colors.dart';
 import 'package:hollow/src/theme/hollow_theme.dart';
 import 'package:hollow/src/theme/hollow_theme_data.dart';
+import 'package:hollow/src/ui/dialogs/incoming_call_dialog.dart';
 import 'package:hollow/src/ui/shell/hollow_shell.dart';
 import 'package:hollow/src/ui/shell/window_title_bar.dart';
 
@@ -82,7 +83,12 @@ class HollowApp extends ConsumerWidget {
         return MediaQuery.withClampedTextScaling(
           minScaleFactor: 0.8,
           maxScaleFactor: 1.3,
-          child: child ?? const SizedBox.shrink(),
+          child: Stack(
+            children: [
+              child ?? const SizedBox.shrink(),
+              const IncomingCallOverlay(),
+            ],
+          ),
         );
       },
     );

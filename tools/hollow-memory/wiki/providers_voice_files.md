@@ -249,8 +249,10 @@ Manages 1:1 DM calls (audio and video) with a single remote peer. Uses `VoiceSer
 | `isMuted` | `bool` | `false` | Local mic muted. |
 | `startedAt` | `DateTime?` | `null` | When call became active (for duration display). |
 | `isVideoEnabled` | `bool` | `false` | Local camera on. |
-| `remoteVideoEnabled` | `bool` | `false` | Remote peer's camera on. |
+| `remoteVideoEnabled` | `bool` | `false` | Remote peer's camera on. Set ONLY by `_handleVideoState`, never by `onRemoteVideoTrack`. |
 | `isVideoCall` | `bool` | `false` | Whether this was initiated as a video call. |
+| `isLocalSpeaking` | `bool` | `false` | Local mic VAD — updated every 200ms from `VoiceService`. |
+| `isRemoteSpeaking` | `bool` | `false` | Remote peer VAD — updated every 200ms from `VoiceService`. |
 | `isScreenSharing` | `bool` | `false` | Local is sharing screen. |
 | `remoteScreenSharing` | `bool` | `false` | Remote is sharing screen. |
 | `sframeKey` | `String` | `''` | Hex-encoded 32-byte SFrame key for E2EE. |
@@ -282,9 +284,10 @@ Manages 1:1 DM calls (audio and video) with a single remote peer. Uses `VoiceSer
 ### Service Initialization
 
 The `_service` getter lazily creates `VoiceService` with `localPeerId` and `iceConfig`, then wires callbacks:
-- `onConnected(peerId)` -- transitions state from `connecting` to `active`, sets `startedAt`, schedules stats dump. For video calls: auto-enables camera after 300ms delay (proven mid-call addTrack/renegotiate path).
+- `onConnected(peerId)` -- transitions state from `connecting` to `active`, sets `startedAt`, schedules stats dump, starts VAD (`_voiceService.startVad()`), wires `onSpeakingChanged` callback. For video calls: auto-enables camera after 300ms delay (proven mid-call addTrack/renegotiate path).
 - `onDisconnected(peerId)` -- sends `end` signal, calls `_cleanup()`.
-- `onRemoteVideoTrack(peerId)` -- immediately sets `remoteVideoEnabled: true` (the `video_state` signal will confirm redundantly).
+- `onRemoteVideoTrack(peerId)` -- prepares the renderer but does NOT set `remoteVideoEnabled`. On mobile, SDP negotiation creates video transceivers even for audio-only calls, triggering this callback spuriously. `remoteVideoEnabled` is set exclusively by `_handleVideoState` (explicit `video_state` signal).
+- `onSpeakingChanged(local, remote)` -- updates `isLocalSpeaking`/`isRemoteSpeaking` in state (wired in `onConnected`).
 
 `_ensureDevicePreferences()` -- awaits async device preference providers before starting media. Called before `createOffer` and `handleOffer` to ensure correct device selection.
 
